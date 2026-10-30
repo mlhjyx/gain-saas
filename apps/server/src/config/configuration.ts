@@ -88,6 +88,8 @@ const schema = z.object({
   R4_TLS_CA_FILE: z.string().optional(),
   // none(默认,仅服务端 TLS,供引擎取 JWKS) | required(要求客户端证书,供机器 token)
   R4_TLS_CLIENT_AUTH: z.enum(['none', 'required']).default('none'),
+  // 第二个监听：要求客户端证书（机器 token），与 R4_TLS_PORT 并存（P5b）
+  R4_MTLS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

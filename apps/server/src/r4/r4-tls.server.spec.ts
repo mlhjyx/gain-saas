@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
-import { loadTlsOptions } from './r4-tls.server.js';
+import { loadMtlsOptions, loadTlsOptions } from './r4-tls.server.js';
 
 const read = (path: string) => Buffer.from(`content-of-${path}`);
 
@@ -24,6 +24,26 @@ describe('R4 内部 TLS 配置', () => {
     );
     expect(options!.requestCert).toBe(false);
     expect(options!.rejectUnauthorized).toBe(false);
+  });
+
+  it('R4_MTLS_PORT 独立于 R4_TLS_PORT，且必须有 CA', () => {
+    expect(() =>
+      loadMtlsOptions(
+        { R4_MTLS_PORT: 18443, R4_TLS_CERT_FILE: '/c/s.pem', R4_TLS_KEY_FILE: '/c/s.key' } as unknown as AppConfig,
+        read,
+      ),
+    ).toThrow(/CA/);
+    const options = loadMtlsOptions(
+      {
+        R4_MTLS_PORT: 18443,
+        R4_TLS_CERT_FILE: '/c/s.pem',
+        R4_TLS_KEY_FILE: '/c/s.key',
+        R4_TLS_CA_FILE: '/c/ca.pem',
+      } as unknown as AppConfig,
+      read,
+    );
+    expect(options!.requestCert).toBe(true);
+    expect(options!.rejectUnauthorized).toBe(true);
   });
 
   it('R4_TLS_CLIENT_AUTH=required 时必须提供 CA', () => {

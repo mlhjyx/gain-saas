@@ -14,6 +14,12 @@ import { R4Keyring, type R4KeyFamily } from './r4-keyring.service.js';
 export class R4JwksController {
   constructor(private readonly keyring: R4Keyring) {}
 
+  /** 机器 token 验签钥（引擎 CAPABILITY_MACHINE_JWKS_URI 可指向这里，避免与身份钥同文件）。 */
+  @Get('machine-jwks.json')
+  machine(): { keys: JsonWebKey[] } {
+    return this.serve('machine');
+  }
+
   @Get('platform-capability-jwks.json')
   capability(): { keys: JsonWebKey[] } {
     return this.serve('capability');
