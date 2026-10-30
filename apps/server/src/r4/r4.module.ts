@@ -6,6 +6,7 @@ import { MachineTokenController } from './machine-token.controller.js';
 import { CapabilityIssuer } from './capability-issuer.service.js';
 import { RevocationIssuer } from './revocation-issuer.service.js';
 import { RevocationClient } from './revocation-client.service.js';
+import { FenceAckVerifier } from './fence-ack-verifier.service.js';
 import { CapabilityController } from './capability.controller.js';
 import {
   PlatformFactsService,
@@ -28,11 +29,12 @@ import {
     CapabilityIssuer,
     RevocationIssuer,
     RevocationClient,
+    FenceAckVerifier,
     PlatformFactsService,
     { provide: TEMPORAL_SCHEDULE_PROBE, useClass: UnavailableTemporalScheduleProbe },
     { provide: REVOCATION_BACKLOG_PROBE, useClass: UnavailableRevocationBacklogProbe },
   ],
-  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient],
+  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient, FenceAckVerifier],
 })
 export class R4Module implements OnModuleInit {
   constructor(private readonly keyring: R4Keyring) {}
