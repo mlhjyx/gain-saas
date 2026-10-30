@@ -48,6 +48,16 @@ const schema = z.object({
   MODEL_GATEWAY_SETTLEMENT_ORIGIN: z.string().url().optional(),
   MODEL_GATEWAY_SETTLEMENT_API_KEY: z.string().min(1).optional(),
   SPA_DIST_DIR: z.string().default('../web/dist'),
+  // R4 平台权威密钥族(P1)。与身份钥、预算钥完全分离;生产缺失时对应 JWKS 端点 503,
+  // 开发/测试缺失时生成临时密钥(仅进程内有效,重启即换)。
+  R4_CAPABILITY_PRIVATE_KEY: z.string().optional(),
+  R4_CAPABILITY_KEY_ID: z.string().optional(),
+  R4_TEMPORAL_RUNTIME_PRIVATE_KEY: z.string().optional(),
+  R4_TEMPORAL_RUNTIME_KEY_ID: z.string().optional(),
+  R4_SITE_BUILD_BUDGET_PRIVATE_KEY: z.string().optional(),
+  R4_SITE_BUILD_BUDGET_KEY_ID: z.string().optional(),
+  R4_MACHINE_PRIVATE_KEY: z.string().optional(),
+  R4_MACHINE_KEY_ID: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
