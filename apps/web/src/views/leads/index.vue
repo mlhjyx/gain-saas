@@ -243,7 +243,8 @@ function formatDate(value?: string | null): string {
 const draftText = computed(() => {
   if (!draft.value) return '';
   const record = draft.value;
-  const parts = [record.subject, record.body, record.translation, record.body_zh, record.text]
+  // 引擎合同字段是 bodyZh(中文译文);其余键保留给旧缓存/旧引擎的兼容读取。
+  const parts = [record.subject, record.body, record.bodyZh, record.translation, record.body_zh, record.text]
     .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
   return parts.length > 0 ? parts.join('\n\n') : JSON.stringify(record, null, 2);
 });

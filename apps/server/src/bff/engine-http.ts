@@ -64,7 +64,9 @@ export class EngineHttp {
     if (contentType.includes('application/json')) {
       return { status: res.status, body: await res.json().catch(() => ({})), contentType, headers };
     }
-    return { status: res.status, body: await res.text(), contentType, headers };
+    // 非 JSON(周报 CSV)按原始字节透传:res.text() 按 fetch 规范吞掉 UTF-8 BOM,
+    // 浏览器下载的 CSV 在 Excel 里会中文乱码。Buffer 原样交给 res.send。
+    return { status: res.status, body: Buffer.from(await res.arrayBuffer()), contentType, headers };
   }
 
   /** 非引擎 JWT 的服务身份调用(事件消费等),不走租户角色。 */

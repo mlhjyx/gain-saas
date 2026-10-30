@@ -23,4 +23,10 @@ describe('copyForError', () => {
     ];
     for (const code of blockers) expect(code in ENGINE_ERROR_COPY).toBe(true);
   });
+
+  it('交付闭环的开发信草稿错误码有登记(不再落 fallback)', () => {
+    expect(copyForError('OUTREACH_DRAFT_LEAD_NOT_ACCEPTED').why).toContain('接受');
+    expect(copyForError('OUTREACH_DRAFT_UNGROUNDED').title).toContain('事实校验');
+    expect(copyForError('OUTREACH_DRAFT_VERSION_CONFLICT').title).toContain('版本冲突');
+  });
 });
