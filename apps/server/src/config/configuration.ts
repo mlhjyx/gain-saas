@@ -58,6 +58,12 @@ const schema = z.object({
   R4_SITE_BUILD_BUDGET_KEY_ID: z.string().optional(),
   R4_MACHINE_PRIVATE_KEY: z.string().optional(),
   R4_MACHINE_KEY_ID: z.string().optional(),
+  // 机器 token 签发（P2）：issuer/audience 必须与引擎 trust 逐字符一致；
+  // subject 与 configurationRevision 由部署侧给出（迁移后在 P7 与 mTLS 身份对齐）。
+  R4_MACHINE_TOKEN_ISSUER: z.string().default('https://127.0.0.1:18446/temporal-runtime'),
+  R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE: z.string().default('global-backend:platform-temporal'),
+  R4_MACHINE_SUBJECT: z.string().optional(),
+  R4_MACHINE_CONFIGURATION_REVISION: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
