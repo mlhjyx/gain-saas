@@ -13,6 +13,33 @@ describe('R4 内部 TLS 配置', () => {
     expect(() => loadTlsOptions({ R4_TLS_PORT: 18446 } as unknown as AppConfig, read)).toThrow(/证书/);
   });
 
+  it('默认不做客户端证书校验（引擎取 JWKS 不带证书）', () => {
+    const options = loadTlsOptions(
+      {
+        R4_TLS_PORT: 18447,
+        R4_TLS_CERT_FILE: '/c/server.pem',
+        R4_TLS_KEY_FILE: '/c/server.key',
+      } as unknown as AppConfig,
+      read,
+    );
+    expect(options!.requestCert).toBe(false);
+    expect(options!.rejectUnauthorized).toBe(false);
+  });
+
+  it('R4_TLS_CLIENT_AUTH=required 时必须提供 CA', () => {
+    expect(() =>
+      loadTlsOptions(
+        {
+          R4_TLS_PORT: 18447,
+          R4_TLS_CERT_FILE: '/c/server.pem',
+          R4_TLS_KEY_FILE: '/c/server.key',
+          R4_TLS_CLIENT_AUTH: 'required',
+        } as unknown as AppConfig,
+        read,
+      ),
+    ).toThrow(/CA/);
+  });
+
   it('配置齐全时要求客户端证书并拒绝未认证连接', () => {
     const options = loadTlsOptions(
       {
@@ -20,6 +47,7 @@ describe('R4 内部 TLS 配置', () => {
         R4_TLS_CERT_FILE: '/certs/server.pem',
         R4_TLS_KEY_FILE: '/certs/server.key',
         R4_TLS_CA_FILE: '/certs/ca.pem',
+        R4_TLS_CLIENT_AUTH: 'required',
       } as unknown as AppConfig,
       read,
     );

@@ -25,13 +25,17 @@ export function loadTlsOptions(
 ): ServerOptions | null {
   const { R4_TLS_CERT_FILE: cert, R4_TLS_KEY_FILE: key, R4_TLS_CA_FILE: ca } = config;
   if (!config.R4_TLS_PORT) return null;
-  if (!cert || !key || !ca) throw new Error('R4_TLS_PORT 已设置，但缺少证书/私钥/CA 路径');
+  if (!cert || !key) throw new Error('R4_TLS_PORT 已设置，但缺少证书/私钥路径');
+  if (config.R4_TLS_CLIENT_AUTH === 'required' && !ca) throw new Error('R4_TLS_CLIENT_AUTH=required 时必须提供 CA');
+  // 引擎取 JWKS 时不带客户端证书（现有 18446 的 socat 就是 verify=0），
+  // 因此默认只做服务端 TLS；需要 mTLS 的端点用 R4_TLS_CLIENT_AUTH=required 单独开。
+  const clientAuth = config.R4_TLS_CLIENT_AUTH === 'required';
   return {
     cert: readFile(cert),
     key: readFile(key),
-    ca: readFile(ca),
-    requestCert: true,
-    rejectUnauthorized: true,
+    ca: clientAuth ? readFile(ca!) : undefined,
+    requestCert: clientAuth,
+    rejectUnauthorized: clientAuth,
     minVersion: 'TLSv1.2',
   };
 }

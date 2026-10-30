@@ -86,6 +86,8 @@ const schema = z.object({
   R4_TLS_CERT_FILE: z.string().optional(),
   R4_TLS_KEY_FILE: z.string().optional(),
   R4_TLS_CA_FILE: z.string().optional(),
+  // none(默认,仅服务端 TLS,供引擎取 JWKS) | required(要求客户端证书,供机器 token)
+  R4_TLS_CLIENT_AUTH: z.enum(['none', 'required']).default('none'),
 });
 
 export type AppConfig = z.infer<typeof schema>;
