@@ -15,6 +15,9 @@ import {
 } from './platform-facts.service.js';
 import { UnavailableTemporalScheduleProbe } from './unavailable-probes.js';
 import { R4LeaseService } from './r4-lease.service.js';
+import { EgressPolicyService, FENCE_STORE, QUOTE_SOURCE } from './egress-policy.service.js';
+import { FileQuoteSource, PgFenceStore } from './egress-adapters.js';
+import { OpsDatabase } from '../ops/ops-database.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 
 /**
@@ -33,9 +36,13 @@ import { PrismaService } from '../shared/prisma.service.js';
     { provide: TEMPORAL_SCHEDULE_PROBE, useClass: UnavailableTemporalScheduleProbe },
     PrismaService,
     R4LeaseService,
+    OpsDatabase,
+    EgressPolicyService,
+    { provide: FENCE_STORE, useClass: PgFenceStore },
+    { provide: QUOTE_SOURCE, useClass: FileQuoteSource },
     { provide: REVOCATION_BACKLOG_PROBE, useExisting: R4LeaseService },
   ],
-  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient, FenceAckVerifier, R4LeaseService],
+  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient, FenceAckVerifier, R4LeaseService, EgressPolicyService],
 })
 export class R4Module implements OnModuleInit {
   constructor(private readonly keyring: R4Keyring) {}
