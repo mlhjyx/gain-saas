@@ -1,7 +1,7 @@
 # R4 平台权威迁移：让 gain-saas 接管、GrowthOS 退役
 
 > 文档 ID：`DOC-SAAS-TECH-R4-001`
-> 生命周期：`DRAFT`（待产品负责人评审；批准后改 `APPROVED` 再施工）
+> 生命周期：`APPROVED`（产品负责人 2026-10-31 拍板；P0–P6 已施工，P7 待切换窗口）
 > 制定日期：2026-10-30
 > 依据：用户 2026-10-30 指示「GrowthOS 要退役，需要实现什么功能进去，分析和计划清楚」
 > 编写时核验：2026-10-30，xin 运行态（`global-api` env、`capability-probe` 探针、RUNBOOK §1）
@@ -88,6 +88,21 @@
 | P6 | F7 租约与回执 | readiness 与租约一致 | — |
 | P7 | 切换窗口：改 env、重建、验收、续 R4 7 天 | 全绿 | 归档回退 |
 | P8 | 退役：停 GrowthOS 容器、归档 `growthos-source`/`growthos-work` | 观察 7 天无异常 | 按归档 README 恢复 |
+
+## 4.1 产品负责人的决定（2026-10-31）
+
+| 决定 | 内容 |
+| --- | --- |
+| PRD4-D2 | **重开**：R4 恢复投入，唯一目的是把平台权威迁到 gain-saas，迁完退役 GrowthOS；四个 schedule 是否恢复运行仍是单独决定，且仍需 L4-G23 写入者授权 |
+| egress 策略 | **迁到 gain-saas 生成**（不是沿用现有策略）：把策略计算、安装与 generation 推进搬进 gain-saas，capability 用自家策略事实 |
+| 生产 TLS | **用 r4-pki 签发真证书**替换 3443 上的 socat 开发通道，与引擎既有信任根一致 |
+
+### 由这三项决定新增的阶段
+
+| 阶段 | 内容 | 验收 |
+| --- | --- | --- |
+| P3d | egress 策略迁到 gain-saas：读现有策略形状、在 gain-saas 计算并安装、版本推进可审计 | 策略事实与现有 generation 一致，切换前后 cap 限额不变 |
+| P5b | r4-pki 签发服务端证书替换 socat；引擎侧信任根不变 | 引擎经真 TLS 完成 fence-ack 与 target-lookup，socat 下线 |
 
 ## 5. 前置与依赖
 
