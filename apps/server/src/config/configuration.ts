@@ -64,6 +64,12 @@ const schema = z.object({
   R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE: z.string().default('global-backend:platform-temporal'),
   R4_MACHINE_SUBJECT: z.string().optional(),
   R4_MACHINE_CONFIGURATION_REVISION: z.string().optional(),
+  // capability 签发（P3）：issuer/audience 必须与引擎 PLATFORM_CAPABILITY_* 逐字符一致。
+  // TTL 上限 30 秒是引擎的新鲜度硬约束，配置只能更短。
+  R4_CAPABILITY_ISSUER: z.string().default('https://127.0.0.1:18446/'),
+  R4_CAPABILITY_AUDIENCE: z.string().default('global-backend:platform-temporal'),
+  R4_CAPABILITY_NAMESPACE: z.string().default('platform-automation'),
+  R4_CAPABILITY_TTL_SECONDS: z.coerce.number().int().min(1).max(30).default(30),
 });
 
 export type AppConfig = z.infer<typeof schema>;
