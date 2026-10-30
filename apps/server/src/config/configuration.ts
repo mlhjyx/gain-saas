@@ -70,6 +70,8 @@ const schema = z.object({
   R4_CAPABILITY_AUDIENCE: z.string().default('global-backend:platform-temporal'),
   R4_CAPABILITY_NAMESPACE: z.string().default('platform-automation'),
   R4_CAPABILITY_TTL_SECONDS: z.coerce.number().int().min(1).max(30).default(30),
+  // 部署绑定文件（backendSha / 摘要 / validUntil，7 天有效，由运维工具生成）
+  R4_DEPLOYMENT_BINDING_FILE: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
