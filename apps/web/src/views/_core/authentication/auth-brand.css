@@ -1,0 +1,332 @@
+/* ── 布局:分屏 ─────────────────────────────── */
+.g-login { display: flex; min-height: 100vh; background: var(--gs-bg); }
+
+/* ── 品牌面板 ─────────────────────────────── */
+.g-brand {
+  position: relative; flex: 0 0 52%; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: clamp(28px, 4vw, 56px);
+  background: linear-gradient(158deg, var(--gs-hero-from) 0%, #101A3C 58%, var(--gs-hero-to) 100%);
+  color: var(--gs-hero-fg);
+}
+.g-brand__glow { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; }
+.g-brand__glow--a { width: 46vw; height: 46vw; right: -14vw; top: -12vw; background: rgba(0, 185, 107, .16); animation: g-drift 26s ease-in-out infinite alternate; }
+.g-brand__glow--b { width: 34vw; height: 34vw; left: -10vw; bottom: -12vw; background: rgba(99, 102, 241, .14); animation: g-drift 32s ease-in-out infinite alternate-reverse; }
+@keyframes g-drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(4vw,3vw,0) scale(1.12); } }
+
+.g-brand__net { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .72; }
+.g-brand__layer--slow { animation: g-float 56s ease-in-out infinite alternate; }
+.g-brand__layer--fast { animation: g-float 38s ease-in-out infinite alternate-reverse; }
+@keyframes g-float { from { transform: translate3d(-14px, 10px, 0); } to { transform: translate3d(16px, -12px, 0); } }
+
+.g-brand__mark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+/* 标记:与侧栏同一枚几何 G,深色面板上用挖空版(无底板),
+   品牌绿直接落在深底上,比带底板的图标更清晰 */
+.g-brand__mark-img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  filter: drop-shadow(0 6px 16px rgba(0, 185, 107, 0.22));
+}
+
+.g-brand__mark-text {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.g-brand__word { font-size: 30px; font-weight: 800; letter-spacing: -.02em; font-family: 'Inter', 'PingFang SC', system-ui, sans-serif; }
+.g-brand__word em { font-style: normal; color: var(--gs-hero-accent); }
+.g-brand__sub { font-size: 13px; letter-spacing: .34em; color: var(--gs-hero-fg-dim); }
+
+.g-brand__hero {
+  position: relative;
+  /* 光学居中:略高于几何中心,让标题成为第一视觉落点 */
+  margin: auto 0;
+  padding-bottom: 4vh;
+  max-width: 560px;
+}
+.g-brand__title {
+  margin: 0;
+  font-size: clamp(32px, 3.6vw, 54px);
+  line-height: 1.24;
+  font-weight: 700;
+  letter-spacing: .01em;
+  /* 中文断行:优先在标点/词边界断行,避免孤字成行 */
+  text-wrap: pretty;
+  word-break: normal;
+  line-break: strict;
+}
+.g-brand__line { display: block; animation: g-rise .7s cubic-bezier(.2,.7,.2,1) both; }
+.g-brand__line:nth-child(2) { animation-delay: .12s; }
+.g-brand__title em { font-style: normal; color: var(--gs-hero-accent); position: relative; white-space: nowrap; }
+.g-brand__title em::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: .08em; height: .3em;
+  background: linear-gradient(90deg, rgba(0,214,143,.38), rgba(0,214,143,0));
+  border-radius: 3px; transform: skewX(-8deg);
+}
+.g-brand__hero::before {
+  content: '';
+  position: absolute;
+  inset: -8% -12% -12% -12%;
+  z-index: 0;
+  pointer-events: none;
+  /* 文字保护晕:让网络装饰在标题区自然退后,不干扰阅读 */
+  background: radial-gradient(
+    58% 64% at 24% 44%,
+    rgba(8, 12, 26, 0.82),
+    rgba(8, 12, 26, 0.34) 62%,
+    transparent 80%
+  );
+}
+
+.g-brand__title,
+.g-brand__desc {
+  position: relative;
+  z-index: 1;
+}
+
+.g-brand__desc { text-wrap: pretty; margin: 22px 0 0; max-width: 460px; font-size: 15px; line-height: 1.9; color: var(--gs-hero-fg-soft); animation: g-rise .7s .24s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes g-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+.g-brand__steps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 clamp(16px, 2.4vw, 36px);
+  padding-top: clamp(16px, 2.2vh, 28px);
+  border-top: 1px solid var(--gs-hero-divider);
+  animation: g-rise .7s .36s cubic-bezier(.2,.7,.2,1) both;
+}
+.g-brand__step { display: flex; gap: 12px; align-items: flex-start; }
+.g-brand__num { font-size: 12px; font-weight: 700; color: var(--gs-hero-accent); letter-spacing: .12em; padding-top: 3px; font-family: 'Inter', system-ui, sans-serif; }
+.g-brand__step strong { display: block; font-size: 15px; font-weight: 600; }
+.g-brand__step small { display: block; margin-top: 3px; font-size: 12px; color: var(--gs-hero-fg-dim); letter-spacing: .02em; }
+
+/* ── 表单面板 ─────────────────────────────── */
+.g-panel {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(32px, 5vh, 56px) 24px;
+  background:
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--gs-accent) 8%, transparent), transparent 60%),
+    radial-gradient(90% 70% at 0% 100%, color-mix(in srgb, var(--gs-indigo) 7%, transparent), transparent 62%),
+    var(--gs-bg);
+}
+/* 细网格:3% 透明度的等距线,只提供质感,不抢内容 */
+.g-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--gs-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--gs-grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(80% 70% at 50% 45%, #000 25%, transparent 78%);
+  pointer-events: none;
+}
+.g-panel__box { width: min(400px, 100%); animation: g-rise .6s .1s cubic-bezier(.2,.7,.2,1) both; }
+.g-panel__head h2 { margin: 0; font-size: 27px; font-weight: 700; letter-spacing: .01em; color: var(--gs-fg); }
+.g-panel__head p { margin: 10px 0 34px; font-size: 14px; color: var(--gs-fg-muted); }
+
+.g-field { display: block; margin-bottom: 20px; }
+.g-field__label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500; color: var(--gs-fg-2); letter-spacing: .02em; }
+.g-field__wrap {
+  position: relative; display: flex; align-items: center;
+  border: 1.5px solid var(--gs-border-strong); border-radius: 12px; background: var(--gs-surface);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.g-field__wrap svg { width: 18px; height: 18px; margin-left: 14px; color: var(--gs-fg-subtle); flex: none; transition: color .18s ease; }
+.g-field__wrap input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  padding: 13px 14px; font-size: 15px; color: var(--gs-fg); letter-spacing: .01em;
+}
+.g-field__wrap input::placeholder { color: var(--gs-fg-placeholder); }
+.g-field__wrap:focus-within { border-color: var(--gs-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-accent) 14%, transparent); }
+.g-field__wrap:focus-within svg { color: var(--gs-accent); }
+.g-field--err .g-field__wrap { border-color: var(--gs-danger); }
+.g-field--err .g-field__wrap:focus-within { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-danger) 12%, transparent); }
+.g-field__err { display: block; margin-top: 7px; font-size: 12.5px; color: var(--gs-danger); }
+.g-field__eye {
+  border: 0; background: transparent; padding: 0 14px; cursor: pointer; color: var(--gs-fg-subtle);
+  display: flex; transition: color .18s ease;
+}
+.g-field__eye:hover { color: var(--gs-fg-2); }
+.g-field__eye svg { margin: 0; }
+
+.g-failure {
+  margin: 0 0 18px; padding: 11px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6;
+  background: var(--gs-danger-bg); color: var(--gs-danger); border: 1px solid var(--gs-danger-border);
+}
+.g-fade-enter-active { transition: all .25s ease; }
+.g-fade-enter-from { opacity: 0; transform: translateY(-4px); }
+
+.g-submit {
+  width: 100%; height: 46px; margin-top: 6px; border: 0; border-radius: 12px; cursor: pointer;
+  background: linear-gradient(135deg, var(--gs-accent), var(--gs-accent-strong));
+  color: #fff; font-size: 15.5px; font-weight: 600; letter-spacing: .3em; text-indent: .3em;
+  box-shadow: 0 8px 20px -6px var(--gs-accent-glow);
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+.g-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 26px -6px var(--gs-accent-glow-strong); filter: brightness(1.03); }
+.g-submit:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.g-submit:disabled { cursor: default; opacity: .8; }
+.g-submit__spin {
+  width: 18px; height: 18px; margin: 0 auto; display: block;
+  border: 2.5px solid rgba(255,255,255,.35); border-top-color: var(--gs-surface); border-radius: 50%;
+  animation: g-spin .7s linear infinite;
+}
+@keyframes g-spin { to { transform: rotate(360deg); } }
+
+.g-panel__alt {
+  margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--gs-border);
+  display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; color: var(--gs-fg-muted);
+}
+.g-panel__alt a { color: var(--gs-accent-strong); font-weight: 600; text-decoration: none; transition: color .15s ease; }
+.g-panel__alt a:hover { color: var(--gs-accent); text-decoration: underline; text-underline-offset: 3px; }
+.g-panel__foot { margin: 26px 0 0; font-size: 12px; color: var(--gs-fg-subtle); }
+
+/* ── 响应式 ─────────────────────────────── */
+@media (max-width: 920px) {
+  .g-login { flex-direction: column; }
+  .g-brand {
+    flex: none;
+    padding: 22px 22px 26px;
+    gap: 16px;
+    min-height: 0;
+  }
+  .g-brand__net { opacity: .4; }
+  /* 移动端:文案与步骤让位给表单,保证登录框在首屏 */
+  .g-brand__hero { margin: 0; padding-bottom: 0; }
+  .g-brand__title { font-size: clamp(24px, 6vw, 30px); line-height: 1.3; }
+  .g-brand__desc { display: none; }
+  .g-brand__steps {
+    display: none;
+  }
+  .g-brand__word { font-size: 24px; }
+  /* 移动端:标语会让位给右上角切换控件,只保留品牌字标 */
+  .g-brand__sub { display: none; }
+  .g-panel { padding: 26px 20px 40px; align-items: flex-start; }
+  .g-panel::before { background-size: 34px 34px; }
+  .g-panel__head h2 { font-size: 23px; }
+  .g-panel__head p { margin-bottom: 24px; }
+  .g-field { margin-bottom: 16px; }
+  .g-field__wrap input { font-size: 14px; padding-right: 10px; }
+  .g-field__wrap input::placeholder { font-size: 13.5px; }
+}
+/* 极窄屏:进一步压缩品牌区高度 */
+@media (max-width: 420px) {
+  .g-brand { padding: 18px 20px 22px; }
+  .g-brand__title { font-size: 21px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g-brand__glow, .g-brand__layer--slow, .g-brand__layer--fast { animation: none; }
+  .g-brand__line, .g-brand__desc, .g-brand__steps, .g-panel__box { animation: none; }
+}
+
+/* ── 大屏微调:超宽屏品牌面板略收窄,避免文案被拉散 ── */
+@media (min-width: 1600px) {
+  .g-brand { flex: 0 0 46%; }
+  .g-brand__hero { max-width: 620px; }
+  .g-panel__box { width: min(420px, 100%); }
+  .g-brand__title { font-size: clamp(40px, 3.2vw, 60px); }
+}
+/* ── 自动填充:消除浏览器默认黄底,保持品牌观感 ── */
+.g-field__wrap input:-webkit-autofill,
+.g-field__wrap input:-webkit-autofill:hover,
+.g-field__wrap input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--gs-fg);
+  -webkit-box-shadow: 0 0 0 1000px var(--gs-surface) inset;
+  transition: background-color 9999s ease-out;
+}
+/* ── 键盘可达性:焦点可见(非鼠标) ── */
+.g-submit:focus-visible, .g-panel__alt a:focus-visible, .g-field__eye:focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: 3px;
+}
+
+/* ── 深色模式专项 ───────────────────────────── */
+.dark .g-panel {
+  background:
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--gs-accent) 7%, transparent), transparent 62%),
+    radial-gradient(90% 70% at 0% 100%, color-mix(in srgb, var(--gs-indigo) 8%, transparent), transparent 64%),
+    var(--gs-bg);
+}
+
+.dark .g-panel::before {
+  background-image:
+    linear-gradient(to right, var(--gs-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--gs-grid-line) 1px, transparent 1px);
+  background-size: 38px 38px;
+  /* 深色下网格必须更弱,否则会读成线框稿 */
+  opacity: 0.6;
+  mask-image: radial-gradient(72% 62% at 54% 42%, #000 18%, transparent 74%);
+}
+
+.dark .g-brand {
+  background: linear-gradient(158deg, #070b15 0%, #0d1830 58%, #0a2019 100%);
+}
+
+.dark .g-field__wrap {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.dark .g-submit {
+  box-shadow: 0 8px 22px -8px var(--gs-accent-glow);
+}
+
+/* ── 英文排版适配 ─────────────────────────────
+   拉丁字母的尺寸与字距与中文不同:标题降一档、字距收紧、
+   强调下划线位置上移到基线附近,避免压在字身上压。 */
+.is-en .g-brand__title {
+  font-size: clamp(30px, 3vw, 46px);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+}
+
+.is-en .g-brand__title em::after {
+  bottom: -0.04em;
+  height: 0.14em;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gs-hero-accent) 34%, transparent), transparent);
+}
+
+.is-en .g-brand__sub {
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.is-en .g-brand__desc {
+  font-size: 15.5px;
+  line-height: 1.72;
+  max-width: 480px;
+}
+
+.is-en .g-brand__step small {
+  letter-spacing: 0.01em;
+}
+
+.is-en .g-submit {
+  letter-spacing: 0.06em;
+  text-indent: 0.06em;
+  font-size: 15px;
+}
+
+.is-en .g-panel__head h2 {
+  font-size: 30px;
+  letter-spacing: -0.015em;
+}
+
+.is-en .g-brand__word {
+  letter-spacing: -0.02em;
+}

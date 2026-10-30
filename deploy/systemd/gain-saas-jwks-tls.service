@@ -1,0 +1,26 @@
+# gain-saas 的引擎验签 JWKS TLS 端点。
+# 引擎 development 要求 AUTH_JWKS_URI 与 AUTH_ISSUER 同为 https;
+# 撤销信任(platform-revocation-trust.runtime.ts)复用 AUTH_JWKS_URI 并要求 https,
+# 所以不能把 4020 的 http JWKS 直接给引擎,必须有一个被引擎信任的 TLS 回环入口。
+# 证书由 r4-pki 的 gain-saas-jwks 叶子提供(growthos-server-ca 签发,引擎 bootstrap-ca.pem 已信任)。
+# 安装(root):cp 到 /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now gain-saas-jwks-tls
+# 前置:gain-saas web 在 127.0.0.1:4020 提供 /.well-known/jwks.json;deploy/tls/{server.pem,server.key} 就位
+[Unit]
+Description=gain-saas JWKS TLS endpoint for engine auth (127.0.0.1:18446)
+After=network-online.target gain-saas-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xin
+ExecStart=/usr/bin/socat OPENSSL-LISTEN:18446,bind=127.0.0.1,reuseaddr,fork,cert=/global/gain-saas/deploy/tls/server.pem,key=/global/gain-saas/deploy/tls/server.key,verify=0 TCP:127.0.0.1:4020
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/global/gain-saas/deploy/tls
+
+[Install]
+WantedBy=multi-user.target

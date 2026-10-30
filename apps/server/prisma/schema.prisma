@@ -1,0 +1,301 @@
+// gain-saas 自有库(技术方案 §4)。与引擎库物理隔离:独立容器、独立角色、独立卷。
+// 命名沿用引擎习惯(snake_case)。个人数据红线(SD5):仅 event_inbox 及其派生表
+// 可能含个人数据(事件 envelope),按含个人数据存储管理,DSR 级联删除。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 租户用户。密码 argon2id;会话走 session 表 + 短 TTL JWT(PRD §2.3)。
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String       @map("password_hash")
+  status       String       @default("active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  // 会话按 session.subjectType/subjectId 松引用(多态),不建 FK 关系
+
+  @@map("users")
+}
+
+/// 工作空间。id = 引擎租户 id(签发引擎 token 的 workspace claim)。
+model Workspace {
+  id        String   @id @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  registry    WorkspaceRegistry?
+  invitations Invitation[]
+  runLinks    DiscoveryRunLink[]
+
+  @@map("workspace")
+}
+
+/// SaaS 侧对已发起寻源任务的引用。引擎没有“按方案列 run”的端点，
+/// 这里只保存 runId 与 plan/ICP 的对应关系，用于关闭页面后找回任务。
+model DiscoveryRunLink {
+  runId       String   @id @map("run_id") @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  planId      String   @map("plan_id") @db.Uuid
+  icpId       String   @map("icp_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, planId])
+  @@index([workspaceId, icpId])
+  @@map("discovery_run_link")
+}
+
+/// (user, workspace) 多对多,SD2:模型必做,UI 只做切换器。
+model Membership {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  role        String // admin | member
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId])
+  @@map("membership")
+}
+
+model Invitation {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  email       String
+  role        String
+  token       String    @unique
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("invitation")
+}
+
+/// 平台运营账号(SD9):独立登录域、独立 cookie,与租户用户物理分表。
+model OpsUser {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("ops_user")
+}
+
+/// 会话(可吊销)。realm 区分租户/运营/服务三类登录域。
+model Session {
+  id          String    @id @default(uuid()) @db.Uuid
+  jti         String    @unique
+  realm       String // tenant | ops | service | event_consumer
+  subjectType String    @map("subject_type") // user | ops_user
+  subjectId   String    @map("subject_id")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([subjectId])
+  @@map("session")
+}
+
+/// worker 事件消费遍历的 workspace 清单(引擎事件按 workspace 隔离,token 必带 claim)。
+model WorkspaceRegistry {
+  workspaceId String    @id @map("workspace_id") @db.Uuid
+  enabled     Boolean   @default(true)
+  cursor      String?
+  lastPulledAt DateTime? @map("last_pulled_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("workspace_registry")
+}
+
+/// 事件收件箱。eventId 主键语义上的幂等键;含个人数据(SD5),DSR 级联删除。
+model EventInbox {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @unique @map("event_id")
+  workspaceId String    @map("workspace_id") @db.Uuid
+  type        String
+  payload     Json
+  occurredAt  DateTime  @map("occurred_at")
+  ackedAt     DateTime? @map("acked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([workspaceId, occurredAt])
+  @@map("event_inbox")
+}
+
+/// LeadQualified 派生的只读投影(界面列表);可由事件重放重建。
+model QualifiedLead {
+  id          String   @id @default(uuid()) @db.Uuid
+  eventId     String   @unique @map("event_id")
+  workspaceId String   @map("workspace_id") @db.Uuid
+  leadId      String   @map("lead_id")
+  icpId       String?  @map("icp_id")
+  snapshot    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([workspaceId])
+  @@map("qualified_lead")
+}
+
+/// 站内通知中心数据源(PRD §14.4)。
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String?   @map("workspace_id") @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  type        String
+  refId       String?   @map("ref_id")
+  title       String?
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([workspaceId, readAt])
+  @@map("notification")
+}
+
+/// 控制面 + 运营域白名单写全量审计(A7/E4)。
+model AuditLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  realm   String // tenant | ops | service
+  actorId String   @map("actor_id")
+  action  String
+  target  String?
+  detail  Json?
+  at      DateTime @default(now())
+
+  @@index([realm, actorId])
+  @@index([at])
+  @@map("audit_log")
+}
+
+/// 周报在线反馈提交记录(SD8 对账)。
+model FeedbackSubmission {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  icpId       String   @map("icp_id") @db.Uuid
+  isoWeek     String   @map("iso_week")
+  rows        Json
+  accepted    Int
+  rejected    Int
+  skipped     Int
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("feedback_submission")
+}
+
+/// DSR 转发记录:引擎 deletion_request 与 SaaS 侧级联删除的对账(A6/SD5)。
+model DeletionMirror {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String?  @map("workspace_id") @db.Uuid
+  engineRequestId String  @unique @map("engine_request_id")
+  status         String
+  saasDeleted    Int      @default(0) @map("saas_deleted")
+  at             DateTime @default(now())
+
+  @@map("deletion_mirror")
+}
+
+/// 成本类事件归集(SD3):为二期 billing 归因积累数据。
+model CostLedger {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  sourceEventId String?  @map("source_event_id")
+  amountMicros  Int      @map("amount_micros")
+  occurredAt    DateTime @map("occurred_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([workspaceId])
+  @@map("cost_ledger")
+}
+
+/// 引擎 JWT 签名钥元数据(私钥在 env/文件,双钥重叠轮换,PRD §2.3)。
+model SigningKey {
+  kid       String   @id
+  algorithm String
+  status    String // active | previous
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("signing_key")
+}
+
+/// 内嵌模型网关的上游厂商(运营台配置)。API Key 只存 AES-256-GCM 密文。
+model AiProvider {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @unique
+  baseUrl      String   @map("base_url")
+  apiKeyCipher String   @map("api_key_cipher")
+  headers      Json? // 额外请求头(如 OpenRouter 的 HTTP-Referer)
+  enabled      Boolean  @default(true)
+  priority     Int      @default(100)
+  timeoutMs    Int      @default(120000) @map("timeout_ms")
+  /// 推理模型会把 reasoning token 算进输出上限;设置下限避免引擎的 8192 预算被推理耗尽
+  minOutputTokens Int?  @map("min_output_tokens")
+  /// 兼容新式 OpenAI 推理模型:max_tokens | max_completion_tokens
+  maxTokensField String @default("max_tokens") @map("max_tokens_field")
+  note         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  routes AiModelRoute[]
+  calls  ModelCallLog[]
+
+  @@map("ai_provider")
+}
+
+/// 公开模型别名(引擎请求的 model)→ 上游厂商 + 上游真实模型。
+/// 同一别名可配多个厂商做优先级回退;没有别名命中时走 isDefault 路由。
+model AiModelRoute {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @map("provider_id") @db.Uuid
+  alias         String
+  upstreamModel String   @map("upstream_model")
+  enabled       Boolean  @default(true)
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  provider AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([alias, providerId])
+  @@index([alias])
+  @@map("ai_model_route")
+}
+
+/// 网关调用元数据(不存 prompt/补全,避免个人数据进日志)。
+model ModelCallLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  requestId     String   @map("request_id")
+  providerId    String?  @map("provider_id") @db.Uuid
+  alias         String
+  upstreamModel String   @map("upstream_model")
+  status        String // OK | ERROR
+  httpStatus    Int?     @map("http_status")
+  latencyMs     Int      @map("latency_ms")
+  inputTokens   Int?     @map("input_tokens")
+  outputTokens  Int?     @map("output_tokens")
+  error         String?
+  at            DateTime @default(now())
+
+  provider AiProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  @@index([at])
+  @@map("model_call_log")
+}

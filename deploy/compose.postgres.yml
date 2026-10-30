@@ -1,0 +1,24 @@
+# SaaS 自有库:与引擎库(global-postgres,5432)物理隔离 —— 独立容器、独立卷、独立角色。
+# 上线前把 image 钉到 digest(首次 pull 后 docker image inspect 取 RepoDigests,
+# 惯例同引擎:runtime.compose.env 记录,见 backend 仓)。
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gain-saas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gain_saas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 提供}
+      POSTGRES_DB: gain_saas
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - gs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gain_saas -d gain_saas"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  gs_pgdata:

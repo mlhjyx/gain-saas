@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!--
+    GainOS 标记:几何 G
+    · 环半径 20.4 / 内径 12.4,自 -56° 起一道径向切口,横杠落在 3 点钟并伸入字怀
+    · 切口下缘与横杠上缘共线(atan(4 / 20.4) ≈ 11.09°),接缝无台阶
+    · 深色圆角底 + 细内描边:浅色/深色界面都能分层
+    · 位图版(favicon.ico / apple-touch-icon)由 apps/web/scripts/make-icons.py 以同源几何生成
+  -->
+  <defs>
+    <linearGradient id="gs-tile" x1="8" y1="6" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#11203C" />
+      <stop offset="1" stop-color="#08261E" />
+    </linearGradient>
+    <linearGradient id="gs-mark" x1="24" y1="14" x2="50" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5CF2B6" />
+      <stop offset="0.55" stop-color="#22CE8B" />
+      <stop offset="1" stop-color="#00B96B" />
+    </linearGradient>
+  </defs>
+
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.5" fill="url(#gs-tile)" />
+  <rect
+    x="0.75"
+    y="0.75"
+    width="62.5"
+    height="62.5"
+    rx="15.5"
+    stroke="#FFFFFF"
+    stroke-opacity="0.15"
+    stroke-width="1.4"
+  />
+
+  <!-- 环 + 径向切口:外弧反向走长弧,内弧反向回来,闭合 -->
+  <path
+    d="M 43.41 15.09 A 20.4 20.4 0 1 0 52.02 28.08 L 44.17 29.62 A 12.4 12.4 0 1 1 38.94 21.72 Z"
+    fill="url(#gs-mark)"
+  />
+
+  <!-- 横杠:右端与环外缘齐平,内侧圆头 -->
+  <rect x="34.6" y="28" width="17.8" height="8" rx="4" fill="url(#gs-mark)" />
+</svg>

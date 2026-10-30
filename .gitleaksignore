@@ -1,0 +1,3 @@
+# 测试夹具里的占位私钥：内容只有 "test"，不是可用密钥（configuration.test.ts）。
+apps/server/src/config/configuration.test.ts:private-key:7
+apps/server/src/config/configuration.test.ts:private-key:10

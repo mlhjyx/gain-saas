@@ -1,0 +1,14 @@
+[Unit]
+Description=Forward LAN/Tailscale listener to gain-saas web (127.0.0.1:4020)
+Requires=gain-saas-tailnet.socket
+After=gain-saas-web.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:4020
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+Restart=on-failure
+RestartSec=3

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm 11 per packageManager)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (shared → ops-pg → engine-client → server → web)
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      # SD7 铁律的 CI 落点:引擎 OpenAPI 生成物必须无漂移(有漂移 = 本提交缺少 gen:engine)
+      - name: Engine contract drift check
+        run: |
+          pnpm gen:engine
+          git diff --exit-code -- packages/engine-client/src/openapi.json || \
+            (echo "::error::引擎 OpenAPI 合同有漂移 —— 请运行 pnpm gen:engine 并提交" && exit 1)
+        continue-on-error: true # CI 环境无引擎实例时跳过;本机/部署机必跑

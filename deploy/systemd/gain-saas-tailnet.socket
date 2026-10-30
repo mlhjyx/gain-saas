@@ -1,0 +1,15 @@
+# tailnet/LAN 暴露,复用工作区既定 socket 转发模式(同 global-api-tailnet.socket)。
+# 注意:100.68.31.20 是本机 Tailscale 地址;4020 为 gain-saas web 端口。
+[Unit]
+Description=gain-saas listener on LAN and Tailscale addresses
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Socket]
+ListenStream=192.168.1.48:4020
+ListenStream=100.68.31.20:4020
+FreeBind=yes
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

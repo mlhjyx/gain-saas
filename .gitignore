@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+# r4-pki 分发的 TLS 叶子与私钥(引擎验签 JWKS 的 https 端点),不入仓
+deploy/tls/
+coverage/
+playwright-report/
+test-results/
+data/
+*.log
+.DS_Store
+prisma/migrations/**/migration_lock.toml.bak
+
+# 本地构建杂物（vite 打包 zip、Python 缓存、会话写入）
+dist.zip
+__pycache__/
+*.pyc
+.claude/
+
+# 本机误重定向产物（0 字节，不入仓）
+deepseek-v4-flash

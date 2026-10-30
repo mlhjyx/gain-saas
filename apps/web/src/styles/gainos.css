@@ -1,0 +1,123 @@
+/**
+ * GainOS 设计令牌(浅色 / 深色双套)
+ *
+ * 为什么自建令牌:vben 的 shadcn 令牌覆盖框架外壳,而 GainOS 页面有独立的
+ * 品牌视觉语言(卡片、网格、品牌绿、深色 hero 面板)。这里只定义页面层需要的
+ * 语义变量;组件里一律用 var(--gs-*),深色模式只在这一处切换。
+ *
+ * 深色切换由 vben 在 html 上打 .dark 类(update-css-variables.ts)。
+ */
+
+:root {
+  /* 文字层级 */
+  --gs-fg: #0f172a;
+  --gs-fg-2: #374151;
+  --gs-fg-muted: #6b7280;
+  --gs-fg-subtle: #9ca3af;
+  --gs-fg-placeholder: #b6bcc7;
+
+  /* 表面与背景 */
+  --gs-bg: #f7f8fa;
+  --gs-surface: #ffffff;
+  --gs-surface-2: #f3f4f6;
+  --gs-surface-3: #fbfcfd;
+
+  /* 边框与分隔 */
+  --gs-border: #eceef2;
+  --gs-border-strong: #e5e7eb;
+  --gs-border-dashed: #e2e5eb;
+  --gs-divider: #f3f4f6;
+
+  /* 装饰 */
+  --gs-grid-line: rgba(17, 24, 39, 0.035);
+  --gs-shadow-card: 0 6px 16px -8px rgba(17, 24, 39, 0.08);
+  --gs-shadow-modal: 0 28px 70px -20px rgba(11, 16, 35, 0.4);
+  --gs-mask: rgba(11, 16, 35, 0.45);
+
+  /* 品牌绿 */
+  --gs-accent: #00b96b;
+  --gs-accent-strong: #009a5c;
+  --gs-accent-soft: #e7f8f0;
+  --gs-accent-soft-border: #9fe3c4;
+  --gs-accent-glow: rgba(0, 185, 107, 0.45);
+  --gs-accent-glow-strong: rgba(0, 185, 107, 0.6);
+
+  /* 语义色 */
+  --gs-warn: #b45309;
+  --gs-warn-bg: rgba(251, 191, 36, 0.09);
+  --gs-danger: #b91c1c;
+  --gs-danger-bg: #fef2f2;
+  --gs-danger-border: #fecaca;
+  --gs-indigo-soft: #eef2ff;
+  --gs-indigo: #4f46e5;
+
+  /* 深色 hero / 品牌面板(两套主题共用,保持品牌识别一致) */
+  --gs-hero-from: #0b1023;
+  --gs-hero-via: #132244;
+  --gs-hero-to: #0f2a26;
+  --gs-hero-fg: #eef2f6;
+  --gs-hero-fg-soft: rgba(238, 242, 246, 0.72);
+  --gs-hero-fg-dim: rgba(238, 242, 246, 0.52);
+  --gs-hero-divider: rgba(238, 242, 246, 0.1);
+  --gs-hero-accent: #00d68f;
+
+  color-scheme: light;
+}
+
+.dark {
+  --gs-fg: #e8ebf0;
+  --gs-fg-2: #c4cbd6;
+  --gs-fg-muted: #98a1b1;
+  --gs-fg-subtle: #6f7888;
+  --gs-fg-placeholder: #5c6575;
+
+  --gs-bg: #0b0f16;
+  --gs-surface: #141922;
+  --gs-surface-2: #1c222d;
+  --gs-surface-3: #10151d;
+
+  --gs-border: #232b37;
+  --gs-border-strong: #2c3543;
+  --gs-border-dashed: #2a3340;
+  --gs-divider: #1e2530;
+
+  --gs-grid-line: rgba(255, 255, 255, 0.045);
+  --gs-shadow-card: 0 6px 18px -10px rgba(0, 0, 0, 0.7);
+  --gs-shadow-modal: 0 28px 70px -20px rgba(0, 0, 0, 0.8);
+  --gs-mask: rgba(3, 6, 12, 0.68);
+
+  --gs-accent: #14c983;
+  --gs-accent-strong: #34d399;
+  --gs-accent-soft: rgba(20, 201, 131, 0.14);
+  --gs-accent-soft-border: rgba(20, 201, 131, 0.34);
+  --gs-accent-glow: rgba(20, 201, 131, 0.35);
+  --gs-accent-glow-strong: rgba(20, 201, 131, 0.5);
+
+  --gs-warn: #fbbf24;
+  --gs-warn-bg: rgba(251, 191, 36, 0.1);
+  --gs-danger: #f87171;
+  --gs-danger-bg: rgba(248, 113, 113, 0.1);
+  --gs-danger-border: rgba(248, 113, 113, 0.32);
+  --gs-indigo-soft: rgba(99, 102, 241, 0.14);
+  --gs-indigo: #a5b4fc;
+
+  color-scheme: dark;
+}
+
+/* 窄屏:顶栏空间紧张,品牌只留图形标记,避免名称被截断成 "Ga…" */
+@media (max-width: 640px) {
+  header a > span.truncate {
+    display: none;
+  }
+}
+
+/* 顶栏图标间距略收,整体更安静 */
+header .flex.items-center {
+  gap: 0.15rem;
+}
+
+/* 中文/英文正文渲染优化 */
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

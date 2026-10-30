@@ -1,0 +1,20 @@
+# 安装(root):cp 到 /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now gain-saas-web
+# 前置:pnpm build 产物在 /global/gain-saas/apps/server/dist 与 apps/web/dist;.env 就绪
+[Unit]
+Description=gain-saas web (Nest API + SPA + BFF)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xin
+WorkingDirectory=/global/gain-saas/apps/server
+EnvironmentFile=/global/gain-saas/.env
+ExecStart=/usr/bin/env node dist/main.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

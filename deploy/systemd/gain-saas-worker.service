@@ -1,0 +1,19 @@
+# 事件消费 worker(SD4)。无监听端口。
+[Unit]
+Description=gain-saas worker (event consumer + notifications)
+After=network-online.target gain-saas-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xin
+WorkingDirectory=/global/gain-saas/apps/server
+EnvironmentFile=/global/gain-saas/.env
+ExecStart=/usr/bin/env node dist/worker.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

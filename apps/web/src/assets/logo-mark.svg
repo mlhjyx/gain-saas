@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!--
+    GainOS 挖空标记(无底板):用于深色表面(登录/注册的品牌面板)。
+    几何与 logo-gainos.svg 完全一致,只去掉圆角底与国际描边。
+  -->
+  <defs>
+    <linearGradient id="gs-mark-k" x1="24" y1="14" x2="50" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5CF2B6" />
+      <stop offset="0.55" stop-color="#22CE8B" />
+      <stop offset="1" stop-color="#00B96B" />
+    </linearGradient>
+  </defs>
+
+  <path
+    d="M 43.41 15.09 A 20.4 20.4 0 1 0 52.02 28.08 L 44.17 29.62 A 12.4 12.4 0 1 1 38.94 21.72 Z"
+    fill="url(#gs-mark-k)"
+  />
+  <rect x="34.6" y="28" width="17.8" height="8" rx="4" fill="url(#gs-mark-k)" />
+</svg>
