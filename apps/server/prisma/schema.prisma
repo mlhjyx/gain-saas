@@ -299,3 +299,36 @@ model ModelCallLog {
   @@index([at])
   @@map("model_call_log")
 }
+
+/// R4 平台权威的撤销消费者租约(P6)。语义与 GrowthOS 的同名表一致:
+/// 只有 state=ACTIVE 且心跳新鲜(≤30 秒)才允许签发 capability。
+model R4ConsumerLease {
+  scheduleId           String    @id @map("schedule_id")
+  componentKind        String    @default("REVOCATION_CONSUMER") @map("component_kind")
+  generation           BigInt    @default(0)
+  ownershipGeneration  BigInt?   @map("ownership_generation")
+  state                String    @default("RELEASED")
+  lastSeenAt           DateTime? @map("last_seen_at")
+  expiresAt            DateTime? @map("expires_at")
+  lastTickAt           DateTime? @map("last_tick_at")
+  lastDispatchedAt     DateTime  @default(dbgenerated("'epoch'")) @map("last_dispatched_at")
+  nextTickAt           DateTime  @default(dbgenerated("'epoch'")) @map("next_tick_at")
+
+  @@map("r4_consumer_lease")
+}
+
+/// 待投递的撤销(P6)。capability 的积压事实由此计算:有 PENDING 且最老一条超过
+/// 30 秒就不能签发能力。
+model R4RevocationOutbox {
+  id          String    @id @default(uuid()) @db.Uuid
+  scheduleId  String    @map("schedule_id")
+  commandJws  String    @map("command_jws")
+  state       String    @default("PENDING")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deliveredAt DateTime? @map("delivered_at")
+  ackedAt     DateTime? @map("acked_at")
+  lastError   String?   @map("last_error")
+
+  @@index([state, createdAt])
+  @@map("r4_revocation_outbox")
+}

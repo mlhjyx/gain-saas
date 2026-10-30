@@ -13,10 +13,9 @@ import {
   REVOCATION_BACKLOG_PROBE,
   TEMPORAL_SCHEDULE_PROBE,
 } from './platform-facts.service.js';
-import {
-  UnavailableRevocationBacklogProbe,
-  UnavailableTemporalScheduleProbe,
-} from './unavailable-probes.js';
+import { UnavailableTemporalScheduleProbe } from './unavailable-probes.js';
+import { R4LeaseService } from './r4-lease.service.js';
+import { PrismaService } from '../shared/prisma.service.js';
 
 /**
  * R4 平台权威（P1 起）。与租户/运营/服务三域并列，不共享密钥与守卫链。
@@ -32,9 +31,11 @@ import {
     FenceAckVerifier,
     PlatformFactsService,
     { provide: TEMPORAL_SCHEDULE_PROBE, useClass: UnavailableTemporalScheduleProbe },
-    { provide: REVOCATION_BACKLOG_PROBE, useClass: UnavailableRevocationBacklogProbe },
+    PrismaService,
+    R4LeaseService,
+    { provide: REVOCATION_BACKLOG_PROBE, useExisting: R4LeaseService },
   ],
-  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient, FenceAckVerifier],
+  exports: [R4Keyring, MachineTokenService, CapabilityIssuer, RevocationIssuer, RevocationClient, FenceAckVerifier, R4LeaseService],
 })
 export class R4Module implements OnModuleInit {
   constructor(private readonly keyring: R4Keyring) {}
