@@ -77,6 +77,8 @@ const schema = z.object({
   R4_REVOCATION_TTL_SECONDS: z.coerce.number().int().min(1).max(300).default(120),
   // 后端 fence-ack 的签发者（P5 验 ACK 用；与 R4_BACKEND_BASE_URL 一起配置）
   R4_FENCE_ACK_ISSUER: z.string().optional(),
+  // egress 期望值文件（引擎容器内推导出的 JSONL，P3d）
+  R4_EGRESS_EXPECTED_FILE: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

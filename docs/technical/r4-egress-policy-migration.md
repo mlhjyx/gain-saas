@@ -1,7 +1,7 @@
 # P3d：把 egress 策略的生成与安装迁到 gain-saas
 
 > 文档 ID：`DOC-SAAS-TECH-R4-002`
-> 生命周期：`DRAFT`（设计待产品负责人评审；通过后按 §7 的 TDD 步骤实施）
+> 生命周期：`APPROVED`（产品负责人 2026-10-31 批准方向，按 §7 实施）
 > 制定日期：2026-10-31
 > 依据：产品负责人 2026-10-31 决定「egress 策略迁到 gain-saas 生成」，见
 > [R4 迁移计划](r4-platform-authority-migration.md) §4.1
@@ -34,8 +34,10 @@ gain-saas 接管三件事，**不重新实现策略数学**：
 
 ### 3.1 数据源
 
-- 报价：复用现有引擎客户端（`bff/engine-budget-grant.service.ts` 已调同一族端点），
-  使用平台服务身份（`PLATFORM_TECHNICAL_QUOTE_AUTH_*`）。
+- 期望值：来自**引擎容器内的推导产物**（`R4_EGRESS_EXPECTED_FILE`，JSONL），与 2026-10-01
+  安装时用的是同一支脚本（`_archive/platform-egress-policy-install-xin-20261001/egress-expected.cjs`）。
+  为什么不直接调 technical-quote 端点：它要求 `scheduleRequestSha256`、固定 `workflowRunId` 等契约输入，
+  只有引擎内部有；在外部拼这些输入等于复制引擎的计价逻辑。
 - 当前状态：复用 `OpsDatabase` 的 owner 池（`OPS_OWNER_DATABASE_URL`），只执行两条语句：
   - `SELECT schedule_id, generation, state, policy_artifact_sha256, execution_envelope_sha256, required_cap_microusd FROM platform_egress_schedule_fence`
   - `SELECT * FROM install_platform_egress_policy_v2($1,$2,$3,$4,$5)`

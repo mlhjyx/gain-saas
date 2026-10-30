@@ -332,3 +332,19 @@ model R4RevocationOutbox {
   @@index([state, createdAt])
   @@map("r4_revocation_outbox")
 }
+
+/// egress 策略安装审计(P3d)。generation 只前进,每次真实安装追加一行。
+model R4EgressInstallAudit {
+  id                       String   @id @default(uuid()) @db.Uuid
+  scheduleId               String   @map("schedule_id")
+  fromGeneration           BigInt   @map("from_generation")
+  toGeneration             BigInt   @map("to_generation")
+  policyArtifactSha256     String   @map("policy_artifact_sha256")
+  executionEnvelopeSha256  String   @map("execution_envelope_sha256")
+  requiredCapMicrousd      BigInt   @map("required_cap_microusd")
+  quotePolicyRevision      String   @map("quote_policy_revision")
+  operator                 String
+  at                       DateTime @default(now())
+
+  @@map("r4_egress_install_audit")
+}
