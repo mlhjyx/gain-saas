@@ -21,6 +21,10 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # 全新安装没有生成的 Prisma Client;server 的 tsc 依赖它的生成类型,先生成再构建。
+      - name: Prisma generate (server client)
+        run: pnpm --filter @gain-saas/server db:generate
+
       - name: Build (shared → ops-pg → engine-client → server → web)
         run: pnpm build
 

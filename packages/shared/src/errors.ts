@@ -111,6 +111,21 @@ export const ENGINE_ERROR_COPY = {
     why: '上游服务暂时故障,与你的操作无关。',
     next: '稍后重试;持续失败请联系运营。',
   },
+  OUTREACH_DRAFT_LEAD_NOT_ACCEPTED: {
+    title: '这条线索还不能生成开发信草稿',
+    why: '草稿只对已接受的线索生成;当前线索还没被接受。',
+    next: '先在「待判断」里接受这条线索,再回来生成草稿。',
+  },
+  OUTREACH_DRAFT_UNGROUNDED: {
+    title: '这版草稿没有通过事实校验',
+    why: '模型引用了未提供的公司事实,系统已丢弃这版草稿,没有存进线索。',
+    next: '重新生成一版;若反复出现请联系运营检查模型输出。',
+  },
+  OUTREACH_DRAFT_VERSION_CONFLICT: {
+    title: '草稿版本冲突',
+    why: '同一线索的草稿刚被另一个请求更新过,本次版本号落空。',
+    next: '刷新后重新生成。',
+  },
   EXECUTION_BUDGET_GRANT_REUSED: {
     title: '这次授权已经使用过',
     why: 'Grant 一次性,同一次授权不能用于两次操作。',
