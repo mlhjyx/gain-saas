@@ -15,6 +15,7 @@ import { EngineBudgetGrantSigner } from './service/engine-budget-grant.signer.js
 import { BffGuard, BffHandler, registerBffMiddleware } from './bff/bff.module.js';
 import { GlobalHttpExceptionFilter } from './shared/http-exception.filter.js';
 import { registerSettlementReadbackProxy } from './model-gateway/settlement-readback-proxy.js';
+import { startR4TlsServer } from './r4/r4-tls.server.js';
 
 /**
  * web 进程:Nest HTTP(三域)+ SPA 静态托管(vben build 产物,仿中台生产模式)。
@@ -67,6 +68,10 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.listen(config.PORT, config.HOST);
+
+  // R4 内部 mTLS 监听：与主监听并存，未配置时不启动（P5b）。
+  const r4Tls = await startR4TlsServer(app, config);
+  if (r4Tls) console.log(`[r4] internal mTLS listening on ${config.R4_TLS_HOST}:${r4Tls.port}`);
   new Logger('Bootstrap').log(`gain-saas web 已启动 http://${config.HOST}:${config.PORT}(JWKS: /.well-known/jwks.json)`);
 }
 
