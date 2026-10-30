@@ -99,7 +99,7 @@ DOCKER_CONTEXT=default docker exec global-postgres psql -U global -d global_dev 
 URL=$(grep -m1 '^DATABASE_URL=' /global/gain-saas/.env | cut -d= -f2-)
 psql "$URL" -Atc "select type,count(*),count(acked_at) from event_inbox group by 1"
 
-# 开发信草稿生成（付费；待授权后执行）
+# 开发信草稿生成（付费；2026-10-30 已授权并执行，见验收 #19）
 curl -sS -b /tmp/live.cookies -X POST -H 'content-type: application/json' -d '{}' \
   http://127.0.0.1:4020/api/leads/<已接受 leadId>/outreach-drafts
 ```
@@ -109,5 +109,9 @@ Grant 报价/签发与「周报含草稿」的验证脚本保存在本会话 scr
 ## 5. 交给 backend / 产品负责人
 
 - **backend（G4/G5/G6）**：① 提交并发布 `GET /leads/:leadId/outreach-drafts`（工作区已有）；② 为租户提供不含个人联系人的线索/公司详情合同（`personal-data:read` 不再由租户端点要求），或产品决定维持现状；③ 草稿/ICP 的「先校验、已有草稿直接返回」修复发版，消除 `EXECUTION_BUDGET_GRANT_REUSED`。
-- **产品负责人（G8/G9）**：① `/global/gain-saas` 已按 2026-10-30 指示建仓，本次改动走 PR（链接见文末）；② 需要时创建一个 member 演示账号以验证成员角色。
+- **产品负责人（G8/G9）**：① `/global/gain-saas` 已按 2026-10-30 指示建仓，本次改动走 [PR #1](https://github.com/mlhjyx/gain-saas/pull/1)；② 需要时创建一个 member 演示账号以验证成员角色。
 - **治理**：`/global/gain-saas` 位于工作区顶层白名单之外（`gctl doctor` 已报警），建议随建仓一并纳入 `CLAUDE.md` 的目录契约与密钥清单核对。
+
+---
+
+仓库：<https://github.com/mlhjyx/gain-saas>（2026-10-30 建仓，私有）；本报告与修复随 [PR #1](https://github.com/mlhjyx/gain-saas/pull/1) 提交。
