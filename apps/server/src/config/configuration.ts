@@ -75,6 +75,8 @@ const schema = z.object({
   // 后端基址（P4 撤销投递目标；P7 切换前可不配）
   R4_BACKEND_BASE_URL: z.string().url().optional(),
   R4_REVOCATION_TTL_SECONDS: z.coerce.number().int().min(1).max(300).default(120),
+  // 后端 fence-ack 的签发者（P5 验 ACK 用；与 R4_BACKEND_BASE_URL 一起配置）
+  R4_FENCE_ACK_ISSUER: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
