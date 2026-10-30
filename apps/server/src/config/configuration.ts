@@ -72,6 +72,9 @@ const schema = z.object({
   R4_CAPABILITY_TTL_SECONDS: z.coerce.number().int().min(1).max(30).default(30),
   // 部署绑定文件（backendSha / 摘要 / validUntil，7 天有效，由运维工具生成）
   R4_DEPLOYMENT_BINDING_FILE: z.string().optional(),
+  // 后端基址（P4 撤销投递目标；P7 切换前可不配）
+  R4_BACKEND_BASE_URL: z.string().url().optional(),
+  R4_REVOCATION_TTL_SECONDS: z.coerce.number().int().min(1).max(300).default(120),
 });
 
 export type AppConfig = z.infer<typeof schema>;
