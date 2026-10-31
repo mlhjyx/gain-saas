@@ -201,9 +201,11 @@ export class PlatformGrantIssuer {
       technical_policy_revision: request.technicalPolicyRevision,
       currency: 'USD',
       unit: 'microusd',
-      cap_per_run_microusd: Number(request.capPerRunMicrousd),
-      campaign_cap_microusd: Number(request.campaignCapMicrousd),
-      max_runs: 1,
+      // 引擎校验器要求规范十进制字符串（assertCanonicalMicrousd / nullablePositiveBigInt），
+      // JSON 数字会被判 EXECUTION_BUDGET_GRANT_INVALID（2026-11-01 首次真实准入踩到）
+      cap_per_run_microusd: request.capPerRunMicrousd,
+      campaign_cap_microusd: request.campaignCapMicrousd,
+      max_runs: '1',
     })
       .setProtectedHeader({ alg: 'RS256', kid: this.config.ENGINE_BUDGET_GRANT_KEY_ID, typ: PLATFORM_GRANT_TYPE })
       .setIssuer(this.config.ENGINE_BUDGET_GRANT_ISSUER)

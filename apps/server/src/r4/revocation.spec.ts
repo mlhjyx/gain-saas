@@ -12,6 +12,7 @@ const COMMAND = {
   fenceSequence: '7',
   reasonCode: 'OPERATOR_HOLD' as const,
   targetIssuer: ISSUER,
+  targetJti: '4f6c1d3e-2a4b-4c5d-9e8f-0a1b2c3d4e5f',
 };
 
 async function issuer(): Promise<{ issuer: RevocationIssuer; jwks: { keys: JsonWebKey[] } }> {
@@ -42,6 +43,7 @@ describe('撤销签发', () => {
     expect(payload.schema_version).toBe('PlatformExecutionBudgetAuthorityRevoked/v1');
     expect(payload.aud).toBe('global-backend:execution-budget');
     expect(payload.iss).toBe(payload.target_issuer);
+    expect(payload.target_jti).toBe(COMMAND.targetJti);
     expect(payload.schedule_id).toBe('acq-sweep');
     expect(payload.reason_code).toBe('OPERATOR_HOLD');
     expect(payload.exp! - payload.iat!).toBeLessThanOrEqual(300);
@@ -54,6 +56,7 @@ describe('撤销签发', () => {
     const { issuer: svc } = await issuer();
     await expect(svc.issue({ ...COMMAND, scheduleId: 'nope' as never })).rejects.toThrow(/schedule/);
     await expect(svc.issue({ ...COMMAND, workflowRunId: 'not-a-uuid' })).rejects.toThrow(/UUID/);
+    await expect(svc.issue({ ...COMMAND, targetJti: 'not-a-uuid' })).rejects.toThrow(/targetJti/);
     await expect(svc.issue({ ...COMMAND, fenceSequence: '0' })).rejects.toThrow(/fenceSequence/);
     await expect(svc.issue({ ...COMMAND, reasonCode: 'WHATEVER' as never })).rejects.toThrow(/reason_code/);
     await expect(svc.issue({ ...COMMAND, targetIssuer: 'http://example.com/' })).rejects.toThrow(/https/);
