@@ -1,9 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { SignJWT } from 'jose';
+import { SignJWT, importPKCS8 } from 'jose';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
-import { R4Keyring } from './r4-keyring.service.js';
 import { PLATFORM_SCHEDULES, type PlatformScheduleId } from './contracts/r4-wire-contracts.js';
 
 /**
@@ -44,16 +43,27 @@ export interface RevocationCommand {
 
 @Injectable()
 export class RevocationIssuer {
-  constructor(
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-    private readonly keyring: R4Keyring,
-  ) {}
+  private privateKey?: CryptoKey;
+
+  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
+
+  /**
+   * 签名钥必须是**执行预算 Grant 钥**（`ENGINE_BUDGET_GRANT_*`，即
+   * `/.well-known/execution-budget-jwks.json` 的那把）：引擎的撤销验签器
+   * 只对第一份信任文档（EXECUTION_BUDGET_GRANT_JWKS_URI）里的 kid 解析公钥，
+   * 用 R4 的 capability 族签会被判 PLATFORM_REVOCATION_VERIFICATION_UNAVAILABLE。
+   */
+  private async key(): Promise<CryptoKey> {
+    this.privateKey ??= await importPKCS8(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY, 'RS256');
+    return this.privateKey;
+  }
 
   async issue(command: RevocationCommand, now = Date.now()): Promise<string> {
     this.validate(command);
     const iat = Math.floor(now / 1000);
     const exp = iat + Math.min(this.config.R4_REVOCATION_TTL_SECONDS, 300);
-    const { key, kid } = this.keyring.signingKey('capability');
+    const key = await this.key();
+    const kid = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
 
     return new SignJWT({
       schema_version: REVOCATION_SCHEMA_VERSION,

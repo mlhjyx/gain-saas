@@ -1,10 +1,9 @@
-import { generateKeyPairSync } from 'node:crypto';
-import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
+import { createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, exportJWK, jwtVerify } from 'jose';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import { RevocationClient, RevocationDeliveryError } from './revocation-client.service.js';
 import { RevocationIssuer, REVOCATION_TYPE } from './revocation-issuer.service.js';
-import { R4Keyring } from './r4-keyring.service.js';
 
 const ISSUER = 'https://127.0.0.1:18446/';
 const COMMAND = {
@@ -15,24 +14,25 @@ const COMMAND = {
   targetIssuer: ISSUER,
 };
 
-async function issuer(): Promise<{ issuer: RevocationIssuer; keyring: R4Keyring }> {
+async function issuer(): Promise<{ issuer: RevocationIssuer; jwks: { keys: JsonWebKey[] } }> {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const jwk = await exportJWK(createPublicKey(pem));
+  const publicJwks = { keys: [{ ...jwk, kid: 'budget-test', alg: 'RS256', use: 'sig' }] };
   const config = {
     NODE_ENV: 'development',
-    R4_CAPABILITY_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-    R4_CAPABILITY_KEY_ID: 'cap-test',
+    ENGINE_BUDGET_GRANT_PRIVATE_KEY: pem,
+    ENGINE_BUDGET_GRANT_KEY_ID: 'budget-test',
     R4_REVOCATION_TTL_SECONDS: 120,
   } as unknown as AppConfig;
-  const keyring = new R4Keyring(config);
-  await keyring.init();
-  return { issuer: new RevocationIssuer(config, keyring), keyring };
+  return { issuer: new RevocationIssuer(config), jwks: publicJwks };
 }
 
 describe('撤销签发', () => {
   it('header/payload 与后端契约一致', async () => {
-    const { issuer: svc, keyring } = await issuer();
+    const { issuer: svc, jwks } = await issuer();
     const jws = await svc.issue(COMMAND);
-    expect(decodeProtectedHeader(jws)).toEqual({ alg: 'RS256', kid: 'cap-test', typ: REVOCATION_TYPE });
+    expect(decodeProtectedHeader(jws)).toEqual({ alg: 'RS256', kid: 'budget-test', typ: REVOCATION_TYPE });
 
     const payload = decodeJwt(jws);
     expect(Object.keys(payload).sort()).toEqual([
@@ -46,7 +46,7 @@ describe('撤销签发', () => {
     expect(payload.reason_code).toBe('OPERATOR_HOLD');
     expect(payload.exp! - payload.iat!).toBeLessThanOrEqual(300);
 
-    const { payload: verified } = await jwtVerify(jws, createLocalJWKSet(keyring.publicJwks('capability')));
+    const { payload: verified } = await jwtVerify(jws, createLocalJWKSet(jwks));
     expect(verified.schema_version).toBe('PlatformExecutionBudgetAuthorityRevoked/v1');
   });
 

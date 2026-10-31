@@ -54,6 +54,10 @@ const schema = z.object({
   R4_CAPABILITY_KEY_ID: z.string().optional(),
   R4_TEMPORAL_RUNTIME_PRIVATE_KEY: z.string().optional(),
   R4_TEMPORAL_RUNTIME_KEY_ID: z.string().optional(),
+  // 运维 token（provision / 续期负例证明，r4-pki token 用 operator 钥签）的公钥。
+  // 平台只从 gain-saas 的 temporal-runtime JWKS 取钥，必须同时发布这把。
+  R4_TEMPORAL_OPERATOR_PUBLIC_KEY_FILE: z.string().optional(),
+  R4_TEMPORAL_OPERATOR_KEY_ID: z.string().default('temporal-operator-20260922'),
   R4_SITE_BUILD_BUDGET_PRIVATE_KEY: z.string().optional(),
   R4_SITE_BUILD_BUDGET_KEY_ID: z.string().optional(),
   R4_MACHINE_PRIVATE_KEY: z.string().optional(),
