@@ -43,3 +43,12 @@ describe('Temporal schedule 探针', () => {
     expect(await failing.read(Date.now())).toBeNull();
   });
 });
+
+import { TemporalClientScheduleLister } from './temporal-schedule-probe.service.js';
+
+describe('真实 Temporal 客户端', () => {
+  it('凭证不全时直接报错（探针据此判定事实不可用）', async () => {
+    const lister = new TemporalClientScheduleLister({} as AppConfig);
+    await expect(lister.list()).rejects.toThrow(/凭证不全/);
+  });
+});

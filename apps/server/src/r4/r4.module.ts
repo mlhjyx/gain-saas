@@ -20,8 +20,8 @@ import { EgressPolicyService, FENCE_STORE, QUOTE_SOURCE } from './egress-policy.
 import { FileQuoteSource, PgFenceStore } from './egress-adapters.js';
 import { OpsDatabase } from '../ops/ops-database.service.js';
 import {
-  NullScheduleLister,
   SCHEDULE_LISTER,
+  TemporalClientScheduleLister,
   TemporalScheduleProbeService,
 } from './temporal-schedule-probe.service.js';
 import { LeaseHeartbeatService } from './lease-heartbeat.service.js';
@@ -41,7 +41,7 @@ import { PrismaService } from '../shared/prisma.service.js';
     RevocationClient,
     FenceAckVerifier,
     PlatformFactsService,
-    { provide: SCHEDULE_LISTER, useClass: NullScheduleLister },
+    { provide: SCHEDULE_LISTER, useClass: TemporalClientScheduleLister },
     { provide: TEMPORAL_SCHEDULE_PROBE, useClass: TemporalScheduleProbeService },
     LeaseHeartbeatService,
     PrismaService,
