@@ -86,6 +86,8 @@ const schema = z.object({
   R4_FENCE_ACK_ISSUER: z.string().optional(),
   // egress 期望值文件（引擎容器内推导出的 JSONL，P3d）
   R4_EGRESS_EXPECTED_FILE: z.string().optional(),
+  // P8：从 GrowthOS 冻结过来的公钥 JWKS 目录（引擎三处遗留信任根改指向这里）
+  R4_LEGACY_JWKS_DIR: z.string().optional(),
   // R4 内部 TLS 监听（P5b）：配置后在同一进程上再起一个 mTLS 服务端，
   // 证书由 r4-pki 签发，引擎侧信任根不变。默认只绑回环。
   R4_TLS_PORT: z.coerce.number().int().min(1).max(65535).optional(),

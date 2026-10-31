@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
 import { R4Keyring } from './r4-keyring.service.js';
 import { R4JwksController } from './r4-jwks.controller.js';
+import { LegacyJwksController } from './legacy-jwks.controller.js';
 import { MachineTokenService } from './machine-token.service.js';
 import { MachineTokenController } from './machine-token.controller.js';
 import { CapabilityIssuer } from './capability-issuer.service.js';
@@ -32,7 +33,7 @@ import { PrismaService } from '../shared/prisma.service.js';
  */
 @Module({
   imports: [ConfigModule],
-  controllers: [R4JwksController, MachineTokenController, CapabilityController],
+  controllers: [R4JwksController, LegacyJwksController, MachineTokenController, CapabilityController],
   providers: [
     R4Keyring,
     MachineTokenService,
