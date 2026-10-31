@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import {
@@ -44,11 +47,43 @@ describe('Temporal schedule 探针', () => {
   });
 });
 
-import { TemporalClientScheduleLister } from './temporal-schedule-probe.service.js';
+import { readTemporalMaterial, TemporalClientScheduleLister } from './temporal-schedule-probe.service.js';
+import type { MachineTokenService } from './machine-token.service.js';
+
+const noTokens = {} as MachineTokenService;
 
 describe('真实 Temporal 客户端', () => {
   it('凭证不全时直接报错（探针据此判定事实不可用）', async () => {
-    const lister = new TemporalClientScheduleLister({} as AppConfig);
+    const lister = new TemporalClientScheduleLister({} as AppConfig, noTokens);
     await expect(lister.list()).rejects.toThrow(/凭证不全/);
+  });
+
+  it('连接材料：CA 与 reader 客户端证书齐全时才成立，缺一即报错', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'r4-probe-'));
+    const ca = join(dir, 'ca.pem');
+    const crt = join(dir, 'client.pem');
+    const key = join(dir, 'client.key');
+    writeFileSync(ca, 'ca');
+    writeFileSync(crt, 'crt');
+    writeFileSync(key, 'key');
+    const base = {
+      R4_TEMPORAL_ADDRESS: '127.0.0.1:17233',
+      R4_TEMPORAL_NAMESPACE: 'platform-automation',
+      R4_TEMPORAL_SERVER_NAME: 'temporal-platform-reader',
+      R4_TEMPORAL_TLS_CA_FILE: ca,
+    };
+    try {
+      expect(() => readTemporalMaterial(base as unknown as AppConfig)).toThrow(/凭证不全/);
+      const material = readTemporalMaterial({
+        ...base,
+        R4_TEMPORAL_TLS_CERT_FILE: crt,
+        R4_TEMPORAL_TLS_KEY_FILE: key,
+      } as unknown as AppConfig);
+      expect(material.tls.serverNameOverride).toBe('temporal-platform-reader');
+      expect(material.tls.clientCertPair.crt.toString()).toBe('crt');
+      expect(material.tls.serverRootCACertificate.toString()).toBe('ca');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PLATFORM_SCHEDULES, type PlatformScheduleId } from './contracts/r4-wire-contracts.js';
+import { MachineTokenService } from './machine-token.service.js';
 import type { TemporalScheduleFact, TemporalScheduleProbe } from './platform-facts.service.js';
 
 /**
@@ -13,8 +15,9 @@ import type { TemporalScheduleFact, TemporalScheduleProbe } from './platform-fac
  * mode（patents-cache-refresh 恒为 INTENTIONALLY_DISABLED_NO_EGRESS）。
  *
  * 未配置 `R4_TEMPORAL_ENABLED=true` 时返回 null（事实不可用 → capability 503），
- * 线上现状不变。注意：平台 Temporal 的 JWT 信任根（JWKS URI）目前仍指向
- * GrowthOS；切到 gain-saas 属于 P7 的平台侧改动，不在本服务内。
+ * 线上现状不变。平台 Temporal 的 JWT 信任根（`temporal-platform.env` 的
+ * `TEMPORAL_PLATFORM_JWKS_URI`）已切到 gain-saas 的 temporal-runtime JWKS；
+ * token 在本进程内用同一钥族自签，与平台验签同源。
  */
 
 export interface ScheduleLister {
@@ -70,58 +73,97 @@ export class NullScheduleLister implements ScheduleLister {
   }
 }
 
-/** 供 P7 使用的真实现骨架：证书/令牌路径齐全时才构造客户端。 */
+/**
+ * 平台 Temporal 连接材料。三件齐全是硬要求：
+ *  - CA：验证前端证书（与引擎同一信任根）
+ *  - 客户端证书：平台只为 reader 身份放行 schedule 只读，且 reader 必须带 mTLS 证明
+ *  - serverNameOverride：证书 SAN 只有 `temporal-platform*`，且 SNI 必须为
+ *    `temporal-platform-reader` 平台才会下发客户端证书请求
+ */
 export function readTemporalMaterial(config: AppConfig): {
   address: string;
   namespace: string;
-  tls: { cert: Buffer; key: Buffer; ca: Buffer } | null;
-  token: string | null;
+  serverNameOverride: string;
+  tls: {
+    serverRootCACertificate: Buffer;
+    serverNameOverride: string;
+    clientCertPair: { crt: Buffer; key: Buffer };
+  };
 } {
-  const tls =
-    config.R4_TEMPORAL_TLS_CERT_FILE && config.R4_TEMPORAL_TLS_KEY_FILE && config.R4_TEMPORAL_TLS_CA_FILE
-      ? {
-          cert: readFileSync(config.R4_TEMPORAL_TLS_CERT_FILE),
-          key: readFileSync(config.R4_TEMPORAL_TLS_KEY_FILE),
-          ca: readFileSync(config.R4_TEMPORAL_TLS_CA_FILE),
-        }
-      : null;
-  const token = config.R4_TEMPORAL_TOKEN_FILE ? readFileSync(config.R4_TEMPORAL_TOKEN_FILE, 'utf8').trim() : null;
-  return { address: config.R4_TEMPORAL_ADDRESS, namespace: config.R4_TEMPORAL_NAMESPACE, tls, token };
+  if (!config.R4_TEMPORAL_TLS_CA_FILE || !config.R4_TEMPORAL_TLS_CERT_FILE || !config.R4_TEMPORAL_TLS_KEY_FILE)
+    throw new Error('平台 Temporal 凭证不全（需要 TLS CA 与 reader 客户端证书）');
+  return {
+    address: config.R4_TEMPORAL_ADDRESS,
+    namespace: config.R4_TEMPORAL_NAMESPACE,
+    serverNameOverride: config.R4_TEMPORAL_SERVER_NAME,
+    tls: {
+      serverRootCACertificate: readFileSync(config.R4_TEMPORAL_TLS_CA_FILE),
+      serverNameOverride: config.R4_TEMPORAL_SERVER_NAME,
+      clientCertPair: {
+        crt: readFileSync(config.R4_TEMPORAL_TLS_CERT_FILE),
+        key: readFileSync(config.R4_TEMPORAL_TLS_KEY_FILE),
+      },
+    },
+  };
 }
 
-/** 真实现：平台 Temporal（mTLS + JWT）读取四个 schedule 的 workflowType/taskQueue。 */
+/** 真实现：平台 Temporal（TLS + JWT）读取四个 schedule 的 workflowType/taskQueue。 */
 @Injectable()
 export class TemporalClientScheduleLister implements ScheduleLister {
-  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
+  constructor(
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly machineTokens: MachineTokenService,
+  ) {}
 
   async list(): Promise<Array<{ scheduleId: string; workflowType?: string; taskQueue?: string }>> {
     const material = readTemporalMaterial(this.config);
-    if (!material.tls || !material.token)
-      throw new Error('平台 Temporal 凭证不全（需要 mTLS 证书与 token 文件）');
-    const { Client, Connection } = await import('@temporalio/client');
-    const connection = await Connection.connect({
-      address: material.address,
-      tls: {
-        clientCertPair: { crt: material.tls.cert, key: material.tls.key },
-        serverRootCACertificate: material.tls.ca,
-      },
-      metadata: { authorization: `Bearer ${material.token}` },
-    });
+    const token = await this.mintToken();
+    const { Connection } = await import('@temporalio/client');
+    // 不能用 Connection.connect / Client：两者都会先调 GetSystemInfo，而平台 reader
+    // 白名单只放行 DescribeSchedule / DescribeWorkflowExecution / GetWorkflowExecutionHistory。
+    const connection = Connection.lazy({ address: material.address, tls: material.tls, apiKey: token });
     try {
-      const client = new Client({ connection, namespace: material.namespace });
       const rows: Array<{ scheduleId: string; workflowType?: string; taskQueue?: string }> = [];
-      for await (const schedule of client.schedule.list()) {
-        const action = (schedule as { action?: { type?: string; workflow?: { workflowType?: string; taskQueue?: string } } }).action;
-        const workflow = action?.type === 'startWorkflow' ? action.workflow : undefined;
+      for (const scheduleId of PLATFORM_SCHEDULES) {
+        const response = await connection.workflowService.describeSchedule({
+          namespace: material.namespace,
+          scheduleId,
+        });
+        const start = (
+          response as {
+            schedule?: {
+              action?: {
+                startWorkflow?: { workflowType?: { name?: string }; taskQueue?: { name?: string } };
+              };
+            };
+          }
+        ).schedule?.action?.startWorkflow;
         rows.push({
-          scheduleId: schedule.scheduleId,
-          workflowType: workflow?.workflowType,
-          taskQueue: workflow?.taskQueue,
+          scheduleId,
+          workflowType: start?.workflowType?.name,
+          taskQueue: start?.taskQueue?.name,
         });
       }
       return rows;
     } finally {
       await connection.close();
     }
+  }
+
+  /**
+   * 进程内自签 temporal token：权威就是自己，无需回调 mTLS 端点取 token。
+   * 300 秒 TTL 足够覆盖一次 schedule 读取；每次调用现签，避免持有过期 token。
+   */
+  private async mintToken(): Promise<string> {
+    const configurationRevision = this.config.R4_MACHINE_CONFIGURATION_REVISION;
+    if (!configurationRevision)
+      throw new Error('平台 Temporal 凭证不全（需要 R4_MACHINE_CONFIGURATION_REVISION）');
+    const envelope = await this.machineTokens.issue({
+      profile: 'temporal-reader',
+      nonce: randomBytes(16).toString('hex'),
+      subject: this.config.R4_TEMPORAL_READER_SUBJECT,
+      configurationRevision,
+    });
+    return envelope.token;
   }
 }

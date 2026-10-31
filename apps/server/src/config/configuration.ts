@@ -61,6 +61,9 @@ const schema = z.object({
   // 机器 token 签发（P2）：issuer/audience 必须与引擎 trust 逐字符一致；
   // subject 与 configurationRevision 由部署侧给出（迁移后在 P7 与 mTLS 身份对齐）。
   R4_MACHINE_TOKEN_ISSUER: z.string().default('https://127.0.0.1:18446/temporal-runtime'),
+  // capability 机器 token 的 iss：引擎用 CAPABILITY_MACHINE_ISSUER 逐字比对，与
+  // TEMPORAL_MACHINE_ISSUER（带 /temporal-runtime）不是同一个字符串。
+  R4_CAPABILITY_MACHINE_ISSUER: z.string().default('https://127.0.0.1:18444/'),
   R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE: z.string().default('global-backend:platform-temporal'),
   R4_MACHINE_SUBJECT: z.string().optional(),
   R4_MACHINE_CONFIGURATION_REVISION: z.string().optional(),
@@ -99,7 +102,10 @@ const schema = z.object({
   R4_TEMPORAL_TLS_CERT_FILE: z.string().optional(),
   R4_TEMPORAL_TLS_KEY_FILE: z.string().optional(),
   R4_TEMPORAL_TLS_CA_FILE: z.string().optional(),
-  R4_TEMPORAL_TOKEN_FILE: z.string().optional(),
+  // gRPC 主机名覆盖：reader 身份必须走 SNI temporal-platform-reader 才会被要求客户端证书
+  R4_TEMPORAL_SERVER_NAME: z.string().default('temporal-platform-reader'),
+  // 平台机器策略里 schedule 只读身份只有一个固定 subject（与 GrowthOS reader 共用）
+  R4_TEMPORAL_READER_SUBJECT: z.string().default('growthos-temporal-reader'),
   R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
 });
 

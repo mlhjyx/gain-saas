@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Post, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Header, HttpCode, Post, ServiceUnavailableException } from '@nestjs/common';
 import { CapabilityIssuer } from './capability-issuer.service.js';
 import { PlatformFactsService, PlatformFactsUnavailable } from './platform-facts.service.js';
 
@@ -18,6 +18,8 @@ export class CapabilityController {
   ) {}
 
   @Post('capabilities')
+  @HttpCode(200)
+  @Header('content-type', 'application/jose')
   async issue(@Body() body: { nonce?: unknown }): Promise<string> {
     if (typeof body?.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(body.nonce)) {
       throw new BadRequestException({

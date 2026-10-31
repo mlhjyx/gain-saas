@@ -58,7 +58,7 @@ describe('capability 签发', () => {
       contexts,
       NOW,
     );
-    expect(decodeProtectedHeader(token)).toEqual({ alg: 'RS256', kid: 'cap-test', typ: 'JWT' });
+    expect(decodeProtectedHeader(token)).toEqual({ alg: 'RS256', kid: 'cap-test', typ: 'platform-capability+jwt' });
     expect(Object.keys(decodeJwt(token)).sort()).toEqual([
       'aud', 'backendSha', 'exp', 'growthosSha', 'iat', 'iss', 'namespace', 'nonce', 'policyDigest', 'rows',
     ]);
@@ -85,10 +85,17 @@ describe('capability 签发', () => {
     }
   });
 
-  it('拒绝过期观测：事实必须在签发前 1 秒内采集', async () => {
+  it('允许签发前采集的事实（引擎只限制观测晚于签发 1 秒以上）', async () => {
     const { issuer: svc } = await issuer();
     await expect(
       svc.issue([observation('acq-sweep', { temporalPermission: fact(NOW - 5_000, NOW + 20_000) })], contexts, NOW),
+    ).resolves.toBeTypeOf('string');
+  });
+
+  it('拒绝观测晚于签发 1 秒以上的事实（时钟漂移防护）', async () => {
+    const { issuer: svc } = await issuer();
+    await expect(
+      svc.issue([observation('acq-sweep', { temporalPermission: fact(NOW + 5_000, NOW + 20_000) })], contexts, NOW),
     ).rejects.toThrow(/1 秒/);
   });
 

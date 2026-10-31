@@ -23,3 +23,6 @@ __pycache__/
 
 # 本机误重定向产物（0 字节，不入仓）
 deepseek-v4-flash
+
+# R4 部署绑定与 egress 期望值是本机生成物（7 天有效期），不入库
+deploy/r4/
