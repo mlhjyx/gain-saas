@@ -112,6 +112,25 @@ const schema = z.object({
   R4_TEMPORAL_SERVER_NAME: z.string().default('temporal-platform-reader'),
   // 平台机器策略里 schedule 只读身份只有一个固定 subject（与 GrowthOS reader 共用）
   R4_TEMPORAL_READER_SUBJECT: z.string().default('growthos-temporal-reader'),
+  // 平台运行 Grant 签发（P7 后准入 v2）：逐 schedule 的每次运行金额上限（µUSD，JSON 映射）。
+  // 默认值取引擎 policy matrix 的 required_cap_per_run_microusd（2026-10-31 实测值）。
+  R4_PLATFORM_GRANT_MAX_CAP_MICROUSD: z
+    .string()
+    .default('{"acq-sweep":"1","patents-cache-refresh":"1","intent-sweep":"10000000","sanctions-refresh":"1"}'),
+  R4_PLATFORM_GRANT_TTL_SECONDS: z.coerce.number().int().min(1).max(300).default(300),
+  // 权威自己的策略副本：逐 schedule 期望的 schedule_request_sha256 与执行包络摘要。
+  // 值取自引擎 policy matrix v2（2026-10-31）；策略矩阵变更必须同步更新这里。
+  R4_PLATFORM_GRANT_EXPECTED: z
+    .string()
+    .default(
+      '{"acq-sweep":{"requestSha256":"5e960ccef72129aa32bdd9464c9d7b546e5ed6dd7a639caad46df77edea3448e","envelopeSha256":"73a3bfea34b90f0c0916cd55a051cbfd3ce704656431362aacb9e6d012f1c44f"},' +
+        '"patents-cache-refresh":{"requestSha256":"3fbcd9326937d66243f1395d3f0c4f098c6748977d00ae90017d0f8f04202db6","envelopeSha256":"5988e194df7c1a3b911964b5d6e9ee3cb5a0e18b38aecff247a7d8017da65caf"},' +
+        '"intent-sweep":{"requestSha256":"9ef4afce408c36472e00db01a80b6e3a3e461a2b13af7f456d9ce31a7676c34a","envelopeSha256":"9d41fe91658a834aec03ee3f235b92494c5171ed5c877f2e7b7f75b3923d6688"},' +
+        '"sanctions-refresh":{"requestSha256":"50b8dfae274bb16a825147c648f46789ea0eb291b3d32964c8bacf385340dffe","envelopeSha256":"c9e22f1fdad8d91f459dc084aa779c195c38dc3f018f158fd8b4987a0f088e64"}}',
+    ),
+
+  // 只接受这个客户端证书 CN 的 mTLS 调用（平台 worker）
+  R4_PLATFORM_GRANT_CLIENT_SUBJECT: z.string().default('global-backend-platform-worker'),
   R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
 });
 

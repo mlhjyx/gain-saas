@@ -348,3 +348,26 @@ model R4EgressInstallAudit {
 
   @@map("r4_egress_install_audit")
 }
+
+/// 平台运行 Grant 签发记录(P7 后的平台准入 v2)。权威方先落库再给字节:
+/// 同一 workflow_run_id 只有一张 Grant,引擎的重试拿回同一张 JWS。
+model R4PlatformGrant {
+  jti                     String   @id @db.Uuid
+  purpose                 String
+  scheduleId              String   @map("schedule_id")
+  workflowId              String   @map("workflow_id")
+  workflowRunId           String   @unique @map("workflow_run_id") @db.Uuid
+  scheduleRequestSha256   String   @map("schedule_request_sha256")
+  technicalPolicyRevision String   @map("technical_policy_revision")
+  capPerRunMicrousd       BigInt   @map("cap_per_run_microusd")
+  campaignCapMicrousd     BigInt   @map("campaign_cap_microusd")
+  maxRuns                 BigInt   @map("max_runs")
+  issuedAt                DateTime @map("issued_at")
+  expiresAt               DateTime @map("expires_at")
+  token                   String
+  tokenSha256             String   @map("token_sha256")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@index([scheduleId, createdAt])
+  @@map("r4_platform_grant")
+}
