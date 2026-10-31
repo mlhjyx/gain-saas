@@ -62,7 +62,6 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'POST', saasPath: 'icps/:icpId/qualify', enginePath: '/icps/:icpId/qualify', access: 'member' },
   { method: 'GET', saasPath: 'leads', enginePath: '/leads', access: 'member' },
   { method: 'GET', saasPath: 'icps/:icpId/lead-queues', enginePath: '/icps/:icpId/lead-queues', access: 'member' },
-  { method: 'GET', saasPath: 'leads/:leadId', enginePath: '/leads/:leadId', access: 'member' },
   { method: 'GET', saasPath: 'leads/:leadId/package', enginePath: '/leads/:leadId/package', access: 'member' },
   { method: 'POST', saasPath: 'leads/:leadId/outcomes', enginePath: '/leads/:leadId/outcomes', access: 'member' },
   { method: 'GET', saasPath: 'leads/:leadId/outreach-drafts', enginePath: '/leads/:leadId/outreach-drafts', access: 'member' },
@@ -73,7 +72,6 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 03 知识视图与禁联 ──
   { method: 'GET', saasPath: 'canonical-companies', enginePath: '/canonical-companies', access: 'member' },
-  { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'member' },
   { method: 'GET', saasPath: 'data-providers', enginePath: '/data-providers', access: 'admin' },
   // 引擎这些端点都要求 compliance:manage（仅 SaaS admin 映射），不能给 member 放行。
   { method: 'GET', saasPath: 'suppressions', enginePath: '/suppressions', access: 'admin' },
