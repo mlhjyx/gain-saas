@@ -22,6 +22,7 @@ const TABS = [
   { key: 'budget', label: '预算' },
   { key: 'diagnostics', label: '诊断' },
   { key: 'schedules', label: '调度' },
+  { key: 'revocations', label: '平台撤销' },
   { key: 'audit', label: '审计' },
 ] as const;
 const active = ref<string>('overview');
@@ -49,6 +50,16 @@ const workflowStatus = ref('');
 const workflowLoading = ref(false);
 const scheduleForm = ref({ scheduleId: '', workflowType: 'acquisitionSweepWorkflow', intervalMinutes: 60, note: '' });
 const scheduleBusy = ref(false);
+const revocationRows = ref<Row[]>([]);
+const revocationPolicy = ref<Row[]>([]);
+const revocationBusy = ref('');
+const revocationForm = ref({ scheduleId: 'acq-sweep', reasonCode: 'OPERATOR_HOLD', note: '' });
+const REVOCATION_REASONS = [
+  { value: 'OPERATOR_HOLD', label: '运维停机（OPERATOR_HOLD）' },
+  { value: 'SECURITY_RESPONSE', label: '安全响应（SECURITY_RESPONSE）' },
+  { value: 'POLICY_DISABLED', label: '政策停用（POLICY_DISABLED）' },
+] as const;
+const REVOCATION_SCHEDULES = ['acq-sweep', 'intent-sweep', 'sanctions-refresh'] as const;
 const sourceDetail = ref<{ source: Row; recentFetches: Row[] } | null>(null);
 const fetchRows = ref<Row[]>([]);
 const changeRows = ref<Row[]>([]);
@@ -768,6 +779,85 @@ async function createSchedule(): Promise<void> {
   }
 }
 
+async function loadRevocations(): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const [list, policy] = await Promise.all([
+      api<{ requests: Row[] }>('/api/ops/r4/revocations'),
+      api<{ states: Row[] }>('/api/ops/r4/policy-state'),
+    ]);
+    revocationRows.value = list.requests ?? [];
+    revocationPolicy.value = policy.states ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function revocationBadge(state: unknown): string {
+  if (state === 'ACKED') return 'is-ok';
+  if (state === 'PENDING_CONFIRMATION' || state === 'PENDING') return 'is-warn';
+  return 'is-bad';
+}
+
+async function createRevocation(): Promise<void> {
+  const form = revocationForm.value;
+  const reason = REVOCATION_REASONS.find((item) => item.value === form.reasonCode)?.label ?? form.reasonCode;
+  const confirmed = window.confirm(
+    `确认对 ${form.scheduleId} 发起平台撤销（${reason}）？\n\n`
+    + '影响：关闭该 schedule 的整个出网围栏，所有在途出网立即被阻断；这不是暂停，'
+    + '且当前没有产品化的重开路径，恢复需要受审计的重开流程。操作会记入审计。',
+  );
+  if (!confirmed) return;
+  revocationBusy.value = 'create';
+  error.value = '';
+  try {
+    await api('/api/ops/r4/revocations', { method: 'POST', body: JSON.stringify(form) });
+    notice.value = `${form.scheduleId} 的撤销请求已进入队列（若已有未结请求则复用该请求）`;
+    revocationForm.value = { ...form, note: '' };
+    await loadRevocations();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    revocationBusy.value = '';
+  }
+}
+
+async function confirmRevocation(id: string, scheduleId: string): Promise<void> {
+  if (!window.confirm(`确认投递 ${scheduleId} 的撤销请求？投递后 fence 会立刻生效且当前不可重开。`)) return;
+  revocationBusy.value = id;
+  error.value = '';
+  try {
+    await api(`/api/ops/r4/revocations/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: '{}' });
+    notice.value = '撤销请求已确认，进入投递';
+    await loadRevocations();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    revocationBusy.value = '';
+  }
+}
+
+async function cancelRevocation(id: string, scheduleId: string): Promise<void> {
+  const reason = window.prompt(`取消 ${scheduleId} 的撤销请求（原因会记入审计）。\n只会取消从未投递或已确定未提交的请求。`);
+  if (!reason || !reason.trim()) return;
+  revocationBusy.value = id;
+  error.value = '';
+  try {
+    await api(`/api/ops/r4/revocations/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST', body: JSON.stringify({ reason: reason.trim() }),
+    });
+    notice.value = '撤销请求已取消';
+    await loadRevocations();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    revocationBusy.value = '';
+  }
+}
+
 async function switchTab(tab: string): Promise<void> {
   active.value = tab;
   error.value = '';
@@ -780,6 +870,7 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'budget') await loadBudget();
   if (tab === 'diagnostics') await Promise.all([loadWorkspaces(), loadGlobalDiagnostics()]);
   if (tab === 'schedules') await loadSchedules();
+  if (tab === 'revocations') await loadRevocations();
   if (tab === 'audit') await loadAudit();
 }
 
@@ -1447,6 +1538,64 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
                     <td>{{ fmt(workflow.closeTime) }}</td>
                   </tr>
                   <tr v-if="workflowRows.length === 0"><td colspan="5" class="ops__muted">没有匹配的 workflow</td></tr>
+                </tbody>
+              </table>
+            </article>
+          </section>
+
+          <section v-else-if="active === 'revocations'" class="ops__stack">
+            <article class="ops__card ops__card--wide">
+              <h3>平台策略状态</h3>
+              <table class="ops__table">
+                <thead><tr><th>Schedule</th><th>模式</th><th>更新人</th><th>更新时间</th></tr></thead>
+                <tbody>
+                  <tr v-for="state in revocationPolicy" :key="state.scheduleId">
+                    <td>{{ state.scheduleId }}</td>
+                    <td><span class="ops__badge" :class="state.mode === 'ENABLED' ? 'is-ok' : 'is-warn'">{{ state.mode }}</span></td>
+                    <td>{{ state.updatedBy }}</td>
+                    <td>{{ fmt(state.updatedAt) }}</td>
+                  </tr>
+                  <tr v-if="revocationPolicy.length === 0"><td colspan="4" class="ops__muted">还没有策略状态记录（首次启用后会建立基线）。</td></tr>
+                </tbody>
+              </table>
+              <p class="ops__muted">该状态是后端 policy asset 的镜像；两侧不一致会让引擎 readiness fail closed。</p>
+            </article>
+            <article class="ops__card ops__card--wide">
+              <h3>发起撤销</h3>
+              <div class="ops__inline-form">
+                <label class="ops__field"><span>Schedule</span>
+                  <select v-model="revocationForm.scheduleId">
+                    <option v-for="scheduleId in REVOCATION_SCHEDULES" :key="scheduleId" :value="scheduleId">{{ scheduleId }}</option>
+                  </select>
+                </label>
+                <label class="ops__field"><span>原因</span>
+                  <select v-model="revocationForm.reasonCode">
+                    <option v-for="reason in REVOCATION_REASONS" :key="reason.value" :value="reason.value">{{ reason.label }}</option>
+                  </select>
+                </label>
+                <label class="ops__field"><span>备注</span><input v-model="revocationForm.note" maxlength="300" placeholder="为什么撤销（会记入审计）" /></label>
+                <button type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy" @click="createRevocation">发起撤销</button>
+              </div>
+              <p class="ops__muted">撤销按 schedule 生效、当前不可重开；操作员发起的请求立即投递，自动来源的请求需在下方确认。只有三个有 egress 的 schedule 可撤销。</p>
+            </article>
+            <article class="ops__card ops__card--wide">
+              <h3>撤销请求</h3>
+              <table class="ops__table">
+                <thead><tr><th>创建</th><th>Schedule</th><th>原因 / 来源</th><th>状态</th><th>序列</th><th>ACK / 错误</th><th></th></tr></thead>
+                <tbody>
+                  <tr v-for="row in revocationRows" :key="row.id">
+                    <td>{{ fmt(row.createdAt) }}</td>
+                    <td>{{ row.scheduleId }}</td>
+                    <td>{{ row.reasonCode }}<br /><small class="ops__muted">{{ row.source }} · {{ row.requestedBy }}</small></td>
+                    <td><span class="ops__badge" :class="revocationBadge(row.state)">{{ row.state }}</span></td>
+                    <td>{{ row.fenceSequence }}</td>
+                    <td class="ops__json">{{ row.state === 'ACKED' ? `receipt ${row.ackReceiptId} · generation ${row.ackGeneration} · in-flight ${row.ackInFlightAttempts}` : (row.lastError || '—') }}</td>
+                    <td class="ops__row-actions">
+                      <button v-if="row.state === 'PENDING_CONFIRMATION'" type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy" @click="confirmRevocation(row.id, row.scheduleId)">确认投递</button>
+                      <button v-if="['PENDING_CONFIRMATION', 'BLOCKED', 'STORED_STATE_CONFLICT'].includes(row.state)" type="button" class="ops__btn" :disabled="!!revocationBusy" @click="cancelRevocation(row.id, row.scheduleId)">取消</button>
+                    </td>
+                  </tr>
+                  <tr v-if="revocationRows.length === 0"><td colspan="7" class="ops__muted">还没有撤销请求。上方可对三个有 egress 的 schedule 发起撤销。</td></tr>
                 </tbody>
               </table>
             </article>
