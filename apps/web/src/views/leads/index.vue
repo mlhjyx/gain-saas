@@ -14,6 +14,8 @@ import {
   type LeadQueueCounts,
 } from '#/api/gainos';
 
+import DecisionMakerCard from './DecisionMakerCard.vue';
+
 defineOptions({ name: 'Leads' });
 
 const route = useRoute();
@@ -675,6 +677,12 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             <p v-else class="ld__muted">{{ $t('gainos.leads.noContactPath') }}</p>
             <p class="ld__muted">{{ $t('gainos.leads.contactPathNote') }}</p>
           </div>
+
+          <!-- 决策人（联系人挖掘 M4）：具名联系人 + 联系方式状态 + 证据；仅管理员身份可读。 -->
+          <DecisionMakerCard
+            v-if="isAdmin && pkg.company.canonical_company_id"
+            :company-id="pkg.company.canonical_company_id"
+          />
 
           <div class="ld__block" :class="{ 'is-warn': sanctionBlocked(pkg.sanctions?.status) }">
             <h3>{{ $t('gainos.leads.sanctionsTitle') }}</h3>

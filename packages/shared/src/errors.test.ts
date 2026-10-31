@@ -29,4 +29,11 @@ describe('copyForError', () => {
     expect(copyForError('OUTREACH_DRAFT_UNGROUNDED').title).toContain('事实校验');
     expect(copyForError('OUTREACH_DRAFT_VERSION_CONFLICT').title).toContain('版本冲突');
   });
+
+  it('联系人挖掘的合规/前置错误码有登记', () => {
+    expect(copyForError('CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED').title).toContain('合法性依据');
+    expect(copyForError('NO_DOMAIN').why).toContain('域名');
+    expect(copyForError('NO_PROVIDER').title).toContain('验证服务');
+    expect(copyForError('EXECUTION_BUDGET_AUTHORITY_REVOKED').title).toContain('撤销');
+  });
 });

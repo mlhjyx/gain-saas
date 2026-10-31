@@ -19,6 +19,23 @@ export interface EngineCallResult {
   headers: Record<string, string>;
 }
 
+/**
+ * 引擎业务域内的 403(不是「SaaS↔引擎授权未就绪」):要求用户补一个产品前提或刷新重试,
+ * 页面上应给可执行的说明,不能折算成 502 的对接未就绪文案。
+ * - 联系人发现缺 lawfulBasis:引擎在消费预算前就拒绝;
+ * - 执行预算 Grant 的作用域/撤销拒绝:quote 与业务请求不一致或平台已撤销。
+ */
+const DOMAIN_FORBIDDEN_CODES: ReadonlySet<string> = new Set([
+  'CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED',
+  'EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH',
+  'EXECUTION_BUDGET_AUTHORITY_REVOKED',
+]);
+
+function engineErrorCode(engineBody: unknown): string {
+  const code = (engineBody as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === 'string' ? code : 'UNKNOWN';
+}
+
 @Injectable()
 export class EngineHttp {
   private readonly logger = new Logger(EngineHttp.name);
@@ -93,7 +110,7 @@ export class EngineHttp {
     const err = (engineBody as { error?: { code?: string; message?: string } } | null)?.error;
     const code = err?.code ?? 'UNKNOWN';
     let copy = copyForError(code);
-    if (status === 401 || status === 403) {
+    if ((status === 401 || status === 403) && !DOMAIN_FORBIDDEN_CODES.has(code)) {
       // 引擎对我们的服务身份说 401/403 = SaaS↔引擎授权未就绪(角色映射/JWKS 未配),
       // 绝不代表「用户会话失效」——必须给出可理解的降级说明,而不是让前端登出用户。
       copy = {
@@ -110,10 +127,14 @@ export class EngineHttp {
 
   /**
    * 引擎错误码 → 对客户端的状态码。
-   * 引擎 401/403 一律折算成 502(上游不可用),使前端不会把「引擎未授权」误判为「用户会话过期」而登出。
+   * 引擎 401/403 折算成 502(上游不可用),使前端不会把「引擎未授权」误判为「用户会话过期」而登出。
+   * 例外:业务域 403(见 DOMAIN_FORBIDDEN_CODES)保留为 403,让页面展示可执行的合规提示。
    */
-  toClientStatus(engineStatus: number): number {
-    if (engineStatus === 401 || engineStatus === 403) return 502;
-    return engineStatus;
+  toClientStatus(engineStatus: number, engineBody?: unknown): number {
+    if (engineStatus !== 401 && engineStatus !== 403) return engineStatus;
+    if (engineBody !== undefined && DOMAIN_FORBIDDEN_CODES.has(engineErrorCode(engineBody))) {
+      return engineStatus;
+    }
+    return 502;
   }
 }

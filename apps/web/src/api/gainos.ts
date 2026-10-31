@@ -99,6 +99,91 @@ export interface Lead {
   company?: LeadCompanySummary | null;
 }
 
+/** 联系方式状态（引擎 contact_point.status；BLOCKED 是验证时合规门拦截的结果，也会回写状态）。 */
+export type ContactPointStatus = 'UNVERIFIED' | 'VALID' | 'RISKY' | 'INVALID' | 'BLOCKED' | string;
+
+export interface CanonicalContactPoint {
+  id: string;
+  type: 'email' | 'phone' | 'linkedin' | 'external_id' | string;
+  value: string;
+  status: ContactPointStatus;
+  verifiedAt?: string | null;
+}
+
+/** 决策人（具名联系人）：引擎 canonical_contact，姓名/职位/部门 + 联系方式。 */
+export interface CanonicalContact {
+  id: string;
+  companyId?: string;
+  fullName: string;
+  title?: string | null;
+  seniority?: string | null;
+  department?: string | null;
+  createdAt?: string;
+  contactPoints?: CanonicalContactPoint[];
+}
+
+/** 字段级证据：来源页/时间/许可都在这（联系人证据按 entityId = 联系人 id 关联）。 */
+export interface ContactEvidence {
+  id?: string;
+  entityType?: 'company' | 'contact' | string;
+  entityId: string;
+  field: string;
+  value?: Record<string, unknown> | null;
+  providerKey?: string;
+  license?: string;
+  sourceUrl?: string | null;
+  fetchedAt?: string;
+  allowedActions?: string[] | null;
+}
+
+export interface CanonicalCompanyDetail {
+  company: {
+    id: string;
+    name?: string | null;
+    domain?: string | null;
+    country?: string | null;
+    status?: string;
+    contacts?: CanonicalContact[];
+  };
+  evidence: ContactEvidence[];
+}
+
+/** GDPR Art.6 的合法性基础；发现决策人必须显式给出，猜测/验证人名邮箱同理。 */
+export type LawfulBasisKind = 'legitimate_interest' | 'consent' | 'contract' | 'legal_obligation';
+
+export interface ContactComplianceInput {
+  lawfulBasis: LawfulBasisKind;
+  lawfulBasisRef?: string;
+  lawfulBasisNote?: string;
+}
+
+export interface DiscoverContactsResult {
+  contacts: CanonicalContact[];
+  skippedSuppressed?: number;
+  skippedInvalid?: number;
+  diagnostics?: Record<string, number>;
+}
+
+export interface GuessEmailsResult {
+  emaillessContacts: number;
+  attempted: number;
+  persisted: number;
+  verified: number;
+  unverified: number;
+  blocked: number;
+  perContact: Array<{ fullName: string; status: string; email: string | null; pointStatus: string | null }>;
+}
+
+export interface VerifyContactPointResult extends CanonicalContactPoint {
+  verification?: {
+    status: string;
+    detail?: string | null;
+    kind?: string | null;
+    providerKey?: string;
+    lawfulBasis?: unknown;
+  };
+}
+
 export interface LeadOutcomeInput {
   relevance?: number;
   willingToContact?: boolean;
@@ -354,6 +439,15 @@ export const gainosApi = {
     requestClient.get<CompanyConflict[]>(`/companies/${companyId}/conflicts`, { params: { status: 'OPEN' } }),
   resolveConflict: (conflictId: string, keep: 'a' | 'b') =>
     requestClient.post<CompanyConflict>(`/conflicts/${conflictId}/resolve`, { keep }),
+  // ── 决策人（联系人挖掘 M4；引擎只对管理员身份的 compliance:manage 放行）──
+  canonicalCompany: (companyId: string) =>
+    requestClient.get<CanonicalCompanyDetail>(`/canonical-companies/${companyId}`),
+  discoverContacts: (companyId: string, input: ContactComplianceInput) =>
+    requestClient.post<DiscoverContactsResult>(`/canonical-companies/${companyId}/discover-contacts`, input),
+  guessEmails: (companyId: string, input: ContactComplianceInput & { maxContacts?: number; maxProbe?: number }) =>
+    requestClient.post<GuessEmailsResult>(`/canonical-companies/${companyId}/guess-emails`, input),
+  verifyContactPoint: (pointId: string, input?: ContactComplianceInput) =>
+    requestClient.post<VerifyContactPointResult>(`/contact-points/${pointId}/verify`, input ?? {}),
   leads: (params: { icpId?: string; queue?: string; status?: string; limit?: number } = {}) =>
     requestClient.get<Lead[]>('/leads', { params }),
   leadPackage: (leadId: string) => requestClient.get<LeadPackage>(`/leads/${leadId}/package`),

@@ -628,6 +628,85 @@
     },
     "reasonSelect": "Choose a reason"
   },
+  "contacts": {
+    "title": "Decision makers",
+    "subtitle": "Named contacts are personal data. RISKY or inferred e-mails are not guaranteed; verify before sending.",
+    "discover": "Discover contacts",
+    "guess": "Guess e-mails",
+    "verify": "Verify e-mail",
+    "emptyTitle": "No decision makers yet",
+    "emptyDesc": "Discovery shows name, title, department and contact points, with source links and evidence timestamps.",
+    "emptyCta": "Discover contacts",
+    "roleUnknown": "No title recorded",
+    "noPoints": "No contact points",
+    "source": "Sources",
+    "sourceUnknown": "No source recorded",
+    "scopeHint": "Decision-maker data needs the engine's personal-data:read grant. Until it is enabled the card stays read-only; ask operations to confirm the engine release and grant.",
+    "missingEmail": "{count} decision makers still have no e-mail. Use “Guess e-mails” to infer and verify from the company e-mail pattern.",
+    "type": {
+      "email": "E-mail",
+      "phone": "Phone",
+      "linkedin": "LinkedIn"
+    },
+    "status": {
+      "VALID": "Verified (VALID)",
+      "RISKY": "Unconfirmed (RISKY)",
+      "PROBABLE": "Inferred (PROBABLE)",
+      "BLOCKED": "Blocked (BLOCKED)",
+      "INVALID": "Invalid (INVALID)",
+      "UNVERIFIED": "Unverified (UNVERIFIED)"
+    },
+    "seniority": {
+      "c_level": "C-level",
+      "vp": "VP",
+      "director": "Director",
+      "manager": "Manager",
+      "staff": "Staff"
+    },
+    "layer": {
+      "public-index": "Search snippet",
+      "public-archive": "Historical archive",
+      "public-page": "Public page",
+      "derived": "Inferred",
+      "public": "Public source",
+      "licensed": "Licensed source",
+      "byo": "Your own data",
+      "sandbox": "Sandbox",
+      "unknown": "Source not recorded"
+    },
+    "discoverTitle": "Discover decision makers",
+    "discoverDesc": "The engine looks through the website, registries, trade fairs and social sources for named contacts. This can take several minutes and consumes execution budget.",
+    "guessTitle": "Guess e-mails",
+    "guessDesc": "Infers e-mail addresses from the company pattern and runs an SMTP handshake for decision makers without one. Inferred results may stay unconfirmed and consume execution budget.",
+    "verifyTitle": "Verify e-mail",
+    "verifyDesc": "Runs one SMTP handshake against {email}; the result is written back to the contact point.",
+    "riskyWarning": "This e-mail is RISKY or inferred; verification may still not confirm it.",
+    "acknowledge": "I understand this e-mail is uncertain and still want to verify it",
+    "lawfulBasis": "Lawful basis",
+    "lawfulBasisPlaceholder": "Choose a basis",
+    "lawfulBasisRef": "Basis reference",
+    "lawfulBasisRefPlaceholder": "LIA / ticket / contract reference (auditable)",
+    "lawfulBasisNote": "Note",
+    "noBasis": "Discovering or probing named contacts requires an explicit lawful basis; without one the engine refuses before writing any data.",
+    "basis": {
+      "legitimate_interest": "Legitimate interest (LIA done)",
+      "consent": "Consent",
+      "contract": "Contract necessity",
+      "legal_obligation": "Legal obligation"
+    },
+    "basisHint": {
+      "legitimate_interest": "For B2B outreach: requires a completed LIA; put its reference into “Basis reference”.",
+      "consent": "Only when the person has explicitly consented; cite the consent record.",
+      "contract": "Contact is necessary to perform an existing contract; cite the contract.",
+      "legal_obligation": "Contact or verification is legally required; cite the statute or ticket."
+    },
+    "submit": "Continue",
+    "submitting": "Working…",
+    "discoverDone": "Discovery finished; {count} decision makers are now available.",
+    "guessDone": "E-mail guessing finished: {attempted} attempted, {persisted} stored, {verified} verified.",
+    "verifyDone": "Verification finished: {status}.",
+    "verifyBlocked": "Verification was blocked by the compliance gate (BLOCKED); no probe was sent."
+  },
   "reports": {
     "kicker": "Coming in M4",
     "title": "Weekly report",

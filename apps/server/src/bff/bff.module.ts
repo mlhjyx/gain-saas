@@ -110,7 +110,7 @@ export class BffHandler {
       });
       if (result.status >= 400) {
         // 引擎 401/403 折算 502:不能让上游授权问题触发前端「会话过期」登出
-        const clientStatus = this.engine.toClientStatus(result.status);
+        const clientStatus = this.engine.toClientStatus(result.status, result.body);
         res.status(clientStatus).json(this.engine.toClientError(result.status, result.body));
         return;
       }
