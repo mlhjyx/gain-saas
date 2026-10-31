@@ -1,5 +1,5 @@
 import { createPublicKey, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLocalJWKSet, decodeProtectedHeader, exportJWK, jwtVerify } from 'jose';
@@ -49,7 +49,7 @@ async function fixture(overrides: Partial<AppConfig> = {}) {
   const findUnique = vi.fn().mockResolvedValue(null);
   const create = vi.fn().mockResolvedValue({});
   const prisma = { r4PlatformGrant: { findUnique, create } } as unknown as PrismaService;
-  return { issuer: new PlatformGrantIssuer(config, prisma), config, pkJwks: { keys: [{ ...jwk, kid: 'budget-test', alg: 'RS256', use: 'sig' }] }, findUnique, create };
+  return { issuer: new PlatformGrantIssuer(config, prisma), config, binding, pkJwks: { keys: [{ ...jwk, kid: 'budget-test', alg: 'RS256', use: 'sig' }] }, findUnique, create };
 }
 
 const request = (overrides: Partial<PlatformGrantRequest> = {}): PlatformGrantRequest => ({
@@ -65,6 +65,15 @@ const request = (overrides: Partial<PlatformGrantRequest> = {}): PlatformGrantRe
 });
 
 describe('平台运行 Grant 签发', () => {
+  it('部署绑定显式撤销后拒绝签发新 Grant', async () => {
+    const { issuer, binding } = await fixture();
+    const parsed = JSON.parse(readFileSync(binding, 'utf8')) as Record<string, unknown>;
+    writeFileSync(binding, JSON.stringify({ ...parsed, revokedAt: new Date(NOW).toISOString() }));
+    await expect(issuer.issue(request(), NOW)).rejects.toMatchObject({
+      code: 'PLATFORM_GRANT_BINDING_REVOKED',
+    });
+  });
+
   it('header 与 21 个 claims 与引擎校验器逐字一致', async () => {
     const { issuer, pkJwks } = await fixture();
     const { token, expiresAt } = await issuer.issue(request(), NOW);

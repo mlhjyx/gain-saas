@@ -132,6 +132,21 @@ const schema = z.object({
   // 只接受这个客户端证书 CN 的 mTLS 调用（平台 worker）
   R4_PLATFORM_GRANT_CLIENT_SUBJECT: z.string().default('global-backend-platform-worker'),
   R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // 进程角色：worker.ts 在建 Nest 上下文前注入 worker；投递循环只在 web 进程运行，
+  // 避免 worker（若启用）与 web 同时推进同一个撤销请求。
+  PROCESS_ROLE: z.enum(['web', 'worker']).default('web'),
+  // P9 撤销自动触发（默认关闭）。开启后才有策略状态同步、绑定撤销监视与投递循环。
+  R4_REVOCATION_TRIGGER_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // 自动来源（政策停用/绑定撤销）的请求是否免人工确认直接投递。
+  // 受审计重开路径就绪前保持 false（设计 D4）；操作员发起的请求不受此开关影响。
+  R4_REVOCATION_AUTO_CONFIRM: z.string().default('false').transform((v) => v === 'true'),
+  // 三个有 egress 的 schedule 的策略状态镜像（必须与后端 policy asset 的 desired_mode
+  // 同窗口一致；不一致时引擎 capability 校验失败并 fail closed）。
+  R4_PLATFORM_POLICY_MODES: z
+    .string()
+    .default('{"acq-sweep":"ENABLED","intent-sweep":"ENABLED","sanctions-refresh":"ENABLED"}'),
+  // 撤销 target 的候选上限：只在该 schedule 最近 N 张未过期的 Grant 里找 locator。
+  R4_REVOCATION_MAX_TARGET_CANDIDATES: z.coerce.number().int().min(1).max(32).default(8),
 });
 
 export type AppConfig = z.infer<typeof schema>;

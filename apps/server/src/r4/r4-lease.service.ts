@@ -3,6 +3,7 @@ import { PrismaService } from '../shared/prisma.service.js';
 import { PLATFORM_SCHEDULES } from './contracts/r4-wire-contracts.js';
 import { toConsumerFact, type BacklogSnapshot, type LeaseSnapshot } from './lease-facts.js';
 import type { RevocationBacklogProbe, RevocationConsumerFact } from './platform-facts.service.js';
+import { BACKLOG_REQUEST_STATES } from './platform-revocation.service.js';
 
 /**
  * 撤销消费者租约（P6）。
@@ -66,16 +67,20 @@ export class R4LeaseService implements RevocationBacklogProbe {
     return facts;
   }
 
+  /**
+   * 积压 = 没有拿到真实 ACK 的**逻辑撤销请求**（P9 起读 r4_revocation_request）。
+   * 刻意不计 PENDING_CONFIRMATION（等待人工确认的刻意门）与 NO_LIVE_TARGET（已解决）；
+   * PENDING / BLOCKED / STORED_STATE_CONFLICT 都算未交付，超过 30 秒即关闭 capability。
+   */
   private async backlog(scheduleId: string, now: number): Promise<BacklogSnapshot> {
-    const pending = await this.prisma.r4RevocationOutbox.findMany({
-      where: { scheduleId, state: 'PENDING' },
+    const where = { scheduleId, state: { in: [...BACKLOG_REQUEST_STATES] } };
+    const pending = await this.prisma.r4RevocationRequest.findMany({
+      where,
       orderBy: { createdAt: 'asc' },
       take: 1,
       select: { createdAt: true },
     });
-    const count = await this.prisma.r4RevocationOutbox.count({
-      where: { scheduleId, state: 'PENDING' },
-    });
+    const count = await this.prisma.r4RevocationRequest.count({ where });
     return {
       pending: count,
       oldestCreatedAt: pending[0] ? pending[0].createdAt.getTime() : null,

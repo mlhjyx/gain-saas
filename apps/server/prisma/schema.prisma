@@ -371,3 +371,91 @@ model R4PlatformGrant {
   @@index([scheduleId, createdAt])
   @@map("r4_platform_grant")
 }
+
+/// 平台撤销的**逻辑请求**(P9 自动触发)。一个请求 = 一次「关闭某个 schedule」的意图;
+/// 可能有多次追加式尝试(attempt),但 fence_sequence 在请求创建时一次分配、不再变。
+/// state 语义:
+///  - PENDING_CONFIRMATION: 自动来源(政策停用/绑定撤销)在受审计重开路径就绪前等待操作员确认
+///  - PENDING: 待投递或投递中(delivery_unknown=true 表示至少一次结果未知,仍以原字节重试)
+///  - ACKED / NO_LIVE_TARGET / BLOCKED / STORED_STATE_CONFLICT / CANCELLED: 终态
+/// CANCELLED 只允许从 PENDING_CONFIRMATION(从未投递)或 BLOCKED/STORED_STATE_CONFLICT(确定性未提交)
+/// 进入,绝不允许从 PENDING(可能已提交)取消。
+model R4RevocationRequest {
+  id                  String    @id @default(uuid()) @db.Uuid
+  scheduleId          String    @map("schedule_id")
+  reasonCode          String    @map("reason_code")
+  source              String
+  requestedBy         String    @map("requested_by")
+  note                String?
+  dedupeKey           String?   @unique @map("dedupe_key")
+  state               String    @default("PENDING")
+  deliveryUnknown     Boolean   @default(false) @map("delivery_unknown")
+  fenceSequence       BigInt    @map("fence_sequence")
+  confirmedBy         String?   @map("confirmed_by")
+  confirmedAt         DateTime? @map("confirmed_at")
+  nextAttemptAt       DateTime? @map("next_attempt_at")
+  attemptCount        Int       @default(0) @map("attempt_count")
+  ackReceiptId        String?   @map("ack_receipt_id") @db.Uuid
+  ackGeneration       BigInt?   @map("ack_generation")
+  ackCommittedAt      DateTime? @map("ack_committed_at")
+  ackInFlightAttempts BigInt?   @map("ack_in_flight_attempts")
+  ackSha256           String?   @map("ack_sha256")
+  lastError           String?   @map("last_error")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  attempts            R4RevocationAttempt[]
+
+  @@unique([scheduleId, fenceSequence], map: "r4_revocation_request_schedule_sequence_key")
+  @@index([state, nextAttemptAt], map: "r4_revocation_request_state_next_attempt_idx")
+  @@index([scheduleId, createdAt], map: "r4_revocation_request_schedule_created_idx")
+  @@map("r4_revocation_request")
+}
+
+/// 追加式投递尝试(P9)。每次签名都落库:command_jws 用于**原字节重放**,
+/// 结果只能由后端确定性响应或已验签 ACK 推进,缺 ACK 一律保持未决。
+model R4RevocationAttempt {
+  id            String   @id @default(uuid()) @db.Uuid
+  requestId     String   @map("request_id") @db.Uuid
+  ordinal       Int
+  commandJws    String   @map("command_jws")
+  commandSha256 String   @map("command_sha256")
+  revocationJti String   @unique @map("revocation_jti") @db.Uuid
+  targetIssuer  String   @map("target_issuer")
+  targetJti     String   @map("target_jti") @db.Uuid
+  workflowRunId String   @map("workflow_run_id") @db.Uuid
+  fenceSequence BigInt   @map("fence_sequence")
+  issuedAt      DateTime @map("issued_at")
+  expiresAt     DateTime @map("expires_at")
+  outcome       String?
+  httpStatus    Int?     @map("http_status")
+  errorCode     String?  @map("error_code")
+  ackSha256     String?  @map("ack_sha256")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  request       R4RevocationRequest @relation(fields: [requestId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "r4_revocation_attempt_request_fkey")
+
+  @@unique([requestId, ordinal], map: "r4_revocation_attempt_request_ordinal_key")
+  @@map("r4_revocation_attempt")
+}
+
+/// 平台策略状态的持久镜像(P9)。配置(R4_PLATFORM_POLICY_MODES)是期望值:
+/// 首次见到某个 schedule 只建立基线;ENABLED→DISABLED 才产生撤销请求;
+/// DISABLED→ENABLED 只记录,不重开围栏(重开是后端的受审计路径)。
+model R4PlatformPolicyState {
+  scheduleId String   @id @map("schedule_id")
+  mode       String   @default("ENABLED")
+  revision   String?
+  updatedBy  String   @map("updated_by")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("r4_platform_policy_state")
+}
+
+/// 每 schedule 的撤销序列号计数器(P9)。fence_sequence 必须严格大于后端当前值,
+/// 由权威方持久分配;请求创建时取走一个号,未决请求也占用自己的号。
+model R4RevocationSequence {
+  scheduleId String @id @map("schedule_id")
+  nextValue  BigInt @default(1) @map("next_value")
+
+  @@map("r4_revocation_sequence")
+}

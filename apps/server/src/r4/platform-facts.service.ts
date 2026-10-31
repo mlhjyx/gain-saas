@@ -83,9 +83,12 @@ export class PlatformFactsService {
     } catch (error) {
       throw new PlatformFactsUnavailable(`部署绑定不可读: ${(error as Error).message}`);
     }
-    const binding = raw as Partial<DeploymentBinding>;
+    const binding = raw as Partial<DeploymentBinding> & { revokedAt?: unknown };
     if (typeof binding.backendSha !== 'string' || !/^[0-9a-f]{7,40}$/.test(binding.backendSha))
       throw new PlatformFactsUnavailable('部署绑定缺少合法的 backendSha');
+    // 显式撤销：capability 必须 fail closed（撤销请求由 gain-saas 的监视器签发）。
+    if (Number.isFinite(bindingInstant(binding.revokedAt)))
+      throw new PlatformFactsUnavailable('部署绑定已被显式撤销');
     const validUntil = bindingInstant(binding.validUntil);
     if (Number.isNaN(validUntil)) throw new PlatformFactsUnavailable('部署绑定缺少合法的 validUntil');
     if (validUntil <= now) throw new PlatformFactsUnavailable('部署绑定已过期');

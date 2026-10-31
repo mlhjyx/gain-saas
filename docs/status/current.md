@@ -5,6 +5,10 @@
 > 事实来源:本页为主;代码与 PRD/技术方案冲突时以代码 + 评审为准
 > 最后更新:2026-11-01
 
+## P9 平台撤销自动触发(2026-11-01,已实现,默认关闭)
+
+撤销链的发起方已补齐:政策停用(`R4_PLATFORM_POLICY_MODES` 镜像 + `r4_platform_policy_state`)、部署绑定显式撤销(`revokedAt`)、运营台「平台撤销」页。模型为逻辑请求 + 追加式尝试:同一命令原字节重放,ACK 验签后才记成功,缺 ACK 不判未提交,`SEQUENCE_CONFLICT` 停住等人工;没有 live Grant 时记 `NO_LIVE_TARGET`(不挂起、不阻塞 capability)。Grant 签发与 capability 在策略停用/未结撤销/绑定被显式撤销时 fail closed。**默认关闭**(`R4_REVOCATION_TRIGGER_ENABLED=false`、`R4_REVOCATION_AUTO_CONFIRM=false`),尚未部署、未做真实撤销实测;实现与运维说明见 [technical/r4-revocation-autotrigger.md](../technical/r4-revocation-autotrigger.md),设计见 global-backend `docs/superpowers/plans/2026-11-01-platform-revocation-autotrigger.md`。开启与实测待后端受审计重开路径就绪后单独窗口。
+
 ## 一页结论
 
 M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台与设置页已完成。系统运行在 **http://100.68.31.20:4020**，登录、成员管理、邀请加入均为真实链路;获客引擎授权对接已完成(`verify-engine-integration.mjs` 13/13),BFF 读接口已通。**执行预算 Grant 已迁到 gain-saas 并切换引擎信任根**;运营台 `/ops` 具备独立登录域、数据源 Kill Switch、监控源 CRUD、Temporal 调度、跨租户诊断、CSV 导出与审计。**内嵌模型网关已上线并切到运行链路**(DeepSeek,默认模型 `deepseek-flash`);站点构建 settlement 读回透明代理到 new-api,客户 worker READY。

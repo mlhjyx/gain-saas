@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { SignJWT, importPKCS8 } from 'jose';
@@ -6,6 +6,12 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { PLATFORM_SCHEDULES, type PlatformScheduleId } from './contracts/r4-wire-contracts.js';
+import { bindingInstant } from './platform-facts.service.js';
+import {
+  PlatformPolicyDenied,
+  PLATFORM_POLICY_GUARD,
+  type PlatformGrantPolicyGuard,
+} from './platform-policy-state.service.js';
 
 /**
  * 平台运行 Grant 的持久签发（P7 后的准入 v2）。
@@ -81,6 +87,8 @@ export class PlatformGrantIssuer {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly prisma: PrismaService,
+    // 策略门可选：单测直接构造时不注入；Nest 下由 R4Module 提供。
+    @Optional() @Inject(PLATFORM_POLICY_GUARD) private readonly policy?: PlatformGrantPolicyGuard | null,
   ) {}
 
   private async key(): Promise<CryptoKey> {
@@ -132,12 +140,16 @@ export class PlatformGrantIssuer {
   private assertBindingValid(scheduleId: PlatformScheduleId, now: number): void {
     const file = this.config.R4_DEPLOYMENT_BINDING_FILE;
     if (!file) throw new PlatformGrantRejected('PLATFORM_GRANT_BINDING_UNAVAILABLE', '未配置部署绑定文件');
-    let binding: { validUntil?: unknown; scheduleActions?: unknown };
+    let binding: { validUntil?: unknown; scheduleActions?: unknown; revokedAt?: unknown };
     try {
       binding = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
       throw new PlatformGrantRejected('PLATFORM_GRANT_BINDING_UNAVAILABLE', '部署绑定不可读');
     }
+    // 显式撤销与自然过期语义不同：撤销一出现就停发新 Grant（撤销请求由监视器另行发起）。
+    const revokedAt = bindingInstant(binding.revokedAt);
+    if (Number.isFinite(revokedAt))
+      throw new PlatformGrantRejected('PLATFORM_GRANT_BINDING_REVOKED', '部署绑定已被显式撤销');
     const validUntil =
       typeof binding.validUntil === 'number'
         ? binding.validUntil
@@ -177,8 +189,21 @@ export class PlatformGrantIssuer {
       throw new PlatformGrantRejected('PLATFORM_GRANT_CAP_EXCEEDED', `超过该 schedule 的金额上限: ${ceiling}`);
   }
 
+  /** 纵深防御：策略停用或有未结撤销请求时拒绝新 Grant（引擎 readiness 也会挡住）。 */
+  private async assertPolicy(scheduleId: string): Promise<void> {
+    if (!this.policy) return;
+    try {
+      await this.policy.assertIssuable(scheduleId);
+    } catch (error) {
+      if (error instanceof PlatformPolicyDenied)
+        throw new PlatformGrantRejected(error.code, error.message);
+      throw error;
+    }
+  }
+
   async issue(request: PlatformGrantRequest, now = Date.now()): Promise<IssuedPlatformGrant> {
     this.validate(request, now);
+    await this.assertPolicy(request.scheduleId);
     const existing = await this.prisma.r4PlatformGrant.findUnique({
       where: { workflowRunId: request.workflowRunId },
     });
