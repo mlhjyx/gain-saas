@@ -19,7 +19,15 @@ export interface DeploymentBinding {
   backendSha: string;
   growthosSha?: string;
   policyDigest?: string;
-  validUntil: string;
+  /** 运维工具生成的时间戳是 epoch 毫秒（与引擎绑定同源），也接受 ISO 字符串。 */
+  validUntil: number | string;
+}
+
+/** 绑定文件里的时间既可能是 epoch 毫秒也可能是 ISO 字符串，统一折算成毫秒。 */
+export function bindingInstant(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') return Date.parse(value);
+  return Number.NaN;
 }
 
 export interface TemporalScheduleFact {
@@ -78,10 +86,9 @@ export class PlatformFactsService {
     const binding = raw as Partial<DeploymentBinding>;
     if (typeof binding.backendSha !== 'string' || !/^[0-9a-f]{7,40}$/.test(binding.backendSha))
       throw new PlatformFactsUnavailable('部署绑定缺少合法的 backendSha');
-    if (typeof binding.validUntil !== 'string' || Number.isNaN(Date.parse(binding.validUntil)))
-      throw new PlatformFactsUnavailable('部署绑定缺少合法的 validUntil');
-    if (Date.parse(binding.validUntil) <= now)
-      throw new PlatformFactsUnavailable('部署绑定已过期');
+    const validUntil = bindingInstant(binding.validUntil);
+    if (Number.isNaN(validUntil)) throw new PlatformFactsUnavailable('部署绑定缺少合法的 validUntil');
+    if (validUntil <= now) throw new PlatformFactsUnavailable('部署绑定已过期');
     return binding as DeploymentBinding;
   }
 
@@ -95,7 +102,7 @@ export class PlatformFactsService {
     if (!backlog) throw new PlatformFactsUnavailable('撤销消费者事实不可用');
 
     const byId = new Map(backlog.map((row) => [row.scheduleId, row]));
-    const validUntil = Math.min(Date.parse(binding.validUntil), now + FACT_WINDOW_MS);
+    const validUntil = Math.min(bindingInstant(binding.validUntil), now + FACT_WINDOW_MS);
     const observations = schedules.map((schedule) => {
       const consumer = byId.get(schedule.scheduleId);
       if (!consumer) throw new PlatformFactsUnavailable(`缺少消费者事实: ${schedule.scheduleId}`);

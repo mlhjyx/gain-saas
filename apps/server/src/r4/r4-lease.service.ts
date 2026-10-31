@@ -11,7 +11,11 @@ import type { RevocationBacklogProbe, RevocationConsumerFact } from './platform-
  * 「ACTIVE 且心跳 ≤30 秒」的租约。这样能力签发与「撤销确实有人消费」绑在一起，
  * 和 GrowthOS 的语义一致。
  */
-export const LEASE_TTL_MS = 10_000;
+// consumer 事实的 validUntil = lastSeenAt + TTL。引擎每 10 秒刷新一次 capability，
+// 且只在 `now < row.validUntil` 时判 ok；TTL 取 20 秒才能盖住整个刷新周期
+// （10 秒会出现 up to 数秒的 TEMPORAL_PROOF_UNAVAILABLE 抖动）。上限由引擎的
+// 30 秒 consumer 窗口约束，不能超过。
+export const LEASE_TTL_MS = 20_000;
 
 @Injectable()
 export class R4LeaseService implements RevocationBacklogProbe {

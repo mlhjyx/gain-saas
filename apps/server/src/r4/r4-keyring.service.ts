@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { exportJWK, importPKCS8 } from 'jose';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
@@ -36,6 +37,8 @@ export class R4Keyring {
   private readonly publicKeys = new Map<R4KeyFamily, R4PublicJwk>();
   private readonly privateKeys = new Map<R4KeyFamily, CryptoKey>();
   private readonly unavailable = new Set<R4KeyFamily>();
+  /** 只验签、不签发的附加公钥（如 Temporal 运维 token 的 operator 钥）。 */
+  private readonly extraPublicKeys = new Map<R4KeyFamily, R4PublicJwk[]>();
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
@@ -59,6 +62,23 @@ export class R4Keyring {
       const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
       const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
       await this.importFamily(family, pem, `${family}-ephemeral`);
+    }
+    // 平台只从本服务的 temporal-runtime JWKS 取钥；运维 token 由 r4-pki 用
+    // operator 钥签发，公钥必须一起发布，否则 provision 与续期负例证明都会
+    // 「Request unauthorized」（P7 切换后的回归）。
+    const operatorFile = this.config.R4_TEMPORAL_OPERATOR_PUBLIC_KEY_FILE;
+    if (operatorFile && this.publicKeys.has('temporalRuntime')) {
+      const publicKey = createPublicKey(readFileSync(operatorFile));
+      const jwk = (await exportJWK(publicKey)) as JsonWebKey;
+      const extra: R4PublicJwk = {
+        kty: jwk.kty as string,
+        n: jwk.n as string,
+        e: jwk.e as string,
+        kid: this.config.R4_TEMPORAL_OPERATOR_KEY_ID,
+        alg: 'RS256',
+        use: 'sig',
+      };
+      this.extraPublicKeys.set('temporalRuntime', [extra]);
     }
   }
 
@@ -86,7 +106,7 @@ export class R4Keyring {
   publicJwks(family: R4KeyFamily): { keys: R4PublicJwk[] } {
     const jwk = this.publicKeys.get(family);
     if (!jwk) throw new Error(`R4 密钥族不可用: ${family}`);
-    return { keys: [jwk] };
+    return { keys: [jwk, ...(this.extraPublicKeys.get(family) ?? [])] };
   }
 
   privateKey(family: R4KeyFamily): CryptoKey {

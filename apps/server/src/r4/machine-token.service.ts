@@ -24,7 +24,9 @@ export type MachineTokenProfile =
   | 'capability-request'
   | 'temporal-platform-worker'
   | 'temporal-customer-worker'
-  | 'temporal-customer-client';
+  | 'temporal-customer-client'
+  // 平台上的 schedule 只读身份（GrowthOS reader 同一 subject：growthos-temporal-reader）
+  | 'temporal-reader';
 
 const CAPABILITY_AUDIENCE = 'platform-automation-capability-read';
 
@@ -32,6 +34,7 @@ const TEMPORAL_PERMISSIONS: Record<string, readonly string[]> = {
   'temporal-platform-worker': ['platform-automation:worker'],
   'temporal-customer-worker': ['default:worker'],
   'temporal-customer-client': ['default:read', 'default:write'],
+  'temporal-reader': ['platform-automation:read'],
 };
 
 export interface MachineTokenRequest {
@@ -66,11 +69,19 @@ export class MachineTokenService {
     if (request.profile !== 'capability-request' && !TEMPORAL_PERMISSIONS[request.profile])
       throw new Error(`未知 profile: ${request.profile}`);
 
-    const { key, kid } = this.keyring.signingKey('machine');
     const iat = Math.floor(now / 1000);
     const exp = iat + MACHINE_TOKEN_TTL_SECONDS;
     const capability = request.profile === 'capability-request';
-    const issuer = this.config.R4_MACHINE_TOKEN_ISSUER;
+    // temporal 侧 token 必须由平台信任的 temporalRuntime 钥族签发：引擎的
+    // TEMPORAL_MACHINE_JWKS_URI 与平台的 TEMPORAL_PLATFORM_JWKS_URI 都只抓
+    // /.well-known/temporal-runtime-jwks.json。capability 侧由 machine 钥族签发，
+    // 对应引擎 CAPABILITY_MACHINE_JWKS_URI = /.well-known/machine-jwks.json。
+    const { key, kid } = this.keyring.signingKey(capability ? 'machine' : 'temporalRuntime');
+    // 引擎逐字比对 iss：capability 用 CAPABILITY_MACHINE_ISSUER，temporal 用
+    // TEMPORAL_MACHINE_ISSUER，两者是不同字符串。
+    const issuer = capability
+      ? this.config.R4_CAPABILITY_MACHINE_ISSUER
+      : this.config.R4_MACHINE_TOKEN_ISSUER;
     const audience = capability
       ? CAPABILITY_AUDIENCE
       : this.config.R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE;

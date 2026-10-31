@@ -54,6 +54,10 @@ const schema = z.object({
   R4_CAPABILITY_KEY_ID: z.string().optional(),
   R4_TEMPORAL_RUNTIME_PRIVATE_KEY: z.string().optional(),
   R4_TEMPORAL_RUNTIME_KEY_ID: z.string().optional(),
+  // 运维 token（provision / 续期负例证明，r4-pki token 用 operator 钥签）的公钥。
+  // 平台只从 gain-saas 的 temporal-runtime JWKS 取钥，必须同时发布这把。
+  R4_TEMPORAL_OPERATOR_PUBLIC_KEY_FILE: z.string().optional(),
+  R4_TEMPORAL_OPERATOR_KEY_ID: z.string().default('temporal-operator-20260922'),
   R4_SITE_BUILD_BUDGET_PRIVATE_KEY: z.string().optional(),
   R4_SITE_BUILD_BUDGET_KEY_ID: z.string().optional(),
   R4_MACHINE_PRIVATE_KEY: z.string().optional(),
@@ -61,6 +65,9 @@ const schema = z.object({
   // 机器 token 签发（P2）：issuer/audience 必须与引擎 trust 逐字符一致；
   // subject 与 configurationRevision 由部署侧给出（迁移后在 P7 与 mTLS 身份对齐）。
   R4_MACHINE_TOKEN_ISSUER: z.string().default('https://127.0.0.1:18446/temporal-runtime'),
+  // capability 机器 token 的 iss：引擎用 CAPABILITY_MACHINE_ISSUER 逐字比对，与
+  // TEMPORAL_MACHINE_ISSUER（带 /temporal-runtime）不是同一个字符串。
+  R4_CAPABILITY_MACHINE_ISSUER: z.string().default('https://127.0.0.1:18444/'),
   R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE: z.string().default('global-backend:platform-temporal'),
   R4_MACHINE_SUBJECT: z.string().optional(),
   R4_MACHINE_CONFIGURATION_REVISION: z.string().optional(),
@@ -79,6 +86,8 @@ const schema = z.object({
   R4_FENCE_ACK_ISSUER: z.string().optional(),
   // egress 期望值文件（引擎容器内推导出的 JSONL，P3d）
   R4_EGRESS_EXPECTED_FILE: z.string().optional(),
+  // P8：从 GrowthOS 冻结过来的公钥 JWKS 目录（引擎三处遗留信任根改指向这里）
+  R4_LEGACY_JWKS_DIR: z.string().optional(),
   // R4 内部 TLS 监听（P5b）：配置后在同一进程上再起一个 mTLS 服务端，
   // 证书由 r4-pki 签发，引擎侧信任根不变。默认只绑回环。
   R4_TLS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
@@ -99,7 +108,10 @@ const schema = z.object({
   R4_TEMPORAL_TLS_CERT_FILE: z.string().optional(),
   R4_TEMPORAL_TLS_KEY_FILE: z.string().optional(),
   R4_TEMPORAL_TLS_CA_FILE: z.string().optional(),
-  R4_TEMPORAL_TOKEN_FILE: z.string().optional(),
+  // gRPC 主机名覆盖：reader 身份必须走 SNI temporal-platform-reader 才会被要求客户端证书
+  R4_TEMPORAL_SERVER_NAME: z.string().default('temporal-platform-reader'),
+  // 平台机器策略里 schedule 只读身份只有一个固定 subject（与 GrowthOS reader 共用）
+  R4_TEMPORAL_READER_SUBJECT: z.string().default('growthos-temporal-reader'),
   R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
 });
 

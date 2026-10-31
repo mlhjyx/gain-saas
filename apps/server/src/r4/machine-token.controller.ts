@@ -1,12 +1,4 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Inject,
-  Post,
-  Req,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, HttpCode, Inject, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import type { Request } from 'express';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
@@ -31,6 +23,7 @@ export class MachineTokenController {
   ) {}
 
   @Post()
+  @HttpCode(200)
   async issue(@Body() body: { profile?: unknown; nonce?: unknown }, @Req() req: Request) {
     if (typeof body?.profile !== 'string' || typeof body?.nonce !== 'string') {
       throw new BadRequestException({

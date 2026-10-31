@@ -76,7 +76,7 @@ export class CapabilityIssuer {
       namespace: this.config.R4_CAPABILITY_NAMESPACE,
       rows,
     })
-      .setProtectedHeader({ alg: 'RS256', kid, typ: 'JWT' })
+      .setProtectedHeader({ alg: 'RS256', kid, typ: 'platform-capability+jwt' })
       .setIssuer(this.config.R4_CAPABILITY_ISSUER)
       .setAudience(this.config.R4_CAPABILITY_AUDIENCE)
       .setIssuedAt(iat)
@@ -94,9 +94,11 @@ export class CapabilityIssuer {
         if (!Number.isSafeInteger(instant) || instant < 0)
           throw new Error(`${name} 必须是整数毫秒`);
       }
-      if (value.observedAt > issuedAtMs) throw new Error('事实观测晚于签发');
-      if (issuedAtMs - value.observedAt >= FACT_OBSERVATION_SKEW_MS)
-        throw new Error('事实必须在签发前 1 秒内观测');
+      // 引擎规则（platform-capability-rows.ts）：observedAt - issuedAt >= 1000
+      // 才拒绝，用于容忍 JWT 秒精度；早于签发观测不受限，但 validUntil 必须仍在
+      // 未来（由引擎 freshness 校验）。此处与引擎逐字对齐，不要反向实现。
+      if (value.observedAt - issuedAtMs >= FACT_OBSERVATION_SKEW_MS)
+        throw new Error('事实观测不能比签发晚 1 秒以上');
       if (value.validUntil <= value.observedAt) throw new Error('validUntil 必须晚于 observedAt');
       if (consumer && value.validUntil - value.observedAt > 30_000)
         throw new Error('revocationConsumer 的有效窗口不得超过 30 秒');

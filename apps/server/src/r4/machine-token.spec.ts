@@ -11,12 +11,16 @@ const NONCE = 'b'.repeat(32);
 const SUBJECT = 'global-backend-platform-worker';
 
 async function service(): Promise<{ service: MachineTokenService; keyring: R4Keyring }> {
-  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const machine = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
+  const temporal = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
   const config = {
     NODE_ENV: 'development',
-    R4_MACHINE_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    R4_MACHINE_PRIVATE_KEY: machine.export({ type: 'pkcs8', format: 'pem' }).toString(),
     R4_MACHINE_KEY_ID: 'machine-test',
+    R4_TEMPORAL_RUNTIME_PRIVATE_KEY: temporal.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    R4_TEMPORAL_RUNTIME_KEY_ID: 'temporal-test',
     R4_MACHINE_TOKEN_ISSUER: ISSUER,
+    R4_CAPABILITY_MACHINE_ISSUER: 'https://127.0.0.1:18446/',
     R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE: 'global-backend:platform-temporal',
   } as unknown as AppConfig;
   const keyring = new R4Keyring(config);
@@ -43,6 +47,7 @@ describe('机器 token 签发', () => {
     const { payload } = await jwtVerify(env.token, createLocalJWKSet(keyring.publicJwks('machine')));
     expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'jti', 'nbf', 'scope', 'sub']);
     expect(payload.aud).toBe('platform-automation-capability-read');
+    expect(payload.iss).toBe('https://127.0.0.1:18446/');
     expect(payload.scope).toBe('platform-automation-capability-read');
     expect(payload.exp! - payload.iat!).toBe(300);
     expect(String(payload.jti)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -52,11 +57,14 @@ describe('机器 token 签发', () => {
     ['temporal-platform-worker', ['platform-automation:worker']],
     ['temporal-customer-worker', ['default:worker']],
     ['temporal-customer-client', ['default:read', 'default:write']],
+    ['temporal-reader', ['platform-automation:read']],
   ] as const)('%s 的 permissions 与顺序固定', async (profile, permissions) => {
     const { service: s, keyring } = await service();
     const env = await s.issue({ profile, nonce: NONCE, subject: SUBJECT, configurationRevision: REVISION });
     expect(decodeProtectedHeader(env.token).typ).toBe('temporal-runtime+jwt');
-    const { payload } = await jwtVerify(env.token, createLocalJWKSet(keyring.publicJwks('machine')));
+    // 平台只抓 temporal-runtime JWKS，所以 temporal token 必须由 temporalRuntime 族签发。
+    expect(decodeProtectedHeader(env.token).kid).toBe('temporal-test');
+    const { payload } = await jwtVerify(env.token, createLocalJWKSet(keyring.publicJwks('temporalRuntime')));
     expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'jti', 'nbf', 'permissions', 'profile', 'sub']);
     expect(payload.profile).toBe(profile);
     expect(payload.permissions).toEqual([...permissions]);

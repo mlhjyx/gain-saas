@@ -1,9 +1,16 @@
 # P7：R4 切换清单（把平台权威从 GrowthOS 切到 gain-saas）
 
 > 文档 ID：`DOC-SAAS-TECH-R4-003`
-> 生命周期：`DRAFT`（执行前需产品负责人确认窗口）
+> 生命周期：`APPROVED`（产品负责人 2026-10-31 授权执行）
 > 制定日期：2026-10-31
 > 前提：P0–P6、P3d、P5b 已合并（gain-saas main），三个阶段决定已入档
+>
+> **执行状态（2026-10-31 18:15 UTC+8）**：第 1–4 步已完成并验收——
+> 平台 `TEMPORAL_PLATFORM_JWKS_URI` 已指向 gain-saas（密钥延续，零停机），引擎三份
+> env 的 5 个键已切换并重建三容器；readiness `ready`、`capability-probe`
+> 4×`temporal_proof=ok`、platform worker 以 gain-saas 签发的 token 正常轮询。
+> 第 5–8 步（撤销投递 + ACK 实测、绑定续期、30 分钟观察）待做。切换经过与回退见
+> `/global/_archive/p7-platform-authority-cut-xin-20261031/`。
 
 ## 0. 这次切换改变什么
 
@@ -66,7 +73,11 @@ pnpm prisma migrate deploy   # 应用 20261030200000_r4_consumer_lease 与 20261
 - **数据库迁移**：不回滚（只新增表），可长期保留。
 - GrowthOS 全程不被删除，回退不需要重建它（除三容器按 RUNBOOK §5 重建）。
 
-## 7. 切换后才做的事（P8）
+## 7. 切换后才做的事（P8）——已完成 2026-10-31
 
-停 `growthos-local` 九容器、归档 `growthos-source` / `growthos-work`、删除 `switch-backend` 里「续 R4 + 重建 GrowthOS」的链条。
-在此之前，**每次换镜像仍按现流程续 R4 并重建 GrowthOS 三容器**。
+停 `growthos-local` 九容器（数据卷保留）、`growthos-source`/`growthos-work` 移至
+`/home/xin/global-legacy/20261031/`、`switch-backend` 的「续 R4 + 重建 GrowthOS」链改为
+「更新 gain-saas 部署绑定 backendSha/observedAt/validUntil」；三处遗留引擎信任根冻结到
+gain-saas 的 legacy JWKS 端点。执行记录与回退见 `/global/_archive/p8-growthos-retire-20261031182637/`。
+
+撤销投递的 fence 提交仍未实测（需真实 `PLATFORM_GRANT`，平台准入 L4-G23 未通）。
