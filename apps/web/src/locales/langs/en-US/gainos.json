@@ -702,6 +702,7 @@
     },
     "submit": "Continue",
     "submitting": "Working…",
+    "closeDialog": "Close dialog",
     "discoverDone": "Discovery finished; {count} decision makers are now available.",
     "guessDone": "E-mail guessing finished: {attempted} attempted, {persisted} stored, {verified} verified.",
     "verifyDone": "Verification finished: {status}.",

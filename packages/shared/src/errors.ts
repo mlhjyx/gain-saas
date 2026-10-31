@@ -37,9 +37,9 @@ export const ENGINE_ERROR_COPY = {
     next: '先在公司档案里补齐官网域名,再回来猜邮箱。',
   },
   NO_PROVIDER: {
-    title: '邮箱验证服务还没有启用',
-    why: '当前工作空间没有可用的邮箱验证数据源,引擎不会发起探测。',
-    next: '联系运营启用邮箱验证数据源后重试。',
+    title: '所需的数据源还没有启用',
+    why: '引擎没有找到可用的数据源(联系人发现或邮箱验证),因此没有发起任何外部调用。',
+    next: '联系运营启用对应的数据源后重试。',
   },
   STORAGE_RIGHTS_NOT_GRANTED: {
     title: '缺少该线索的数据使用授权',
@@ -95,6 +95,21 @@ export const ENGINE_ERROR_COPY = {
     title: '执行预算已用完',
     why: '该工作空间本期的执行额度已经耗尽。',
     next: '联系运营追加预算后再继续。',
+  },
+  EXECUTION_BUDGET_QUOTE_UNAVAILABLE: {
+    title: '这项操作还没有可用的执行预算账户',
+    why: '引擎还没有为这个操作配置执行预算报价,因此系统无法签发一次性授权;操作没有写入任何数据。',
+    next: '请联系运营确认引擎版本与该能力的开放进度。',
+  },
+  EXECUTION_BUDGET_QUOTE_INVALID: {
+    title: '这次操作的预算报价参数不合法',
+    why: '提交的内容没有通过引擎的预算边界校验,操作没有写入任何数据。',
+    next: '刷新页面后重试;反复出现请联系运营。',
+  },
+  EXECUTION_BUDGET_POLICY_DRIFT: {
+    title: '执行预算策略正在变更',
+    why: '引擎的预算策略与本次报价不一致,系统拒绝继续以避免超支。',
+    next: '稍后重试;持续出现请联系运营。',
   },
   EXECUTION_BUDGET_GRANT_FAILED: {
     title: '执行预算授权暂时不可用',

@@ -702,6 +702,7 @@
     },
     "submit": "继续",
     "submitting": "执行中…",
+    "closeDialog": "关闭对话框",
     "discoverDone": "联系人发现完成，当前共 {count} 位可展示的决策人。",
     "guessDone": "邮箱猜测完成：尝试 {attempted} 人，落库 {persisted} 条，验证通过 {verified} 条。",
     "verifyDone": "验证完成：{status}。",

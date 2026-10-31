@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
 
@@ -42,6 +42,7 @@ const busy = ref<DialogKind | null>(null);
 const notice = ref<string | null>(null);
 const actionError = ref<{ title: string; next?: string } | null>(null);
 const dialog = ref<DialogState | null>(null);
+const dialogRoot = ref<HTMLElement | null>(null);
 const form = reactive({
   basis: '' as '' | LawfulBasisKind,
   ref: '',
@@ -62,24 +63,21 @@ function evidenceOf(contactId: string): ContactEvidence[] {
   return (detail.value?.evidence ?? []).filter((row) => row.entityId === contactId);
 }
 
-function newest(contactId: string, field: string): ContactEvidence | undefined {
-  return evidenceOf(contactId)
-    .filter((row) => row.field === field)
-    .sort((a, b) => Date.parse(b.fetchedAt ?? '') - Date.parse(a.fetchedAt ?? ''))
-    .find((row) => !Number.isNaN(Date.parse(row.fetchedAt ?? ''))) ??
-    evidenceOf(contactId).find((row) => row.field === field);
-}
-
 /** 该联系人的邮箱是否来自猜测（email.guess 证据）——UI 上标为「推断（PROBABLE）」。 */
 function isGuessed(contact: CanonicalContact): boolean {
   return evidenceOf(contact.id).some((row) => row.field === 'email.guess');
 }
 
-function hasRiskyGuess(contact: CanonicalContact): boolean {
-  const guess = newest(contact.id, 'email.guess');
-  if (!guess) return false;
-  const value = guess.value ?? {};
-  return value.verified !== true;
+/**
+ * 引擎的 email.guess 证据只挂在联系人上、不带 point id；只有在「该联系人只有一个可用邮箱」时
+ * 才能确定这个 RISKY 点就是推断值。多个邮箱时无法归因，按 RISKY 照实显示。
+ */
+function isGuessedEmailPoint(contact: CanonicalContact, point: CanonicalContactPoint): boolean {
+  if (point.type !== 'email' || point.status !== 'RISKY' || !isGuessed(contact)) return false;
+  const emails = (contact.contactPoints ?? []).filter(
+    (item) => item.type === 'email' && item.status !== 'INVALID',
+  );
+  return emails.length === 1;
 }
 
 interface PointBadge {
@@ -91,7 +89,7 @@ interface PointBadge {
 function pointBadge(contact: CanonicalContact, point: CanonicalContactPoint): PointBadge {
   if (point.status === 'VALID') return { label: $t('gainos.contacts.status.VALID'), tone: 'ok' };
   if (point.status === 'RISKY') {
-    return point.type === 'email' && isGuessed(contact)
+    return isGuessedEmailPoint(contact, point)
       ? { label: $t('gainos.contacts.status.PROBABLE'), tone: 'warn' }
       : { label: $t('gainos.contacts.status.RISKY'), tone: 'warn' };
   }
@@ -156,15 +154,23 @@ function safeUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : '';
 }
 
-/** 每个联系人的来源面：优先 sourceUrl，其次 person.profile 的 source_page；按许可去重。 */
+function evidenceUrlOf(row: ContactEvidence): string {
+  const page = row.value?.source_page;
+  return safeUrl(row.sourceUrl || (typeof page === 'string' ? page : ''));
+}
+
+/**
+ * 每个联系人的来源面：优先 sourceUrl，其次 person.profile 的 source_page；按许可去重。
+ * 带 URL 的行排在前面——联系点证据本身没有来源页，别让它挤掉唯一的来源链接。
+ */
 function contactSources(contact: CanonicalContact): ContactSource[] {
   const rows = evidenceOf(contact.id)
     .filter((row) => ['person.profile', 'email', 'phone', 'linkedin'].includes(row.field))
     .sort((a, b) => Date.parse(b.fetchedAt ?? '') - Date.parse(a.fetchedAt ?? ''));
+  const ordered = [...rows.filter((row) => evidenceUrlOf(row)), ...rows.filter((row) => !evidenceUrlOf(row))];
   const out: ContactSource[] = [];
-  for (const row of rows) {
-    const page = row.value?.source_page;
-    const url = safeUrl(row.sourceUrl || (typeof page === 'string' ? page : ''));
+  for (const row of ordered) {
+    const url = evidenceUrlOf(row);
     const key = `${url}|${row.license ?? ''}`;
     if (out.some((item) => item.key === key)) continue;
     out.push({ key, url, layer: layerLabel(row.license), at: formatDate(row.fetchedAt) });
@@ -206,6 +212,8 @@ function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: Canoni
   form.note = lastBasis?.note ?? '';
   form.acknowledged = false;
   dialog.value = { kind, contact, point };
+  // 把焦点移进弹窗,键盘用户不会继续停在背景卡片上。
+  void nextTick(() => dialogRoot.value?.focus());
 }
 
 function closeDialog(): void {
@@ -229,8 +237,8 @@ const dialogDesc = computed(() => {
 });
 
 const riskyTarget = computed(() => {
-  if (!dialog.value || dialog.value.kind !== 'verify' || !dialog.value.contact || !dialog.value.point) return false;
-  return dialog.value.point.status === 'RISKY' || hasRiskyGuess(dialog.value.contact);
+  if (!dialog.value || dialog.value.kind !== 'verify' || !dialog.value.point) return false;
+  return dialog.value.point.status === 'RISKY';
 });
 
 const canSubmit = computed(() => {
@@ -390,10 +398,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
     </template>
 
     <div v-if="dialog" class="dm__overlay" @click.self="closeDialog">
-      <section class="dm__dialog" role="dialog" aria-modal="true" :aria-label="dialogTitle">
+      <section ref="dialogRoot" class="dm__dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="dialogTitle">
         <header class="dm__dialog-head">
           <h4>{{ dialogTitle }}</h4>
-          <button type="button" class="dm__close" :aria-label="$t('gainos.common.cancel')" @click="closeDialog">×</button>
+          <button type="button" class="dm__close" :aria-label="$t('gainos.contacts.closeDialog')" @click="closeDialog">×</button>
         </header>
         <p class="dm__muted">{{ dialogDesc }}</p>
 
@@ -500,7 +508,7 @@ a.dm__value { color: var(--gs-accent-strong); text-decoration: underline; }
 .dm__dialog {
   width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; box-sizing: border-box;
   background: var(--gs-surface); border-radius: 16px; padding: 18px 20px 20px; display: grid; gap: 10px;
-  box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .4);
+  box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .4); outline: none;
 }
 .dm__dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .dm__dialog-head h4 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); }

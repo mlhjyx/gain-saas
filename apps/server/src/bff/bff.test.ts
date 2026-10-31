@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BffHandler } from './bff.module.js';
+import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { EngineHttp } from './engine-http.js';
 import { BFF_ROUTES, budgetQuoteRequest } from './routes.js';
 
@@ -150,6 +151,50 @@ describe('执行预算 quote 映射', () => {
 });
 
 describe('决策人路由的 Grant 接线', () => {
+  it('引擎 quote 拒绝时保留原错误码(QUOTE_UNAVAILABLE),不笼统归为 GRANT_FAILED', async () => {
+    const engine = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'token' } as never,
+    );
+    const issue = vi.fn(async () => {
+      throw new EngineBudgetQuoteError(503, {
+        error: { code: 'EXECUTION_BUDGET_QUOTE_UNAVAILABLE', message: 'no envelope' },
+      });
+    });
+    const handler = new BffHandler(engine, { issue } as never, { record: vi.fn(async () => undefined) } as never);
+
+    const req = {
+      method: 'POST',
+      path: '/api/canonical-companies/c1/discover-contacts',
+      originalUrl: '/api/canonical-companies/c1/discover-contacts',
+      body: { lawfulBasis: 'legitimate_interest' },
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'admin' },
+      get: () => undefined,
+    };
+    const sent: { status?: number; json?: { error?: { code?: string; userCopy?: { title?: string } } } } = {};
+    const res = {
+      status(code: number) {
+        sent.status = code;
+        return this;
+      },
+      json(payload: typeof sent.json) {
+        sent.json = payload;
+        return this;
+      },
+      setHeader: () => undefined,
+      type() {
+        return this;
+      },
+      send: () => undefined,
+    };
+
+    await handler.handle(req as never, res as never);
+
+    expect(sent.status).toBe(502);
+    expect(sent.json?.error?.code).toBe('EXECUTION_BUDGET_QUOTE_UNAVAILABLE');
+    expect(sent.json?.error?.userCopy?.title).toContain('执行预算账户');
+  });
+
   it('先按同一份 body 取 quote,再把 Grant 头与同一份 body 透传给引擎', async () => {
     const issue = vi.fn(async () => 'grant-jws');
     const call = vi.fn(async () => ({

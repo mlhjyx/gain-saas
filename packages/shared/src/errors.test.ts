@@ -33,7 +33,8 @@ describe('copyForError', () => {
   it('联系人挖掘的合规/前置错误码有登记', () => {
     expect(copyForError('CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED').title).toContain('合法性依据');
     expect(copyForError('NO_DOMAIN').why).toContain('域名');
-    expect(copyForError('NO_PROVIDER').title).toContain('验证服务');
+    expect(copyForError('NO_PROVIDER').title).toContain('数据源');
     expect(copyForError('EXECUTION_BUDGET_AUTHORITY_REVOKED').title).toContain('撤销');
+    expect(copyForError('EXECUTION_BUDGET_QUOTE_UNAVAILABLE').title).toContain('执行预算账户');
   });
 });
