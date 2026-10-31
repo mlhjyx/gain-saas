@@ -45,8 +45,10 @@ export function loadMtlsOptions(
 ): ServerOptions | null {
   if (!config.R4_MTLS_PORT) return null;
   const material = readMaterial(config, readFile);
-  if (!material.ca) throw new Error('R4_MTLS_PORT 已设置，但缺少 CA 路径');
-  return { ...material, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' };
+  // 客户端证书由机器客户端 CA 签发，与服务端 CA 不是同一份。
+  const ca = config.R4_MTLS_CA_FILE ? readFile(config.R4_MTLS_CA_FILE) : material.ca;
+  if (!ca) throw new Error('R4_MTLS_PORT 已设置，但缺少客户端 CA 路径');
+  return { ...material, ca, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' };
 }
 
 export async function startR4TlsServers(

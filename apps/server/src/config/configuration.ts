@@ -90,6 +90,8 @@ const schema = z.object({
   R4_TLS_CLIENT_AUTH: z.enum(['none', 'required']).default('none'),
   // 第二个监听：要求客户端证书（机器 token），与 R4_TLS_PORT 并存（P5b）
   R4_MTLS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  // 校验客户端证书的 CA（机器客户端 CA）；缺省回退到 R4_TLS_CA_FILE
+  R4_MTLS_CA_FILE: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
