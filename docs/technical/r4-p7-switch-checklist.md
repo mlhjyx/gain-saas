@@ -73,7 +73,11 @@ pnpm prisma migrate deploy   # 应用 20261030200000_r4_consumer_lease 与 20261
 - **数据库迁移**：不回滚（只新增表），可长期保留。
 - GrowthOS 全程不被删除，回退不需要重建它（除三容器按 RUNBOOK §5 重建）。
 
-## 7. 切换后才做的事（P8）
+## 7. 切换后才做的事（P8）——已完成 2026-10-31
 
-停 `growthos-local` 九容器、归档 `growthos-source` / `growthos-work`、删除 `switch-backend` 里「续 R4 + 重建 GrowthOS」的链条。
-在此之前，**每次换镜像仍按现流程续 R4 并重建 GrowthOS 三容器**。
+停 `growthos-local` 九容器（数据卷保留）、`growthos-source`/`growthos-work` 移至
+`/home/xin/global-legacy/20261031/`、`switch-backend` 的「续 R4 + 重建 GrowthOS」链改为
+「更新 gain-saas 部署绑定 backendSha/observedAt/validUntil」；三处遗留引擎信任根冻结到
+gain-saas 的 legacy JWKS 端点。执行记录与回退见 `/global/_archive/p8-growthos-retire-20261031182637/`。
+
+撤销投递的 fence 提交仍未实测（需真实 `PLATFORM_GRANT`，平台准入 L4-G23 未通）。
