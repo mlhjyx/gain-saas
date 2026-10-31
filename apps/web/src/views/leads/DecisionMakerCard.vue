@@ -151,6 +151,11 @@ interface ContactSource {
   at: string;
 }
 
+/** 只把 http(s) 来源渲染成链接；引擎/来源页给的其它协议一律不点。 */
+function safeUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : '';
+}
+
 /** 每个联系人的来源面：优先 sourceUrl，其次 person.profile 的 source_page；按许可去重。 */
 function contactSources(contact: CanonicalContact): ContactSource[] {
   const rows = evidenceOf(contact.id)
@@ -159,7 +164,7 @@ function contactSources(contact: CanonicalContact): ContactSource[] {
   const out: ContactSource[] = [];
   for (const row of rows) {
     const page = row.value?.source_page;
-    const url = row.sourceUrl || (typeof page === 'string' ? page : '');
+    const url = safeUrl(row.sourceUrl || (typeof page === 'string' ? page : ''));
     const key = `${url}|${row.license ?? ''}`;
     if (out.some((item) => item.key === key)) continue;
     out.push({ key, url, layer: layerLabel(row.license), at: formatDate(row.fetchedAt) });
