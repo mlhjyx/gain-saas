@@ -84,9 +84,9 @@ describe('平台运行 Grant 签发', () => {
     expect(payload.schema_version).toBe('execution-budget-grant/v1');
     expect(payload.subject_type).toBe('schedule');
     expect(payload.subject_id).toBe('acq-sweep');
-    expect(payload.max_runs).toBe(1);
-    expect(payload.cap_per_run_microusd).toBe(1);
-    expect(payload.campaign_cap_microusd).toBe(1);
+    expect(payload.max_runs).toBe('1');
+    expect(payload.cap_per_run_microusd).toBe('1');
+    expect(payload.campaign_cap_microusd).toBe('1');
     expect(payload.exp! - payload.iat!).toBe(300);
     expect(expiresAt).toBe(Math.floor(NOW / 1000) + 300);
   });

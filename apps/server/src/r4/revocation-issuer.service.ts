@@ -39,6 +39,12 @@ export interface RevocationCommand {
   reasonCode: RevocationReasonCode;
   /** 目标签发者；必须与 issuer 相同（后端强校验）。 */
   targetIssuer: string;
+  /**
+   * 被撤销 authority 的 jti：后端 fence 按 (issuer, jti) 精确匹配已 committed 的
+   * PLATFORM_GRANT 行，必须取自已落库的 `r4_platform_grant`（`workflowRunId` 对应
+   * 那一行）；随机或占位的 jti 永远命中不到，会得到 NOT_FOUND 而不是提交 fence。
+   */
+  targetJti: string;
 }
 
 @Injectable()
@@ -69,7 +75,7 @@ export class RevocationIssuer {
       schema_version: REVOCATION_SCHEMA_VERSION,
       revocation_jti: randomUUID(),
       target_issuer: command.targetIssuer,
-      target_jti: randomUUID(),
+      target_jti: command.targetJti,
       schedule_id: command.scheduleId,
       workflow_run_id: command.workflowRunId,
       fence_sequence: command.fenceSequence,
@@ -88,6 +94,7 @@ export class RevocationIssuer {
     if (!PLATFORM_SCHEDULES.includes(command.scheduleId))
       throw new Error(`未知 schedule: ${command.scheduleId}`);
     if (!UUID.test(command.workflowRunId)) throw new Error('workflowRunId 必须是 UUID');
+    if (!UUID.test(command.targetJti)) throw new Error('targetJti 必须是 UUID');
     if (!POSITIVE_DECIMAL.test(command.fenceSequence) || command.fenceSequence === '0')
       throw new Error('fenceSequence 必须是正十进制字符串');
     if (!REVOCATION_REASON_CODES.includes(command.reasonCode))
