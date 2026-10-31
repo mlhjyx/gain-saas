@@ -92,6 +92,15 @@ const schema = z.object({
   R4_MTLS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   // 校验客户端证书的 CA（机器客户端 CA）；缺省回退到 R4_TLS_CA_FILE
   R4_MTLS_CA_FILE: z.string().optional(),
+  // P3c：真实 Temporal schedule 读取与租约心跳（默认关闭，P7 才开）
+  R4_TEMPORAL_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  R4_TEMPORAL_ADDRESS: z.string().default('127.0.0.1:17233'),
+  R4_TEMPORAL_NAMESPACE: z.string().default('platform-automation'),
+  R4_TEMPORAL_TLS_CERT_FILE: z.string().optional(),
+  R4_TEMPORAL_TLS_KEY_FILE: z.string().optional(),
+  R4_TEMPORAL_TLS_CA_FILE: z.string().optional(),
+  R4_TEMPORAL_TOKEN_FILE: z.string().optional(),
+  R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
 });
 
 export type AppConfig = z.infer<typeof schema>;

@@ -19,6 +19,12 @@ import { R4LeaseService } from './r4-lease.service.js';
 import { EgressPolicyService, FENCE_STORE, QUOTE_SOURCE } from './egress-policy.service.js';
 import { FileQuoteSource, PgFenceStore } from './egress-adapters.js';
 import { OpsDatabase } from '../ops/ops-database.service.js';
+import {
+  NullScheduleLister,
+  SCHEDULE_LISTER,
+  TemporalScheduleProbeService,
+} from './temporal-schedule-probe.service.js';
+import { LeaseHeartbeatService } from './lease-heartbeat.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 
 /**
@@ -35,7 +41,9 @@ import { PrismaService } from '../shared/prisma.service.js';
     RevocationClient,
     FenceAckVerifier,
     PlatformFactsService,
-    { provide: TEMPORAL_SCHEDULE_PROBE, useClass: UnavailableTemporalScheduleProbe },
+    { provide: SCHEDULE_LISTER, useClass: NullScheduleLister },
+    { provide: TEMPORAL_SCHEDULE_PROBE, useClass: TemporalScheduleProbeService },
+    LeaseHeartbeatService,
     PrismaService,
     R4LeaseService,
     OpsDatabase,
