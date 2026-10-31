@@ -88,3 +88,40 @@ export function readTemporalMaterial(config: AppConfig): {
   const token = config.R4_TEMPORAL_TOKEN_FILE ? readFileSync(config.R4_TEMPORAL_TOKEN_FILE, 'utf8').trim() : null;
   return { address: config.R4_TEMPORAL_ADDRESS, namespace: config.R4_TEMPORAL_NAMESPACE, tls, token };
 }
+
+/** 真实现：平台 Temporal（mTLS + JWT）读取四个 schedule 的 workflowType/taskQueue。 */
+@Injectable()
+export class TemporalClientScheduleLister implements ScheduleLister {
+  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
+
+  async list(): Promise<Array<{ scheduleId: string; workflowType?: string; taskQueue?: string }>> {
+    const material = readTemporalMaterial(this.config);
+    if (!material.tls || !material.token)
+      throw new Error('平台 Temporal 凭证不全（需要 mTLS 证书与 token 文件）');
+    const { Client, Connection } = await import('@temporalio/client');
+    const connection = await Connection.connect({
+      address: material.address,
+      tls: {
+        clientCertPair: { crt: material.tls.cert, key: material.tls.key },
+        serverRootCACertificate: material.tls.ca,
+      },
+      metadata: { authorization: `Bearer ${material.token}` },
+    });
+    try {
+      const client = new Client({ connection, namespace: material.namespace });
+      const rows: Array<{ scheduleId: string; workflowType?: string; taskQueue?: string }> = [];
+      for await (const schedule of client.schedule.list()) {
+        const action = (schedule as { action?: { type?: string; workflow?: { workflowType?: string; taskQueue?: string } } }).action;
+        const workflow = action?.type === 'startWorkflow' ? action.workflow : undefined;
+        rows.push({
+          scheduleId: schedule.scheduleId,
+          workflowType: workflow?.workflowType,
+          taskQueue: workflow?.taskQueue,
+        });
+      }
+      return rows;
+    } finally {
+      await connection.close();
+    }
+  }
+}
