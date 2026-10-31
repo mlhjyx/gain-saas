@@ -1,9 +1,16 @@
 # P7：R4 切换清单（把平台权威从 GrowthOS 切到 gain-saas）
 
 > 文档 ID：`DOC-SAAS-TECH-R4-003`
-> 生命周期：`DRAFT`（执行前需产品负责人确认窗口）
+> 生命周期：`APPROVED`（产品负责人 2026-10-31 授权执行）
 > 制定日期：2026-10-31
 > 前提：P0–P6、P3d、P5b 已合并（gain-saas main），三个阶段决定已入档
+>
+> **执行状态（2026-10-31 18:15 UTC+8）**：第 1–4 步已完成并验收——
+> 平台 `TEMPORAL_PLATFORM_JWKS_URI` 已指向 gain-saas（密钥延续，零停机），引擎三份
+> env 的 5 个键已切换并重建三容器；readiness `ready`、`capability-probe`
+> 4×`temporal_proof=ok`、platform worker 以 gain-saas 签发的 token 正常轮询。
+> 第 5–8 步（撤销投递 + ACK 实测、绑定续期、30 分钟观察）待做。切换经过与回退见
+> `/global/_archive/p7-platform-authority-cut-xin-20261031/`。
 
 ## 0. 这次切换改变什么
 
