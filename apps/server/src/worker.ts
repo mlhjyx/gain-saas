@@ -7,6 +7,9 @@ import { loadConfig } from './config/configuration.js';
 import { EventConsumerService } from './service/event-consumer.service.js';
 import { EngineTokenSigner } from './service/engine-token.signer.js';
 
+// 撤销投递循环只在 web 进程运行；worker 在建 Nest 上下文前标记自己的角色。
+process.env.PROCESS_ROLE ??= 'worker';
+
 /**
  * worker 进程:事件消费(SD4)+ 通知派发。无监听端口,独立 systemd 单元
  * gain-saas-worker.service(技术方案 §3)。
