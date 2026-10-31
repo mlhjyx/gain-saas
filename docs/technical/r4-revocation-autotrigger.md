@@ -90,6 +90,8 @@ PENDING_CONFIRMATION ──确认──▶ PENDING ──ACK 验签──▶ ACK
 
 `revokedAt` 存在即为显式撤销；文件不可读 / JSON 损坏 / `validUntil` 过期都**不是**撤销（只告警并停发新 Grant）。
 
+撤销字段是**终态**：`gctl switch-backend` 续绑定只改 `backendSha / observedAt / validUntil`，会保留 `revokedAt`。重新受信必须先人工调查、再显式删除这四个字段——续期不自动解除撤销（fail closed）。
+
 ## 7. 开启顺序（运维）
 
 1. 确认后端 policy asset 与 `R4_PLATFORM_POLICY_MODES` 一致；
