@@ -155,7 +155,7 @@ export function registerBffMiddleware(
   guard: BffGuard,
 ): void {
   express.use(async (req: Request, res: Response, next: () => void) => {
-    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspaces')) {
+    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspaces') || req.path.startsWith('/api/internal/')) {
       next();
       return;
     }

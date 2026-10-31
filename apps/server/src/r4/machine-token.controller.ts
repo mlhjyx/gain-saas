@@ -42,7 +42,8 @@ export class MachineTokenController {
         error: { code: 'MACHINE_TOKEN_MTLS_REQUIRED', message: '需要客户端证书（P5 前未启用）' },
       });
     }
-    const subject = this.config.R4_MACHINE_SUBJECT;
+    // 引擎有三个机器身份，token 的 sub 必须与调用方证书一致（引擎会逐字比对 trust.subject）。
+    const subject = this.subjectFromPeer(req) ?? this.config.R4_MACHINE_SUBJECT;
     const revision = this.config.R4_MACHINE_CONFIGURATION_REVISION;
     if (!subject || !revision || !this.keyring.isAvailable('machine')) {
       throw new ServiceUnavailableException({
@@ -64,6 +65,13 @@ export class MachineTokenController {
         },
       });
     }
+  }
+
+  /** 从 mTLS 客户端证书的 CN 推导 subject；无证书时返回 null。 */
+  private subjectFromPeer(req: Request): string | null {
+    const socket = req.socket as { getPeerCertificate?: () => { subject?: { CN?: string } } };
+    const cn = socket.getPeerCertificate?.()?.subject?.CN;
+    return typeof cn === 'string' && cn.length > 0 ? cn : null;
   }
 
   private tlsPeerPresent(req: Request): boolean {

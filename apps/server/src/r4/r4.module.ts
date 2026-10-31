@@ -1,4 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { ConfigModule } from '../shared/config.module.js';
 import { R4Keyring } from './r4-keyring.service.js';
 import { R4JwksController } from './r4-jwks.controller.js';
 import { MachineTokenService } from './machine-token.service.js';
@@ -18,12 +19,19 @@ import { R4LeaseService } from './r4-lease.service.js';
 import { EgressPolicyService, FENCE_STORE, QUOTE_SOURCE } from './egress-policy.service.js';
 import { FileQuoteSource, PgFenceStore } from './egress-adapters.js';
 import { OpsDatabase } from '../ops/ops-database.service.js';
+import {
+  NullScheduleLister,
+  SCHEDULE_LISTER,
+  TemporalScheduleProbeService,
+} from './temporal-schedule-probe.service.js';
+import { LeaseHeartbeatService } from './lease-heartbeat.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 
 /**
  * R4 平台权威（P1 起）。与租户/运营/服务三域并列，不共享密钥与守卫链。
  */
 @Module({
+  imports: [ConfigModule],
   controllers: [R4JwksController, MachineTokenController, CapabilityController],
   providers: [
     R4Keyring,
@@ -33,7 +41,9 @@ import { PrismaService } from '../shared/prisma.service.js';
     RevocationClient,
     FenceAckVerifier,
     PlatformFactsService,
-    { provide: TEMPORAL_SCHEDULE_PROBE, useClass: UnavailableTemporalScheduleProbe },
+    { provide: SCHEDULE_LISTER, useClass: NullScheduleLister },
+    { provide: TEMPORAL_SCHEDULE_PROBE, useClass: TemporalScheduleProbeService },
+    LeaseHeartbeatService,
     PrismaService,
     R4LeaseService,
     OpsDatabase,
