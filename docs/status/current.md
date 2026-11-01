@@ -92,13 +92,13 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 | 设置 | **审计**:当前操作者 tenant 审计(admin);**数据与隐私**:DSR 删除请求提交/按 id 跟踪/状态与计数回执(经 BFF 转发引擎 `/deletion-requests`),本地只存请求 id | 审计接口 200 实测;DSR 提交与查询实测返回引擎 `SUBJECT_NOT_FOUND`/`NOT_FOUND`(权限链通,非 403) |
 | 模型网关 | **内嵌 OpenAI 兼容聚合网关**:运营台「模型网关」向导式配置——预制 DeepSeek/OpenAI/火山方舟/通义千问/Kimi/智谱/Ollama/自定义,选服务商后只填 API Key;「测试连接并获取模型」自动拉取上游 `/models` 并完成一次聊天探测,选一个默认模型即保存启用(自动建默认路由,所有引擎任务兜底);高级区保留按别名路由、多厂商回退、优先级/超时/额外头、调用元数据日志(不存 prompt)。上游 Key AES-256-GCM 密文落库;引擎入口 `/v1/chat/completions` 与 `/v1/models` 使用独立 Bearer;`deploy/model-gateway-apply.py` 可把引擎 api/worker 切到 `/v1` 并支持回滚。**站点构建 settlement 兼容层**:capability 本地应答,其余读回与 settled 模型调用透明代理到 new-api | 迁移 `20261029130000_ai_gateway` + `20261029140000_ai_provider_max_tokens_field`;mock 上游端到端验证:预设向导→测试自动拉模型→选默认→保存→卡片显示→更换模型/Key→保存;切换后客户 worker 曾因 settlement capability 停在 STARTING,补兼容代理后恢复 READY,`verify-engine-integration.mjs` 13/13 |
 
-## 联系人挖掘 M4(2026-11-01,代码就绪,待引擎发车)
+## 联系人挖掘 M4(2026-11-01,代码就绪,待授权与预算账户)
 
 | 内容 | 说明 |
 | --- | --- |
 | BFF 路由 | `GET /canonical-companies/:id` 与 `POST …/discover-contacts`、`POST …/guess-emails`、`POST /contact-points/:id/verify` 已进路由表,全部 `access: admin`;三条写路由沿用既有预算 Grant(quote 绑定 ID/body,引擎一次性消费);缺 lawfulBasis 的引擎 403 保留为 403(不再折算成「对接未就绪」502),并有三层合规文案 |
 | 决策人卡片 | 线索档案包新增「决策人」:姓名/职位/部门、联系方式与状态徽标(VALID/RISKY/PROBABLE/BLOCKED/INVALID/UNVERIFIED 照实标注)、来源链接/证据时间/证据层级(索引片段/历史档案/公开页);发现/猜测/验证三个动作都要求显式 GDPR Art.6 依据,RISKY/推断邮箱必须二次确认 |
-| 未覆盖/阻塞 | ① 引擎这四个端点还要求 `personal-data:read`,该 scope 未授予任何 SaaS 角色(见 `deploy/engine-integration.md`);真实环境会 502「授权对接未就绪」,需产品/安全决定是否只给 `saas-admin` 增补,并随引擎 M1/M2 镜像发车。② 引擎的 `workspace-technical-quote` 对 `discover-contacts` 明确 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`:联系人发现不在公司级获客链内),联系人阶段独立预算账户(D7)落地前「发现联系人」无法签发 Grant;BFF 会原样透出为「这项操作还没有可用的执行预算账户」,猜测/验证邮箱不受此限。③ 周报 CSV 的「联系路径」列仍由引擎生成,引擎周报服务明确不读 `canonical_contact`/`contact_point`;升级需引擎侧改动(BFF 不做 CSV 重写,违反 SD7 只透传) |
+| 未覆盖/阻塞 | ① 引擎镜像 `d391a5f5` 已包含四个联系人端点(2026-11-01 用 `/api/docs-json` 核实),但这四个端点还要求 `personal-data:read`,该 scope 未授予任何 SaaS 角色(见 `deploy/engine-integration.md`);真实环境会 502「授权对接未就绪」,需产品/安全决定是否只给 `saas-admin` 增补(引擎另加窄 scope 更佳,见下)。② 引擎的 `workspace-technical-quote` 对 `discover-contacts` 仍 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`:联系人发现不在公司级获客链内);#714 的 D7 只是 run 内派生记账子账户,HTTP 端点仍无报价,「发现联系人」无法签发 Grant;BFF 会原样透出为「这项操作还没有可用的执行预算账户」,猜测/验证邮箱不受此限。③ 周报 CSV 的「联系路径」列仍由引擎生成,引擎周报服务明确不读 `canonical_contact`/`contact_point`;升级需引擎侧改动(BFF 不做 CSV 重写,违反 SD7 只透传) |
 | 验证 | server 全量 149 单测全过(本 PR 新增 6 条 BFF 与 1 条 shared 文案用例,含 Grant 接线、quote body 绑定、业务 403 映射、quote 拒绝码透出);web typecheck/build 通过(仅剩仓库既有的 vxe-pc-ui 声明告警) |
 
 ## 下一步(按序)
