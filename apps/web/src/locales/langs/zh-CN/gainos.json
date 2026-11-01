@@ -345,7 +345,10 @@
       "case": "案例",
       "valueProp": "价值主张",
       "leadTime": "交期"
-    }
+    },
+    "statusFailed": "理解失败",
+    "retryUnderstanding": "重试理解",
+    "retrying": "重试中…"
   },
   "findBuyers": {
     "kicker": "M3 开放",
