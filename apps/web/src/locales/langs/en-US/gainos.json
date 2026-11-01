@@ -345,7 +345,10 @@
       "case": "Case study",
       "valueProp": "Value proposition",
       "leadTime": "Lead time"
-    }
+    },
+    "statusFailed": "Understanding failed",
+    "retryUnderstanding": "Retry",
+    "retrying": "Retrying…"
   },
   "findBuyers": {
     "kicker": "Coming in M3",

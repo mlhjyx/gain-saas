@@ -45,6 +45,7 @@ const companies = ref<CompanyProfile[]>([]);
 const wizardOpen = ref(false);
 const creating = ref(false);
 const confirmingId = ref<string | null>(null);
+const retryingId = ref<string | null>(null);
 const form = reactive({ website: '', name: '' });
 const formError = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -371,6 +372,27 @@ function statusLabel(status?: string): string {
   return label === key ? (status ?? '') : label;
 }
 
+function understandingFailed(company: CompanyProfile): boolean {
+  return company.status === 'DRAFT' && Boolean(company.understandingFailedAt);
+}
+
+async function retryUnderstanding(company: CompanyProfile): Promise<void> {
+  const companyId = company.id;
+  if (!companyId || retryingId.value) return;
+  retryingId.value = companyId;
+  error.value = null;
+  try {
+    await gainosApi.retryCompanyUnderstanding(companyId);
+    await load(true);
+    // 工作流把状态翻到 ENRICHING 需要几秒；补一次延迟刷新，让轮询接管。
+    setTimeout(() => void load(true), 3_000);
+  } catch (err) {
+    error.value = failureText(err).title;
+  } finally {
+    retryingId.value = null;
+  }
+}
+
 async function confirmCompany(company: CompanyProfile): Promise<void> {
   const companyId = company.id;
   if (!companyId) return;
@@ -472,6 +494,9 @@ onUnmounted(() => {
         <div class="cp__item-main">
           <strong class="cp__item-name">{{ c.name ?? c.domain ?? c.website ?? $t('gainos.companies.unnamed') }}</strong>
           <span class="cp__item-site">{{ c.website ?? c.domain ?? '' }}</span>
+          <span v-if="understandingFailed(c)" class="cp__item-error">
+            {{ c.understandingLastError ?? $t('gainos.companies.statusFailed') }}
+          </span>
         </div>
         <div class="cp__item-side">
           <button
@@ -482,9 +507,21 @@ onUnmounted(() => {
           >
             {{ $t('gainos.companies.facts') }}
           </button>
-          <span class="cp__badge" :class="`cp__badge--${(c.status ?? 'DRAFT').toLowerCase()}`">
-            {{ statusLabel(c.status) }}
+          <span
+            class="cp__badge"
+            :class="understandingFailed(c) ? 'cp__badge--failed' : `cp__badge--${(c.status ?? 'DRAFT').toLowerCase()}`"
+          >
+            {{ understandingFailed(c) ? $t('gainos.companies.statusFailed') : statusLabel(c.status) }}
           </span>
+          <button
+            v-if="understandingFailed(c)"
+            type="button"
+            class="cp__confirm"
+            :disabled="retryingId === c.id"
+            @click="retryUnderstanding(c)"
+          >
+            {{ retryingId === c.id ? $t('gainos.companies.retrying') : $t('gainos.companies.retryUnderstanding') }}
+          </button>
           <button
             v-if="c.status === 'REVIEW'"
             type="button"
@@ -835,6 +872,8 @@ onUnmounted(() => {
 .cp__badge--enriching { background: var(--gs-indigo-soft); color: var(--gs-indigo); }
 .cp__badge--review { background: #fef3c7; color: #b45309; }
 .cp__badge--active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.cp__badge--failed { background: #fee2e2; color: #b91c1c; }
+.cp__item-error { margin-top: 2px; font-size: 12px; color: #b91c1c; font-family: var(--gs-mono, monospace); }
 .cp__item-side { display: flex; align-items: center; gap: 10px; flex: none; }
 .cp__confirm { border: 0; border-radius: 9px; padding: 7px 12px; background: var(--gs-accent); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .cp__confirm:disabled { opacity: .55; cursor: default; }

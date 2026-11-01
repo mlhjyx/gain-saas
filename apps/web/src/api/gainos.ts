@@ -14,6 +14,10 @@ export interface CompanyProfile {
   summary?: string | null;
   publicContacts?: Array<{ label?: string; value?: string; sourceUrl?: string | null; status?: string | null }>;
   completeness?: unknown;
+  /** 最近一次理解失败的时间（ISO）；非空且 status=DRAFT 时允许重试。 */
+  understandingFailedAt?: string | null;
+  /** 理解失败的错误标签（stage:ErrorType），仅诊断展示。 */
+  understandingLastError?: string | null;
   created_at?: string;
 }
 
@@ -419,6 +423,8 @@ export const gainosApi = {
   companies: () => requestClient.get<CompanyProfile[] | { data?: CompanyProfile[] }>('/companies'),
   createCompany: (input: { website: string; name?: string }) =>
     requestClient.post<CompanyProfile>('/companies', input),
+  retryCompanyUnderstanding: (companyId: string) =>
+    requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, {}),
   confirmCompany: (companyId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/confirm`, {}),
   companyDetail: (companyId: string) => requestClient.get<CompanyProfile>(`/companies/${companyId}`),
