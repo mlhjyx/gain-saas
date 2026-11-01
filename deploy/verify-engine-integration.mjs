@@ -152,6 +152,19 @@ if (workspaceId) {
   const memberAck = await call('saas-member', '/api/v1/events?limit=1', workspaceId);
   report('saas-member 无 personal-data:read(应被拒)', memberAck.status === 403,
     `HTTP ${memberAck.status} ${memberAck.body?.error?.code ?? ''}`);
+
+  // M4: saas-admin 的窄 scope contact-discovery:read 必须能读 canonical 公司详情；
+  // 该断言在引擎发布 scope 并应用 role map 后才应转绿。
+  const adminCompanies = await call('saas-admin', '/api/v1/canonical-companies?limit=1', workspaceId);
+  const companyId = adminCompanies.body?.data?.[0]?.id;
+  if (companyId) {
+    const detail = await call('saas-admin', `/api/v1/canonical-companies/${companyId}`, workspaceId);
+    report('saas-admin 以 contact-discovery:read 读取公司详情', detail.status === 200,
+      `HTTP ${detail.status}${detail.body?.error ? ` ${detail.body.error.code}` : ''}`);
+  } else {
+    report('saas-admin 联系人详情（跳过：workspace 无 canonical 公司）', adminCompanies.status === 200,
+      `HTTP ${adminCompanies.status}`);
+  }
 }
 
 // 4. R4 回归护栏:AUTH_JWKS_URI 必须保持 https,否则撤销信任快照为 null,fence-ack 503

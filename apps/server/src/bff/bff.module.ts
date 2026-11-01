@@ -1,7 +1,7 @@
 import { type CanActivate, type ExecutionContext, Injectable, Logger, Module } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
-import { EngineBudgetGrantService } from './engine-budget-grant.service.js';
+import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { BFF_ROUTES, budgetQuoteRequest, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
@@ -90,10 +90,19 @@ export class BffHandler {
       try {
         headers['x-execution-budget-grant'] = await this.budget.issue(tenant, quoteRequest);
       } catch (err) {
-        this.logger.warn(`预算 Grant 签发失败(${req.method} ${req.path}): ${err instanceof Error ? err.message : String(err)}`);
+        // 引擎自己的 quote 拒绝(如 QUOTE_UNAVAILABLE)保留原码,前端才能说清「这项操作还没开放
+        // 预算账户」而不是笼统的「稍后重试」;网络/签名失败仍归 GRANT_FAILED。
+        const quoteCode = err instanceof EngineBudgetQuoteError
+          ? (err.engineBody as { error?: { code?: unknown } } | null)?.error?.code
+          : undefined;
+        const code =
+          typeof quoteCode === 'string' && quoteCode.startsWith('EXECUTION_BUDGET_')
+            ? quoteCode
+            : 'EXECUTION_BUDGET_GRANT_FAILED';
+        this.logger.warn(`预算 Grant 签发失败(${req.method} ${req.path}, ${code}): ${err instanceof Error ? err.message : String(err)}`);
         res.status(502).json(
           this.engine.toClientError(502, {
-            error: { code: 'EXECUTION_BUDGET_GRANT_FAILED', message: err instanceof Error ? err.message : String(err) },
+            error: { code, message: err instanceof Error ? err.message : String(err) },
           }),
         );
         return;
@@ -110,7 +119,7 @@ export class BffHandler {
       });
       if (result.status >= 400) {
         // 引擎 401/403 折算 502:不能让上游授权问题触发前端「会话过期」登出
-        const clientStatus = this.engine.toClientStatus(result.status);
+        const clientStatus = this.engine.toClientStatus(result.status, result.body);
         res.status(clientStatus).json(this.engine.toClientError(result.status, result.body));
         return;
       }

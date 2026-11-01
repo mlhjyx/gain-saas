@@ -628,6 +628,86 @@
     },
     "reasonSelect": "请选择原因"
   },
+  "contacts": {
+    "title": "决策人",
+    "subtitle": "具名联系人属于个人数据；状态为 RISKY / 推断的邮箱不保证可用，发送前必须验证。",
+    "discover": "发现联系人",
+    "guess": "猜测邮箱",
+    "verify": "验证邮箱",
+    "emptyTitle": "还没有决策人",
+    "emptyDesc": "发现后会显示姓名、职位、部门和联系方式，并保留来源链接与证据时间。",
+    "emptyCta": "发现联系人",
+    "roleUnknown": "未标注职位",
+    "noPoints": "没有可用的联系方式",
+    "source": "来源",
+    "sourceUnknown": "未记录来源",
+    "scopeHint": "决策人数据需要引擎授予个人数据读取权限（personal-data:read）；该权限尚未开通时，卡片会保持只读，请联系运营确认引擎镜像与授权进度。",
+    "missingEmail": "还有 {count} 位决策人没有邮箱；可用「猜测邮箱」按公司邮箱格式推断并验证。",
+    "type": {
+      "email": "邮箱",
+      "phone": "电话",
+      "linkedin": "LinkedIn"
+    },
+    "status": {
+      "VALID": "已验证（VALID）",
+      "RISKY": "待确认（RISKY）",
+      "PROBABLE": "推断（PROBABLE）",
+      "BLOCKED": "已拦截（BLOCKED）",
+      "INVALID": "无效（INVALID）",
+      "UNVERIFIED": "未验证（UNVERIFIED）"
+    },
+    "seniority": {
+      "c_level": "高管",
+      "vp": "副总裁",
+      "director": "总监",
+      "manager": "经理",
+      "staff": "员工"
+    },
+    "layer": {
+      "public-index": "索引片段",
+      "public-archive": "历史档案",
+      "public-page": "公开页",
+      "derived": "推断",
+      "public": "公开来源",
+      "licensed": "授权来源",
+      "byo": "自带数据",
+      "sandbox": "沙箱",
+      "unknown": "来源未标注"
+    },
+    "discoverTitle": "发现决策人",
+    "discoverDesc": "引擎会按官网、注册处、展会、社媒等来源查找具名联系人；一次可能持续数分钟，并消耗执行预算。",
+    "guessTitle": "猜测邮箱",
+    "guessDesc": "对缺邮箱的决策人按公司邮箱格式推断并做 SMTP 握手验证；推断结果可能仍无法确认，并消耗执行预算。",
+    "verifyTitle": "验证邮箱",
+    "verifyDesc": "对 {email} 做一次 SMTP 握手验证，结果会回写联系人状态。",
+    "riskyWarning": "这个邮箱是 RISKY 或推断结果，验证后可能仍无法确认可用性。",
+    "acknowledge": "我已知晓该邮箱尚不确定，仍要验证",
+    "lawfulBasis": "合法性依据",
+    "lawfulBasisPlaceholder": "请选择依据",
+    "lawfulBasisRef": "依据引用",
+    "lawfulBasisRefPlaceholder": "LIA 编号 / 工单号 / 合同编号（可审计）",
+    "lawfulBasisNote": "备注",
+    "noBasis": "发现或探测具名联系人必须声明合法性依据；没有依据时引擎会在写入任何数据前拒绝。",
+    "basis": {
+      "legitimate_interest": "正当利益（LIA 已评估）",
+      "consent": "本人同意",
+      "contract": "合同履行必要",
+      "legal_obligation": "法定义务"
+    },
+    "basisHint": {
+      "legitimate_interest": "适用于 B2B 商务联系：需要已有 LIA 评估，并把评估编号填进「依据引用」。",
+      "consent": "对方明确同意后才可选；引用同意记录编号。",
+      "contract": "联系对方是履行既有合同的必要步骤；引用合同编号。",
+      "legal_obligation": "法律要求必须联系或核验；引用法条或工单。"
+    },
+    "submit": "继续",
+    "submitting": "执行中…",
+    "closeDialog": "关闭对话框",
+    "discoverDone": "联系人发现完成，当前共 {count} 位可展示的决策人。",
+    "guessDone": "邮箱猜测完成：尝试 {attempted} 人，落库 {persisted} 条，验证通过 {verified} 条。",
+    "verifyDone": "验证完成：{status}。",
+    "verifyBlocked": "验证被合规门拦截（BLOCKED），未发起任何探测。"
+  },
   "reports": {
     "kicker": "M4 开放",
     "title": "周报",

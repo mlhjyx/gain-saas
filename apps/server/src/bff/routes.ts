@@ -72,6 +72,13 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 03 知识视图与禁联 ──
   { method: 'GET', saasPath: 'canonical-companies', enginePath: '/canonical-companies', access: 'member' },
+  // 决策人（联系人挖掘 M4）：引擎这三个端点都要求 compliance:manage,只映射给 saas-admin。
+  // 引擎额外要求 personal-data:read——该 scope 目前不在 SaaS 角色映射里,
+  // 部署侧未授予时这些路由会按「授权对接未就绪」502 降级(见 deploy/engine-integration.md)。
+  { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'admin' },
+  { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000 },
+  { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000 },
+  { method: 'POST', saasPath: 'contact-points/:pointId/verify', enginePath: '/contact-points/:pointId/verify', access: 'admin', grant: true, timeoutMs: 120_000 },
   { method: 'GET', saasPath: 'data-providers', enginePath: '/data-providers', access: 'admin' },
   // 引擎这些端点都要求 compliance:manage（仅 SaaS admin 映射），不能给 member 放行。
   { method: 'GET', saasPath: 'suppressions', enginePath: '/suppressions', access: 'admin' },
@@ -112,6 +119,23 @@ export function budgetQuoteRequest(
       return { operation: 'POST /query-plans/:planId/execute', planId: params.planId };
     case '/leads/:leadId/outreach-drafts':
       return { operation: 'POST /leads/:leadId/outreach-drafts', leadId: params.leadId };
+    // 发现联系人只绑定公司 ID(引擎侧 requestSha256 不含 lawfulBasis)。
+    case '/canonical-companies/:id/discover-contacts':
+      return { operation: 'POST /canonical-companies/:id/discover-contacts', companyId: params.id };
+    // 猜测/验证把请求体一起绑定:引擎按 operation + ID + body 计算 requestSha256,
+    // 少传或改写 body 会被 GRANT_SCOPE_MISMATCH 拒绝。
+    case '/canonical-companies/:id/guess-emails':
+      return {
+        operation: 'POST /canonical-companies/:id/guess-emails',
+        companyId: params.id,
+        ...(body === undefined ? {} : { body }),
+      };
+    case '/contact-points/:pointId/verify':
+      return {
+        operation: 'POST /contact-points/:pointId/verify',
+        pointId: params.pointId,
+        ...(body === undefined ? {} : { body }),
+      };
     default:
       return null;
   }

@@ -93,7 +93,8 @@ curl -s --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.we
 {
   "saas-admin": [
     "acquisition:read", "acquisition:write", "acquisition:review", "acquisition:event:ack",
-    "acquisition:label:write", "acquisition:identity:review", "acquisition:export", "compliance:manage"
+    "acquisition:label:write", "acquisition:identity:review", "acquisition:export", "compliance:manage",
+    "contact-discovery:read"
   ],
   "saas-member": [
     "acquisition:read", "acquisition:write", "acquisition:review", "acquisition:label:write"
@@ -106,8 +107,11 @@ curl -s --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.we
 
 说明:
 - `personal-data:read` 仅授予 `saas-event-consumer`(`GET /events` 的 AND 语义硬要求,SD5;该角色只存在于 worker 的机器 token,永不进用户 token)。
+- `contact-discovery:read`(M4,2026-11-01)只授予 `saas-admin`:它只覆盖具名联系人面(`GET /canonical-companies/:id`、发现/猜测/验证联系人),不覆盖事件流、线索详情或建站档案的个人数据。引擎侧必须先发布该 scope 再应用本映射——引擎按闭合词表解析 role map,未知 scope 会让启动失败。
 - `ops:read` 不授予任何 SaaS 角色(运营域走 PG 白名单,不用引擎业务 API)。
 - **已知的 scope 缺口(按 PRD 设计保留,不是本次遗漏)**:BFF 的 `GET /leads/:leadId`、`GET /canonical-companies/:id` 需要 `personal-data:read`,`GET /data-providers` 需要 `ops:read`,成员可见的 `/suppressions` 系列需要 `compliance:manage`;这些路由在 M3 接入前要么调整 BFF 的 access,要么由产品重新决定 scope——**不要**为了跑通就把 `personal-data:read` 塞进用户角色。
+- **联系人挖掘 M4(2026-11-01,窄 scope 方案)**:引擎镜像 `d391a5f5` 已包含 `POST /canonical-companies/:id/discover-contacts`、`POST /canonical-companies/:id/guess-emails`、`POST /contact-points/:id/verify` 与 `GET /canonical-companies/:id`(2026-11-01 用 `/api/docs-json` 核实)。产品负责人已选定**窄 scope 方案**:引擎新增 `contact-discovery:read`(只覆盖具名联系人面),`saas-admin` 的映射自此包含它,`personal-data:read` 仍只授事件消费身份。上线顺序固定:① 引擎发布含 `contact-discovery:read` 的镜像;② 再应用本文件的 role map(`engine-integration-apply.py` 会拒绝在未知 scope 上启动);③ 卡片才可读写。在此之前,卡片会显示「获客能力尚未完成授权对接」并保持只读,不会误报成功。
+- **联系人发现暂时无法铸造 Grant(引擎侧缺口)**:引擎的 `workspace-technical-quote` 对 `POST /canonical-companies/:id/discover-contacts` 明确 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`,见引擎 `workspace-technical-budget-envelope.ts`:Contact discovery is outside the company-level acquisition chain)。因此「发现联系人」动作在引擎补上联系人阶段预算账户/报价(设计稿 D7,scope=contact.discovery)前无法签发一次性 Grant;BFF 会把该错误码原样透出为「这项操作还没有可用的执行预算账户」,不会误报成功。`guess-emails`/`verify` 不受此限。
 - 事件消费验证:`EVENT_CONSUMER_ENABLED=true` 后 `gain-saas-worker` 日志不再出现"引擎拒绝事件拉取",`outbox_delivery` 的 PENDING 开始转为 ACKED。
 
 > 配置值已用引擎仓编译好的 `JwksTokenVerifier` + `createRolesToScopesPolicy` 对运行中的 SaaS 预演(2026-10-29):https token 验签通过、三角色 scope 与预期一致、不设 `AUTH_WORKSPACE_CLAIM` 时按预期 `TOKEN_INVALID`。

@@ -78,6 +78,9 @@ SAAS_ROLE_MAP = {
     "saas-admin": [
         "acquisition:read", "acquisition:write", "acquisition:review", "acquisition:event:ack",
         "acquisition:label:write", "acquisition:identity:review", "acquisition:export", "compliance:manage",
+        # M4 具名联系人面（canonical 详情/发现/猜测/验证）：窄 scope，只授管理员；
+        # 引擎侧必须已发布该 scope 再应用本映射，否则引擎拒绝未知 scope。
+        "contact-discovery:read",
     ],
     "saas-member": [
         "acquisition:read", "acquisition:write", "acquisition:review", "acquisition:label:write",
