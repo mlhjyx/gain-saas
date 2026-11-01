@@ -13,7 +13,7 @@
 
 M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台与设置页已完成。系统运行在 **http://100.68.31.20:4020**，登录、成员管理、邀请加入均为真实链路;获客引擎授权对接已完成(`verify-engine-integration.mjs` 13/13),BFF 读接口已通。**执行预算 Grant 已迁到 gain-saas 并切换引擎信任根**;运营台 `/ops` 具备独立登录域、数据源 Kill Switch、监控源 CRUD、Temporal 调度、跨租户诊断、CSV 导出与审计。**内嵌模型网关已上线并切到运行链路**(DeepSeek,默认模型 `deepseek-flash`);站点构建 settlement 读回透明代理到 new-api,客户 worker READY。
 
-2026-10-29 晚批补齐:公司理解修复已部署,档案可到 REVIEW/ACTIVE;事件消费已实际启用并回放 297 条事件(297 条 ACK、11 条 LeadQualified),通知中心与未读角标上线;寻源任务关闭页面后可找回;企业档案增加概况/完整度/产品服务与人工事实;周报 CSV 的 withheld 响应头透传;线索包可下载,线索页支持按目标买家筛选/队列计数/管理员制裁复核;ICP 创建前校验已通过事实,已发起的寻源方案不再重复执行。运营台新增注册用户列表(工作空间/会话/最近活动)与停用/启用;客户端寻源任务页改为五段业务进度,技术统计折叠;目标买家详情属性、寻源方案来源/筛选/关键词中文化,原始查询收进技术详情;弹窗统一居中、限高滚动与移动端头部堆叠。工作空间页面补齐创建/改名/切换/退出;登录增加同 IP+邮箱 15 分钟 5 次失败的限流;企业事实支持已通过事实撤销与冲突裁决;线索页新增管理员可见的「合规待核」队列,制裁提示可直达并在档案包内复核;修复登录失败被会话过期拦截器递归触发 refresh→logout 导致按钮卡死的问题(登录/登出改走 base client,关闭 refresh-token 链路);前端 HTTP 超时从 10s 调到 240s,避免模型生成已完成但浏览器先超时、重试又撞上 Grant 复用。**仍未完成**:DSR 的 SaaS 侧级联删除、canonical 公司详情与决策人(路由已就绪,但引擎要求 `personal-data:read`,与租户红线冲突,待产品/安全决定)、禁联名单(SD5)、CSRF 自定义头、JWKS 双钥轮换、运营域 E4 写白名单执行闸与 E5 中台退役;引擎侧 ICP Grant 前置校验修复已写入工作区但未发布镜像。
+2026-10-29 晚批补齐:公司理解修复已部署,档案可到 REVIEW/ACTIVE;事件消费已实际启用并回放 297 条事件(297 条 ACK、11 条 LeadQualified),通知中心与未读角标上线;寻源任务关闭页面后可找回;企业档案增加概况/完整度/产品服务与人工事实;周报 CSV 的 withheld 响应头透传;线索包可下载,线索页支持按目标买家筛选/队列计数/管理员制裁复核;ICP 创建前校验已通过事实,已发起的寻源方案不再重复执行。运营台新增注册用户列表(工作空间/会话/最近活动)与停用/启用;客户端寻源任务页改为五段业务进度,技术统计折叠;目标买家详情属性、寻源方案来源/筛选/关键词中文化,原始查询收进技术详情;弹窗统一居中、限高滚动与移动端头部堆叠。工作空间页面补齐创建/改名/切换/退出;登录增加同 IP+邮箱 15 分钟 5 次失败的限流;企业事实支持已通过事实撤销与冲突裁决;线索页新增管理员可见的「合规待核」队列,制裁提示可直达并在档案包内复核;修复登录失败被会话过期拦截器递归触发 refresh→logout 导致按钮卡死的问题(登录/登出改走 base client,关闭 refresh-token 链路);前端 HTTP 超时从 10s 调到 240s,避免模型生成已完成但浏览器先超时、重试又撞上 Grant 复用。**仍未完成**:DSR 的 SaaS 侧级联删除、禁联名单(SD5)、CSRF 自定义头、JWKS 双钥轮换、运营域 E4 写白名单执行闸与 E5 中台退役;引擎侧 ICP Grant 前置校验修复已写入工作区但未发布镜像。(canonical 公司详情与决策人已对管理员上线,见「联系人挖掘 M4」;`personal-data:read` 仍不授任何用户角色。)
 
 ## M2 交付(2026-10-29)
 
@@ -92,14 +92,15 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 | 设置 | **审计**:当前操作者 tenant 审计(admin);**数据与隐私**:DSR 删除请求提交/按 id 跟踪/状态与计数回执(经 BFF 转发引擎 `/deletion-requests`),本地只存请求 id | 审计接口 200 实测;DSR 提交与查询实测返回引擎 `SUBJECT_NOT_FOUND`/`NOT_FOUND`(权限链通,非 403) |
 | 模型网关 | **内嵌 OpenAI 兼容聚合网关**:运营台「模型网关」向导式配置——预制 DeepSeek/OpenAI/火山方舟/通义千问/Kimi/智谱/Ollama/自定义,选服务商后只填 API Key;「测试连接并获取模型」自动拉取上游 `/models` 并完成一次聊天探测,选一个默认模型即保存启用(自动建默认路由,所有引擎任务兜底);高级区保留按别名路由、多厂商回退、优先级/超时/额外头、调用元数据日志(不存 prompt)。上游 Key AES-256-GCM 密文落库;引擎入口 `/v1/chat/completions` 与 `/v1/models` 使用独立 Bearer;`deploy/model-gateway-apply.py` 可把引擎 api/worker 切到 `/v1` 并支持回滚。**站点构建 settlement 兼容层**:capability 本地应答,其余读回与 settled 模型调用透明代理到 new-api | 迁移 `20261029130000_ai_gateway` + `20261029140000_ai_provider_max_tokens_field`;mock 上游端到端验证:预设向导→测试自动拉模型→选默认→保存→卡片显示→更换模型/Key→保存;切换后客户 worker 曾因 settlement capability 停在 STARTING,补兼容代理后恢复 READY,`verify-engine-integration.mjs` 13/13 |
 
-## 联系人挖掘 M4(2026-11-01,代码就绪,待授权与预算账户)
+## 联系人挖掘 M4(2026-11-02 已上线 dev,管理员 UAT 通过)
 
 | 内容 | 说明 |
 | --- | --- |
 | BFF 路由 | `GET /canonical-companies/:id` 与 `POST …/discover-contacts`、`POST …/guess-emails`、`POST /contact-points/:id/verify` 已进路由表,全部 `access: admin`;三条写路由沿用既有预算 Grant(quote 绑定 ID/body,引擎一次性消费);缺 lawfulBasis 的引擎 403 保留为 403(不再折算成「对接未就绪」502),并有三层合规文案 |
 | 决策人卡片 | 线索档案包新增「决策人」:姓名/职位/部门、联系方式与状态徽标(VALID/RISKY/PROBABLE/BLOCKED/INVALID/UNVERIFIED 照实标注)、来源链接/证据时间/证据层级(索引片段/历史档案/公开页);发现/猜测/验证三个动作都要求显式 GDPR Art.6 依据,RISKY/推断邮箱必须二次确认 |
-| 未覆盖/阻塞 | ① 引擎镜像 `d391a5f5` 已包含四个联系人端点(2026-11-01 用 `/api/docs-json` 核实)。产品负责人已选**窄 scope 方案**:引擎新增 `contact-discovery:read`(只覆盖具名联系人面),`saas-admin` 的映射已在本仓 `engine-integration-apply.py`/本文件加入该 scope,`personal-data:read` 仍只授事件消费身份;上线顺序 = 引擎先发含该 scope 的镜像 → 再应用 role map。在此之前真实调用仍是 502「授权对接未就绪」。② 引擎的 `workspace-technical-quote` 对 `discover-contacts` 仍 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`:联系人发现不在公司级获客链内);#714 的 D7 只是 run 内派生记账子账户,HTTP 端点仍无报价,「发现联系人」无法签发 Grant;BFF 会原样透出为「这项操作还没有可用的执行预算账户」,猜测/验证邮箱不受此限。③ 周报 CSV 的「联系路径」列仍由引擎生成,引擎周报服务明确不读 `canonical_contact`/`contact_point`;升级需引擎侧改动(BFF 不做 CSV 重写,违反 SD7 只透传) |
-| 验证 | server 全量 149 单测全过(本 PR 新增 6 条 BFF 与 1 条 shared 文案用例,含 Grant 接线、quote body 绑定、业务 403 映射、quote 拒绝码透出);web typecheck/build 通过(仅剩仓库既有的 vxe-pc-ui 声明告警) |
+| 上线记录 | 引擎镜像 `08b1b30c`(含 #718 窄 scope、#720 discover 报价)已上线;role map 经 `engine-integration-apply.py --apply` 只给 `saas-admin` 增补 `contact-discovery:read`(`personal-data:read` 仍只授事件消费身份);gain-saas main `f24806b` 重建并重启。管理员 UAT(Trik Pumpen):公司详情 200、发现 201(1 位决策人)、猜测 200(RISKY 邮箱)、验证 200(RISKY/`mail_from_rejected`,lawful basis 留痕)。运维记录见 `/global/_archive/engine-integration-gain-saas-xin-20261102/` |
+| 未覆盖/阻塞 | ① 周报 CSV 的「联系路径」列仍由引擎生成,引擎周报服务明确不读 `canonical_contact`/`contact_point`;升级需引擎侧改动(BFF 不做 CSV 重写,违反 SD7 只透传)。② 已观察缺陷:ftc-de.com `discover` 返回 500 `INTERNAL`(decision_maker 抽到 2 人但持久化失败,引擎 `HttpError` 日志无堆栈,待补未捕获异常日志并复现);缺 lawfulBasis 时引擎实测返回 400 `VALIDATION_ERROR` 而非文档写的 403;成员演示账号 `sales@demo.cn` 登录失效(文档待同步) |
+| 验证 | server 全量 149 单测全过(本 PR 新增 6 条 BFF 与 1 条 shared 文案用例,含 Grant 接线、quote body 绑定、业务 403 映射、quote 拒绝码透出);web typecheck/build 通过(仅剩仓库既有的 vxe-pc-ui 声明告警);管理员 UAT 见上 |
 
 ## 下一步(按序)
 
