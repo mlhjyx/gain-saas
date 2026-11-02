@@ -12,7 +12,7 @@ import { WorkspacesController } from './workspaces.controller.js';
 import { AdminGuard } from './admin.guard.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SessionService } from './session.service.js';
-import { LoginThrottleService } from './login-throttle.service.js';
+import { AuthThrottleService } from '../shared/auth-throttle.service.js';
 
 /**
  * 租户域:认证、成员、BFF(代理与业务控制器挂同一守卫链)。
@@ -21,7 +21,7 @@ import { LoginThrottleService } from './login-throttle.service.js';
 @Module({
   imports: [ConfigModule],
   controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, WorkspacesController],
-  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, LoginThrottleService],
+  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService],
 })
 export class TenantModule {}

@@ -459,3 +459,15 @@ model R4RevocationSequence {
 
   @@map("r4_revocation_sequence")
 }
+
+/// 登录/注册/接受邀请的持久化限流计数(替代单进程内存 Map)。
+/// key 形如 "tenant-login:<ip>:<email>";窗口从首次尝试固定,成功后清除。
+model AuthThrottle {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime @map("reset_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([resetAt], map: "auth_throttle_reset_at_idx")
+  @@map("auth_throttle")
+}

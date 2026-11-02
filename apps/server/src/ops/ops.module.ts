@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
+import { AuthThrottleService } from '../shared/auth-throttle.service.js';
 import { OpsAuthController } from './ops-auth.controller.js';
 import { OpsController } from './ops.controller.js';
 import { OpsDatabase } from './ops-database.service.js';
@@ -22,6 +23,6 @@ import { R4Module } from '../r4/r4.module.js';
 @Module({
   imports: [ConfigModule, ModelGatewayModule, R4Module],
   controllers: [OpsAuthController, OpsController, OpsModelGatewayController, OpsRevocationController],
-  providers: [OpsDatabase, OpsService, OpsSessionService, OpsGuard, OpsTemporalService, AuditService, PrismaService],
+  providers: [OpsDatabase, OpsService, OpsSessionService, OpsGuard, OpsTemporalService, AuditService, PrismaService, AuthThrottleService],
 })
 export class OpsModule {}

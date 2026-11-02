@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import type { AppConfig } from '../config/configuration.js';
 
@@ -14,6 +15,41 @@ const HOP_BY_HOP = new Set([
   'upgrade',
 ]);
 
+function isLoopback(address: string | undefined): boolean {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+function bearerToken(req: Request): string {
+  const header = req.headers.authorization ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+function gatewayKeyMatches(req: Request, expected: string | undefined): boolean {
+  if (!expected) return false;
+  const token = Buffer.from(bearerToken(req));
+  const expectedBuffer = Buffer.from(expected);
+  return token.length === expectedBuffer.length && timingSafeEqual(token, expectedBuffer);
+}
+
+/**
+ * 只允许本机调用或携带网关 Key 的调用。
+ * 该代理会转发调用方凭据到 new-api,绝不能对公网/局域网开放;
+ * 若 Future 通过 loopback 反代进入,带非本机 X-Forwarded-For 的请求也拒绝。
+ */
+function isTrustedCaller(req: Request, expectedGatewayKey: string | undefined): boolean {
+  if (gatewayKeyMatches(req, expectedGatewayKey)) return true;
+  if (!isLoopback(req.socket.remoteAddress)) return false;
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    const hops = forwarded
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (hops.length > 0 && !hops.every(isLoopback)) return false;
+  }
+  return true;
+}
+
 /**
  * 站点构建的 new-api settlement readback 代理。
  * 引擎把 MODEL_GATEWAY_URL 指向本服务后,读回请求仍会打到同一 origin 的
@@ -27,6 +63,15 @@ export function registerSettlementReadbackProxy(
   const origin = config.MODEL_GATEWAY_SETTLEMENT_ORIGIN?.replace(/\/+$/, '');
   if (!origin) return;
   express.all('/api/settlement-readback/*path', async (req: Request, res: Response) => {
+    if (!isTrustedCaller(req, config.MODEL_GATEWAY_API_KEY)) {
+      res.status(403).json({
+        error: {
+          code: 'SETTLEMENT_READBACK_FORBIDDEN',
+          message: 'settlement readback 仅允许本机调用或携带网关 Key 的调用',
+        },
+      });
+      return;
+    }
     // 客户 worker 的启动检查只认这个契约;直接本地应答,避免 new-api 短暂不可达拖住整个 worker。
     if (req.method === 'GET' && req.path === '/api/settlement-readback/v1/capability') {
       res.setHeader('content-type', 'application/json');

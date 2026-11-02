@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nes
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
-import { LoginThrottleService } from './login-throttle.service.js';
+import { AuthThrottleService, THROTTLE_POLICIES } from '../shared/auth-throttle.service.js';
 import { TenantGuard, type TenantRequestContext } from './tenant.guard.js';
 import { PrismaService } from '../shared/prisma.service.js';
 
@@ -18,7 +18,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
     private readonly prisma: PrismaService,
-    private readonly throttle: LoginThrottleService,
+    private readonly throttle: AuthThrottleService,
   ) {}
 
   private setSession(res: Response, session: { token: string; claims: { exp: number } }): void {
@@ -27,7 +27,10 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(200)
-  async register(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) res: Response) {
+  async register(@Body() body: Record<string, unknown>, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const throttleKey = `tenant-register:${req.ip ?? 'unknown'}`;
+    await this.throttle.check(throttleKey, THROTTLE_POLICIES.tenantRegister);
+    await this.throttle.hit(throttleKey, THROTTLE_POLICIES.tenantRegister);
     const result = await this.auth.register(body);
     this.setSession(res, result.session);
     return {
@@ -47,11 +50,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-    const throttleKey = `${req.ip ?? 'unknown'}:${email}`;
-    this.throttle.check(throttleKey);
+    const throttleKey = `tenant-login:${req.ip ?? 'unknown'}:${email}`;
+    await this.throttle.check(throttleKey, THROTTLE_POLICIES.tenantLogin);
     try {
       const result = await this.auth.login(body);
-      this.throttle.success(throttleKey);
+      await this.throttle.success(throttleKey);
       this.setSession(res, result.session);
       return {
         data: {
@@ -61,7 +64,7 @@ export class AuthController {
       };
     } catch (error) {
       const status = (error as { getStatus?: () => number })?.getStatus?.();
-      if (status === 401) this.throttle.fail(throttleKey);
+      if (status === 401) await this.throttle.hit(throttleKey, THROTTLE_POLICIES.tenantLogin);
       throw error;
     }
   }
@@ -118,7 +121,10 @@ export class AuthController {
 
   @Post('accept-invite')
   @HttpCode(200)
-  async acceptInvite(@Body() body: Record<string, unknown>, @Res({ passthrough: true }) res: Response) {
+  async acceptInvite(@Body() body: Record<string, unknown>, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const throttleKey = `tenant-accept-invite:${req.ip ?? 'unknown'}`;
+    await this.throttle.check(throttleKey, THROTTLE_POLICIES.tenantAcceptInvite);
+    await this.throttle.hit(throttleKey, THROTTLE_POLICIES.tenantAcceptInvite);
     const result = await this.auth.acceptInvitation(body);
     this.setSession(res, result.session);
     return {
