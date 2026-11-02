@@ -25,6 +25,11 @@ export class AuthController {
     res.cookie(SESSION_COOKIE, session.token, this.sessions.cookieOptions(this.sessions.ttl));
   }
 
+  @Get('registration-policy')
+  registrationPolicy() {
+    return { data: this.auth.registrationPolicy() };
+  }
+
   @Post('register')
   @HttpCode(200)
   async register(@Body() body: Record<string, unknown>, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
