@@ -112,8 +112,14 @@ export function budgetQuoteRequest(
   switch (route.enginePath) {
     case '/companies':
       return { operation: 'POST /companies', body: body ?? {} };
-    case '/companies/:companyId/understanding/retry':
-      return { operation: 'POST /companies/:companyId/understanding/retry', companyId: params.companyId };
+    case '/companies/:companyId/understanding/retry': {
+      const attemptId = (body as { attemptId?: unknown } | null)?.attemptId;
+      return {
+        operation: 'POST /companies/:companyId/understanding/retry',
+        companyId: params.companyId,
+        body: { attemptId },
+      };
+    }
     case '/companies/:companyId/icps':
       return { operation: 'POST /companies/:companyId/icps', companyId: params.companyId };
     case '/icps/:icpId/query-plans':

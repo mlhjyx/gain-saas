@@ -423,8 +423,8 @@ export const gainosApi = {
   companies: () => requestClient.get<CompanyProfile[] | { data?: CompanyProfile[] }>('/companies'),
   createCompany: (input: { website: string; name?: string }) =>
     requestClient.post<CompanyProfile>('/companies', input),
-  retryCompanyUnderstanding: (companyId: string) =>
-    requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, {}),
+  retryCompanyUnderstanding: (companyId: string, attemptId: string) =>
+    requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, { attemptId }),
   confirmCompany: (companyId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/confirm`, {}),
   companyDetail: (companyId: string) => requestClient.get<CompanyProfile>(`/companies/${companyId}`),
