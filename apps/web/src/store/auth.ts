@@ -11,6 +11,7 @@ import { notification } from 'ant-design-vue';
 import { defineStore } from 'pinia';
 
 import { getAccessCodesApi, getUserInfoApi, loginApi, logoutApi } from '#/api';
+import { gainosApi } from '#/api/gainos';
 import { $t } from '#/locales';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -19,6 +20,29 @@ export const useAuthStore = defineStore('auth', () => {
   const router = useRouter();
 
   const loginLoading = ref(false);
+
+  /**
+   * 注册引导是否完成（SD11）。null = 未知（首个导航时拉取一次）。
+   * 切换工作空间或重新登录后置空，由路由守卫重新拉取。
+   */
+  const onboardingCompleted = ref<boolean | null>(null);
+
+  async function fetchOnboardingStatus(force = false): Promise<boolean> {
+    if (onboardingCompleted.value !== null && !force) {
+      return onboardingCompleted.value;
+    }
+    const status = await gainosApi.onboardingStatus();
+    onboardingCompleted.value = Boolean(status?.complete);
+    return onboardingCompleted.value;
+  }
+
+  function markOnboardingCompleted() {
+    onboardingCompleted.value = true;
+  }
+
+  function resetOnboarding() {
+    onboardingCompleted.value = null;
+  }
 
   /**
    * 异步处理登录操作
@@ -49,6 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
 
         userStore.setUserInfo(userInfo);
         accessStore.setAccessCodes(accessCodes);
+        resetOnboarding();
 
         if (accessStore.loginExpired) {
           accessStore.setLoginExpired(false);
@@ -112,13 +137,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   function $reset() {
     loginLoading.value = false;
+    onboardingCompleted.value = null;
   }
 
   return {
     $reset,
     authLogin,
     fetchUserInfo,
+    fetchOnboardingStatus,
     loginLoading,
     logout,
+    markOnboardingCompleted,
+    onboardingCompleted,
+    resetOnboarding,
   };
 });

@@ -366,6 +366,24 @@ export interface WorkspaceSummary {
   current: boolean;
 }
 
+/** 工作空间上下文（SD11）：界面按 allowedActions 渲染，服务端仍是强校验方。 */
+export interface WorkspaceContextView {
+  user: { id: string; email: string };
+  workspace: { id: string; name: string; role: 'admin' | 'member' };
+  onboarding: { complete: boolean; companyId: string | null };
+  allowedActions: string[];
+}
+
+/** 注册引导建档入参（与引擎 CreateCompanyDto 同构；name/website 至少一个）。 */
+export interface OnboardingCompanyInput {
+  name?: string;
+  website?: string;
+  industry?: string;
+  targetMarkets?: string[];
+  products?: string[];
+  businessEmail?: string;
+}
+
 export interface DeletionRequestView {
   id: string;
   status: string;
@@ -518,6 +536,13 @@ export const gainosApi = {
     requestClient.post<{ left: boolean; currentWorkspace: boolean }>(`/workspaces/${workspaceId}/leave`, {}),
   switchWorkspace: (workspaceId: string) =>
     requestClient.post<{ workspace: { id: string }; role: string }>('/auth/switch-workspace', { workspaceId }),
+  /** 工作空间上下文（SD11）：角色、允许动作与引导状态。 */
+  workspaceContext: () => requestClient.get<WorkspaceContextView>('/workspace/context'),
+  /** 注册引导：状态查询与一次性建档（quote → Grant → 引擎 POST /companies）。 */
+  onboardingStatus: () =>
+    requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),
+  completeOnboarding: (input: OnboardingCompanyInput) =>
+    requestClient.post<CompanyProfile>('/onboarding/company', input),
   notifications: () => requestClient.get<NotificationPage>('/notifications'),
   readNotification: (id: string) => requestClient.post<{ ok: boolean }>(`/notifications/${id}/read`, {}),
   readAllNotifications: () => requestClient.post<{ updated: number }>('/notifications/read-all', {}),

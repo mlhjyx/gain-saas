@@ -1,7 +1,8 @@
-import { type CanActivate, type ExecutionContext, Injectable, Logger, Module } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, HttpException, Injectable, Logger, Module } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import { OnboardingController } from './onboarding.controller.js';
 import { BFF_ROUTES, budgetQuoteRequest, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
@@ -50,6 +51,18 @@ export class BffGuard implements CanActivate {
     if (!(await this.tenantGuard.canActivate(ctx))) return false;
     const req = ctx.switchToHttp().getRequest<Request>();
     const matched = matchRoute(req.method, req.path.replace(/^\/api\//, ''));
+    // SD11：未完成注册引导的工作空间拒绝一切业务请求（引导端点走 /api/onboarding，不进 BFF）。
+    if (req.tenant && req.tenant.onboardingCompleted === false) {
+      throw new HttpException(
+        {
+          error: {
+            code: 'ONBOARDING_INCOMPLETE',
+            message: '请先完成注册引导（企业建档），再使用获客功能',
+          },
+        },
+        409,
+      );
+    }
     if (matched?.route.access === 'admin') {
       return this.adminGuard.canActivate(ctx);
     }
@@ -164,7 +177,7 @@ export function registerBffMiddleware(
   guard: BffGuard,
 ): void {
   express.use(async (req: Request, res: Response, next: () => void) => {
-    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspaces') || req.path.startsWith('/api/internal/')) {
+    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/internal/')) {
       next();
       return;
     }
@@ -186,6 +199,7 @@ export function registerBffMiddleware(
 
 @Module({
   imports: [ConfigModule, TenantModule, ServiceModule],
+  controllers: [OnboardingController],
   providers: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard],
   exports: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard],
 })
