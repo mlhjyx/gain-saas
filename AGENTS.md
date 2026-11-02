@@ -55,3 +55,11 @@ Avoid unnecessary secondary labels and descriptions.Let the layout do the explai
     - 主流程超过 3 步、或需要解释内部概念才能完成，即判定不合格，回到设计而不是加说明。
 
 判断标准一句话：**运营不需要知道 new-api、模型别名或接口路径，也能把 AI 配好并看到成功。**
+
+## 运行与工作区约束（对所有代理生效）
+
+- **根 checkout 只跟随 main**：功能修改一律在独立 worktree + 分支上做，经 PR 合入；禁止把未提交改动留在 `/global/gain-saas` 根目录。
+- **构建产物由部署流程负责**：不要在根 checkout 直接 `pnpm build` 并用产物覆盖 `apps/*/dist`；发布由发布线按 `origin/main` 构建、同步、重启（2026-11-03 起）。
+- **系统服务唯一归属 systemd**：`gain-saas-web` 由 `systemd` 管理（`Restart=always`）；禁止用 `nohup`/`setsid` 手工起 `node dist/main.js`，禁止与 systemd 抢 `4020` 端口。发现端口被非 systemd 实例占用：`ss -ltnp 'sport = :4020'` + `pgrep -af` 查归属，kill 该实例让 systemd 接管。
+- **worker 的启动方式**：`cd apps/server && setsid nohup node dist/worker.js >> /tmp/gain-saas-worker.log 2>&1 &`（cwd 必须为 `apps/server`，配置由 `load-env` 向上查找 `.env`；同一时刻只允许一个 worker 实例（启动前 `pgrep -f "node dist/worker.js"` 清旧）。
+- **数据库迁移**：只经 `prisma migrate deploy` 应用，迁移文件随 PR 合入 `apps/server/prisma/migrations/`。
