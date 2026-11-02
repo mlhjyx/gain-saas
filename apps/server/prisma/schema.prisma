@@ -30,6 +30,11 @@ model User {
 model Workspace {
   id        String   @id @db.Uuid
   name      String
+  /// 注册引导完成时间(SD11):新注册空间为 NULL,前端强制进入引导向导;
+  /// 存量空间在迁移中回填为迁移时刻,不打断既有用户。
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+  /// 引导建档得到的引擎 CompanyProfile id(只存引用,事实仍在引擎 CompanyProfile)。
+  onboardingCompanyId   String?   @map("onboarding_company_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

@@ -9,6 +9,7 @@ import { MembersController } from './members.controller.js';
 import { DiscoveryRunsController } from './discovery-runs.controller.js';
 import { NotificationsController } from './notifications.controller.js';
 import { WorkspacesController } from './workspaces.controller.js';
+import { WorkspaceContextController } from './workspace-context.controller.js';
 import { AdminGuard } from './admin.guard.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SessionService } from './session.service.js';
@@ -20,7 +21,7 @@ import { AuthThrottleService } from '../shared/auth-throttle.service.js';
  */
 @Module({
   imports: [ConfigModule],
-  controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, WorkspacesController],
+  controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, WorkspacesController, WorkspaceContextController],
   providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService],
 })

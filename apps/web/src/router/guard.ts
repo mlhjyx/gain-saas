@@ -10,6 +10,9 @@ import { useAuthStore } from '#/store';
 
 import { generateAccess } from './access';
 
+/** 注册引导（SD11）：未完成的工作空间强制进入此页；完成后离开。 */
+const ONBOARDING_PATH = '/onboarding';
+
 /**
  * 通用守卫配置
  * @param router
@@ -59,6 +62,15 @@ function setupAccessGuard(router: Router) {
             preferences.app.defaultHomePath,
         );
       }
+      // 已完成引导时不允许再停留在引导页
+      if (to.path === ONBOARDING_PATH && accessStore.accessToken) {
+        const completed = await authStore
+          .fetchOnboardingStatus()
+          .catch(() => true);
+        if (completed) {
+          return { path: preferences.app.defaultHomePath, replace: true };
+        }
+      }
       return true;
     }
 
@@ -83,6 +95,14 @@ function setupAccessGuard(router: Router) {
         };
       }
       return to;
+    }
+
+    // 注册引导（SD11）：未完成时强制进入向导；接口失败不阻塞导航（服务端仍会 409）。
+    const onboardingCompleted = await authStore
+      .fetchOnboardingStatus()
+      .catch(() => true);
+    if (!onboardingCompleted) {
+      return { path: ONBOARDING_PATH, replace: true };
     }
 
     // 是否已经生成过动态路由

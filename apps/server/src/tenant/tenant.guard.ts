@@ -9,6 +9,10 @@ export interface TenantRequestContext {
   role: 'admin' | 'member';
   jti: string;
   exp: number;
+  /** 注册引导是否已完成(SD11)：false 时 BFF 拒绝业务请求，前端强制进入向导。 */
+  onboardingCompleted: boolean;
+  /** 引导建档得到的引擎 CompanyProfile id（只存引用）。 */
+  onboardingCompanyId: string | null;
 }
 
 /** 租户域守卫:cookie 会话 → 吊销校验(session 表)→ 注入上下文 + 滑动续期。 */
@@ -37,19 +41,34 @@ export class TenantGuard implements CanActivate {
       await this.sessions.revoke(claims.jti);
       const renewed = await this.sessions.issue(claims.userId, claims.workspaceId, claims.role);
       res.cookie(SESSION_COOKIE, renewed.token, this.sessions.cookieOptions(this.sessions.ttl));
-      req.tenant = { ...renewed.claims };
+      req.tenant = {
+        ...renewed.claims,
+        onboardingCompleted: true,
+        onboardingCompanyId: null,
+      };
     } else {
-      req.tenant = { ...claims };
+      req.tenant = {
+        ...claims,
+        onboardingCompleted: true,
+        onboardingCompanyId: null,
+      };
     }
     // 成员资格仍有效(被移除后立刻失效)
     const membership = await this.prisma.membership.findFirst({
       where: { userId: req.tenant.userId, workspaceId: req.tenant.workspaceId, status: 'active' },
+      include: {
+        workspace: {
+          select: { onboardingCompletedAt: true, onboardingCompanyId: true },
+        },
+      },
     });
     if (!membership) {
       res.clearCookie(SESSION_COOKIE);
       throw new UnauthorizedException({ error: { code: 'NOT_A_MEMBER', message: '工作空间成员资格已失效' } });
     }
     req.tenant.role = membership.role as 'admin' | 'member';
+    req.tenant.onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;
+    req.tenant.onboardingCompanyId = membership.workspace.onboardingCompanyId ?? null;
     return true;
   }
 }

@@ -17,6 +17,7 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
+import WorkspaceSwitcher from '#/components/workspace-switcher.vue';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
@@ -225,6 +226,9 @@ onUnmounted(() => {
         @clear-preferences-and-logout="handleLogout"
         @logout="handleLogout"
       />
+    </template>
+    <template #header-right-0>
+      <WorkspaceSwitcher />
     </template>
     <template #notification>
       <Notification
