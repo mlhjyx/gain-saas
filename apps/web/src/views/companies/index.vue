@@ -382,7 +382,9 @@ async function retryUnderstanding(company: CompanyProfile): Promise<void> {
   retryingId.value = companyId;
   error.value = null;
   try {
-    await gainosApi.retryCompanyUnderstanding(companyId);
+    // 每次点击生成新的幂等键：引擎按它分配独立的请求作用域与预算账户，
+    // 失败后的再次重试不会撞上「授权已使用过」。
+    await gainosApi.retryCompanyUnderstanding(companyId, crypto.randomUUID());
     await load(true);
     // 工作流把状态翻到 ENRICHING 需要几秒；补一次延迟刷新，让轮询接管。
     setTimeout(() => void load(true), 3_000);
