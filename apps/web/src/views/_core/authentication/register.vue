@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 
 import { preferences } from '@vben/preferences';
 import { useRoute, useRouter } from 'vue-router';
@@ -37,6 +37,17 @@ const form = reactive({
 const errors = reactive<Record<string, string | undefined>>({});
 const submitting = ref(false);
 const failure = ref<string | null>(null);
+
+/** 邀请码只在部署侧配置了 INVITE_CODE 时显示（SD6，2026-11-03）。 */
+const inviteCodeRequired = ref(false);
+onMounted(async () => {
+  try {
+    const policy = await gainosApi.registrationPolicy();
+    inviteCodeRequired.value = Boolean(policy?.inviteCodeRequired);
+  } catch {
+    // 策略拉取失败按未启用处理（服务端仍会强校验）。
+  }
+});
 
 const emailValid = computed(() =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()),
@@ -183,7 +194,10 @@ async function onSubmit() {
         <form class="g-form" novalidate @submit.prevent="onSubmit">
           <template v-if="!inviteToken">
             <label class="g-field" :class="{ 'g-field--err': errors.companyName }">
-              <span class="g-field__label">{{ $t('gainos.register.company') }}</span>
+              <span class="g-field__label">
+                {{ $t('gainos.register.company') }}
+                <em class="g-field__optional">{{ $t('gainos.register.companyHint') }}</em>
+              </span>
               <div class="g-field__wrap">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 21V8l8-4.5L20 8v13"/><path d="M9.5 21v-6h5v6"/></svg>
                 <input v-model="form.companyName" type="text" :placeholder="$t('gainos.register.companyPlaceholder')" @input="errors.companyName = undefined" />
@@ -210,7 +224,7 @@ async function onSubmit() {
             <span v-if="errors.password" class="g-field__err" role="alert">{{ errors.password }}</span>
           </label>
 
-          <label v-if="!inviteToken" class="g-field">
+          <label v-if="!inviteToken && inviteCodeRequired" class="g-field">
             <span class="g-field__label">
               {{ $t('gainos.register.inviteCode') }}
               <em class="g-field__optional">{{ $t('gainos.register.inviteCodeOptional') }}</em>

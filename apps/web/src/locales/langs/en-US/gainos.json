@@ -101,7 +101,7 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "noAccount": "New to GainOS?",
-    "createWorkspace": "Create a workspace",
+    "createWorkspace": "Create an account",
     "terms": "By continuing you agree to GainOS's terms of service and data compliance policy.",
     "errEmailRequired": "Enter your work email",
     "errEmailInvalid": "That email doesn't look right",
@@ -110,8 +110,8 @@
     "errFailed": "Sign-in failed, please try again"
   },
   "register": {
-    "title": "Create a workspace",
-    "subtitle": "One minute to open a growth workspace for your company.",
+    "title": "Create your account",
+    "subtitle": "We will set up a dedicated workspace for you and walk you through company setup.",
     "inviteTitle": "Accept invitation",
     "inviteSubtitle": "Set your password to join the team workspace.",
     "company": "Company name",
@@ -122,7 +122,7 @@
     "inviteCode": "Invitation code",
     "inviteCodeOptional": "Optional during beta",
     "inviteCodePlaceholder": "Required if provided to you",
-    "submit": "Create workspace",
+    "submit": "Sign up",
     "submitInvite": "Join workspace",
     "submitting": "Submitting",
     "haveAccount": "Already have an account?",
@@ -131,7 +131,8 @@
     "errEmailRequired": "Enter your work email",
     "errEmailInvalid": "That email doesn't look right",
     "errPassword": "Password must be 10+ characters with letters and digits",
-    "errFailed": "Something went wrong, please try again"
+    "errFailed": "Something went wrong, please try again",
+    "companyHint": "used as your workspace name"
   },
   "workspace": {
     "greetingNight": "Still up",

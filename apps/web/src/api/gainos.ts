@@ -543,6 +543,9 @@ export const gainosApi = {
     requestClient.post<{ left: boolean; currentWorkspace: boolean }>(`/workspaces/${workspaceId}/leave`, {}),
   switchWorkspace: (workspaceId: string) =>
     requestClient.post<{ workspace: { id: string }; role: string }>('/auth/switch-workspace', { workspaceId }),
+  /** 注册策略（公开）：邀请码是否由部署侧启用。 */
+  registrationPolicy: () =>
+    requestClient.get<{ inviteCodeRequired: boolean }>('/auth/registration-policy'),
   /** 工作空间上下文（SD11）：角色、允许动作与引导状态。 */
   workspaceContext: () => requestClient.get<WorkspaceContextView>('/workspace/context'),
   /** 注册引导：状态查询与一次性建档（quote → Grant → 引擎 POST /companies）。 */

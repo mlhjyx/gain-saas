@@ -28,6 +28,11 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
+  /** 注册策略（公开）：邀请码仅在部署侧配置了 INVITE_CODE 时需要。 */
+  registrationPolicy(): { inviteCodeRequired: boolean } {
+    return { inviteCodeRequired: Boolean(this.config.INVITE_CODE) };
+  }
+
   async register(input: Record<string, unknown>) {
     const email = validateEmail(input.email);
     const password = validatePassword(input.password);

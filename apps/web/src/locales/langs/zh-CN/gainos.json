@@ -101,7 +101,7 @@
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "noAccount": "第一次使用 GainOS？",
-    "createWorkspace": "创建工作空间",
+    "createWorkspace": "创建账号",
     "terms": "继续即表示你同意 GainOS 的服务条款与数据合规要求。",
     "errEmailRequired": "请输入工作邮箱",
     "errEmailInvalid": "邮箱格式不正确",
@@ -110,8 +110,8 @@
     "errFailed": "登录没有成功，请重试"
   },
   "register": {
-    "title": "创建工作空间",
-    "subtitle": "为你的公司开一个增长工作空间，一分钟完成。",
+    "title": "创建账号",
+    "subtitle": "注册后会为你自动创建一个专属工作空间，并引导完成企业建档。",
     "inviteTitle": "接受邀请",
     "inviteSubtitle": "设置你的登录密码，即可加入团队的工作空间。",
     "company": "公司名称",
@@ -122,7 +122,7 @@
     "inviteCode": "邀请码",
     "inviteCodeOptional": "内测阶段选填",
     "inviteCodePlaceholder": "如有请填写",
-    "submit": "创建工作空间",
+    "submit": "注册",
     "submitInvite": "加入工作空间",
     "submitting": "提交中",
     "haveAccount": "已经有账号？",
@@ -131,7 +131,8 @@
     "errEmailRequired": "请输入工作邮箱",
     "errEmailInvalid": "邮箱格式不正确",
     "errPassword": "密码至少 10 位，且包含字母与数字",
-    "errFailed": "操作没有成功，请重试"
+    "errFailed": "操作没有成功，请重试",
+    "companyHint": "将作为工作空间名称"
   },
   "workspace": {
     "greetingNight": "夜深了",
