@@ -1017,7 +1017,7 @@
     "industry": "所属行业",
     "industryPlaceholder": "例如：精密机械 / 汽车零部件 / 医疗器械",
     "businessEmail": "业务邮箱",
-    "businessEmailPlaceholder": "sales@example.com（询盘接收缺省值）",
+    "businessEmailPlaceholder": "sales{'@'}example.com（询盘接收缺省值）",
     "productsDesc": "填写主营产品（1–5 个），系统会用它生成买家画像与搜索词",
     "productsPlaceholder": "输入一个产品后按回车添加",
     "productsLimit": "最多添加 5 个产品",

@@ -1017,7 +1017,7 @@
     "industry": "Industry",
     "industryPlaceholder": "e.g. precision machinery / auto parts / medical devices",
     "businessEmail": "Business email",
-    "businessEmailPlaceholder": "sales@example.com (default inquiry inbox)",
+    "businessEmailPlaceholder": "sales{'@'}example.com (default inquiry inbox)",
     "productsDesc": "List your main products (1–5); we use them to build your buyer profile",
     "productsPlaceholder": "Type a product and press Enter",
     "productsLimit": "Up to 5 products",
