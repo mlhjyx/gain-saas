@@ -273,12 +273,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 侧栏底部（折叠/固定按钮之间）显示产品版本与构建 SHA；折叠或移动端隐藏。 */
+/* 侧栏底部（折叠/固定按钮之间）显示产品版本与构建 SHA；折叠或移动端隐藏。
+   侧栏 aside 自身 z-index=201，fixed 标签必须高于它才不会被侧栏底色盖住。 */
 .app-version {
   position: fixed;
   bottom: 10px;
   left: 0;
-  z-index: 9;
+  z-index: 202;
   box-sizing: border-box;
   padding: 0 44px;
   overflow: hidden;
