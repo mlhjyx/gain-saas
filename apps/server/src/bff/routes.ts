@@ -21,6 +21,8 @@ export interface BffRoute {
   /** text/csv 原样透传(周报反馈上传),body 不经过 JSON 序列化。 */
   readonly csv?: boolean;
   readonly grant?: true;
+  /** D6：请求未带 lawfulBasis 时由 BFF 注入租户的合法依据声明。 */
+  readonly complianceInject?: true;
   /** 引擎同步模型生成(ICP/查询计划/草稿)最长等待;BFF 默认 30s 会提前掐断。 */
   readonly timeoutMs?: number;
 }
@@ -77,9 +79,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // 两个 scope 都只映射给 saas-admin(见 deploy/engine-integration.md 的 role map)。
   // 部署侧 scope 未就绪时这些路由按「授权对接未就绪」502 降级。
   { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'admin' },
-  { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000 },
-  { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000 },
-  { method: 'POST', saasPath: 'contact-points/:pointId/verify', enginePath: '/contact-points/:pointId/verify', access: 'admin', grant: true, timeoutMs: 120_000 },
+  { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
+  { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
+  { method: 'POST', saasPath: 'contact-points/:pointId/verify', enginePath: '/contact-points/:pointId/verify', access: 'admin', grant: true, timeoutMs: 120_000, complianceInject: true },
   { method: 'GET', saasPath: 'data-providers', enginePath: '/data-providers', access: 'admin' },
   // 引擎这些端点都要求 compliance:manage（仅 SaaS admin 映射），不能给 member 放行。
   { method: 'GET', saasPath: 'suppressions', enginePath: '/suppressions', access: 'admin' },
@@ -100,6 +102,34 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 export interface BudgetQuoteOptions {
   /** 引擎是否已支持 discover-contacts 的 attemptId。默认关闭，兼容未升级的引擎镜像。 */
   readonly discoverAttemptId?: boolean;
+}
+
+/** D6：租户声明的快照（服务层 Prisma 行的子集）。 */
+export interface ComplianceDeclarationSnapshot {
+  basis: string;
+  ref?: string | null;
+  note?: string | null;
+  version: number;
+  declaredAt: Date;
+}
+
+/**
+ * D6：请求未显式携带 lawfulBasis 时，注入租户当前声明（带版本快照，审计可追溯）。
+ * 必须在 quote 构造之前调用——guess/verify 的 quote 绑定 body，注入晚于 quote 会 SCOPE_MISMATCH。
+ */
+export function injectDeclaredCompliance(
+  body: unknown,
+  declared: ComplianceDeclarationSnapshot | null,
+): unknown {
+  if (!declared) return body;
+  if (body && typeof body === 'object' && (body as Record<string, unknown>).lawfulBasis) return body;
+  const stamp = `declared v${declared.version} ${declared.declaredAt.toISOString().slice(0, 10)}`;
+  return {
+    ...(typeof body === 'object' && body ? body : {}),
+    lawfulBasis: declared.basis,
+    ...(declared.ref ? { lawfulBasisRef: declared.ref } : {}),
+    lawfulBasisNote: declared.note ? `${declared.note} | ${stamp}` : stamp,
+  };
 }
 
 /**

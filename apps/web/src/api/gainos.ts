@@ -162,7 +162,8 @@ export interface CanonicalCompanyDetail {
 export type LawfulBasisKind = 'legitimate_interest' | 'consent' | 'contract' | 'legal_obligation';
 
 export interface ContactComplianceInput {
-  lawfulBasis: LawfulBasisKind;
+  /** D6 起由 BFF 按租户「数据处理声明」自动注入；仅在需要覆盖声明时才显式携带。 */
+  lawfulBasis?: LawfulBasisKind;
   lawfulBasisRef?: string;
   lawfulBasisNote?: string;
 }
@@ -400,6 +401,18 @@ export interface OnboardingCompanyInput {
 /** 企业档案建档入参（官网可选；无官网时必须给名称）。 */
 export type CreateCompanyInput = OnboardingCompanyInput;
 
+/** D6：租户合法依据声明（对应 BFF /settings/compliance）。 */
+export interface ComplianceDeclarationView {
+  id: string;
+  workspaceId: string;
+  version: number;
+  basis: 'legitimate_interest' | 'consent' | 'contract' | 'legal_obligation';
+  ref?: string | null;
+  note?: string | null;
+  declaredBy: string;
+  declaredAt: string;
+}
+
 export interface DeletionRequestView {
   id: string;
   status: string;
@@ -438,6 +451,12 @@ export const gainosApi = {
   createDeletionRequest: (input: { subjectType: 'company' | 'contact'; subjectId: string; reason?: string; requestRef?: string }) =>
     requestClient.post<DeletionRequestView>('/deletion-requests', input),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),
+  /** D6：当前租户的合法依据声明（数据处理声明）；未声明时 data=null。 */
+  complianceDeclaration: () =>
+    requestClient.get<{ data: ComplianceDeclarationView | null }>('/settings/compliance'),
+  /** D6：声明/更新租户合法依据（仅 admin）。每次声明新增一版。 */
+  declareCompliance: (input: { basis: string; ref?: string; note?: string }) =>
+    requestClient.put<{ data: ComplianceDeclarationView }>('/settings/compliance', input),
   members: () => requestClient.get<MembersResponse>('/members'),
   inviteMember: (email: string, role: 'admin' | 'member') =>
     requestClient.post<{

@@ -184,7 +184,7 @@ describe('决策人路由的 Grant 接线', () => {
         error: { code: 'EXECUTION_BUDGET_QUOTE_UNAVAILABLE', message: 'no envelope' },
       });
     });
-    const handler = new BffHandler(engine, { issue } as never, { record: vi.fn(async () => undefined) } as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
+    const handler = new BffHandler(engine, { issue } as never, { record: vi.fn(async () => undefined) } as never, { current: async () => null } as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const req = {
       method: 'POST',
@@ -227,7 +227,7 @@ describe('决策人路由的 Grant 接线', () => {
       headers: {},
     }));
     const audit = { record: vi.fn(async () => undefined) };
-    const handler = new BffHandler({ call } as never, { issue } as never, audit as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
+    const handler = new BffHandler({ call } as never, { issue } as never, audit as never, { current: async () => null } as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const body = { lawfulBasis: 'consent', lawfulBasisRef: 'CONSENT-1' };
     const req = {
@@ -288,7 +288,7 @@ describe('决策人路由的 Grant 接线', () => {
     );
     const issue = vi.fn(async () => 'grant-jws');
     const audit = { record: vi.fn(async () => undefined) };
-    const handler = new BffHandler(engine, { issue } as never, audit as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
+    const handler = new BffHandler(engine, { issue } as never, audit as never, { current: async () => null } as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const req = {
       method: 'POST',

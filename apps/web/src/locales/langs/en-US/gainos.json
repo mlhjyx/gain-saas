@@ -9,7 +9,8 @@
     "members": "Members & Roles",
     "workspaces": "Workspaces",
     "privacy": "Data & privacy",
-    "audit": "Audit"
+    "audit": "Audit",
+    "compliance": "Compliance"
   },
   "workspaces": {
     "title": "Workspaces",
@@ -733,7 +734,10 @@
     "discoverDone": "Discovery finished; {count} decision makers are now available.",
     "guessDone": "E-mail guessing finished: {attempted} attempted, {persisted} stored, {verified} verified.",
     "verifyDone": "Verification finished: {status}.",
-    "verifyBlocked": "Verification was blocked by the compliance gate (BLOCKED); no probe was sent."
+    "verifyBlocked": "Verification was blocked by the compliance gate (BLOCKED); no probe was sent.",
+    "editDeclaration": "Edit declaration",
+    "declarationRequired": "No lawful-basis declaration yet — contact actions are locked.",
+    "declarationLink": "Go to Settings → Data processing declaration"
   },
   "reports": {
     "kicker": "Coming in M4",
@@ -1026,5 +1030,23 @@
     "success": "Profile created — you are all set",
     "submitFailed": "Setup failed, please try again later",
     "logout": "Sign out"
+  },
+  "compliance": {
+    "title": "Data processing declaration",
+    "intro": "Under GDPR Art. 6(1)(f), declaring a lawful basis for personal-data processing is required before using contact discovery. Declarations are stored per workspace and versioned.",
+    "current": "Current declaration",
+    "none": "No declaration yet — contact features return 403 until you declare one.",
+    "version": "Version",
+    "basis": "Lawful basis",
+    "ref": "LIA / ticket reference",
+    "note": "Assessment summary (purpose / balancing / safeguards)",
+    "save": "Save declaration",
+    "saved": "Saved",
+    "basisOptions": {
+      "legitimate_interest": "Legitimate interest (6(1)(f))",
+      "consent": "Consent (6(1)(a))",
+      "contract": "Contract (6(1)(b))",
+      "legal_obligation": "Legal obligation (6(1)(c))"
+    }
   }
 }

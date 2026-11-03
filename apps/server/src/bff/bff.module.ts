@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { OnboardingController } from './onboarding.controller.js';
-import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, type BffRoute } from './routes.js';
+import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, injectDeclaredCompliance, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { TenantModule } from '../tenant/tenant.module.js';
@@ -11,6 +11,7 @@ import { ServiceModule } from '../service/service.module.js';
 import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
+import { ComplianceDeclarationService } from '../service/compliance-declaration.service.js';
 
 /**
  * 动态 BFF 控制器:按路由表逐条注册到 Express。
@@ -79,20 +80,47 @@ export class BffHandler {
     private readonly engine: EngineHttp,
     private readonly budget: EngineBudgetGrantService,
     private readonly audit: AuditService,
+    private readonly compliance: ComplianceDeclarationService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async handle(req: Request, res: Response): Promise<void> {
     const subPath = req.path.replace(/^\/api\//, '');
+    const tenant = req.tenant!;
+    // D6：租户合法依据声明（数据处理声明）。不走引擎——纯 SaaS 侧存储，
+    // 由下面 complianceInject 路由在发往引擎前自动注入（D6-4 立即生效）。
+    if (subPath === 'settings/compliance' && (req.method === 'GET' || req.method === 'PUT')) {
+      if (req.method === 'GET') {
+        res.status(200).json({ data: (await this.compliance.current(tenant.workspaceId)) ?? null });
+        return;
+      }
+      if (tenant.role !== 'admin') {
+        res.status(403).json({ error: { code: 'FORBIDDEN', message: '仅管理员可声明租户的合法依据' } });
+        return;
+      }
+      try {
+        res.status(200).json({ data: await this.compliance.declare(tenant.userId, tenant.workspaceId, req.body ?? {}) });
+      } catch (err) {
+        const e = err as { getStatus?: () => number; getResponse?: () => unknown };
+        const status = typeof e?.getStatus === 'function' ? e.getStatus() : 500;
+        const bodyOut = typeof e?.getResponse === 'function' ? e.getResponse() : { error: { code: 'COMPLIANCE_DECLARE_FAILED', message: '声明保存失败' } };
+        res.status(status).json(bodyOut);
+      }
+      return;
+    }
     const matched = matchRoute(req.method, subPath);
     if (!matched) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: `没有匹配的 BFF 路由:${req.method} ${req.path}` } });
       return;
     }
     const { route, params } = matched;
-    const tenant = req.tenant!;
     const query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
-    const body = ['POST', 'PATCH'].includes(req.method) && req.body ? req.body : undefined;
+    let body = ['POST', 'PATCH'].includes(req.method) && req.body ? req.body : undefined;
+    // D6：联系人三路由的合法依据默认取租户声明（请求显式携带时不覆盖）。
+    // 注入必须发生在 quote 之前——guess/verify 的 quote 绑定 body，改在后会 SCOPE_MISMATCH。
+    if (route.complianceInject && req.method === 'POST') {
+      body = injectDeclaredCompliance(body, await this.compliance.current(tenant.workspaceId));
+    }
     // 引擎镜像升级前，discover attemptId 既不能进 quote 也不能进转发体。
     const quoteOptions = { discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED };
     const forwardBody = engineRequestBody(route, body, quoteOptions);
@@ -205,7 +233,7 @@ export function registerBffMiddleware(
 @Module({
   imports: [ConfigModule, TenantModule, ServiceModule],
   controllers: [OnboardingController],
-  providers: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard],
+  providers: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard, ComplianceDeclarationService],
   exports: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard],
 })
 export class BffModule {}
