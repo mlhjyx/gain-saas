@@ -10,8 +10,8 @@ import {
   type CanonicalCompanyDetail,
   type CanonicalContact,
   type CanonicalContactPoint,
+  type ComplianceDeclarationView,
   type ContactEvidence,
-  type LawfulBasisKind,
 } from '#/api/gainos';
 
 /**
@@ -34,8 +34,6 @@ interface DialogState {
   point?: CanonicalContactPoint;
 }
 
-const LAW = ['legitimate_interest', 'consent', 'contract', 'legal_obligation'] as const;
-
 const detail = ref<CanonicalCompanyDetail | null>(null);
 const loading = ref(false);
 const loadError = ref<{ title: string; next?: string } | null>(null);
@@ -45,12 +43,11 @@ const actionError = ref<{ title: string; next?: string } | null>(null);
 const dialog = ref<DialogState | null>(null);
 const dialogRoot = ref<HTMLElement | null>(null);
 const form = reactive({
-  basis: '' as '' | LawfulBasisKind,
-  ref: '',
-  note: '',
   acknowledged: false,
 });
-let lastBasis: { basis: LawfulBasisKind; ref: string; note: string } | null = null;
+/** D6：租户合法依据声明（设置页一次性声明，BFF 自动注入；此处仅读取展示与门控）。 */
+const declared = ref<ComplianceDeclarationView | null>(null);
+let declaredLoaded = false;
 
 const contacts = computed<CanonicalContact[]>(() => detail.value?.company.contacts ?? []);
 
@@ -205,16 +202,21 @@ async function load(): Promise<void> {
   }
 }
 
-function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: CanonicalContactPoint): void {
+async function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: CanonicalContactPoint): Promise<void> {
   actionError.value = null;
   notice.value = null;
-  form.basis = lastBasis?.basis ?? '';
-  form.ref = lastBasis?.ref ?? '';
-  form.note = lastBasis?.note ?? '';
   form.acknowledged = false;
   dialog.value = { kind, contact, point };
   // 把焦点移进弹窗,键盘用户不会继续停在背景卡片上。
   void nextTick(() => dialogRoot.value?.focus());
+  if (!declaredLoaded) {
+    try {
+      declared.value = (await gainosApi.complianceDeclaration()) ?? null;
+      declaredLoaded = true; // 仅成功才缓存；失败允许下次弹窗重试
+    } catch {
+      declared.value = null;
+    }
+  }
 }
 
 function closeDialog(): void {
@@ -244,23 +246,11 @@ const riskyTarget = computed(() => {
 
 const canSubmit = computed(() => {
   if (!dialog.value || busy.value) return false;
-  if (!form.basis) return false;
+  // D6：未声明合法依据的租户不能发起联系人操作（后端同样会 403）。
+  if (!declared.value) return false;
   if (riskyTarget.value && !form.acknowledged) return false;
   return true;
 });
-
-function basisHint(): string {
-  if (!form.basis) return $t('gainos.contacts.noBasis');
-  return $t(`gainos.contacts.basisHint.${form.basis}`);
-}
-
-function complianceInput(): { lawfulBasis: LawfulBasisKind; lawfulBasisRef?: string; lawfulBasisNote?: string } {
-  return {
-    lawfulBasis: form.basis as LawfulBasisKind,
-    ...(form.ref.trim() ? { lawfulBasisRef: form.ref.trim() } : {}),
-    ...(form.note.trim() ? { lawfulBasisNote: form.note.trim() } : {}),
-  };
-}
 
 async function submit(): Promise<void> {
   if (!dialog.value || !canSubmit.value) return;
@@ -269,13 +259,13 @@ async function submit(): Promise<void> {
   actionError.value = null;
   try {
     if (current.kind === 'discover') {
+      // 合法依据由 BFF 按租户声明自动注入（D6），请求体只带业务参数。
       const result = await gainosApi.discoverContacts(props.companyId, {
-        ...complianceInput(),
         attemptId: newAttemptId(),
       });
       notice.value = $t('gainos.contacts.discoverDone', { count: result.contacts?.length ?? 0 });
     } else if (current.kind === 'guess') {
-      const result = await gainosApi.guessEmails(props.companyId, complianceInput());
+      const result = await gainosApi.guessEmails(props.companyId, {});
       notice.value = $t('gainos.contacts.guessDone', {
         attempted: result.attempted ?? 0,
         persisted: result.persisted ?? 0,
@@ -285,14 +275,13 @@ async function submit(): Promise<void> {
         notice.value += ' ' + $t('gainos.contacts.guessBlocked', { count: result.blocked ?? 0 });
       }
     } else if (current.point) {
-      const result = await gainosApi.verifyContactPoint(current.point.id, complianceInput());
+      const result = await gainosApi.verifyContactPoint(current.point.id, {});
       const status = result.verification?.status ?? result.status;
       notice.value =
         status === 'BLOCKED'
           ? $t('gainos.contacts.verifyBlocked')
           : $t('gainos.contacts.verifyDone', { status: statusLabel(status) });
     }
-    lastBasis = { basis: form.basis as LawfulBasisKind, ref: form.ref.trim(), note: form.note.trim() };
     dialog.value = null;
     await load();
   } catch (error) {
@@ -424,23 +413,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
 
         <p v-if="riskyTarget" class="dm__warning" role="alert">{{ $t('gainos.contacts.riskyWarning') }}</p>
 
-        <label class="dm__field">
-          <span>{{ $t('gainos.contacts.lawfulBasis') }}<em> *</em></span>
-          <select v-model="form.basis">
-            <option value="">{{ $t('gainos.contacts.lawfulBasisPlaceholder') }}</option>
-            <option v-for="kind in LAW" :key="kind" :value="kind">{{ $t(`gainos.contacts.basis.${kind}`) }}</option>
-          </select>
-        </label>
-        <p class="dm__basis-hint" :class="{ 'is-warn': !form.basis }">{{ basisHint() }}</p>
-
-        <label class="dm__field">
-          <span>{{ $t('gainos.contacts.lawfulBasisRef') }}</span>
-          <input v-model="form.ref" type="text" maxlength="512" :placeholder="$t('gainos.contacts.lawfulBasisRefPlaceholder')" />
-        </label>
-        <label class="dm__field">
-          <span>{{ $t('gainos.contacts.lawfulBasisNote') }}</span>
-          <input v-model="form.note" type="text" maxlength="1000" />
-        </label>
+        <div class="dm__basis-hint" :class="{ 'is-warn': !declared }">
+          <template v-if="declared">
+            <span>
+              {{ $t('gainos.contacts.lawfulBasis') }}：
+              {{ $t(`gainos.contacts.basis.${declared.basis}`) }} · v{{ declared.version }}
+            </span>
+            <router-link to="/settings/compliance">{{ $t('gainos.contacts.editDeclaration') }}</router-link>
+          </template>
+          <template v-else>
+            <span>{{ $t('gainos.contacts.declarationRequired') }}</span>
+            <router-link to="/settings/compliance">{{ $t('gainos.contacts.declarationLink') }}</router-link>
+          </template>
+        </div>
 
         <label v-if="riskyTarget" class="dm__ack">
           <input v-model="form.acknowledged" type="checkbox" />

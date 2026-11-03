@@ -9,7 +9,8 @@
     "members": "成员与角色",
     "workspaces": "工作空间",
     "privacy": "数据与隐私",
-    "audit": "审计"
+    "audit": "审计",
+    "compliance": "数据处理声明"
   },
   "workspaces": {
     "title": "工作空间",
@@ -733,7 +734,10 @@
     "discoverDone": "联系人发现完成，当前共 {count} 位可展示的决策人。",
     "guessDone": "邮箱猜测完成：尝试 {attempted} 人，落库 {persisted} 条，验证通过 {verified} 条。",
     "verifyDone": "验证完成：{status}。",
-    "verifyBlocked": "验证被合规门拦截（BLOCKED），未发起任何探测。"
+    "verifyBlocked": "验证被合规门拦截（BLOCKED），未发起任何探测。",
+    "editDeclaration": "编辑声明",
+    "declarationRequired": "尚未声明数据处理合法依据，联系人操作已锁定。",
+    "declarationLink": "前往「设置 → 数据处理声明」完成声明"
   },
   "reports": {
     "kicker": "M4 开放",
@@ -1026,5 +1030,24 @@
     "success": "企业档案已创建，开始使用吧",
     "submitFailed": "建档失败，请稍后重试",
     "logout": "退出登录"
+  },
+  "compliance": {
+    "title": "数据处理声明",
+    "intro": "依据 GDPR 第 6(1)(f) 条，使用「发现决策人」等联系人功能前，需声明你处理个人数据的合法依据。声明按工作区保存，每次更新保留历史版本。",
+    "current": "当前声明",
+    "none": "尚未声明——联系人功能将被拒绝（403），请先完成声明。",
+    "version": "版本",
+    "basis": "合法依据",
+    "ref": "LIA / 工单引用",
+    "note": "评估摘要（目的 / 利益权衡 / 保障措施）",
+    "noteHint": "全文保存在本工作区供审计；联系人请求只携带版本与日期。",
+    "save": "保存声明",
+    "saved": "已保存",
+    "basisOptions": {
+      "legitimate_interest": "合法利益（GDPR 6(1)(f)）",
+      "consent": "同意（6(1)(a)）",
+      "contract": "合同必要（6(1)(b)）",
+      "legal_obligation": "法定义务（6(1)(c)）"
+    }
   }
 }

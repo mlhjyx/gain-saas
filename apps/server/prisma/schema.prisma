@@ -42,8 +42,31 @@ model Workspace {
   registry    WorkspaceRegistry?
   invitations Invitation[]
   runLinks    DiscoveryRunLink[]
+  complianceDeclarations WorkspaceComplianceDeclaration[]
 
   @@map("workspace")
+}
+
+/// D6 per-tenant 合法依据声明（数据处理声明）：每次（重新）声明新增一版，
+/// 历史保留用于审计；BFF 在联系人三路由（发现/猜测/验证）自动注入当前版本。
+model WorkspaceComplianceDeclaration {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  /// 自增版本号（每 workspace 从 1 开始），审计按 (workspace, version) 追溯。
+  version     Int
+  /// legitimate_interest | consent | contract | legal_obligation
+  basis       String
+  /// LIA/工单/同意记录引用（可审计）。
+  ref         String?
+  /// 声明正文/评估摘要（最小版表单的自由文本，可承载正式 LIA 全文）。
+  note        String?
+  declaredBy  String   @map("declared_by") @db.Uuid
+  declaredAt  DateTime @default(now()) @map("declared_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, version])
+  @@map("workspace_compliance_declaration")
 }
 
 /// SaaS 侧对已发起寻源任务的引用。引擎没有“按方案列 run”的端点，
