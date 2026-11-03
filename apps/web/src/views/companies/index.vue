@@ -49,6 +49,7 @@ const confirmingId = ref<string | null>(null);
 const retryingId = ref<string | null>(null);
 const form = reactive({ website: '', name: '' });
 const formError = ref<string | null>(null);
+const createdNotice = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标买家设计 ──
@@ -421,14 +422,27 @@ function openWizard(): void {
 async function create(): Promise<void> {
   formError.value = null;
   const website = form.website.trim();
-  if (!website) {
-    formError.value = $t('gainos.companies.errWebsite');
+  const name = form.name.trim();
+  if (!website && !name) {
+    formError.value = $t('gainos.companies.errNameOrWebsite');
+    return;
+  }
+  if (website && !/^https?:\/\/.+/i.test(website)) {
+    formError.value = $t('gainos.companies.errWebsiteInvalid');
     return;
   }
   creating.value = true;
   try {
-    await gainosApi.createCompany({ website, name: form.name.trim() || undefined });
+    const created = await gainosApi.createCompany({
+      ...(website ? { website } : {}),
+      ...(name ? { name } : {}),
+    });
+    // BFF 返回引擎信封；兼容直接返回实体的情况。
+    const detail = (created as unknown as { data?: CompanyProfile })?.data ?? created;
     wizardOpen.value = false;
+    createdNotice.value = detail?.understanding === 'not_started'
+      ? $t('gainos.companies.createdNoUnderstanding')
+      : $t('gainos.companies.created');
     await load();
   } catch (err) {
     formError.value = failureText(err).title;
@@ -475,6 +489,8 @@ onUnmounted(() => {
     </header>
 
     <!-- 状态：加载 / 引擎未授权 / 空 / 列表 -->
+    <p v-if="createdNotice" class="cp__claim-notice" role="status">{{ createdNotice }}</p>
+
     <div v-if="loading" class="cp__state cp__state--loading">{{ $t('gainos.companies.loading') }}</div>
 
     <div v-else-if="error" class="cp__state cp__state--error">
@@ -496,7 +512,7 @@ onUnmounted(() => {
       <li v-for="c in companies" :key="c.id" class="cp__item">
         <div class="cp__item-main">
           <strong class="cp__item-name">{{ c.name ?? c.domain ?? c.website ?? $t('gainos.companies.unnamed') }}</strong>
-          <span class="cp__item-site">{{ c.website ?? c.domain ?? '' }}</span>
+          <span class="cp__item-site">{{ c.website ?? c.domain ?? $t('gainos.companies.noWebsite') }}</span>
           <span v-if="understandingFailed(c)" class="cp__item-error">
             {{ c.understandingLastError ?? $t('gainos.companies.statusFailed') }}
           </span>
@@ -538,7 +554,7 @@ onUnmounted(() => {
       </li>
     </ul>
 
-    <!-- 建档向导(M2:引擎合同 = website + name;其余由理解管线补充) -->
+    <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
       <div v-if="wizardOpen" class="cp__modal" :aria-label="$t('gainos.companies.wizardTitle')">
         <div class="cp__modal-mask" @click="wizardOpen = false"></div>
@@ -547,11 +563,11 @@ onUnmounted(() => {
             <h2>{{ $t('gainos.companies.wizardTitle') }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="wizardOpen = false">✕</button>
           </header>
-          <p class="cp__modal-hint">只需官网和名称。GainOS 会沿官网理解产品、能力与品牌，并持续补全——理解失败也不影响你手动完善。</p>
+          <p class="cp__modal-hint">{{ $t('gainos.companies.wizardHint') }}</p>
           <form novalidate @submit.prevent="create">
             <label class="cp__field">
               <span>{{ $t('gainos.companies.website') }}</span>
-              <input v-model="form.website" type="url" placeholder="https://www.your-company.com" />
+              <input v-model="form.website" type="url" :placeholder="$t('gainos.companies.websitePlaceholder')" />
             </label>
             <label class="cp__field">
               <span>{{ $t('gainos.companies.name') }}</span>
@@ -598,6 +614,8 @@ onUnmounted(() => {
             <p v-if="companyOverview?.summary" class="cp__overview-summary">{{ companyOverview.summary }}</p>
             <div class="cp__overview-meta">
               <span v-if="companyOverview?.industry">{{ $t('gainos.companies.overviewIndustry') }}：{{ companyOverview.industry }}</span>
+              <span v-if="companyOverview?.targetMarkets?.length">{{ $t('gainos.companies.overviewMarkets') }}：{{ companyOverview.targetMarkets.join(' / ') }}</span>
+              <span v-if="companyOverview?.businessEmail">{{ $t('gainos.companies.overviewEmail') }}：{{ companyOverview.businessEmail }}</span>
               <a v-if="companyOverview?.website" :href="companyOverview.website" target="_blank" rel="noopener noreferrer">{{ companyOverview.website }}</a>
             </div>
             <div v-if="completeness" class="cp__stats">

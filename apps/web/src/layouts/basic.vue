@@ -33,7 +33,15 @@ const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
 const { destroyWatermark, updateWatermark } = useWatermark();
-const { isDark } = usePreferences();
+const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
+const appVersion = __APP_VERSION__;
+const appCommit = __APP_COMMIT__;
+const versionLabel = computed(() =>
+  appCommit ? `v${appVersion} · ${appCommit}` : `v${appVersion}`,
+);
+const versionTitle = computed(() =>
+  appCommit ? `GainOS v${appVersion} · ${appCommit}` : `GainOS v${appVersion}`,
+);
 const showDot = computed(() =>
   notifications.value.some((item) => !item.isRead),
 );
@@ -254,4 +262,34 @@ onUnmounted(() => {
       <LockScreen :avatar @to-login="handleLogout" />
     </template>
   </BasicLayout>
+  <div
+    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
+    class="app-version"
+    :style="{ width: `${preferences.sidebar.width}px` }"
+    :title="versionTitle"
+  >
+    {{ versionLabel }}
+  </div>
 </template>
+
+<style scoped>
+/* 侧栏底部（折叠/固定按钮之间）显示产品版本与构建 SHA；折叠或移动端隐藏。 */
+.app-version {
+  position: fixed;
+  bottom: 10px;
+  left: 0;
+  z-index: 9;
+  box-sizing: border-box;
+  padding: 0 44px;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 16px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.75;
+  transition: width 0.3s;
+}
+</style>

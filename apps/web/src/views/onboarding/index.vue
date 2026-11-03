@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { preferences, usePreferences } from '@vben/preferences';
-import { useAccessStore, useUserStore } from '@vben/stores';
+import { useUserStore } from '@vben/stores';
 
 import { Button, Input, message, Select } from 'ant-design-vue';
 
@@ -16,7 +16,6 @@ defineOptions({ name: 'OnboardingWizard' });
 const router = useRouter();
 const userStore = useUserStore();
 const authStore = useAuthStore();
-const accessStore = useAccessStore();
 const { locale } = usePreferences();
 
 /**
