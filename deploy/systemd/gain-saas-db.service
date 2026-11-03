@@ -1,0 +1,26 @@
+# gain-saas 生产 PostgreSQL(嵌入式 PostgreSQL 18 二进制,127.0.0.1:5433)。
+# 数据目录 /global/gain-saas/apps/server/data/pg(dev-postgres.ts initdb 产物,勿手改;属主 xin 700)。
+# 安装(root):cp 到 /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now gain-saas-db
+# 运维说明:local-config/RUNBOOK.md「gain-saas 数据库」
+[Unit]
+Description=gain-saas PostgreSQL 18 (embedded binary, 127.0.0.1:5433)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=xin
+ExecStart=/global/gain-saas/node_modules/.pnpm/@embedded-postgres+linux-x64@18.4.0-beta.17/node_modules/@embedded-postgres/linux-x64/native/bin/postgres -D /global/gain-saas/apps/server/data/pg -p 5433
+# 只给 postmaster 发 SIGINT(与 embedded-postgres stop() 等价)。默认 KillMode=control-group
+# 会把 SIGINT 发给所有 backend,日志出现 abnormal database system shutdown(2026-11-03 演练实测)。
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=3
+UMask=0077
+# 不设 PrivateTmp:unix_socket_directories 沿用默认 /tmp,隔离后本地 psql 将看不到 socket。
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
