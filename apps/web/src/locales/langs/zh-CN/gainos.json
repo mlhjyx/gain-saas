@@ -932,7 +932,8 @@
       "RUNNING": "运行中",
       "DONE": "已完成",
       "PARTIAL": "部分完成",
-      "FAILED": "失败"
+      "FAILED": "失败",
+      "CANCELLED": "已停止"
     },
     "stageQuery": "查询",
     "stageCanonical": "归一",
@@ -1004,7 +1005,33 @@
     "budgetCutByStage": "分阶段预算截断",
     "budgetCutValue": "发现 {discovery} · 补全 {enrich} · 信号 {signals}",
     "outputsTitle": "阶段产出",
-    "detailsTitle": "技术详情：完整数据"
+    "detailsTitle": "技术详情：完整数据",
+    "stopDeep": "停止深挖",
+    "stopConfirm": "停止深挖后：已完成公司的名单与结果保留，未完成的公司下次 run 会重新排队。确定停止？",
+    "stopRequested": "已请求停止深挖，正在收尾；已完成的结果会保留。",
+    "quickListTitle": "快扫名单",
+    "deepQueueTitle": "深挖队列",
+    "jobName": "公司",
+    "jobStage": {
+      "queued": "排队中",
+      "prefiltered_out": "规则预筛出局",
+      "quick_judged": "粗判完成",
+      "profiling": "画像中",
+      "fitting": "精判中",
+      "signals": "信号中",
+      "contacts": "联系人中",
+      "done": "完成",
+      "failed": "失败",
+      "skipped": "已跳过"
+    },
+    "jobVerdict": {
+      "match": "匹配",
+      "weak": "待复核",
+      "mismatch": "不匹配"
+    },
+    "jobError": "失败码",
+    "jobsEmpty": "暂无公司级记录（快扫开始后出现）。",
+    "jobStageColumn": "状态"
   },
   "audit": {
     "title": "操作审计",

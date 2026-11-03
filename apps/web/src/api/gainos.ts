@@ -368,8 +368,43 @@ export interface DiscoveryRun {
   icpId: string;
   status: string;
   stats: Record<string, unknown>;
+  /** Run 2.0（M0）：任务归因 {taskId, taskRunId}；旧 run 为 null。 */
+  taskRef?: { taskId: string; taskRunId: string } | null;
+  phases?: Record<string, unknown> | null;
+  mode?: string;
   createdAt: string;
   completedAt?: string | null;
+}
+
+/** M0⑤：run 进度事件（按 seq 增量拉取）。 */
+export interface DiscoveryRunEvent {
+  seq: number;
+  at: string;
+  level: string;
+  type: string;
+  payload: Record<string, unknown> | null;
+}
+
+export interface DiscoveryRunEventsPage {
+  status: string;
+  events: DiscoveryRunEvent[];
+  nextAfter: number;
+}
+
+/** M0⑤：公司级 job 队列（快扫名单 + 深挖逐家状态）。 */
+export interface DiscoveryRunJob {
+  id: string;
+  companyId: string;
+  name: string | null;
+  domain: string | null;
+  country: string | null;
+  stage: string;
+  verdictQuick: string | null;
+  verdictDeep: string | null;
+  lastErrorCode: string | null;
+  costCents: number;
+  startedAt: string | null;
+  finishedAt: string | null;
 }
 
 /** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回寻源任务。 */
@@ -651,6 +686,17 @@ export const gainosApi = {
       { planId },
     ),
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
+  /** M0⑤：增量拉取 run 事件（after=上次的 nextAfter；事件可重放）。 */
+  runEvents: (runId: string, after = 0, limit = 200) =>
+    requestClient.get<DiscoveryRunEventsPage>(`/discovery-runs/${runId}/events`, {
+      params: { after, limit },
+    }),
+  /** M0⑤：run 的公司级队列（默认取第一页 200 家）。 */
+  runJobs: (runId: string, limit = 200) =>
+    requestClient.get<DiscoveryRunJob[]>(`/discovery-runs/${runId}/jobs`, { params: { limit } }),
+  /** M0④/⑤：停止深挖（保留已完成结果；未完成公司下一次 run 重新排队）。 */
+  cancelDiscoveryRun: (runId: string) =>
+    requestClient.post<{ runId: string; status: string }>(`/discovery-runs/${runId}/cancel`, {}),
   discoveryRunLinks: (icpId: string) =>
     requestClient.get<DiscoveryRunLink[]>('/runs', { params: { icpId } }),
   recordDiscoveryRun: (input: { runId: string; planId: string; icpId: string }) =>

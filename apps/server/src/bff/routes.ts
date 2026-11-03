@@ -75,6 +75,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'POST', saasPath: 'query-plans/:planId/confirm', enginePath: '/query-plans/:planId/confirm', access: 'member' },
   { method: 'POST', saasPath: 'query-plans/:planId/execute', enginePath: '/query-plans/:planId/execute', access: 'member', grant: true },
   { method: 'GET', saasPath: 'discovery-runs/:runId', enginePath: '/discovery-runs/:runId', access: 'member' },
+  { method: 'POST', saasPath: 'discovery-runs/:runId/cancel', enginePath: '/discovery-runs/:runId/cancel', access: 'member' },
+  { method: 'GET', saasPath: 'discovery-runs/:runId/events', enginePath: '/discovery-runs/:runId/events', access: 'member' },
+  { method: 'GET', saasPath: 'discovery-runs/:runId/jobs', enginePath: '/discovery-runs/:runId/jobs', access: 'member' },
 
   // ── 模块 04 线索工作台 ──
   { method: 'POST', saasPath: 'icps/:icpId/qualify', enginePath: '/icps/:icpId/qualify', access: 'member' },

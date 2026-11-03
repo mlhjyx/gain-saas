@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 
-import { failureText, gainosApi, type DiscoveryRun } from '#/api/gainos';
+import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob } from '#/api/gainos';
 
 defineOptions({ name: 'DiscoveryRunView' });
 
@@ -19,6 +19,68 @@ const loading = ref(true);
 const error = ref<{ title: string; next?: string } | null>(null);
 const auto = ref(true);
 let timer: ReturnType<typeof setInterval> | null = null;
+
+// M0⑤：快扫名单 / 深挖队列 / 增量事件 / 停止深挖。
+const jobs = ref<DiscoveryRunJob[]>([]);
+const lastSeq = ref(0);
+const jobError = ref<string | null>(null);
+const stopping = ref(false);
+const stopNotice = ref<string | null>(null);
+
+const QUICK_STAGES = new Set(['queued', 'prefiltered_out', 'quick_judged']);
+const quickJobs = computed(() => jobs.value.filter((job) => QUICK_STAGES.has(job.stage)));
+const deepJobs = computed(() => jobs.value.filter((job) => !QUICK_STAGES.has(job.stage)));
+
+function jobStageLabel(stage: string): string {
+  const key = `gainos.runs.jobStage.${stage}`;
+  const value = $t(key);
+  return value === key ? stage : value;
+}
+
+function jobVerdictLabel(verdict?: string | null): string {
+  if (!verdict) return '—';
+  const key = `gainos.runs.jobVerdict.${verdict}`;
+  const value = $t(key);
+  return value === key ? verdict : value;
+}
+
+async function loadJobs(): Promise<void> {
+  try {
+    jobs.value = await gainosApi.runJobs(runId);
+    jobError.value = null;
+  } catch (err) {
+    jobError.value = failureText(err).title;
+  }
+}
+
+/** 按 seq 增量拉事件；有新事件才刷新逐家状态（3 秒轮询的判据）。 */
+async function pollEvents(): Promise<void> {
+  try {
+    const page = await gainosApi.runEvents(runId, lastSeq.value);
+    if (page.events.length > 0) {
+      lastSeq.value = page.nextAfter;
+      await loadJobs();
+    }
+  } catch {
+    /* 事件轮询失败不打断 run 视图；下一轮重试 */
+  }
+}
+
+async function stopDeep(): Promise<void> {
+  if (stopping.value) return;
+  if (!window.confirm($t('gainos.runs.stopConfirm'))) return;
+  stopping.value = true;
+  stopNotice.value = null;
+  try {
+    await gainosApi.cancelDiscoveryRun(runId);
+    stopNotice.value = $t('gainos.runs.stopRequested');
+    await load();
+  } catch (err) {
+    jobError.value = failureText(err).title;
+  } finally {
+    stopping.value = false;
+  }
+}
 
 function textOf(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
@@ -291,6 +353,7 @@ const statusTone = computed(() => {
   if (status === 'DONE') return 'is-ok';
   if (status === 'FAILED') return 'is-bad';
   if (status === 'PARTIAL') return 'is-warn';
+  if (status === 'CANCELLED') return 'is-warn';
   return 'is-running';
 });
 
@@ -309,6 +372,10 @@ async function load(): Promise<void> {
   try {
     run.value = await gainosApi.discoveryRun(runId);
     error.value = null;
+    await Promise.all([
+      pollEvents(),
+      jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
+    ]);
   } catch (err) {
     error.value = failureText(err);
   } finally {
@@ -357,6 +424,7 @@ onUnmounted(() => {
       </div>
       <div class="run__head-actions">
         <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
+        <button v-if="run?.status === 'RUNNING'" class="run__action run__action--danger" type="button" :disabled="stopping" @click="stopDeep">{{ stopping ? $t('gainos.common.loading') : $t('gainos.runs.stopDeep') }}</button>
         <button class="run__action" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
       </div>
     </header>
@@ -382,6 +450,41 @@ onUnmounted(() => {
         <article><span>{{ $t('gainos.runs.summaryPartialMatch') }}</span><strong>{{ textOf(fit.weak ?? 0) }}</strong></article>
         <article><span>{{ $t('gainos.runs.summaryExcluded') }}</span><strong>{{ textOf(Number(fit.mismatch ?? 0) + Number(stats.suppressed ?? 0)) }}</strong></article>
         <article><span>{{ $t('gainos.runs.summaryDuration') }}</span><strong>{{ elapsed }}</strong></article>
+      </section>
+
+      <p v-if="stopNotice" class="run__muted">{{ stopNotice }}</p>
+      <p v-if="jobError" class="run__error-text" role="alert">{{ jobError }}</p>
+
+      <section class="run__grid">
+        <article class="run__card run__card--wide">
+          <h2>{{ $t('gainos.runs.quickListTitle') }}</h2>
+          <table class="run__table">
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th></tr></thead>
+            <tbody>
+              <tr v-for="job in quickJobs" :key="job.id">
+                <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
+                <td>{{ jobStageLabel(job.stage) }}</td>
+                <td>{{ jobVerdictLabel(job.verdictQuick) }}</td>
+              </tr>
+              <tr v-if="quickJobs.length === 0"><td colspan="3" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="run__card run__card--wide">
+          <h2>{{ $t('gainos.runs.deepQueueTitle') }}</h2>
+          <table class="run__table">
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th><th>{{ $t('gainos.runs.jobError') }}</th></tr></thead>
+            <tbody>
+              <tr v-for="job in deepJobs" :key="job.id">
+                <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
+                <td>{{ jobStageLabel(job.stage) }}</td>
+                <td>{{ jobVerdictLabel(job.verdictDeep ?? job.verdictQuick) }}</td>
+                <td class="run__error-text">{{ job.lastErrorCode ?? '—' }}</td>
+              </tr>
+              <tr v-if="deepJobs.length === 0"><td colspan="4" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
+            </tbody>
+          </table>
+        </article>
       </section>
 
       <section class="run__user-stages" :aria-label="$t('gainos.runs.userProgress')">
@@ -657,6 +760,7 @@ onUnmounted(() => {
 .run__facts dt { color: var(--gs-fg-muted); }
 .run__facts dd { margin: 0; color: var(--gs-fg); word-break: break-word; }
 .run__error-text { color: #b45309; max-width: 420px; word-break: break-word; }
+.run__action--danger { border-color: #b45309; color: #b45309; }
 .run__details { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); padding: 14px 18px; }
 .run__details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gs-fg); }
 .run__details pre { margin: 12px 0 0; font-size: 11.5px; line-height: 1.6; max-height: 420px; overflow: auto; background: var(--gs-bg-soft, #f8fafc); padding: 14px; border-radius: 10px; }
