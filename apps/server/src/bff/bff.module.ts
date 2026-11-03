@@ -1,14 +1,15 @@
-import { type CanActivate, type ExecutionContext, HttpException, Injectable, Logger, Module } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, HttpException, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { OnboardingController } from './onboarding.controller.js';
-import { BFF_ROUTES, budgetQuoteRequest, type BffRoute } from './routes.js';
+import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { ServiceModule } from '../service/service.module.js';
-import { ConfigModule } from '../shared/config.module.js';
+import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 
 /**
@@ -78,6 +79,7 @@ export class BffHandler {
     private readonly engine: EngineHttp,
     private readonly budget: EngineBudgetGrantService,
     private readonly audit: AuditService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async handle(req: Request, res: Response): Promise<void> {
@@ -91,11 +93,14 @@ export class BffHandler {
     const tenant = req.tenant!;
     const query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
     const body = ['POST', 'PATCH'].includes(req.method) && req.body ? req.body : undefined;
+    // 引擎镜像升级前，discover attemptId 既不能进 quote 也不能进转发体。
+    const quoteOptions = { discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED };
+    const forwardBody = engineRequestBody(route, body, quoteOptions);
     const headers: Record<string, string> = {};
     const idempotencyKey = req.get('idempotency-key');
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     if (route.grant) {
-      const quoteRequest = budgetQuoteRequest(route, params, body);
+      const quoteRequest = budgetQuoteRequest(route, params, forwardBody, quoteOptions);
       if (!quoteRequest) {
         res.status(500).json({ error: { code: 'BFF_BUDGET_ROUTE_INVALID', message: '写路由缺少预算 quote 映射' } });
         return;
@@ -126,7 +131,7 @@ export class BffHandler {
         query,
         ...(route.csv
           ? { rawBody: typeof body === 'string' ? body : '' }
-          : { body }),
+          : { body: forwardBody }),
         headers,
         timeoutMs: route.timeoutMs,
       });

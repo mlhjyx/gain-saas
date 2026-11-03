@@ -27,10 +27,7 @@ export class OpsController {
     return this.ops.overview();
   }
 
-  @Get('probe')
-  probe() {
-    return this.ops.probe();
-  }
+  // GET /probe 已移除:概览内部直接调用 service.probe(),无页面/脚本使用该 HTTP 路由(2026-11-03 清理)。
 
   @Get('providers')
   async providers() {

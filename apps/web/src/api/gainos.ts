@@ -161,6 +161,11 @@ export interface ContactComplianceInput {
   lawfulBasisNote?: string;
 }
 
+export interface DiscoverContactsInput extends ContactComplianceInput {
+  /** 每次点击生成的幂等键；引擎支持后用于把重复发现隔离到各自的预算账户。 */
+  attemptId?: string;
+}
+
 export interface DiscoverContactsResult {
   contacts: CanonicalContact[];
   skippedSuppressed?: number;
@@ -322,6 +327,8 @@ export interface QueryPlan {
   status: string;
   queries: Array<Record<string, unknown>>;
   estimatedVolume?: number | null;
+  /** 引擎对该计划的技术报价上限（美分）；读接口透出，页面做费用预期展示。 */
+  estimatedCostCents?: number | null;
   version: number;
   createdAt: string;
 }
@@ -466,7 +473,7 @@ export const gainosApi = {
   // ── 决策人（联系人挖掘 M4；引擎只对管理员身份的 compliance:manage 放行）──
   canonicalCompany: (companyId: string) =>
     requestClient.get<CanonicalCompanyDetail>(`/canonical-companies/${companyId}`),
-  discoverContacts: (companyId: string, input: ContactComplianceInput) =>
+  discoverContacts: (companyId: string, input: DiscoverContactsInput) =>
     requestClient.post<DiscoverContactsResult>(`/canonical-companies/${companyId}/discover-contacts`, input),
   guessEmails: (companyId: string, input: ContactComplianceInput & { maxContacts?: number; maxProbe?: number }) =>
     requestClient.post<GuessEmailsResult>(`/canonical-companies/${companyId}/guess-emails`, input),
@@ -550,8 +557,9 @@ export const gainosApi = {
 };
 
 /** 引擎/合同错误信息提取(三层文案优先) */
-export function failureText(error: unknown): { title: string; next: string | undefined } {
-  const detail = (error as { response?: { data?: { error?: { userCopy?: { title?: string; why?: string; next?: string }; message?: string } } } })?.response?.data?.error;
-  if (detail?.userCopy?.title) return { title: detail.userCopy.title, next: detail.userCopy.next };
-  return { title: detail?.message ?? (error as Error)?.message ?? '请求失败，请稍后重试', next: undefined };
+export function failureText(error: unknown): { title: string; next: string | undefined; code?: string } {
+  const detail = (error as { response?: { data?: { error?: { code?: string; userCopy?: { title?: string; why?: string; next?: string }; message?: string }; meta?: { engineCode?: string } } } })?.response?.data?.error;
+  const code = detail?.code ?? (detail as { meta?: { engineCode?: string } } | undefined)?.meta?.engineCode;
+  if (detail?.userCopy?.title) return { title: detail.userCopy.title, next: detail.userCopy.next, code };
+  return { title: detail?.message ?? (error as Error)?.message ?? '请求失败，请稍后重试', next: undefined, code };
 }

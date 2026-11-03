@@ -12,6 +12,7 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
+import { ACTIVE_REQUEST_STATES } from '../r4/platform-revocation.service.js';
 import { csvFilename, toCsv, type CsvColumn } from './ops-csv.js';
 import { OpsDatabase } from './ops-database.service.js';
 import { OpsTemporalService, SCHEDULE_WORKFLOW_WHITELIST } from './ops-temporal.service.js';
@@ -120,10 +121,6 @@ export class OpsService {
     try { return await query(); } catch { return fallback; }
   }
 
-  async probe() {
-    return { data: await this.database.ready() };
-  }
-
   async overview() {
     const db = this.database.db;
     const [health, probe, engine, temporalReachable] = await Promise.all([
@@ -152,6 +149,22 @@ export class OpsService {
     const deadDeliveries = db.ownerPool
       ? await this.safe(() => db.ownerQuery(`SELECT count(*)::text n FROM outbox_delivery WHERE status = 'DEAD'`), [{ n: '-1' }])
       : [{ n: '-1' }];
+    // R4 红灯:未结撤销请求 / 投递结果未知 / 平台授权轮次耗尽(引擎库)。
+    // 表在 SaaS 库,用 prisma;计数失败按 -1 显示为未知,不阻断概览。
+    const [r4Open, r4DeliveryUnknown] = await Promise.all([
+      this.prisma.r4RevocationRequest
+        .count({ where: { state: { in: [...ACTIVE_REQUEST_STATES] } } })
+        .catch(() => -1),
+      this.prisma.r4RevocationRequest
+        .count({ where: { deliveryUnknown: true } })
+        .catch(() => -1),
+    ]);
+    const platformExhausted = db.ownerPool
+      ? await this.safe(() => db.ownerQuery(
+        `SELECT count(*)::text n FROM execution_budget_authority
+         WHERE authority_kind = 'PLATFORM' AND max_runs IS NOT NULL AND runs_consumed >= max_runs`,
+      ), [{ n: '-1' }])
+      : [{ n: '-1' }];
     return {
       engine,
       db: health,
@@ -167,6 +180,11 @@ export class OpsService {
         deadDeliveries: Number(deadDeliveries[0]?.n ?? -1),
         exhaustedBudgetAccounts: Number(exhaustedBudgets[0]?.n ?? -1),
         temporal: { reachable: temporalReachable },
+        r4: {
+          openRevocations: r4Open,
+          deliveryUnknown: r4DeliveryUnknown,
+          platformExhaustedAuthorities: Number(platformExhausted[0]?.n ?? -1),
+        },
       },
     };
   }
@@ -472,8 +490,9 @@ export class OpsService {
     return this.database.db.withWorkspace(workspaceId, async (client) => {
       const { rows } = await client.query(
         `SELECT l.id::text, l.status, l.queue, l.fit_verdict, l.total_score, l.scored_at, l.created_at,
-                c.name AS company_name, c.domain AS company_domain, c.country AS company_country
-         FROM lead l JOIN canonical_company c ON c.id = l.canonical_company_id
+                c.name AS company_name, c.domain AS company_domain, c.country AS company_country,
+                left(l.fit_reasons::text, 300) AS fit_reasons
+         FROM lead l JOIN canonical_company c ON l.canonical_company_id = c.id
          ORDER BY l.created_at DESC LIMIT 100`,
       );
       return rows;

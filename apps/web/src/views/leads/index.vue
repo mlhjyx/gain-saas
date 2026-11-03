@@ -64,7 +64,9 @@ const REJECT_CODES = [
   'OTHER',
 ] as const;
 const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
-const SCORE_DIMS = ['fit', 'role', 'intent', 'dataQuality', 'reachability', 'engagement'] as const;
+// 引擎 LeadPackage 契约是 snake_case 七维(lead.scores 直查是 camelCase,包构造器做了键名转换);
+// 之前用 dataQuality 读包数据永远是 undefined,demand_proof 从未展示。
+const SCORE_DIMS = ['fit', 'role', 'intent', 'demand_proof', 'reachability', 'data_quality', 'engagement'] as const;
 
 const activeQueue = ref<string>(queueFromRoute() ?? 'needs_review');
 const leads = ref<Lead[]>([]);
@@ -173,6 +175,74 @@ function fitLabel(verdict?: string | null): string {
   const translated = $t(key);
   return translated === key ? $t('gainos.leads.fit.unknown') : translated;
 }
+interface FactRow { label: string; value: string }
+
+const companyProfileRows = computed<FactRow[]>(() => {
+  const profile = pkg.value?.company_profile;
+  if (!profile || typeof profile !== 'object') return [];
+  const rows: FactRow[] = [];
+  const record = profile as Record<string, unknown>;
+  if (typeof record.trade_role === 'string' && record.trade_role) {
+    const confidence = typeof record.trade_role_confidence === 'number'
+      ? $t('gainos.leads.profileConfidence', { percent: Math.round(record.trade_role_confidence * 100) })
+      : '';
+    rows.push({ label: $t('gainos.leads.profileTradeRole'), value: `${record.trade_role}${confidence ? ` · ${confidence}` : ''}` });
+  }
+  if (typeof record.own_manufacturing === 'boolean') {
+    rows.push({ label: $t('gainos.leads.profileOwnManufacturing'), value: record.own_manufacturing ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
+  }
+  if (typeof record.carries_chinese_brand === 'boolean') {
+    rows.push({ label: $t('gainos.leads.profileChineseBrand'), value: record.carries_chinese_brand ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
+  }
+  if (typeof record.carries_foreign_brand === 'boolean') {
+    rows.push({ label: $t('gainos.leads.profileForeignBrand'), value: record.carries_foreign_brand ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
+  }
+  if (Array.isArray(record.carried_brands) && record.carried_brands.length > 0) {
+    const names = record.carried_brands
+      .map((brand) => (brand && typeof brand === 'object' && typeof (brand as { name?: unknown }).name === 'string' ? (brand as { name: string }).name : ''))
+      .filter(Boolean);
+    if (names.length) rows.push({ label: $t('gainos.leads.profileCarriedBrands'), value: names.join(' · ') });
+  }
+  return rows;
+});
+
+const IDENTIFIER_LABELS: Array<{ key: string; label: string }> = [
+  { key: 'vat_id', label: 'VAT' },
+  { key: 'lei', label: 'LEI' },
+  { key: 'fda_reg', label: 'FDA' },
+  { key: 'register_key', label: $t('gainos.leads.identifierRegister') },
+];
+const identifierRows = computed<Array<{ label: string; value: string }>>(() => {
+  const identifiers = pkg.value?.identifiers;
+  if (!identifiers || typeof identifiers !== 'object') return [];
+  const record = identifiers as Record<string, unknown>;
+  return IDENTIFIER_LABELS
+    .map(({ key, label }) => ({ label, value: typeof record[key] === 'string' ? (record[key] as string) : '' }))
+    .filter((row) => row.value);
+});
+
+const CONTACT_KIND_LABELS: Record<string, string> = {
+  website: '官网',
+  linkedin: 'LinkedIn',
+  phone: '电话',
+  email: '邮箱',
+};
+function contactKindLabel(kind: string): string {
+  return CONTACT_KIND_LABELS[kind] ?? kind;
+}
+const companyContactRows = computed<Array<{ kind: string; url: string; status: string; href: string }>>(() => {
+  const points = pkg.value?.contact_points;
+  if (!Array.isArray(points)) return [];
+  return points
+    .filter((point) => point && typeof point.url === 'string' && point.url)
+    .map((point) => ({
+      kind: contactKindLabel(point.kind),
+      url: point.url,
+      status: point.status ?? '',
+      href: /^https?:\/\//i.test(point.url) ? point.url : '',
+    }));
+});
+
 function reasonsOf(lead: Lead): string[] {
   const raw = lead.fitReasons;
   if (Array.isArray(raw)) return raw.map((item) => String(item)).filter(Boolean);
@@ -639,12 +709,41 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             </div>
           </div>
 
+          <div v-if="companyProfileRows.length || identifierRows.length" class="ld__block">
+            <h3>{{ $t('gainos.leads.profileTitle') }}</h3>
+            <dl class="ld__facts">
+              <div v-for="row in companyProfileRows" :key="row.label">
+                <dt>{{ row.label }}</dt><dd>{{ row.value }}</dd>
+              </div>
+            </dl>
+            <div v-if="identifierRows.length" class="ld__profile-ids">
+              <span v-for="item in identifierRows" :key="item.label" class="ld__profile-id" :title="item.label">
+                <small>{{ item.label }}</small>{{ item.value }}
+              </span>
+            </div>
+          </div>
+
+          <div v-if="companyContactRows.length" class="ld__block">
+            <h3>{{ $t('gainos.leads.companyContactsTitle') }}</h3>
+            <ul class="ld__bullets">
+              <li v-for="point in companyContactRows" :key="`${point.kind}-${point.url}`">
+                <a v-if="point.href" :href="point.href" target="_blank" rel="noreferrer">{{ point.kind }} · {{ point.url }}</a>
+                <template v-else>{{ point.kind }} · {{ point.url }}</template>
+                <span v-if="point.status" class="ld__muted">（{{ point.status }}）</span>
+              </li>
+            </ul>
+          </div>
+
           <div class="ld__block">
             <h3>{{ $t('gainos.leads.scoresTitle') }}</h3>
             <dl class="ld__scores">
               <div v-for="dim in SCORE_DIMS" :key="dim">
                 <dt>{{ $t(`gainos.leads.dim.${dim}`) }}</dt>
                 <dd>{{ scoreValue(pkg.scores?.[dim]) }}</dd>
+              </div>
+              <div>
+                <dt>{{ $t('gainos.leads.dim.total') }}</dt>
+                <dd>{{ typeof pkg.scores?.total === 'number' ? $t('gainos.leads.score', { score: Math.round(pkg.scores.total) }) : $t('gainos.leads.notScored') }}</dd>
               </div>
             </dl>
           </div>
@@ -859,6 +958,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__lead-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .ld__lead-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
 .ld__lead-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
+.ld__profile-ids { display: flex; flex-wrap: wrap; gap: 6px; }
+.ld__profile-id { display: inline-grid; gap: 1px; background: var(--gs-divider); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; color: var(--gs-fg-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ld__profile-id small { font-size: 10.5px; color: var(--gs-fg-subtle); }
 .ld__score { flex: none; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; color: var(--gs-fg-subtle); background: var(--gs-divider); border-radius: 8px; padding: 4px 10px; }
 .ld__score.is-scored { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
 .ld__why { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-2); }

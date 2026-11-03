@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
+import { newAttemptId } from '#/utils/attempt-id';
 
 import {
   failureText,
@@ -268,7 +269,10 @@ async function submit(): Promise<void> {
   actionError.value = null;
   try {
     if (current.kind === 'discover') {
-      const result = await gainosApi.discoverContacts(props.companyId, complianceInput());
+      const result = await gainosApi.discoverContacts(props.companyId, {
+        ...complianceInput(),
+        attemptId: newAttemptId(),
+      });
       notice.value = $t('gainos.contacts.discoverDone', { count: result.contacts?.length ?? 0 });
     } else if (current.kind === 'guess') {
       const result = await gainosApi.guessEmails(props.companyId, complianceInput());
@@ -277,6 +281,9 @@ async function submit(): Promise<void> {
         persisted: result.persisted ?? 0,
         verified: result.verified ?? 0,
       });
+      if ((result.blocked ?? 0) > 0) {
+        notice.value += ' ' + $t('gainos.contacts.guessBlocked', { count: result.blocked ?? 0 });
+      }
     } else if (current.point) {
       const result = await gainosApi.verifyContactPoint(current.point.id, complianceInput());
       const status = result.verification?.status ?? result.status;
@@ -289,7 +296,17 @@ async function submit(): Promise<void> {
     dialog.value = null;
     await load();
   } catch (error) {
-    actionError.value = failureText(error);
+    const failure = failureText(error);
+    // 发现授权只绑定公司(不含 body),同一公司第二次发现必然 GRANT_REUSED;
+    // 通用文案的"重新发起"在这里会误导,按事实说明。
+    if (failure.code === 'EXECUTION_BUDGET_GRANT_REUSED' && current.kind === 'discover') {
+      actionError.value = {
+        title: failure.title,
+        next: $t('gainos.contacts.discoverOnceHint'),
+      };
+    } else {
+      actionError.value = failure;
+    }
   } finally {
     busy.value = null;
   }

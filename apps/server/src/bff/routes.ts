@@ -73,9 +73,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 03 知识视图与禁联 ──
   { method: 'GET', saasPath: 'canonical-companies', enginePath: '/canonical-companies', access: 'member' },
-  // 决策人（联系人挖掘 M4）：引擎这三个端点都要求 compliance:manage,只映射给 saas-admin。
-  // 引擎额外要求 personal-data:read——该 scope 目前不在 SaaS 角色映射里,
-  // 部署侧未授予时这些路由会按「授权对接未就绪」502 降级(见 deploy/engine-integration.md)。
+  // 决策人（联系人挖掘 M4）：引擎这些端点要求 compliance:manage + contact-discovery:read,
+  // 两个 scope 都只映射给 saas-admin(见 deploy/engine-integration.md 的 role map)。
+  // 部署侧 scope 未就绪时这些路由按「授权对接未就绪」502 降级。
   { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'admin' },
   { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000 },
   { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000 },
@@ -97,6 +97,11 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'deletion-requests/:id', enginePath: '/deletion-requests/:id', access: 'admin' },
 ];
 
+export interface BudgetQuoteOptions {
+  /** 引擎是否已支持 discover-contacts 的 attemptId。默认关闭，兼容未升级的引擎镜像。 */
+  readonly discoverAttemptId?: boolean;
+}
+
 /**
  * 把 BFF 请求映射成引擎 `POST /execution-budget/workspace-technical-quote` 的 body。
  * 必须与引擎 `workspaceExecutionBudgetRequestScope` 的 operation/字段逐项一致,
@@ -107,6 +112,7 @@ export function budgetQuoteRequest(
   route: BffRoute,
   params: Record<string, string>,
   body: unknown,
+  options: BudgetQuoteOptions = {},
 ): Record<string, unknown> | null {
   if (!route.grant) return null;
   switch (route.enginePath) {
@@ -128,9 +134,16 @@ export function budgetQuoteRequest(
       return { operation: 'POST /query-plans/:planId/execute', planId: params.planId };
     case '/leads/:leadId/outreach-drafts':
       return { operation: 'POST /leads/:leadId/outreach-drafts', leadId: params.leadId };
-    // 发现联系人只绑定公司 ID(引擎侧 requestSha256 不含 lawfulBasis)。
-    case '/canonical-companies/:id/discover-contacts':
-      return { operation: 'POST /canonical-companies/:id/discover-contacts', companyId: params.id };
+    // 发现联系人绑定公司 ID；引擎支持 attemptId 后，把每次点击的幂等键并入请求哈希，
+    // 重复发现才会落在独立预算账户（未升级的旧引擎不能收到该字段）。
+    case '/canonical-companies/:id/discover-contacts': {
+      const attemptId = (body as { attemptId?: unknown } | null)?.attemptId;
+      const operation = 'POST /canonical-companies/:id/discover-contacts';
+      if (!options.discoverAttemptId || typeof attemptId !== 'string' || attemptId.length === 0) {
+        return { operation, companyId: params.id };
+      }
+      return { operation, companyId: params.id, body: { attemptId } };
+    }
     // 猜测/验证把请求体一起绑定:引擎按 operation + ID + body 计算 requestSha256,
     // 少传或改写 body 会被 GRANT_SCOPE_MISMATCH 拒绝。
     case '/canonical-companies/:id/guess-emails':
@@ -148,4 +161,27 @@ export function budgetQuoteRequest(
     default:
       return null;
   }
+}
+
+/**
+ * 引擎未升级时的转发体兼容层：从 discover-contacts 请求体里移除 attemptId，
+ * 避免旧 DTO 因未知字段拒绝（SaaS 前端总是发送该幂等键）。
+ */
+export function engineRequestBody(
+  route: BffRoute,
+  body: unknown,
+  options: BudgetQuoteOptions = {},
+): unknown {
+  if (
+    route.enginePath !== '/canonical-companies/:id/discover-contacts' ||
+    options.discoverAttemptId ||
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body)
+  ) {
+    return body;
+  }
+  return Object.fromEntries(
+    Object.entries(body as Record<string, unknown>).filter(([key]) => key !== 'attemptId'),
+  );
 }
