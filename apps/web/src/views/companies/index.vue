@@ -13,6 +13,8 @@ import {
   type CompanyConflict,
   type CompanyOffering,
   type CompanyProfile,
+  type UpdateCompanyInput,
+  type WebsiteCandidate,
 } from '#/api/gainos';
 
 defineOptions({ name: 'Companies' });
@@ -397,6 +399,134 @@ async function retryUnderstanding(company: CompanyProfile): Promise<void> {
   }
 }
 
+// ── 档案编辑 / 软删除 / 自动找官网（2026-11-03）─────────────────────────────
+const editOpen = ref(false);
+const editCompany = ref<CompanyProfile | null>(null);
+const editSaving = ref(false);
+const editError = ref<string | null>(null);
+const editForm = reactive({ name: '', website: '', industry: '', businessEmail: '', markets: '' });
+const candidates = ref<WebsiteCandidate[]>([]);
+const candidatesLoading = ref(false);
+const candidatesError = ref<string | null>(null);
+const deletingId = ref<string | null>(null);
+const startingUnderstandingId = ref<string | null>(null);
+
+function openEdit(company: CompanyProfile): void {
+  if (company.status !== 'DRAFT') {
+    error.value = $t('gainos.companies.editNotAllowed');
+    return;
+  }
+  editCompany.value = company;
+  editForm.name = company.name ?? '';
+  editForm.website = company.website ?? '';
+  editForm.industry = company.industry ?? '';
+  editForm.businessEmail = company.businessEmail ?? '';
+  editForm.markets = (company.targetMarkets ?? []).join(', ');
+  candidates.value = [];
+  candidatesError.value = null;
+  editError.value = null;
+  editOpen.value = true;
+}
+
+function parseMarkets(raw: string): string[] | null {
+  const items = raw.split(/[,，\s]+/u).map((item) => item.trim().toUpperCase()).filter(Boolean);
+  if (items.length === 0) return [];
+  if (items.length > 30 || !items.every((item) => /^[A-Z]{2}$/u.test(item))) return null;
+  return [...new Set(items)];
+}
+
+async function findCandidates(): Promise<void> {
+  const companyId = editCompany.value?.id;
+  if (!companyId) return;
+  candidatesLoading.value = true;
+  candidatesError.value = null;
+  try {
+    const data = await gainosApi.companyWebsiteCandidates(companyId);
+    candidates.value = data ?? [];
+    if (candidates.value.length === 0) candidatesError.value = $t('gainos.companies.autoFindEmpty');
+  } catch {
+    candidatesError.value = $t('gainos.companies.autoFindFailed');
+  } finally {
+    candidatesLoading.value = false;
+  }
+}
+
+function useCandidate(candidate: WebsiteCandidate): void {
+  editForm.website = candidate.url;
+}
+
+async function startUnderstanding(companyId: string): Promise<void> {
+  startingUnderstandingId.value = companyId;
+  createdNotice.value = $t('gainos.companies.startUnderstanding');
+  try {
+    await gainosApi.retryCompanyUnderstanding(companyId, newAttemptId());
+    createdNotice.value = $t('gainos.companies.understandingQueued');
+  } catch (err) {
+    createdNotice.value = $t('gainos.companies.understandingStartFailed', {
+      reason: failureText(err).title,
+    });
+  } finally {
+    startingUnderstandingId.value = null;
+    await load(true);
+    setTimeout(() => void load(true), 3_000);
+  }
+}
+
+async function saveEdit(): Promise<void> {
+  editError.value = null;
+  const companyId = editCompany.value?.id;
+  if (!companyId) return;
+  const website = editForm.website.trim();
+  if (website && !/^https?:\/\/.+/i.test(website)) {
+    editError.value = $t('gainos.companies.errWebsiteInvalid');
+    return;
+  }
+  const markets = parseMarkets(editForm.markets);
+  if (markets === null) {
+    editError.value = $t('gainos.companies.targetMarketsInvalid');
+    return;
+  }
+  const payload: UpdateCompanyInput = {};
+  if (editForm.name.trim()) payload.name = editForm.name.trim();
+  if (website) payload.website = website;
+  if (editForm.industry.trim()) payload.industry = editForm.industry.trim();
+  if (editForm.businessEmail.trim()) payload.businessEmail = editForm.businessEmail.trim();
+  if (markets.length > 0) payload.targetMarkets = markets;
+  const websiteNewlySet = !editCompany.value?.website && Boolean(website);
+  editSaving.value = true;
+  try {
+    await gainosApi.updateCompany(companyId, payload);
+    editOpen.value = false;
+    createdNotice.value = $t('gainos.companies.saved');
+    if (websiteNewlySet) {
+      await startUnderstanding(companyId);
+    } else {
+      await load();
+    }
+  } catch (err) {
+    editError.value = failureText(err).title;
+  } finally {
+    editSaving.value = false;
+  }
+}
+
+async function removeCompany(company: CompanyProfile): Promise<void> {
+  const companyId = company.id;
+  if (!companyId) return;
+  if (!window.confirm($t('gainos.companies.deleteConfirm'))) return;
+  deletingId.value = companyId;
+  error.value = null;
+  try {
+    await gainosApi.deleteCompany(companyId);
+    createdNotice.value = $t('gainos.companies.deleted');
+    await load();
+  } catch (err) {
+    error.value = failureText(err).title || $t('gainos.companies.deleteFailed');
+  } finally {
+    deletingId.value = null;
+  }
+}
+
 async function confirmCompany(company: CompanyProfile): Promise<void> {
   const companyId = company.id;
   if (!companyId) return;
@@ -542,6 +672,23 @@ onUnmounted(() => {
             {{ retryingId === c.id ? $t('gainos.companies.retrying') : $t('gainos.companies.retryUnderstanding') }}
           </button>
           <button
+            v-if="c.status === 'DRAFT'"
+            type="button"
+            class="cp__confirm"
+            @click="openEdit(c)"
+          >
+            {{ $t('gainos.companies.edit') }}
+          </button>
+          <button
+            v-if="c.status === 'DRAFT'"
+            type="button"
+            class="cp__confirm"
+            :disabled="deletingId === c.id"
+            @click="removeCompany(c)"
+          >
+            {{ $t('gainos.companies.delete') }}
+          </button>
+          <button
             v-if="c.status === 'REVIEW'"
             type="button"
             class="cp__confirm"
@@ -578,6 +725,69 @@ onUnmounted(() => {
               <button type="button" class="cp__btn cp__btn--ghost" @click="wizardOpen = false">{{ $t('gainos.common.cancel') }}</button>
               <button type="submit" class="cp__btn cp__btn--primary" :disabled="creating">
                 {{ creating ? $t('gainos.companies.creating') : $t('gainos.companies.create') }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 档案编辑 + 自动找官网（2026-11-03）：补官网后可一键启动理解 -->
+    <Teleport to="body">
+      <div v-if="editOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.editTitle')">
+        <div class="cp__modal-mask" @click="editOpen = false"></div>
+        <div class="cp__modal-body">
+          <header>
+            <h2>{{ $t('gainos.companies.editTitle') }}</h2>
+            <button type="button" class="cp__modal-x" aria-label="Close" @click="editOpen = false">✕</button>
+          </header>
+          <p class="cp__modal-hint">{{ $t('gainos.companies.editHint') }}</p>
+          <form novalidate @submit.prevent="saveEdit">
+            <label class="cp__field">
+              <span>{{ $t('gainos.companies.name') }}</span>
+              <input v-model="editForm.name" type="text" maxlength="200" />
+            </label>
+            <label class="cp__field">
+              <span>{{ $t('gainos.companies.website') }}</span>
+              <input v-model="editForm.website" type="url" :placeholder="$t('gainos.companies.websitePlaceholder')" />
+            </label>
+            <div class="cp__candidates">
+              <button type="button" class="cp__btn cp__btn--ghost" :disabled="candidatesLoading" @click="findCandidates">
+                {{ candidatesLoading ? $t('gainos.companies.autoFinding') : $t('gainos.companies.autoFind') }}
+              </button>
+              <p v-if="candidatesError" class="cp__modal-hint">{{ candidatesError }}</p>
+              <template v-if="candidates.length > 0">
+                <p class="cp__modal-hint">{{ $t('gainos.companies.autoFindHint') }}</p>
+                <ul class="cp__candidate-list">
+                  <li v-for="candidate in candidates" :key="candidate.url" class="cp__candidate">
+                    <div class="cp__candidate-main">
+                      <strong>{{ candidate.title || candidate.url }}</strong>
+                      <span>{{ candidate.url }}</span>
+                    </div>
+                    <button type="button" class="cp__confirm" @click="useCandidate(candidate)">
+                      {{ $t('gainos.companies.useCandidate') }}
+                    </button>
+                  </li>
+                </ul>
+              </template>
+            </div>
+            <label class="cp__field">
+              <span>{{ $t('gainos.companies.industryLabel') }}</span>
+              <input v-model="editForm.industry" type="text" maxlength="200" :placeholder="$t('gainos.companies.industryPlaceholder')" />
+            </label>
+            <label class="cp__field">
+              <span>{{ $t('gainos.companies.businessEmailLabel') }}</span>
+              <input v-model="editForm.businessEmail" type="email" maxlength="320" :placeholder="$t('gainos.companies.businessEmailPlaceholder')" />
+            </label>
+            <label class="cp__field">
+              <span>{{ $t('gainos.companies.targetMarketsLabel') }}</span>
+              <input v-model="editForm.markets" type="text" :placeholder="$t('gainos.companies.targetMarketsPlaceholder')" />
+            </label>
+            <p v-if="editError" class="cp__form-err" role="alert">{{ editError }}</p>
+            <div class="cp__modal-actions">
+              <button type="button" class="cp__btn cp__btn--ghost" @click="editOpen = false">{{ $t('gainos.common.cancel') }}</button>
+              <button type="submit" class="cp__btn cp__btn--primary" :disabled="editSaving">
+                {{ editSaving ? $t('gainos.companies.saving') : $t('gainos.companies.save') }}
               </button>
             </div>
           </form>
@@ -925,6 +1135,12 @@ onUnmounted(() => {
 .cp__field input:focus { border-color: var(--gs-accent); box-shadow: 0 0 0 4px rgba(0,185,107,.12); }
 .cp__form-err { margin: 0 0 12px; font-size: 13px; color: var(--gs-danger); background: var(--gs-danger-bg); border: 1px solid var(--gs-danger-border); border-radius: 9px; padding: 9px 12px; }
 .cp__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.cp__candidates { margin: 4px 0 16px; }
+.cp__candidate-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cp__candidate { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--gs-border); border-radius: 10px; padding: 10px 12px; }
+.cp__candidate-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cp__candidate-main strong { font-size: 13px; color: var(--gs-fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp__candidate-main span { font-size: 12px; color: var(--gs-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp__btn { border-radius: 11px; padding: 11px 20px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; }
 .cp__btn--ghost { background: var(--gs-divider); color: var(--gs-fg-2); }
 .cp__btn--ghost:hover { background: var(--gs-border-strong); }

@@ -28,3 +28,24 @@ describe('understanding retry BFF route', () => {
     });
   });
 });
+
+describe('company profile edit / delete / website candidates BFF routes', () => {
+  const find = (method: string, saasPath: string) =>
+    BFF_ROUTES.find((route) => route.method === method && route.saasPath === saasPath);
+
+  it('registers PATCH/DELETE companies and a website-candidates search as member routes without grants', () => {
+    const patch = find('PATCH', 'companies/:companyId');
+    const del = find('DELETE', 'companies/:companyId');
+    const candidates = find('POST', 'companies/:companyId/website-candidates');
+    expect(patch).toMatchObject({ enginePath: '/companies/:companyId', access: 'member' });
+    expect(del).toMatchObject({ enginePath: '/companies/:companyId', access: 'member' });
+    expect(candidates).toMatchObject({
+      enginePath: '/companies/:companyId/website-candidates',
+      access: 'member',
+    });
+    for (const route of [patch, del, candidates]) {
+      expect(route?.grant).toBeUndefined();
+      expect(budgetQuoteRequest(route!, { companyId: 'c1' }, {})).toBeNull();
+    }
+  });
+});

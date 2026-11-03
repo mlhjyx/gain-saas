@@ -45,6 +45,14 @@ describe('requestClient', () => {
     expect(response.data).toEqual(mockData);
   });
 
+  it('should successfully make a PATCH request', async () => {
+    const patchData = { key: 'patchedValue' };
+    const mockData = { data: 'patch response' };
+    mock.onPatch('/test/patch', patchData).reply(200, mockData);
+    const response = await requestClient.patch('/test/patch', patchData);
+    expect(response.data).toEqual(mockData);
+  });
+
   it('should successfully make a DELETE request', async () => {
     const mockData = { data: 'delete response' };
     mock.onDelete('/test/delete').reply(200, mockData);
