@@ -1040,6 +1040,7 @@
     "basis": "Lawful basis",
     "ref": "LIA / ticket reference",
     "note": "Assessment summary (purpose / balancing / safeguards)",
+    "noteHint": "Kept in this workspace for audit; contact requests carry only the version and date.",
     "save": "Save declaration",
     "saved": "Saved",
     "basisOptions": {

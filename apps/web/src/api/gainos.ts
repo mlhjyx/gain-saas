@@ -451,12 +451,12 @@ export const gainosApi = {
   createDeletionRequest: (input: { subjectType: 'company' | 'contact'; subjectId: string; reason?: string; requestRef?: string }) =>
     requestClient.post<DeletionRequestView>('/deletion-requests', input),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),
-  /** D6：当前租户的合法依据声明（数据处理声明）；未声明时 data=null。 */
+  /** D6：当前租户的合法依据声明（数据处理声明）；未声明时 null。requestClient 已解包 {data}。 */
   complianceDeclaration: () =>
-    requestClient.get<{ data: ComplianceDeclarationView | null }>('/settings/compliance'),
+    requestClient.get<ComplianceDeclarationView | null>('/settings/compliance'),
   /** D6：声明/更新租户合法依据（仅 admin）。每次声明新增一版。 */
   declareCompliance: (input: { basis: string; ref?: string; note?: string }) =>
-    requestClient.put<{ data: ComplianceDeclarationView }>('/settings/compliance', input),
+    requestClient.put<ComplianceDeclarationView>('/settings/compliance', input),
   members: () => requestClient.get<MembersResponse>('/members'),
   inviteMember: (email: string, role: 'admin' | 'member') =>
     requestClient.post<{

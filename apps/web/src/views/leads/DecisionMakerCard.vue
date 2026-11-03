@@ -211,11 +211,11 @@ async function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: 
   void nextTick(() => dialogRoot.value?.focus());
   if (!declaredLoaded) {
     try {
-      declared.value = (await gainosApi.complianceDeclaration())?.data ?? null;
+      declared.value = (await gainosApi.complianceDeclaration()) ?? null;
+      declaredLoaded = true; // 仅成功才缓存；失败允许下次弹窗重试
     } catch {
       declared.value = null;
     }
-    declaredLoaded = true;
   }
 }
 
@@ -416,7 +416,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
         <div class="dm__basis-hint" :class="{ 'is-warn': !declared }">
           <template v-if="declared">
             <span>
-              {{ $t('gainos.contacts.basis') }}：
+              {{ $t('gainos.contacts.lawfulBasis') }}：
               {{ $t(`gainos.contacts.basis.${declared.basis}`) }} · v{{ declared.version }}
             </span>
             <router-link to="/settings/compliance">{{ $t('gainos.contacts.editDeclaration') }}</router-link>

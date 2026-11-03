@@ -15,7 +15,8 @@ describe('D6 合法依据自动注入', () => {
       attemptId: 'a1',
       lawfulBasis: 'legitimate_interest',
       lawfulBasisRef: 'LIA-2026-11',
-      lawfulBasisNote: '利益均衡评估摘要 | declared v2 2026-11-03',
+      // 引擎 note 上限 1000 且禁换行：注入版本戳，声明全文只存 SaaS。
+      lawfulBasisNote: 'declared v2 2026-11-03',
     });
   });
 
@@ -34,6 +35,23 @@ describe('D6 合法依据自动注入', () => {
       lawfulBasis: 'legitimate_interest',
       lawfulBasisNote: 'declared v2 2026-11-03',
     });
+  });
+
+  it('compresses multi-line / over-long refs into one bounded line the engine accepts', () => {
+    const out = injectDeclaredCompliance(
+      {},
+      { ...DECLARED, ref: `LIA-1\n第二行\u0000 ${'长'.repeat(600)}` },
+    ) as Record<string, unknown>;
+    expect(out.lawfulBasisRef).not.toMatch(/[\u0000-\u001f\u007f]/u);
+    expect((out.lawfulBasisRef as string).length).toBeLessThanOrEqual(512);
+    expect(out.lawfulBasisRef).toMatch(/^LIA-1 第二行 长+$/u);
+  });
+
+  it('never injects the long declaration note (engine caps it at 1000 chars, single line)', () => {
+    const longNote = '甲'.repeat(4000);
+    const out = injectDeclaredCompliance({}, { ...DECLARED, note: longNote }) as Record<string, unknown>;
+    expect((out.lawfulBasisNote as string).length).toBeLessThanOrEqual(1000);
+    expect(out.lawfulBasisNote).toBe('declared v2 2026-11-03');
   });
 
   it('flags exactly the three contact-compliance routes for injection', () => {

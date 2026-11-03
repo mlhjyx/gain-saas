@@ -29,8 +29,12 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const res = await gainosApi.complianceDeclaration();
-    current.value = res?.data ?? null;
+    current.value = (await gainosApi.complianceDeclaration()) ?? null;
+    if (current.value) {
+      form.value.basis = current.value.basis as (typeof BASIS_KINDS)[number];
+      form.value.ref = current.value.ref ?? '';
+      form.value.note = current.value.note ?? '';
+    }
   } catch (err) {
     error.value = failureText(err);
   } finally {
@@ -48,7 +52,7 @@ async function save(): Promise<void> {
       ...(form.value.ref.trim() ? { ref: form.value.ref.trim() } : {}),
       ...(form.value.note.trim() ? { note: form.value.note.trim() } : {}),
     });
-    current.value = res?.data ?? null;
+    current.value = res;
     savedVersion.value = current.value?.version ?? null;
   } catch (err) {
     error.value = failureText(err);
@@ -101,6 +105,7 @@ onMounted(load);
         <label class="field">
           <span>{{ $t('gainos.compliance.note') }}</span>
           <textarea v-model="form.note" maxlength="4000" rows="5"></textarea>
+          <small class="muted">{{ $t('gainos.compliance.noteHint') }}</small>
         </label>
         <div class="actions">
           <button :disabled="saving" @click="save">

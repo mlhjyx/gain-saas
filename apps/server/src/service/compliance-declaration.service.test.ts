@@ -44,6 +44,17 @@ describe('D6 per-tenant LIA 声明', () => {
     await expect(service.declare('u1', 'w1', { basis: 'consent', note: 'x'.repeat(4001) })).rejects.toMatchObject({ response: { error: { code: 'COMPLIANCE_NOTE_TOO_LONG' } } });
   });
 
+  it('surfaces a repeated concurrent conflict as 409 COMPLIANCE_DECLARE_CONFLICT', async () => {
+    const { service, create } = makeService(1, async () => {
+      throw Object.assign(new Error('unique'), { code: 'P2002' });
+    });
+    await expect(service.declare('u1', 'w1', { basis: 'consent' })).rejects.toMatchObject({
+      status: 409,
+      response: { error: { code: 'COMPLIANCE_DECLARE_CONFLICT' } },
+    });
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
   it('retries once on a concurrent version conflict (P2002)', async () => {
     let attempt = 0;
     const { service, create } = makeService(1, async (args: { data: { version: number } }) => {

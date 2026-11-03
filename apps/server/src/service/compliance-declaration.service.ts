@@ -81,7 +81,10 @@ export class ComplianceDeclarationService {
         return created;
       } catch (error) {
         const code = (error as { code?: string }).code;
-        if (code === 'P2002' && attempt === 0) continue; // 并发声明：回读后重试一次
+        if (code === 'P2002') {
+          if (attempt === 0) continue; // 并发声明：回读后重试一次
+          break;
+        }
         throw error;
       }
     }

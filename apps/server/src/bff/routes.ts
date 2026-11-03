@@ -123,12 +123,20 @@ export function injectDeclaredCompliance(
 ): unknown {
   if (!declared) return body;
   if (body && typeof body === 'object' && (body as Record<string, unknown>).lawfulBasis) return body;
+  // 引擎合同：lawfulBasisRef ≤512、lawfulBasisNote ≤1000，且两者均禁 C0/DEL 控制字符
+  // （backend discovery.controller.ts NO_CONTROL_CHARS）。声明全文（可多行、最长 4000）
+  // 只存 SaaS 声明表供审计；注入固定版本戳 + 压成单行并截断的 ref，历史脏行也不会打挂操作。
   const stamp = `declared v${declared.version} ${declared.declaredAt.toISOString().slice(0, 10)}`;
+  const ref = declared.ref
+    ?.replace(/[\u0000-\u001f\u007f]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 480);
   return {
     ...(typeof body === 'object' && body ? body : {}),
     lawfulBasis: declared.basis,
-    ...(declared.ref ? { lawfulBasisRef: declared.ref } : {}),
-    lawfulBasisNote: declared.note ? `${declared.note} | ${stamp}` : stamp,
+    ...(ref ? { lawfulBasisRef: ref } : {}),
+    lawfulBasisNote: stamp,
   };
 }
 
