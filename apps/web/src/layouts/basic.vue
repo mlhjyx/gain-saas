@@ -222,6 +222,7 @@ onUnmounted(() => {
     :logo-src="logoGainos"
     :logo-src-dark="logoGainos"
     :text="userStore.userInfo?.realName"
+    logo-text="GainOS"
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
   >
