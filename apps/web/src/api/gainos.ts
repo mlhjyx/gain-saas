@@ -407,6 +407,19 @@ export interface UpdateCompanyInput {
   businessEmail?: string;
 }
 
+export interface SellerDocument {
+  id: string;
+  companyId?: string;
+  filename: string;
+  mime?: string;
+  sizeBytes?: string | number;
+  kind?: string;
+  status: string;
+  chunkCount?: number;
+  processingErrorCode?: string | null;
+  createdAt?: string;
+}
+
 export interface WebsiteCandidate {
   url: string;
   title: string;
@@ -498,6 +511,29 @@ export const gainosApi = {
     requestClient.delete<{ id: string }>(`/companies/${companyId}`),
   companyWebsiteCandidates: (companyId: string) =>
     requestClient.post<WebsiteCandidate[]>(`/companies/${companyId}/website-candidates`, {}),
+  presignSellerDocument: (companyId: string, input: { filename: string; mime: string; size: number }) =>
+    requestClient.post<{ documentId: string; uploadUrl: string; expiresAt: string }>(
+      `/companies/${companyId}/seller-documents/presign`,
+      input,
+    ),
+  commitSellerDocument: (companyId: string, documentId: string) =>
+    requestClient.post<SellerDocument>(`/companies/${companyId}/seller-documents/${documentId}/commit`, {}),
+  sellerDocuments: (companyId: string, cursor?: string) =>
+    requestClient.get<{ data: SellerDocument[]; page?: { next_cursor?: string; has_more?: boolean } }>(
+      `/companies/${companyId}/seller-documents`,
+      { params: cursor ? { cursor } : {} },
+    ),
+  searchSellerDocuments: (companyId: string, q: string, limit = 10) =>
+    requestClient.get<Array<{ documentId: string; filename: string; seq: number; text: string; score: number }>>(
+      `/companies/${companyId}/seller-documents/search`,
+      { params: { q, limit } },
+    ),
+  retrySellerDocument: (documentId: string) =>
+    requestClient.post<SellerDocument>(`/seller-documents/${documentId}/retry`, {}),
+  deleteSellerDocument: (documentId: string) =>
+    requestClient.delete<{ id: string }>(`/seller-documents/${documentId}`),
+  sellerDocumentDownloadUrl: (documentId: string) =>
+    requestClient.get<{ url: string; expiresAt: string }>(`/seller-documents/${documentId}/download-url`),
   confirmCompany: (companyId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/confirm`, {}),
   companyDetail: (companyId: string) => requestClient.get<CompanyProfile>(`/companies/${companyId}`),

@@ -47,9 +47,9 @@ export class EngineHttp {
 
   async call(
     tenant: Pick<TenantRequestContext, 'userId' | 'workspaceId' | 'role'>,
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     enginePath: string,
-    options: { query?: Record<string, string>; body?: unknown; rawBody?: string; headers?: Record<string, string>; timeoutMs?: number } = {},
+    options: { query?: Record<string, string>; body?: unknown; rawBody?: string; binaryBody?: Uint8Array; binaryContentType?: string; headers?: Record<string, string>; timeoutMs?: number } = {},
   ): Promise<EngineCallResult> {
     const role: SaasRole = tenant.role === 'admin' ? 'saas-admin' : 'saas-member';
     const token = await this.signer.mint({
@@ -62,18 +62,27 @@ export class EngineHttp {
       if (value !== undefined && value !== '') url.searchParams.set(key, value);
     }
     const hasRawBody = options.rawBody !== undefined;
+    const hasBinaryBody = options.binaryBody !== undefined;
     const res = await fetch(url, {
       method,
       headers: {
         authorization: `Bearer ${token}`,
-        ...(hasRawBody
-          ? { 'content-type': 'text/csv; charset=utf-8' }
-          : options.body !== undefined
-            ? { 'content-type': 'application/json' }
-            : {}),
+        ...(hasBinaryBody
+          ? { 'content-type': options.binaryContentType ?? 'application/octet-stream' }
+          : hasRawBody
+            ? { 'content-type': 'text/csv; charset=utf-8' }
+            : options.body !== undefined
+              ? { 'content-type': 'application/json' }
+              : {}),
         ...(options.headers ?? {}),
       },
-      body: hasRawBody ? options.rawBody : options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body: hasBinaryBody
+        ? (options.binaryBody as unknown as BodyInit)
+        : hasRawBody
+          ? options.rawBody
+          : options.body !== undefined
+            ? JSON.stringify(options.body)
+            : undefined,
       signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
     });
     const contentType = res.headers.get('content-type') ?? 'application/json';

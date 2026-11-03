@@ -49,3 +49,30 @@ describe('company profile edit / delete / website candidates BFF routes', () => 
     }
   });
 });
+
+describe('seller documents BFF routes', () => {
+  const find = (method: string, saasPath: string) =>
+    BFF_ROUTES.find((route) => route.method === method && route.saasPath === saasPath);
+
+  it('registers the document lifecycle as member passthroughs without grants', () => {
+    const expected: Array<[string, string]> = [
+      ['POST', 'companies/:companyId/seller-documents/presign'],
+      ['PUT', 'companies/:companyId/seller-documents/:documentId/content'],
+      ['POST', 'companies/:companyId/seller-documents/:documentId/commit'],
+      ['GET', 'companies/:companyId/seller-documents'],
+      ['GET', 'companies/:companyId/seller-documents/search'],
+      ['GET', 'seller-documents/:documentId'],
+      ['GET', 'seller-documents/:documentId/download-url'],
+      ['POST', 'seller-documents/:documentId/retry'],
+      ['DELETE', 'seller-documents/:documentId'],
+    ];
+    for (const [method, saasPath] of expected) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toMatchObject({ access: 'member' });
+      expect(route?.grant).toBeUndefined();
+    }
+    expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
+      binary: true,
+    });
+  });
+});

@@ -115,7 +115,8 @@ export class BffHandler {
     }
     const { route, params } = matched;
     const query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
-    let body = ['POST', 'PATCH'].includes(req.method) && req.body ? req.body : undefined;
+    const binaryBody = route.binary ? (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)) : undefined;
+    let body = ['POST', 'PATCH'].includes(req.method) && !route.binary && req.body ? req.body : undefined;
     // D6：联系人三路由的合法依据默认取租户声明（请求显式携带时不覆盖）。
     // 注入必须发生在 quote 之前——guess/verify 的 quote 绑定 body，改在后会 SCOPE_MISMATCH。
     if (route.complianceInject && req.method === 'POST') {
@@ -157,9 +158,11 @@ export class BffHandler {
     try {
       const result = await this.engine.call(tenant, route.method, fillParams(route.enginePath, params), {
         query,
-        ...(route.csv
-          ? { rawBody: typeof body === 'string' ? body : '' }
-          : { body: forwardBody }),
+        ...(route.binary
+          ? { binaryBody, binaryContentType: req.get('content-type') ?? undefined }
+          : route.csv
+            ? { rawBody: typeof body === 'string' ? body : '' }
+            : { body: forwardBody }),
         headers,
         timeoutMs: route.timeoutMs,
       });
@@ -169,7 +172,7 @@ export class BffHandler {
         res.status(clientStatus).json(this.engine.toClientError(result.status, result.body));
         return;
       }
-      if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+      if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
         void this.audit.record({
           realm: 'tenant',
           actorId: tenant.userId,

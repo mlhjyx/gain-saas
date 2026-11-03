@@ -13,13 +13,15 @@
  */
 
 export interface BffRoute {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   readonly saasPath: string;
   readonly enginePath: string;
   readonly access: 'member' | 'admin';
   readonly raw?: boolean;
   /** text/csv 原样透传(周报反馈上传),body 不经过 JSON 序列化。 */
   readonly csv?: boolean;
+  /** 二进制原样透传(资料库上传):body 为 Buffer,content-type 原样转发。 */
+  readonly binary?: boolean;
   readonly grant?: true;
   /** D6：请求未带 lawfulBasis 时由 BFF 注入租户的合法依据声明。 */
   readonly complianceInject?: true;
@@ -34,6 +36,16 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'PATCH', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'DELETE', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'POST', saasPath: 'companies/:companyId/website-candidates', enginePath: '/companies/:companyId/website-candidates', access: 'member' },
+  // ── 模块 02 卖家资料库（Phase 2c）：浏览器直传经 BFF→引擎（binary:true 透传原始字节）──
+  { method: 'POST', saasPath: 'companies/:companyId/seller-documents/presign', enginePath: '/companies/:companyId/seller-documents/presign', access: 'member' },
+  { method: 'PUT', saasPath: 'companies/:companyId/seller-documents/:documentId/content', enginePath: '/companies/:companyId/seller-documents/:documentId/content', access: 'member', binary: true },
+  { method: 'POST', saasPath: 'companies/:companyId/seller-documents/:documentId/commit', enginePath: '/companies/:companyId/seller-documents/:documentId/commit', access: 'member' },
+  { method: 'GET', saasPath: 'companies/:companyId/seller-documents', enginePath: '/companies/:companyId/seller-documents', access: 'member' },
+  { method: 'GET', saasPath: 'companies/:companyId/seller-documents/search', enginePath: '/companies/:companyId/seller-documents/search', access: 'member' },
+  { method: 'GET', saasPath: 'seller-documents/:documentId', enginePath: '/seller-documents/:documentId', access: 'member' },
+  { method: 'GET', saasPath: 'seller-documents/:documentId/download-url', enginePath: '/seller-documents/:documentId/download-url', access: 'member' },
+  { method: 'POST', saasPath: 'seller-documents/:documentId/retry', enginePath: '/seller-documents/:documentId/retry', access: 'member' },
+  { method: 'DELETE', saasPath: 'seller-documents/:documentId', enginePath: '/seller-documents/:documentId', access: 'member' },
   { method: 'GET', saasPath: 'companies', enginePath: '/companies', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/completeness', enginePath: '/companies/:companyId/completeness', access: 'member' },
