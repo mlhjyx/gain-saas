@@ -11,6 +11,10 @@ export interface CompanyProfile {
   domain?: string | null;
   status?: string;
   industry?: string | null;
+  /** 目标市场（ISO 3166-1 alpha-2；注册引导填写的卖家事实）。 */
+  targetMarkets?: string[];
+  /** 公司级询盘接收缺省邮箱（注册引导填写）。 */
+  businessEmail?: string | null;
   summary?: string | null;
   publicContacts?: Array<{ label?: string; value?: string; sourceUrl?: string | null; status?: string | null }>;
   completeness?: unknown;
@@ -18,6 +22,8 @@ export interface CompanyProfile {
   understandingFailedAt?: string | null;
   /** 理解失败的错误标签（stage:ErrorType），仅诊断展示。 */
   understandingLastError?: string | null;
+  /** 仅创建响应携带：无官网时理解不会触发（引擎 D17）。 */
+  understanding?: 'started' | 'not_started';
   created_at?: string;
 }
 
@@ -391,6 +397,9 @@ export interface OnboardingCompanyInput {
   businessEmail?: string;
 }
 
+/** 企业档案建档入参（官网可选；无官网时必须给名称）。 */
+export type CreateCompanyInput = OnboardingCompanyInput;
+
 export interface DeletionRequestView {
   id: string;
   status: string;
@@ -446,7 +455,7 @@ export const gainosApi = {
     }),
   removeMember: (membershipId: string) => requestClient.delete(`/members/${membershipId}`),
   companies: () => requestClient.get<CompanyProfile[] | { data?: CompanyProfile[] }>('/companies'),
-  createCompany: (input: { website: string; name?: string }) =>
+  createCompany: (input: CreateCompanyInput) =>
     requestClient.post<CompanyProfile>('/companies', input),
   retryCompanyUnderstanding: (companyId: string, attemptId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, { attemptId }),
