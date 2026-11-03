@@ -21,8 +21,18 @@
     <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
-    <!-- 由 vite 注入 VITE_APP_TITLE 变量，在 .env 文件内配置 -->
-    <title>%VITE_APP_TITLE%</title>
+    <!-- 首帧底色：避免启动页样式解析前出现白闪；深色由注入脚本打 .dark 后覆盖 -->
+    <style>
+      html {
+        background: #f7f8fa;
+      }
+
+      html.dark {
+        background: #0b0f16;
+      }
+    </style>
+
+    <title>GainOS · 海外增长机会操作系统</title>
   </head>
   <body>
     <div id="app"></div>
