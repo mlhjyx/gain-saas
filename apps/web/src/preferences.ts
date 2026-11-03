@@ -26,7 +26,7 @@ interface WebAntdPreferencesExtension {
 export const overridesPreferences = defineOverridesPreferences({
   // overrides
   app: {
-    name: import.meta.env.VITE_APP_TITLE,
+    name: import.meta.env.VITE_APP_TITLE || 'GainOS',
     defaultHomePath: '/workspace',
     // 不显示浮动设置按钮(auto 会在右下角浮出并遮挡内容)
     preferencesButtonPosition: 'header',

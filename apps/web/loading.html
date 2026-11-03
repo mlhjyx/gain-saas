@@ -1,0 +1,550 @@
+<style data-app-loading="inject-css">
+  html {
+    line-height: 1.15;
+  }
+
+  .loading,
+  .loading * {
+    box-sizing: border-box;
+  }
+
+  .loading {
+    --gl-bg: #f7f8fa;
+    --gl-fg: #0f172a;
+    --gl-muted: #6b7280;
+    --gl-subtle: #9ca3af;
+    --gl-accent: #00b96b;
+    --gl-accent-bright: #22ce8b;
+    --gl-tint-a: rgba(0, 185, 107, 0.085);
+    --gl-tint-b: rgba(59, 130, 246, 0.05);
+    --gl-grid: rgba(17, 24, 39, 0.045);
+    --gl-track: rgba(15, 23, 42, 0.08);
+    --gl-ring: rgba(0, 185, 107, 0.22);
+    --gl-ring-static: rgba(0, 185, 107, 0.16);
+    --gl-bloom: rgba(0, 185, 107, 0.13);
+    --gl-mark-shadow: 0 22px 48px -18px rgba(0, 185, 107, 0.5);
+
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 52% 42% at 84% 10%, var(--gl-tint-a), transparent 70%),
+      radial-gradient(ellipse 48% 40% at 10% 90%, var(--gl-tint-b), transparent 72%),
+      var(--gl-bg);
+    color: var(--gl-fg);
+    font-family:
+      'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', -apple-system,
+      BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+      sans-serif;
+    transition:
+      opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0.55s;
+  }
+
+  .dark .loading {
+    --gl-bg: #0b0f16;
+    --gl-fg: #eef2f6;
+    --gl-muted: #98a1b1;
+    --gl-subtle: #6f7888;
+    --gl-accent: #14c983;
+    --gl-accent-bright: #34d399;
+    --gl-tint-a: rgba(20, 201, 131, 0.1);
+    --gl-tint-b: rgba(99, 102, 241, 0.075);
+    --gl-grid: rgba(255, 255, 255, 0.05);
+    --gl-track: rgba(255, 255, 255, 0.1);
+    --gl-ring: rgba(20, 201, 131, 0.28);
+    --gl-ring-static: rgba(20, 201, 131, 0.2);
+    --gl-bloom: rgba(20, 201, 131, 0.12);
+    --gl-mark-shadow: 0 24px 56px -18px rgba(20, 201, 131, 0.42);
+  }
+
+  .loading.hidden {
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  /* 中心柔光：品牌绿从画面中上部缓慢呼吸，给静态页面一点空气感 */
+  .loading::before {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: min(78vw, 760px);
+    aspect-ratio: 1;
+    content: '';
+    background: radial-gradient(circle, var(--gl-bloom) 0%, transparent 62%);
+    border-radius: 50%;
+    filter: blur(8px);
+    transform: translate(-50%, -56%);
+    animation: gl-breathe 9s ease-in-out infinite;
+  }
+
+  /* 极浅的坐标网格，向四周淡出；与产品页的工程感保持一致 */
+  .loading::after {
+    position: absolute;
+    inset: -20%;
+    content: '';
+    background-image:
+      linear-gradient(var(--gl-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--gl-grid) 1px, transparent 1px);
+    background-size: 72px 72px;
+    -webkit-mask-image: radial-gradient(
+      ellipse 62% 56% at 50% 46%,
+      #000 0%,
+      transparent 78%
+    );
+    mask-image: radial-gradient(
+      ellipse 62% 56% at 50% 46%,
+      #000 0%,
+      transparent 78%
+    );
+    animation: gl-grid-in 1.4s ease-out both;
+  }
+
+  .loading__stage {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px;
+    text-align: center;
+    transform: translateY(-1vh);
+  }
+
+  .loading__kicker {
+    margin: 0 0 24px;
+    color: var(--gl-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.34em;
+    line-height: 1;
+    text-transform: uppercase;
+    animation: gl-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .loading__mark-wrap {
+    position: relative;
+    display: grid;
+    width: 108px;
+    height: 108px;
+    margin-bottom: 30px;
+    place-items: center;
+    animation: gl-mark-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* 静态光圈：给标志一个“镜头/孔径”的结构，脉冲环在其外侧扩散 */
+  .loading__mark-wrap::before {
+    position: absolute;
+    inset: 5px;
+    content: '';
+    border: 1px solid var(--gl-ring-static);
+    border-radius: 50%;
+  }
+
+  .loading__ring {
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--gl-ring);
+    border-radius: 50%;
+    opacity: 0;
+    animation: gl-pulse 4.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  }
+
+  .loading__ring:nth-child(2) {
+    animation-delay: 2.1s;
+  }
+
+  /* 缓慢绕行的弧线：像一次持续的搜索扫描，呼应“发现买家”的产品语义 */
+  .loading__orbit {
+    position: absolute;
+    inset: 5px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0 76%,
+      var(--gl-accent) 92%,
+      transparent 100%
+    );
+    border-radius: 50%;
+    opacity: 0.55;
+    -webkit-mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - 1.5px),
+      #000 calc(100% - 1px)
+    );
+    mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - 1.5px),
+      #000 calc(100% - 1px)
+    );
+    animation: gl-orbit 9s linear infinite;
+  }
+
+  .loading__mark {
+    width: 68px;
+    height: 68px;
+    border-radius: 17px;
+    box-shadow: var(--gl-mark-shadow);
+    animation: gl-float 7s 0.9s ease-in-out infinite;
+    user-select: none;
+  }
+
+  .loading__word {
+    margin: 0;
+    color: var(--gl-fg);
+    font-size: 42px;
+    font-weight: 650;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    animation: gl-rise 0.8s 0.06s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .loading__word em {
+    color: var(--gl-accent);
+    font-style: normal;
+  }
+
+  .loading__tagline {
+    max-width: 320px;
+    margin: 16px 0 0;
+    color: var(--gl-muted);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    line-height: 1.7;
+    text-wrap: balance;
+    animation: gl-rise 0.8s 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .loading__progress {
+    position: relative;
+    width: 168px;
+    height: 2px;
+    margin-top: 40px;
+    overflow: hidden;
+    background: var(--gl-track);
+    border-radius: 99px;
+  }
+
+  /* 常驻轨道：整条以低透明度着色，表示“正在运行”，避免被误读为确定进度 */
+  .loading__progress::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    background: var(--gl-accent);
+    border-radius: 99px;
+    opacity: 0.16;
+  }
+
+  .loading__beam {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -30%;
+    width: 26%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--gl-accent-bright),
+      transparent
+    );
+    border-radius: 99px;
+    box-shadow: 0 0 12px var(--gl-accent);
+    animation: gl-sweep 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+
+  .loading__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0 0;
+    color: var(--gl-muted);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    line-height: 1.4;
+    animation: gl-rise 0.8s 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .loading__dot {
+    width: 5px;
+    height: 5px;
+    background: var(--gl-accent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 var(--gl-ring);
+    animation: gl-dot 1.8s ease-out infinite;
+  }
+
+  .loading__footer {
+    position: absolute;
+    right: 32px;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    left: 32px;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--gl-muted);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.24em;
+    line-height: 1;
+    text-transform: uppercase;
+    animation: gl-rise 0.9s 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .loading__footer-rule {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--gl-track), transparent);
+  }
+
+  @keyframes gl-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes gl-mark-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes gl-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  @keyframes gl-pulse {
+    0% {
+      opacity: 0;
+      transform: scale(0.62);
+    }
+    18% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.18);
+    }
+  }
+
+  @keyframes gl-breathe {
+    0%,
+    100% {
+      opacity: 0.75;
+      transform: translate(-50%, -56%) scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: translate(-50%, -56%) scale(1.06);
+    }
+  }
+
+  @keyframes gl-grid-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes gl-orbit {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes gl-dot {
+    0% {
+      box-shadow: 0 0 0 0 var(--gl-ring);
+      opacity: 1;
+    }
+    70% {
+      box-shadow: 0 0 0 7px transparent;
+      opacity: 0.72;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+      opacity: 1;
+    }
+  }
+
+  @keyframes gl-sweep {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(340%);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .loading__stage {
+      padding: 24px;
+      transform: translateY(-0.5vh);
+    }
+
+    .loading__kicker {
+      margin-bottom: 20px;
+      letter-spacing: 0.3em;
+    }
+
+    .loading__mark-wrap {
+      width: 96px;
+      height: 96px;
+      margin-bottom: 26px;
+    }
+
+    .loading__mark {
+      width: 60px;
+      height: 60px;
+      border-radius: 15px;
+    }
+
+    .loading__word {
+      font-size: 34px;
+    }
+
+    .loading__tagline {
+      max-width: 260px;
+      font-size: 12px;
+    }
+
+    .loading__progress {
+      width: 148px;
+      margin-top: 34px;
+    }
+
+    .loading__status {
+      font-size: 12px;
+    }
+
+    .loading__footer {
+      right: 0;
+      left: 0;
+      justify-content: center;
+      gap: 0;
+      font-size: 9px;
+    }
+
+    .loading__footer-rule,
+    .loading__footer span:last-child {
+      display: none;
+    }
+  }
+
+  @media (max-height: 560px) {
+    .loading__stage {
+      transform: none;
+    }
+
+    .loading__kicker {
+      margin-bottom: 14px;
+    }
+
+    .loading__mark-wrap {
+      width: 88px;
+      height: 88px;
+      margin-bottom: 18px;
+    }
+
+    .loading__mark {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+    }
+
+    .loading__word {
+      font-size: 34px;
+    }
+
+    .loading__tagline {
+      display: none;
+    }
+
+    .loading__progress {
+      margin-top: 24px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loading,
+    .loading::before,
+    .loading::after,
+    .loading__kicker,
+    .loading__mark-wrap,
+    .loading__mark,
+    .loading__ring,
+    .loading__orbit,
+    .loading__word,
+    .loading__tagline,
+    .loading__beam,
+    .loading__dot,
+    .loading__status,
+    .loading__footer {
+      animation: none !important;
+      transition-duration: 0.05s !important;
+    }
+
+    .loading__beam {
+      width: 100%;
+      opacity: 0.5;
+    }
+  }
+</style>
+<div
+  aria-label="GainOS 正在加载"
+  aria-live="polite"
+  class="loading"
+  id="__app-loading__"
+  role="status"
+>
+  <div class="loading__stage">
+    <p class="loading__kicker">Seller Intelligence</p>
+    <div class="loading__mark-wrap">
+      <span class="loading__ring" aria-hidden="true"></span>
+      <span class="loading__ring" aria-hidden="true"></span>
+      <span class="loading__orbit" aria-hidden="true"></span>
+      <img
+        alt=""
+        class="loading__mark"
+        draggable="false"
+        height="64"
+        src="/logo-gainos.svg"
+        width="64"
+      />
+    </div>
+    <p class="loading__word">Gain<em>OS</em></p>
+    <p class="loading__tagline">把出海目标，变成值得跟进的买家机会</p>
+    <div class="loading__progress" aria-hidden="true">
+      <span class="loading__beam"></span>
+    </div>
+    <p class="loading__status"><span class="loading__dot" aria-hidden="true"></span>正在启动 GainOS</p>
+  </div>
+  <footer class="loading__footer" aria-hidden="true">
+    <span>GainOS</span>
+    <span class="loading__footer-rule"></span>
+    <span>Overseas Growth OS</span>
+  </footer>
+</div>
