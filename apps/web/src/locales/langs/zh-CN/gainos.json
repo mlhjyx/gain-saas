@@ -9,7 +9,8 @@
     "members": "成员与角色",
     "workspaces": "工作空间",
     "privacy": "数据与隐私",
-    "audit": "审计"
+    "audit": "审计",
+    "sources": "数据源"
   },
   "workspaces": {
     "title": "工作空间",
@@ -1114,5 +1115,63 @@
     "success": "企业档案已创建，开始使用吧",
     "submitFailed": "建档失败，请稍后重试",
     "logout": "退出登录"
+  },
+  "sources": {
+    "title": "数据源",
+    "subtitle": "启用平台已批准的渠道，或导入你自己的买家名单（只进入本工作空间的私有公司池）。",
+    "availableTitle": "可用渠道",
+    "availableDesc": "平台已批准的数据源。启用后，寻源 run 会消费该渠道养出的公司池。",
+    "availableEmpty": "暂时没有可用渠道。平台运营登记并通过审批后会出现在这里。",
+    "trial": "试跑",
+    "enable": "启用",
+    "enabled": "已启用",
+    "enabledNotice": "已启用渠道「{name}」。",
+    "disabledNotice": "已停用渠道「{name}」。",
+    "crawlPreviewOk": "渠道「{name}」试跑完成。",
+    "crawlGateNote": "抓取通道的执行需要平台抓取预算权威（平台自动化窗口），在获批前「试跑」会提示暂不可用；导入通道不受影响。",
+    "importTitle": "导入买家名单",
+    "importDesc": "上传 CSV（可用系统示例模板），选择列映射，预览去重/抑制后提交。200 行名单通常在 2 分钟内进入快扫名单。",
+    "chooseFile": "选择 CSV 文件",
+    "downloadTemplate": "下载示例 CSV",
+    "mapName": "公司名",
+    "mapWebsite": "网站",
+    "mapCountry": "国家",
+    "mapIndustry": "行业",
+    "preview": "预览",
+    "commit": "提交导入",
+    "previewSummary": "共 {total} 行：有效 {valid}，重复 {duplicate}，抑制命中 {suppressed}，无效 {invalid}。",
+    "importResult": "导入完成（批次 {batch}）：共 {total} 行，入池 {materialized}，重复 {duplicate}，抑制 {suppressed}，无效 {invalid}。",
+    "importDone": "已导入 {count} 家公司，可在寻源 run 中直接消费。",
+    "registryTitle": "渠道注册表",
+    "registryDesc": "平台渠道状态与失败率（连续 3 轮失败率 >30% 自动停用）。",
+    "colName": "渠道",
+    "colMode": "形态",
+    "colStatus": "状态",
+    "colFailure": "连续失败",
+    "colLastRun": "最近运行",
+    "registryEmpty": "还没有登记渠道。",
+    "createChannelTitle": "新增导入渠道",
+    "createChannelDesc": "为你的名单登记一个私有导入渠道（仅本工作空间可见），便于按来源追踪产出。",
+    "channelName": "渠道名称",
+    "createChannel": "创建",
+    "channelCreated": "渠道已创建（默认停用，导入不受影响）。",
+    "category": {
+      "trade_fair": "展会",
+      "customs": "海关",
+      "association": "协会",
+      "directory": "目录",
+      "tender": "招标",
+      "other": "其他"
+    },
+    "mode": {
+      "api": "API",
+      "crawl": "爬取",
+      "import": "导入"
+    },
+    "status": {
+      "DISABLED": "已停用",
+      "ENABLED": "已启用",
+      "AUTO_DISABLED": "自动停用"
+    }
   }
 }
