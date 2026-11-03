@@ -140,6 +140,17 @@ class RequestClient {
   }
 
   /**
+   * PATCH 请求方法（GainOS：公司档案部分更新等）
+   */
+  public patch<T = any>(
+    url: string,
+    data?: any,
+    config?: RequestClientConfig,
+  ): Promise<T> {
+    return this.request<T>(url, { ...config, data, method: 'PATCH' });
+  }
+
+  /**
    * 通用的请求方法
    */
   public async request<T>(

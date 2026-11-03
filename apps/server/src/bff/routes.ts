@@ -31,6 +31,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // ── 模块 02 卖家知识中心 ──
   { method: 'POST', saasPath: 'companies', enginePath: '/companies', access: 'member', grant: true },
   { method: 'POST', saasPath: 'companies/:companyId/understanding/retry', enginePath: '/companies/:companyId/understanding/retry', access: 'member', grant: true },
+  { method: 'PATCH', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
+  { method: 'DELETE', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
+  { method: 'POST', saasPath: 'companies/:companyId/website-candidates', enginePath: '/companies/:companyId/website-candidates', access: 'member' },
   { method: 'GET', saasPath: 'companies', enginePath: '/companies', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/completeness', enginePath: '/companies/:companyId/completeness', access: 'member' },

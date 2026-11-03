@@ -399,6 +399,20 @@ export interface OnboardingCompanyInput {
 }
 
 /** 企业档案建档入参（官网可选；无官网时必须给名称）。 */
+export interface UpdateCompanyInput {
+  name?: string;
+  website?: string;
+  industry?: string;
+  targetMarkets?: string[];
+  businessEmail?: string;
+}
+
+export interface WebsiteCandidate {
+  url: string;
+  title: string;
+  score: number;
+}
+
 export type CreateCompanyInput = OnboardingCompanyInput;
 
 /** D6：租户合法依据声明（对应 BFF /settings/compliance）。 */
@@ -478,6 +492,12 @@ export const gainosApi = {
     requestClient.post<CompanyProfile>('/companies', input),
   retryCompanyUnderstanding: (companyId: string, attemptId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, { attemptId }),
+  updateCompany: (companyId: string, input: UpdateCompanyInput) =>
+    requestClient.patch<CompanyProfile>(`/companies/${companyId}`, input),
+  deleteCompany: (companyId: string) =>
+    requestClient.delete<{ id: string }>(`/companies/${companyId}`),
+  companyWebsiteCandidates: (companyId: string) =>
+    requestClient.post<WebsiteCandidate[]>(`/companies/${companyId}/website-candidates`, {}),
   confirmCompany: (companyId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/confirm`, {}),
   companyDetail: (companyId: string) => requestClient.get<CompanyProfile>(`/companies/${companyId}`),
