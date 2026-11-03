@@ -6,7 +6,6 @@ import {
   WorkspaceBudgetPolicyService,
   WorkspaceBudgetQuotaExceededError,
 } from './workspace-budget-policy.service.js';
-import { PrismaService } from '../shared/prisma.service.js';
 import { OnboardingController } from './onboarding.controller.js';
 import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, injectDeclaredCompliance, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
@@ -251,7 +250,6 @@ export function registerBffMiddleware(
     EngineHttp,
     EngineBudgetGrantService,
     WorkspaceBudgetPolicyService,
-    PrismaService,
     BffHandler,
     BffGuard,
     ComplianceDeclarationService,

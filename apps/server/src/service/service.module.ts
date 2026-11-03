@@ -39,6 +39,6 @@ export function rolesForMembership(role: string): 'saas-admin' | 'saas-member' {
   imports: [ConfigModule],
   controllers: [JwksController],
   providers: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],
-  exports: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService],
+  exports: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],
 })
 export class ServiceModule {}

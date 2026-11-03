@@ -50,7 +50,7 @@ function createService(
     WORKSPACE_QUOTA_MAX_SPEND_MICROS: 15_000_000,
   } as AppConfig;
   const service = new WorkspaceBudgetPolicyService(config, prisma);
-  return { service, upsert, count, aggregate };
+  return { service, upsert, count, aggregate, lock: tx.$queryRaw };
 }
 
 describe('WorkspaceBudgetPolicyService', () => {
@@ -96,7 +96,7 @@ describe('WorkspaceBudgetPolicyService', () => {
   });
 
   it('懒创建用配置默认值并锁行', async () => {
-    const { service, upsert } = createService();
+    const { service, upsert, lock } = createService();
     await service.evaluate(WORKSPACE, 'discovery.run');
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -110,10 +110,7 @@ describe('WorkspaceBudgetPolicyService', () => {
         }),
       }),
     );
-    const tx = (service as unknown as { prisma: PrismaService }).prisma as unknown as {
-      $transaction: ReturnType<typeof vi.fn>;
-    };
-    void tx;
+    expect(lock).toHaveBeenCalledTimes(1);
   });
 
   it('assertGrantAllowed 超限抛 402 且带明细', async () => {

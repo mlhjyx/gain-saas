@@ -20,4 +20,5 @@
 ## 已知边界
 
 - `cost_ledger` 是结算后写入，花费检查存在滞后；run 次数是硬闸（`discovery_run_link` 在 run 发起时即写入）。
+- 花费依赖事件消费开启（`EVENT_CONSUMER_ENABLED=true` 时事件消费者把结算写进 `cost_ledger`）；消费者关闭时只有 run 次数上限生效。
 - 现有注册/邀请与 ops 登录限流已在 Phase 1a 落库（gain-saas #30），不在本项范围。
