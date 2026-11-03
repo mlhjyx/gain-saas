@@ -2,6 +2,11 @@ import { type CanActivate, type ExecutionContext, HttpException, Inject, Injecta
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import {
+  WorkspaceBudgetPolicyService,
+  WorkspaceBudgetQuotaExceededError,
+} from './workspace-budget-policy.service.js';
+import { PrismaService } from '../shared/prisma.service.js';
 import { OnboardingController } from './onboarding.controller.js';
 import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, injectDeclaredCompliance, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
@@ -137,6 +142,12 @@ export class BffHandler {
       try {
         headers['x-execution-budget-grant'] = await this.budget.issue(tenant, quoteRequest);
       } catch (err) {
+        if (err instanceof WorkspaceBudgetQuotaExceededError) {
+          res.status(err.status).json({
+            error: { code: err.code, message: err.message, details: err.details },
+          });
+          return;
+        }
         // 引擎自己的 quote 拒绝(如 QUOTE_UNAVAILABLE)保留原码,前端才能说清「这项操作还没开放
         // 预算账户」而不是笼统的「稍后重试」;网络/签名失败仍归 GRANT_FAILED。
         const quoteCode = err instanceof EngineBudgetQuoteError
@@ -236,7 +247,15 @@ export function registerBffMiddleware(
 @Module({
   imports: [ConfigModule, TenantModule, ServiceModule],
   controllers: [OnboardingController],
-  providers: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard, ComplianceDeclarationService],
+  providers: [
+    EngineHttp,
+    EngineBudgetGrantService,
+    WorkspaceBudgetPolicyService,
+    PrismaService,
+    BffHandler,
+    BffGuard,
+    ComplianceDeclarationService,
+  ],
   exports: [EngineHttp, EngineBudgetGrantService, BffHandler, BffGuard],
 })
 export class BffModule {}
