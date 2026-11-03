@@ -1,93 +1,23 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma.service.js';
-import { AuditService } from '../shared/audit.service.js';
 
 /**
- * D6：per-tenant 合法依据声明（数据处理声明）。
+ * 租户数据处理声明的**只读历史**（2026-11-04 产品负责人决定：取消租户声明）。
  *
- * - 每 workspace 每次（重新）声明新增一版（version 自增），历史保留用于审计（D6-3）；
- * - BFF 在联系人发现/猜测/验证三路由把当前版本注入请求（D6-4 立即生效）；
- * - 未声明时 BFF 不注入 → 引擎按合同返回 403，前端引导到声明页（D6-2）。
+ * - 不再提供声明/更新入口：合法依据由平台统一注入（见 bff/routes.ts 的 PLATFORM_LAWFUL_BASIS）；
+ * - 历史声明（每个 workspace 每次声明一版）原样留存，本服务只供只读回看与审计；
+ * - 引擎请求级合同未变，将来若恢复租户声明模式可在此基础上重建写入路径。
  */
-export const LAWFUL_BASIS_KINDS = [
-  'legitimate_interest',
-  'consent',
-  'contract',
-  'legal_obligation',
-] as const;
-export type LawfulBasisKind = (typeof LAWFUL_BASIS_KINDS)[number];
-
-export interface ComplianceDeclarationInput {
-  basis?: unknown;
-  ref?: unknown;
-  note?: unknown;
-}
-
-const MAX_REF = 500;
-const MAX_NOTE = 4000;
-
 @Injectable()
 export class ComplianceDeclarationService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  /** 当前生效的声明（最新版本）；未声明返回 null。 */
-  async current(workspaceId: string) {
-    return this.prisma.workspaceComplianceDeclaration.findFirst({
+  /** 该工作空间留存的历史声明（最新在前，最多 20 版）。 */
+  async history(workspaceId: string) {
+    return this.prisma.workspaceComplianceDeclaration.findMany({
       where: { workspaceId },
       orderBy: { version: 'desc' },
+      take: 20,
     });
-  }
-
-  async declare(actorId: string, workspaceId: string, input: ComplianceDeclarationInput) {
-    const basis = typeof input.basis === 'string' ? input.basis.trim() : '';
-    if (!(LAWFUL_BASIS_KINDS as readonly string[]).includes(basis)) {
-      throw new BadRequestException({
-        error: { code: 'COMPLIANCE_BASIS_INVALID', message: `basis must be one of: ${LAWFUL_BASIS_KINDS.join(', ')}` },
-      });
-    }
-    const ref = typeof input.ref === 'string' ? input.ref.trim() : undefined;
-    const note = typeof input.note === 'string' ? input.note.trim() : undefined;
-    if (ref !== undefined && ref.length > MAX_REF) {
-      throw new BadRequestException({ error: { code: 'COMPLIANCE_REF_TOO_LONG', message: `ref must be ≤ ${MAX_REF} chars` } });
-    }
-    if (note !== undefined && note.length > MAX_NOTE) {
-      throw new BadRequestException({ error: { code: 'COMPLIANCE_NOTE_TOO_LONG', message: `note must be ≤ ${MAX_NOTE} chars` } });
-    }
-
-    // version 自增；并发声明撞唯一约束时先回读再重试一次（D6-3 保持历史）。
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const latest = await this.current(workspaceId);
-      try {
-        const created = await this.prisma.workspaceComplianceDeclaration.create({
-          data: {
-            workspaceId,
-            version: (latest?.version ?? 0) + 1,
-            basis,
-            ...(ref ? { ref } : {}),
-            ...(note ? { note } : {}),
-            declaredBy: actorId,
-          },
-        });
-        await this.audit.record({
-          realm: 'tenant',
-          actorId,
-          action: 'compliance.declare',
-          target: workspaceId,
-          detail: { version: created.version, basis },
-        });
-        return created;
-      } catch (error) {
-        const code = (error as { code?: string }).code;
-        if (code === 'P2002') {
-          if (attempt === 0) continue; // 并发声明：回读后重试一次
-          break;
-        }
-        throw error;
-      }
-    }
-    throw new ConflictException({ error: { code: 'COMPLIANCE_DECLARE_CONFLICT', message: 'concurrent declaration, retry' } });
   }
 }

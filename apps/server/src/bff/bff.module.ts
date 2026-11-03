@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { OnboardingController } from './onboarding.controller.js';
-import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody, injectDeclaredCompliance, type BffRoute } from './routes.js';
+import { BFF_ROUTES, PLATFORM_LAWFUL_BASIS, budgetQuoteRequest, engineRequestBody, injectPlatformLawfulBasis, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { TenantModule } from '../tenant/tenant.module.js';
@@ -87,25 +87,24 @@ export class BffHandler {
   async handle(req: Request, res: Response): Promise<void> {
     const subPath = req.path.replace(/^\/api\//, '');
     const tenant = req.tenant!;
-    // D6：租户合法依据声明（数据处理声明）。不走引擎——纯 SaaS 侧存储，
-    // 由下面 complianceInject 路由在发往引擎前自动注入（D6-4 立即生效）。
+    // 2026-11-04 起取消租户数据处理声明：合法依据由平台统一注入（complianceInject 路由），
+    // 这里只保留只读回看——平台引用 + 本工作空间留存的历史声明；写入入口已下线。
     if (subPath === 'settings/compliance' && (req.method === 'GET' || req.method === 'PUT')) {
       if (req.method === 'GET') {
-        res.status(200).json({ data: (await this.compliance.current(tenant.workspaceId)) ?? null });
+        res.status(200).json({
+          data: {
+            platform: PLATFORM_LAWFUL_BASIS,
+            declarations: await this.compliance.history(tenant.workspaceId),
+          },
+        });
         return;
       }
-      if (tenant.role !== 'admin') {
-        res.status(403).json({ error: { code: 'FORBIDDEN', message: '仅管理员可声明租户的合法依据' } });
-        return;
-      }
-      try {
-        res.status(200).json({ data: await this.compliance.declare(tenant.userId, tenant.workspaceId, req.body ?? {}) });
-      } catch (err) {
-        const e = err as { getStatus?: () => number; getResponse?: () => unknown };
-        const status = typeof e?.getStatus === 'function' ? e.getStatus() : 500;
-        const bodyOut = typeof e?.getResponse === 'function' ? e.getResponse() : { error: { code: 'COMPLIANCE_DECLARE_FAILED', message: '声明保存失败' } };
-        res.status(status).json(bodyOut);
-      }
+      res.status(410).json({
+        error: {
+          code: 'COMPLIANCE_DECLARATION_RETIRED',
+          message: 'tenant declarations are retired; the platform provides the lawful basis',
+        },
+      });
       return;
     }
     const matched = matchRoute(req.method, subPath);
@@ -117,10 +116,10 @@ export class BffHandler {
     const query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
     const binaryBody = route.binary ? (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)) : undefined;
     let body = ['POST', 'PATCH'].includes(req.method) && !route.binary && req.body ? req.body : undefined;
-    // D6：联系人三路由的合法依据默认取租户声明（请求显式携带时不覆盖）。
+    // 联系人三路由的合法依据由平台统一注入（请求显式携带时不覆盖；2026-11-04 取消租户声明）。
     // 注入必须发生在 quote 之前——guess/verify 的 quote 绑定 body，改在后会 SCOPE_MISMATCH。
     if (route.complianceInject && req.method === 'POST') {
-      body = injectDeclaredCompliance(body, await this.compliance.current(tenant.workspaceId));
+      body = injectPlatformLawfulBasis(body);
     }
     // 引擎镜像升级前，discover attemptId 既不能进 quote 也不能进转发体。
     const quoteOptions = { discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED };

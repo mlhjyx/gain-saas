@@ -10,7 +10,7 @@ import {
   type CanonicalCompanyDetail,
   type CanonicalContact,
   type CanonicalContactPoint,
-  type ComplianceDeclarationView,
+  type ComplianceInfoView,
   type ContactEvidence,
 } from '#/api/gainos';
 
@@ -45,9 +45,9 @@ const dialogRoot = ref<HTMLElement | null>(null);
 const form = reactive({
   acknowledged: false,
 });
-/** D6：租户合法依据声明（设置页一次性声明，BFF 自动注入；此处仅读取展示与门控）。 */
-const declared = ref<ComplianceDeclarationView | null>(null);
-let declaredLoaded = false;
+/** 2026-11-04 取消租户声明：合法依据由平台统一提供（BFF 自动注入），此处只读取展示依据引用。 */
+const platformBasis = ref<ComplianceInfoView['platform'] | null>(null);
+let platformBasisLoaded = false;
 
 const contacts = computed<CanonicalContact[]>(() => detail.value?.company.contacts ?? []);
 
@@ -209,12 +209,12 @@ async function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: 
   dialog.value = { kind, contact, point };
   // 把焦点移进弹窗,键盘用户不会继续停在背景卡片上。
   void nextTick(() => dialogRoot.value?.focus());
-  if (!declaredLoaded) {
+  if (!platformBasisLoaded) {
     try {
-      declared.value = (await gainosApi.complianceDeclaration()) ?? null;
-      declaredLoaded = true; // 仅成功才缓存；失败允许下次弹窗重试
+      platformBasis.value = (await gainosApi.complianceInfo())?.platform ?? null;
+      platformBasisLoaded = true; // 仅成功才缓存；失败允许下次弹窗重试
     } catch {
-      declared.value = null;
+      platformBasis.value = null;
     }
   }
 }
@@ -246,8 +246,6 @@ const riskyTarget = computed(() => {
 
 const canSubmit = computed(() => {
   if (!dialog.value || busy.value) return false;
-  // D6：未声明合法依据的租户不能发起联系人操作（后端同样会 403）。
-  if (!declared.value) return false;
   if (riskyTarget.value && !form.acknowledged) return false;
   return true;
 });
@@ -413,18 +411,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
 
         <p v-if="riskyTarget" class="dm__warning" role="alert">{{ $t('gainos.contacts.riskyWarning') }}</p>
 
-        <div class="dm__basis-hint" :class="{ 'is-warn': !declared }">
-          <template v-if="declared">
-            <span>
-              {{ $t('gainos.contacts.lawfulBasis') }}：
-              {{ $t(`gainos.contacts.basis.${declared.basis}`) }} · v{{ declared.version }}
-            </span>
-            <router-link to="/settings/compliance">{{ $t('gainos.contacts.editDeclaration') }}</router-link>
-          </template>
-          <template v-else>
-            <span>{{ $t('gainos.contacts.declarationRequired') }}</span>
-            <router-link to="/settings/compliance">{{ $t('gainos.contacts.declarationLink') }}</router-link>
-          </template>
+        <div class="dm__basis-hint">
+          <span>
+            {{ $t('gainos.contacts.lawfulBasis') }}：
+            {{ platformBasis ? $t('gainos.contacts.platformBasis') : $t('gainos.contacts.platformBasis') }}
+          </span>
+          <span v-if="platformBasis?.ref" class="dm__muted">{{ platformBasis.ref }}</span>
         </div>
 
         <label v-if="riskyTarget" class="dm__ack">

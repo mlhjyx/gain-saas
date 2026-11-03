@@ -428,7 +428,7 @@ export interface WebsiteCandidate {
 
 export type CreateCompanyInput = OnboardingCompanyInput;
 
-/** D6：租户合法依据声明（对应 BFF /settings/compliance）。 */
+/** D6 历史：租户合法依据声明（2026-11-04 起只读留存，不再写入）。 */
 export interface ComplianceDeclarationView {
   id: string;
   workspaceId: string;
@@ -438,6 +438,16 @@ export interface ComplianceDeclarationView {
   note?: string | null;
   declaredBy: string;
   declaredAt: string;
+}
+
+/** 2026-11-04 取消租户声明：平台统一合法依据 + 只读历史（对应 BFF /settings/compliance）。 */
+export interface ComplianceInfoView {
+  platform: {
+    basis: 'legitimate_interest' | 'consent' | 'contract' | 'legal_obligation';
+    ref: string;
+    note: string;
+  };
+  declarations: ComplianceDeclarationView[];
 }
 
 export interface DeletionRequestView {
@@ -478,12 +488,8 @@ export const gainosApi = {
   createDeletionRequest: (input: { subjectType: 'company' | 'contact'; subjectId: string; reason?: string; requestRef?: string }) =>
     requestClient.post<DeletionRequestView>('/deletion-requests', input),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),
-  /** D6：当前租户的合法依据声明（数据处理声明）；未声明时 null。requestClient 已解包 {data}。 */
-  complianceDeclaration: () =>
-    requestClient.get<ComplianceDeclarationView | null>('/settings/compliance'),
-  /** D6：声明/更新租户合法依据（仅 admin）。每次声明新增一版。 */
-  declareCompliance: (input: { basis: string; ref?: string; note?: string }) =>
-    requestClient.put<ComplianceDeclarationView>('/settings/compliance', input),
+  /** 2026-11-04 取消租户声明：平台统一合法依据 + 本工作空间只读历史。requestClient 已解包 {data}。 */
+  complianceInfo: () => requestClient.get<ComplianceInfoView>('/settings/compliance'),
   members: () => requestClient.get<MembersResponse>('/members'),
   inviteMember: (email: string, role: 'admin' | 'member') =>
     requestClient.post<{
