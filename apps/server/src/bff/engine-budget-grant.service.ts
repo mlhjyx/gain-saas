@@ -5,6 +5,7 @@ import {
   type WorkspaceTechnicalQuote,
 } from '../service/engine-budget-grant.signer.js';
 import { EngineHttp } from './engine-http.js';
+import { WorkspaceBudgetPolicyService } from './workspace-budget-policy.service.js';
 
 /**
  * 写路由的预算授权:先取引擎 quote,再签一次性 Grant。
@@ -31,6 +32,7 @@ export class EngineBudgetGrantService {
   constructor(
     private readonly engine: EngineHttp,
     private readonly signer: EngineBudgetGrantSigner,
+    private readonly quota: WorkspaceBudgetPolicyService,
   ) {}
 
   async issue(
@@ -49,6 +51,7 @@ export class EngineBudgetGrantService {
         error: { code: 'EXECUTION_BUDGET_QUOTE_INVALID', message: 'quote response missing data' },
       });
     }
+    await this.quota.assertGrantAllowed(tenant.workspaceId, quote.purpose);
     return this.signer.mint(quote, tenant.workspaceId);
   }
 }

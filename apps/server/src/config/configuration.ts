@@ -41,6 +41,16 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   EVENT_CONSUMER_INTERVAL_MS: z.coerce.number().default(120_000),
   EVENT_CONSUMER_PAGE_LIMIT: z.coerce.number().default(100),
+  // workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）：签发 Grant 前检查滚动窗口内的
+  // run 次数与花费。存量 workspace 由迁移 seed 为 enabled=false（豁免）；
+  // 新 workspace 懒创建 policy 行，按这里的默认值执行。
+  WORKSPACE_QUOTA_ENFORCE: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  WORKSPACE_QUOTA_WINDOW_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  WORKSPACE_QUOTA_MAX_RUNS: z.coerce.number().int().min(1).default(30),
+  WORKSPACE_QUOTA_MAX_SPEND_MICROS: z.coerce.number().int().min(1).default(15_000_000),
   // 运营域(SD9):未配置时运营域整体 503,不影响租户域
   OPS_APP_DATABASE_URL: z.string().optional(),
   OPS_OWNER_DATABASE_URL: z.string().optional(),

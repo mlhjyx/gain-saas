@@ -17,6 +17,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
 
 const TARGET_MARKET = /^[A-Z]{2}$/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -134,6 +135,12 @@ export class OnboardingController {
     try {
       grant = await this.budget.issue(tenant, { operation: 'POST /companies', body });
     } catch (err) {
+      if (err instanceof WorkspaceBudgetQuotaExceededError) {
+        throw new HttpException(
+          { error: { code: err.code, message: err.message, details: err.details } },
+          err.status,
+        );
+      }
       const quoteCode = err instanceof EngineBudgetQuoteError
         ? (err.engineBody as { error?: { code?: unknown } } | null)?.error?.code
         : undefined;

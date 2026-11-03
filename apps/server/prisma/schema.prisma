@@ -43,8 +43,26 @@ model Workspace {
   invitations Invitation[]
   runLinks    DiscoveryRunLink[]
   complianceDeclarations WorkspaceComplianceDeclaration[]
+  budgetPolicy WorkspaceBudgetPolicy?
 
   @@map("workspace")
+}
+
+/// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。
+/// 签发 Grant 前按滚动窗口检查 run 次数与花费；存量 workspace 迁移 seed 为豁免。
+model WorkspaceBudgetPolicy {
+  workspaceId    String   @id @map("workspace_id") @db.Uuid
+  windowDays     Int      @default(30) @map("window_days")
+  maxRuns        Int      @map("max_runs")
+  maxSpendMicros BigInt   @map("max_spend_micros")
+  enabled        Boolean  @default(true)
+  updatedBy      String?  @map("updated_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_budget_policy")
 }
 
 /// D6 per-tenant 合法依据声明（数据处理声明）：每次（重新）声明新增一版，
