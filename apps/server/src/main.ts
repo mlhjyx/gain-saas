@@ -38,6 +38,11 @@ async function bootstrap(): Promise<void> {
   expressInstance.use(expressLib.urlencoded({ extended: true, limit: '8mb' }));
   // 周报反馈按 text/csv 原样上传;BFF 的 raw 路由必须拿到原始字符串,不能被 JSON parser 丢掉。
   expressInstance.use(expressLib.text({ type: ['text/csv', 'text/plain'], limit: '2mb' }));
+  // 资料库上传:BFF 的 binary 路由把文件字节原样转给引擎(浏览器到不了对象存储)。
+  expressInstance.use(
+    '/api/companies/:companyId/seller-documents/:documentId/content',
+    expressLib.raw({ type: () => true, limit: '51mb' }),
+  );
   registerSettlementReadbackProxy(expressInstance, config);
   const bffHandler = app.get(BffHandler);
   const bffGuard = app.get(BffGuard);

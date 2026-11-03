@@ -13,6 +13,7 @@ import {
   type CompanyConflict,
   type CompanyOffering,
   type CompanyProfile,
+  type SellerDocument,
   type UpdateCompanyInput,
   type WebsiteCandidate,
 } from '#/api/gainos';
@@ -527,6 +528,174 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
   }
 }
 
+// ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
+const docsOpen = ref(false);
+const docsCompany = ref<CompanyProfile | null>(null);
+const docs = ref<SellerDocument[]>([]);
+const docsLoading = ref(false);
+const docsError = ref<string | null>(null);
+const docsUploading = ref(false);
+const docsNotice = ref<string | null>(null);
+const docsQuery = ref('');
+const docsHits = ref<Array<{ documentId: string; filename: string; seq: number; text: string; score: number }>>([]);
+const docsSearching = ref(false);
+let docsTimer: ReturnType<typeof setInterval> | null = null;
+
+const DOC_MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  txt: 'text/plain',
+  md: 'text/markdown',
+};
+
+const DOC_STATUS_KEY: Record<string, string> = {
+  pending_upload: 'gainos.companies.documentStatusPending',
+  committing: 'gainos.companies.documentStatusQueued',
+  queued: 'gainos.companies.documentStatusQueued',
+  processing: 'gainos.companies.documentStatusProcessing',
+  ready: 'gainos.companies.documentStatusReady',
+  failed_terminal: 'gainos.companies.documentStatusFailed',
+  rejected: 'gainos.companies.documentStatusRejected',
+};
+
+function docMime(file: File): string | null {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return DOC_MIME_BY_EXT[ext] ?? (file.type && file.type in Object.fromEntries(Object.values(DOC_MIME_BY_EXT).map((m) => [m, 1])) ? file.type : null);
+}
+
+function docSizeLabel(row: SellerDocument): string {
+  const bytes = Number(row.sizeBytes ?? 0);
+  if (!bytes) return '';
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
+}
+
+function docStatusLabel(status: string): string {
+  return $t(DOC_STATUS_KEY[status] ?? 'gainos.companies.documentStatusQueued');
+}
+
+async function openDocuments(company: CompanyProfile): Promise<void> {
+  docsCompany.value = company;
+  docsOpen.value = true;
+  docsError.value = null;
+  docsNotice.value = null;
+  docsQuery.value = '';
+  docsHits.value = [];
+  await loadDocuments();
+  docsTimer = setInterval(() => {
+    const busy = docs.value.some((row) => ['pending_upload', 'committing', 'queued', 'processing'].includes(row.status));
+    if (docsOpen.value) void loadDocuments(true);
+    if (!busy && docsTimer && !docsSearching.value) {
+      // 列表稳定后降到 10 秒一跳，仍可捕捉后续重试
+    }
+  }, 4000);
+}
+
+function closeDocuments(): void {
+  docsOpen.value = false;
+  if (docsTimer) {
+    clearInterval(docsTimer);
+    docsTimer = null;
+  }
+}
+
+async function loadDocuments(silent = false): Promise<void> {
+  const companyId = docsCompany.value?.id;
+  if (!companyId) return;
+  if (!silent) docsLoading.value = true;
+  try {
+    const page = await gainosApi.sellerDocuments(companyId);
+    docs.value = page?.data ?? [];
+    docsError.value = null;
+  } catch (err) {
+    if (!silent) docsError.value = failureText(err).title;
+  } finally {
+    docsLoading.value = false;
+  }
+}
+
+async function uploadDocument(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  const companyId = docsCompany.value?.id;
+  input.value = '';
+  if (!file || !companyId) return;
+  const mime = docMime(file);
+  if (!mime) {
+    docsNotice.value = $t('gainos.companies.uploadFailed', { reason: $t('gainos.companies.uploadFormats') });
+    return;
+  }
+  docsUploading.value = true;
+  docsNotice.value = null;
+  try {
+    const signed = await gainosApi.presignSellerDocument(companyId, {
+      filename: file.name,
+      mime,
+      size: file.size,
+    });
+    const put = await fetch(`/api/companies/${companyId}/seller-documents/${signed.documentId}/content`, {
+      method: 'PUT',
+      headers: { 'content-type': mime },
+      body: file,
+    });
+    if (!put.ok) throw new Error(`upload ${put.status}`);
+    await gainosApi.commitSellerDocument(companyId, signed.documentId);
+    docsNotice.value = $t('gainos.companies.uploadDone');
+    await loadDocuments();
+  } catch (err) {
+    docsNotice.value = $t('gainos.companies.uploadFailed', { reason: failureText(err).title });
+  } finally {
+    docsUploading.value = false;
+  }
+}
+
+async function searchDocuments(): Promise<void> {
+  const companyId = docsCompany.value?.id;
+  const q = docsQuery.value.trim();
+  if (!companyId || q.length < 2) return;
+  docsSearching.value = true;
+  try {
+    docsHits.value = (await gainosApi.searchSellerDocuments(companyId, q)) ?? [];
+  } catch (err) {
+    docsError.value = failureText(err).title;
+    docsHits.value = [];
+  } finally {
+    docsSearching.value = false;
+  }
+}
+
+async function retryDocument(row: SellerDocument): Promise<void> {
+  try {
+    await gainosApi.retrySellerDocument(row.id);
+    docsNotice.value = $t('gainos.companies.documentRetryDone');
+    await loadDocuments();
+  } catch (err) {
+    docsError.value = failureText(err).title;
+  }
+}
+
+async function downloadDocument(row: SellerDocument): Promise<void> {
+  try {
+    const signed = await gainosApi.sellerDocumentDownloadUrl(row.id);
+    window.open(signed.url, '_blank', 'noopener');
+  } catch (err) {
+    docsError.value = failureText(err).title;
+  }
+}
+
+async function removeDocument(row: SellerDocument): Promise<void> {
+  if (!window.confirm($t('gainos.companies.documentDeleteConfirm'))) return;
+  try {
+    await gainosApi.deleteSellerDocument(row.id);
+    docsNotice.value = $t('gainos.companies.documentDeleted');
+    await loadDocuments();
+  } catch (err) {
+    docsError.value = failureText(err).title;
+  }
+}
+
 async function confirmCompany(company: CompanyProfile): Promise<void> {
   const companyId = company.id;
   if (!companyId) return;
@@ -602,6 +771,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscape);
   if (pollTimer) clearInterval(pollTimer);
+  if (docsTimer) clearInterval(docsTimer);
 });
 </script>
 
@@ -670,6 +840,9 @@ onUnmounted(() => {
             @click="retryUnderstanding(c)"
           >
             {{ retryingId === c.id ? $t('gainos.companies.retrying') : $t('gainos.companies.retryUnderstanding') }}
+          </button>
+          <button type="button" class="cp__confirm" @click="openDocuments(c)">
+            {{ $t('gainos.companies.documents') }}
           </button>
           <button
             v-if="c.status === 'DRAFT'"
@@ -791,6 +964,67 @@ onUnmounted(() => {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 资料库（Phase 2c）：上传经引擎中转 → 解析状态 → 检索 -->
+    <Teleport to="body">
+      <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
+        <div class="cp__modal-mask" @click="closeDocuments"></div>
+        <div class="cp__modal-body cp__docs-panel">
+          <header>
+            <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
+            <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
+          </header>
+          <p class="cp__modal-hint">{{ $t('gainos.companies.documentsHint') }}</p>
+          <div class="cp__docs-actions">
+            <label class="cp__btn cp__btn--primary cp__docs-upload" :class="{ 'cp__btn--busy': docsUploading }">
+              {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
+              <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md" :disabled="docsUploading" @change="uploadDocument" />
+            </label>
+            <span class="cp__docs-formats">{{ $t('gainos.companies.uploadFormats') }}</span>
+          </div>
+          <p v-if="docsNotice" class="cp__claim-notice" role="status">{{ docsNotice }}</p>
+          <p v-if="docsError" class="cp__form-err" role="alert">{{ docsError }}</p>
+          <div v-if="docsLoading && docs.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.loading') }}</div>
+          <ul v-else-if="docs.length > 0" class="cp__docs-list">
+            <li v-for="row in docs" :key="row.id" class="cp__docs-item">
+              <div class="cp__docs-main">
+                <strong>{{ row.filename }}</strong>
+                <span>{{ docSizeLabel(row) }} · {{ docStatusLabel(row.status) }}<template v-if="row.status === 'ready'"> · {{ $t('gainos.companies.documentChunks', { count: row.chunkCount ?? 0 }) }}</template></span>
+                <span v-if="row.processingErrorCode" class="cp__item-error">{{ row.processingErrorCode }}</span>
+              </div>
+              <div class="cp__docs-side">
+                <button v-if="row.status === 'ready'" type="button" class="cp__confirm" @click="downloadDocument(row)">
+                  {{ $t('gainos.companies.download') }}
+                </button>
+                <button v-if="row.status === 'failed_terminal' || row.status === 'queued'" type="button" class="cp__confirm" @click="retryDocument(row)">
+                  {{ $t('gainos.companies.retryUnderstanding') }}
+                </button>
+                <button type="button" class="cp__confirm" @click="removeDocument(row)">
+                  {{ $t('gainos.companies.delete') }}
+                </button>
+              </div>
+            </li>
+          </ul>
+          <p v-else-if="!docsLoading" class="cp__modal-hint">{{ $t('gainos.companies.documentsEmpty') }}</p>
+          <form class="cp__docs-search" @submit.prevent="searchDocuments">
+            <input v-model="docsQuery" type="search" minlength="2" maxlength="200" :placeholder="$t('gainos.companies.documentSearchPlaceholder')" />
+            <button type="submit" class="cp__btn cp__btn--ghost" :disabled="docsSearching">
+              {{ docsSearching ? $t('gainos.companies.loading') : $t('gainos.companies.documentSearch') }}
+            </button>
+          </form>
+          <ul v-if="docsQuery.trim().length >= 2" class="cp__docs-hits">
+            <li v-for="hit in docsHits" :key="`${hit.documentId}-${hit.seq}`" class="cp__docs-hit">
+              <strong>{{ hit.filename }} · #{{ hit.seq }}</strong>
+              <p>{{ hit.text.slice(0, 200) }}</p>
+            </li>
+            <li v-if="docsHits.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentSearchEmpty') }}</li>
+          </ul>
+          <div class="cp__modal-actions">
+            <button type="button" class="cp__btn cp__btn--ghost" @click="closeDocuments">{{ $t('gainos.companies.close') }}</button>
+          </div>
         </div>
       </div>
     </Teleport>
@@ -1141,6 +1375,23 @@ onUnmounted(() => {
 .cp__candidate-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cp__candidate-main strong { font-size: 13px; color: var(--gs-fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp__candidate-main span { font-size: 12px; color: var(--gs-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp__docs-panel { max-width: 760px; }
+.cp__docs-actions { display: flex; align-items: center; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+.cp__docs-upload { position: relative; overflow: hidden; cursor: pointer; }
+.cp__docs-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cp__docs-formats { font-size: 12px; color: var(--gs-fg-3); }
+.cp__docs-list { list-style: none; margin: 8px 0 16px; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+.cp__docs-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--gs-border); border-radius: 10px; padding: 10px 12px; }
+.cp__docs-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cp__docs-main strong { font-size: 13px; color: var(--gs-fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp__docs-main span { font-size: 12px; color: var(--gs-fg-3); }
+.cp__docs-side { display: flex; gap: 8px; flex-shrink: 0; }
+.cp__docs-search { display: flex; gap: 8px; margin-top: 4px; }
+.cp__docs-search input { flex: 1; border: 1px solid var(--gs-border); border-radius: 9px; padding: 8px 11px; font-size: 13px; }
+.cp__docs-hits { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+.cp__docs-hit { border: 1px solid var(--gs-border); border-radius: 10px; padding: 8px 11px; }
+.cp__docs-hit strong { font-size: 12px; color: var(--gs-fg-2); }
+.cp__docs-hit p { margin: 4px 0 0; font-size: 12px; color: var(--gs-fg-3); white-space: pre-wrap; }
 .cp__btn { border-radius: 11px; padding: 11px 20px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; }
 .cp__btn--ghost { background: var(--gs-divider); color: var(--gs-fg-2); }
 .cp__btn--ghost:hover { background: var(--gs-border-strong); }
