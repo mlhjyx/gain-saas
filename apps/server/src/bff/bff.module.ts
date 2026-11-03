@@ -142,9 +142,9 @@ export class BffHandler {
         headers['x-execution-budget-grant'] = await this.budget.issue(tenant, quoteRequest);
       } catch (err) {
         if (err instanceof WorkspaceBudgetQuotaExceededError) {
-          res.status(err.status).json({
-            error: { code: err.code, message: err.message, details: err.details },
-          });
+          res.status(err.status).json(
+            this.engine.toClientError(err.status, { error: { code: err.code, message: err.message } }),
+          );
           return;
         }
         // 引擎自己的 quote 拒绝(如 QUOTE_UNAVAILABLE)保留原码,前端才能说清「这项操作还没开放

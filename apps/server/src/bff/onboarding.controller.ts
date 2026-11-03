@@ -137,7 +137,7 @@ export class OnboardingController {
     } catch (err) {
       if (err instanceof WorkspaceBudgetQuotaExceededError) {
         throw new HttpException(
-          { error: { code: err.code, message: err.message, details: err.details } },
+          this.engine.toClientError(err.status, { error: { code: err.code, message: err.message } }),
           err.status,
         );
       }
