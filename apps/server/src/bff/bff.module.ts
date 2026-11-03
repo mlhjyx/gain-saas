@@ -7,6 +7,7 @@ import {
   WorkspaceBudgetQuotaExceededError,
 } from './workspace-budget-policy.service.js';
 import { OnboardingController } from './onboarding.controller.js';
+import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { BFF_ROUTES, PLATFORM_LAWFUL_BASIS, budgetQuoteRequest, engineRequestBody, injectPlatformLawfulBasis, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
@@ -222,7 +223,7 @@ export function registerBffMiddleware(
   guard: BffGuard,
 ): void {
   express.use(async (req: Request, res: Response, next: () => void) => {
-    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/internal/')) {
+    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/tasks') || req.path.startsWith('/api/internal/')) {
       next();
       return;
     }
@@ -244,7 +245,7 @@ export function registerBffMiddleware(
 
 @Module({
   imports: [ConfigModule, TenantModule, ServiceModule],
-  controllers: [OnboardingController],
+  controllers: [OnboardingController, AcquisitionTasksController],
   providers: [
     EngineHttp,
     EngineBudgetGrantService,

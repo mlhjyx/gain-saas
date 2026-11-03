@@ -12,7 +12,9 @@ import {
   type Icp,
   type IcpRule,
   type IcpRuleInput,
+  type AcquisitionTaskView,
   type QueryPlan,
+  type TaskRunView,
 } from '#/api/gainos';
 
 defineOptions({ name: 'FindBuyers' });
@@ -54,6 +56,9 @@ const plans = ref<QueryPlan[]>([]);
 const plansLoading = ref(false);
 const plansError = ref<{ title: string; next?: string } | null>(null);
 const planBusy = ref<string | null>(null);
+// Run 2.0（M0②）：挖掘任务（每个 ICP 复用一个活动任务）与最近运行。
+const taskRuns = ref<TaskRunView[]>([]);
+let taskCache: AcquisitionTaskView | null = null;
 
 /** 引擎没有“按方案列 run”的端点；把已发起的 runId 留在本机，关闭页面后还能回到任务。 */
 interface RunRef {
@@ -297,6 +302,46 @@ async function load(): Promise<void> {
   }
 }
 
+function taskRunStatusLabel(status: string): string {
+  const key = `gainos.findBuyers.taskRunStatus.${status}`;
+  const label = $t(key);
+  return label === key ? status : label;
+}
+
+function formatRunTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
+async function loadTaskRuns(icpId: string): Promise<void> {
+  try {
+    const tasks = await gainosApi.acquisitionTasks(icpId);
+    taskCache = tasks[0] ?? null;
+    taskRuns.value = taskCache?.runs ?? [];
+  } catch {
+    taskCache = null;
+    taskRuns.value = [];
+  }
+}
+
+/** 任务对象前移（M0②）：每个 ICP 复用一个活动任务；没有则懒创建「默认挖掘任务」。 */
+async function ensureTask(icpId: string): Promise<AcquisitionTaskView> {
+  if (taskCache?.icpId === icpId) return taskCache;
+  const tasks = await gainosApi.acquisitionTasks(icpId);
+  const reusable = tasks.find((task) => task.status === 'active') ?? tasks[0];
+  if (reusable) {
+    taskCache = reusable;
+    return reusable;
+  }
+  const icpName = selected.value?.id === icpId ? selected.value.name : '';
+  const created = await gainosApi.createAcquisitionTask({
+    icpId,
+    name: icpName ? `${icpName} · 挖掘任务` : '挖掘任务',
+  });
+  taskCache = created;
+  return created;
+}
+
 async function loadPlans(icpId: string): Promise<void> {
   plansLoading.value = true;
   plansError.value = null;
@@ -318,9 +363,11 @@ async function openDetail(icp: Icp): Promise<void> {
   backtest.value = null;
   backtestError.value = null;
   ruleOpen.value = false;
+  taskCache = null;
+  taskRuns.value = [];
   try {
     selected.value = await gainosApi.icp(icp.id);
-    await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id)]);
+    await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id)]);
   } catch (error) {
     detailError.value = failureText(error);
   } finally {
@@ -330,6 +377,8 @@ async function openDetail(icp: Icp): Promise<void> {
 function closeDetail(): void {
   selected.value = null;
   plans.value = [];
+  taskRuns.value = [];
+  taskCache = null;
   backtest.value = null;
   ruleOpen.value = false;
 }
@@ -569,14 +618,16 @@ async function executePlan(plan: QueryPlan): Promise<void> {
   planBusy.value = plan.id;
   plansError.value = null;
   try {
-    const result = await gainosApi.executeQueryPlan(plan.id);
+    // 任务对象前移（M0②）：先确保该 ICP 的任务，再由任务发起执行（引擎侧带 taskRef）。
+    const task = await ensureTask(plan.icpId);
+    const result = await gainosApi.startAcquisitionTaskRun(task.id, plan.id);
     rememberRun(plan.id, result.runId);
     try {
       await gainosApi.recordDiscoveryRun({ runId: result.runId, planId: plan.id, icpId: plan.icpId });
     } catch {
       // 本地引用已保存；服务端登记失败不阻断进入任务页。
     }
-    await loadPlans(plan.icpId);
+    await Promise.all([loadPlans(plan.icpId), loadTaskRuns(plan.icpId)]);
     await openRun(result.runId);
   } catch (error) {
     plansError.value = failureText(error);
@@ -912,6 +963,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
               </li>
             </ul>
             <p v-else class="fb__muted">{{ $t('gainos.findBuyers.noPlans') }}</p>
+          </div>
+
+          <div class="fb__block">
+            <div class="fb__section-head">
+              <div>
+                <h3>{{ $t('gainos.findBuyers.taskRunsTitle') }}</h3>
+                <p class="fb__muted">{{ $t('gainos.findBuyers.taskRunsDesc') }}</p>
+              </div>
+            </div>
+            <ul v-if="taskRuns.length" class="fb__plans">
+              <li v-for="run in taskRuns" :key="run.id">
+                <div class="fb__plan-head">
+                  <span class="fb__badge">{{ taskRunStatusLabel(run.status) }}</span>
+                  <span class="fb__muted">{{ formatRunTime(run.startedAt) }}</span>
+                </div>
+                <div class="fb__actions">
+                  <button v-if="run.runId" class="fb__action" type="button" @click="openRun(run.runId)">{{ $t('gainos.findBuyers.viewRun') }}</button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="fb__muted">{{ $t('gainos.findBuyers.taskRunsEmpty') }}</p>
           </div>
         </template>
         </div>

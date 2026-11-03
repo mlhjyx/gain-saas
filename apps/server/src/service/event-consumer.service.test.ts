@@ -14,6 +14,7 @@ function createService(cursor: string | null) {
     notification: { create: vi.fn(async () => ({})) },
     qualifiedLead: { create: vi.fn(async () => ({})) },
     costLedger: { create: vi.fn(async () => ({})) },
+    taskRun: { updateMany: vi.fn(async () => ({ count: 0 })) },
   };
   const prisma = {
     workspaceRegistry: {

@@ -561,6 +561,16 @@
       "manufacturer": "Manufacturer / factory",
       "distributor": "Distributor / importer",
       "buyer": "Buyer"
+    },
+    "taskRunsTitle": "Recent runs",
+    "taskRunsDesc": "Task execution history for this ICP; open a run to see its progress and results.",
+    "taskRunsEmpty": "No task runs yet — confirm a query plan and press Execute to start.",
+    "taskRunStatus": {
+      "RUNNING": "Running",
+      "DONE": "Completed",
+      "PARTIAL": "Partially completed",
+      "FAILED": "Failed",
+      "CANCELLED": "Cancelled"
     }
   },
   "leads": {
