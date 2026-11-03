@@ -166,6 +166,11 @@ export const ENGINE_ERROR_COPY = {
     why: 'Grant 一次性,同一次授权不能用于两次操作。',
     next: '重新发起操作以获取新的授权。',
   },
+  WORKSPACE_BUDGET_EXCEEDED: {
+    title: '本月运行额度已用完',
+    why: '当前工作空间在额度周期内的运行次数或预算已达到上限,这次操作没有执行、也没有产生费用。',
+    next: '联系运营提升额度,或等下个周期再试。',
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

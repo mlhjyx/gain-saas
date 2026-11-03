@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { AppConfig } from '../config/configuration.js';
 import { APP_CONFIG } from '../shared/config.module.js';
-import type { PrismaService } from '../shared/prisma.service.js';
+import { PrismaService } from '../shared/prisma.service.js';
 
 /** 只有付费 run 的签发计入 run 次数上限；花费上限对所有签发生效。 */
 const RUN_PURPOSE = 'discovery.run';
