@@ -17,7 +17,6 @@ const TABS = [
   { key: 'overview', label: '概览' },
   { key: 'users', label: '用户' },
   { key: 'providers', label: '数据源' },
-  { key: 'ai', label: '模型网关' },
   { key: 'sources', label: '监控源' },
   { key: 'budget', label: '预算' },
   { key: 'diagnostics', label: '诊断' },
@@ -53,6 +52,7 @@ const scheduleBusy = ref(false);
 const revocationRows = ref<Row[]>([]);
 const revocationPolicy = ref<Row[]>([]);
 const revocationBusy = ref('');
+const r4Flags = ref<{ triggerEnabled: boolean; autoConfirm: boolean }>({ triggerEnabled: false, autoConfirm: false });
 const revocationForm = ref({ scheduleId: 'acq-sweep', reasonCode: 'OPERATOR_HOLD', note: '' });
 const REVOCATION_REASONS = [
   { value: 'OPERATOR_HOLD', label: '运维停机（OPERATOR_HOLD）' },
@@ -80,69 +80,7 @@ const sourceForm = ref({
   configText: '{}',
 });
 
-const gateway = ref<Row | null>(null);
-const gatewayLoading = ref(false);
-const gatewayBusy = ref(false);
-
-const AI_PRESETS = [
-  { id: 'deepseek', name: 'DeepSeek', mark: 'D', color: '#4d6bfe', hint: '官方 API', baseUrl: 'https://api.deepseek.com/v1', requiresKey: true },
-  { id: 'openai', name: 'OpenAI', mark: '◎', color: '#10a37f', hint: 'GPT 系列', baseUrl: 'https://api.openai.com/v1', requiresKey: true },
-  { id: 'volcengine', name: '火山方舟', mark: '火', color: '#1664ff', hint: '豆包 / Ark', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', requiresKey: true },
-  { id: 'dashscope', name: '通义千问', mark: '通', color: '#615ced', hint: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', requiresKey: true },
-  { id: 'moonshot', name: 'Kimi', mark: 'K', color: '#1f2329', hint: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', requiresKey: true },
-  { id: 'zhipu', name: '智谱 GLM', mark: '智', color: '#2f54eb', hint: 'BigModel', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', requiresKey: true },
-  { id: 'ollama', name: 'Ollama', mark: 'O', color: '#334155', hint: '本机运行,无需 Key', baseUrl: 'http://127.0.0.1:11434/v1', requiresKey: false },
-  { id: 'custom', name: '自定义', mark: '+', color: '#64748b', hint: '任意 OpenAI 兼容接口', baseUrl: '', requiresKey: true },
-] as const;
-type AiPreset = (typeof AI_PRESETS)[number];
-
-const aiWizard = ref<{
-  mode: 'create' | 'edit';
-  providerId?: string;
-  presetId: string;
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  priority: number;
-  timeoutMs: number;
-  minOutputTokens: number;
-  maxTokensField: string;
-  headersText: string;
-  testing: boolean;
-  tested: boolean;
-  latencyMs: number | null;
-  models: string[];
-  modelsError: string;
-  testError: string;
-  selectedModel: string;
-  manualModel: string;
-  error: string;
-} | null>(null);
-
-const aiRouteModal = ref<{ mode: 'create' | 'edit'; id?: string; alias: string } | null>(null);
-const aiRouteForm = ref({
-  providerId: '',
-  alias: '',
-  upstreamModel: '',
-  isDefault: false,
-  enabled: true,
-});
-const aiModelOptions = ref<string[]>([]);
-const aiTestResult = ref<Record<string, { tone: 'ok' | 'bad'; text: string }>>({});
-
 const activeLabel = computed(() => TABS.find((tab) => tab.key === active.value)?.label ?? '');
-const aiWizardPreset = computed(() =>
-  aiWizard.value ? presetById(aiWizard.value.presetId) : null,
-);
-const aiChosenModel = computed(() => aiWizard.value?.selectedModel || aiWizard.value?.manualModel.trim() || '');
-const gatewayRoutes = computed<Row[]>(() =>
-  Array.isArray(gateway.value?.routes) ? (gateway.value!.routes as Row[]) : [],
-);
-const aiCanSave = computed(() => {
-  const wizard = aiWizard.value;
-  if (!wizard || !aiChosenModel.value || wizard.testing) return false;
-  return wizard.mode === 'edit' || Boolean(wizard.apiKey.trim()) || aiWizardPreset.value?.requiresKey === false;
-});
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
@@ -193,405 +131,6 @@ async function loadProviders(): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
-  }
-}
-async function loadGateway(): Promise<void> {
-  gatewayLoading.value = true;
-  error.value = '';
-  try {
-    gateway.value = await api<Row>('/api/ops/model-gateway');
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayLoading.value = false;
-  }
-}
-function presetById(id: string): AiPreset {
-  return AI_PRESETS.find((preset) => preset.id === id) ?? AI_PRESETS[AI_PRESETS.length - 1]!;
-}
-function presetForProvider(provider: Row): AiPreset {
-  const baseUrl = String(provider.baseUrl ?? '');
-  return (
-    AI_PRESETS.find((preset) => preset.baseUrl && baseUrl.startsWith(preset.baseUrl.replace(/\/v1$/, ''))) ??
-    AI_PRESETS[AI_PRESETS.length - 1]!
-  );
-}
-function openAiWizard(presetId = 'deepseek'): void {
-  const preset = presetById(presetId);
-  aiWizard.value = {
-    mode: 'create',
-    presetId: preset.id,
-    name: preset.name,
-    baseUrl: preset.baseUrl,
-    apiKey: '',
-    priority: 100,
-    timeoutMs: 120000,
-    minOutputTokens: 0,
-    maxTokensField: 'max_tokens',
-    headersText: '{}',
-    testing: false,
-    tested: false,
-    latencyMs: null,
-    models: [],
-    modelsError: '',
-    testError: '',
-    selectedModel: '',
-    manualModel: '',
-    error: '',
-  };
-}
-function openEditAiWizard(provider: Row): void {
-  const defaultRoute = aiDefaultRoute(provider);
-  const preset = presetForProvider(provider);
-  aiWizard.value = {
-    mode: 'edit',
-    providerId: String(provider.id),
-    presetId: preset.id,
-    name: String(provider.name ?? ''),
-    baseUrl: String(provider.baseUrl ?? ''),
-    apiKey: '',
-    priority: Number(provider.priority ?? 100),
-    timeoutMs: Number(provider.timeoutMs ?? 120000),
-    minOutputTokens: Number(provider.minOutputTokens ?? 0),
-    maxTokensField: String(provider.maxTokensField ?? 'max_tokens'),
-    headersText: JSON.stringify(provider.headers ?? {}, null, 2),
-    testing: false,
-    tested: false,
-    latencyMs: null,
-    models: defaultRoute ? [String(defaultRoute.upstreamModel)] : [],
-    modelsError: '',
-    testError: '',
-    selectedModel: defaultRoute ? String(defaultRoute.upstreamModel) : '',
-    manualModel: '',
-    error: '',
-  };
-}
-function closeAiWizard(): void {
-  aiWizard.value = null;
-}
-function selectAiPreset(preset: AiPreset): void {
-  if (!aiWizard.value) return;
-  aiWizard.value.presetId = preset.id;
-  aiWizard.value.name = preset.name;
-  aiWizard.value.baseUrl = preset.baseUrl;
-  aiWizard.value.models = [];
-  aiWizard.value.tested = false;
-  aiWizard.value.selectedModel = '';
-  aiWizard.value.manualModel = '';
-  aiWizard.value.modelsError = '';
-  aiWizard.value.testError = '';
-  aiWizard.value.error = '';
-}
-function parseWizardHeaders(): Record<string, string> | null {
-  if (!aiWizard.value) return null;
-  try {
-    const parsed = aiWizard.value.headersText.trim() ? JSON.parse(aiWizard.value.headersText) : {};
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)]));
-  } catch {
-    return null;
-  }
-}
-async function probeAiWizard(): Promise<void> {
-  const wizard = aiWizard.value;
-  if (!wizard) return;
-  const preset = presetById(wizard.presetId);
-  wizard.error = '';
-  wizard.testError = '';
-  wizard.modelsError = '';
-  wizard.tested = false;
-  if (!wizard.baseUrl.trim()) {
-    wizard.error = '请先填写接口地址(高级设置里)';
-    return;
-  }
-  if (wizard.mode === 'create' && preset.requiresKey && !wizard.apiKey.trim()) {
-    wizard.error = `请先填写 ${preset.name} 的 API Key`;
-    return;
-  }
-  const headers = parseWizardHeaders();
-  if (!headers) {
-    wizard.error = '高级设置里的额外请求头必须是 JSON 对象';
-    return;
-  }
-  wizard.testing = true;
-  try {
-    const response =
-      wizard.mode === 'create'
-        ? await api<{ data: Row }>('/api/ops/model-gateway/probe', {
-            method: 'POST',
-            body: JSON.stringify({
-              baseUrl: wizard.baseUrl.trim(),
-              apiKey: wizard.apiKey.trim() || undefined,
-              headers,
-              maxTokensField: wizard.maxTokensField,
-              model: wizard.manualModel.trim() || undefined,
-            }),
-          })
-        : await api<{ data: Row }>(`/api/ops/model-gateway/providers/${wizard.providerId}/test`, {
-            method: 'POST',
-            body: JSON.stringify({
-              apiKey: wizard.apiKey.trim() || undefined,
-              model: wizard.selectedModel || wizard.manualModel.trim() || undefined,
-            }),
-          });
-    const data = response.data ?? {};
-    wizard.latencyMs = Number(data.latencyMs ?? 0) || null;
-    const fetched = Array.isArray(data.models) ? data.models.map(String) : [];
-    wizard.models = [...new Set([...(wizard.selectedModel ? [wizard.selectedModel] : []), ...fetched])];
-    wizard.modelsError = String(data.modelsError ?? '');
-    wizard.testError = String(data.testError ?? data.error ?? '');
-    wizard.tested = true;
-    if (!wizard.selectedModel && wizard.models.length > 0) wizard.selectedModel = wizard.models[0]!;
-  } catch (err) {
-    wizard.error = err instanceof Error ? err.message : String(err);
-  } finally {
-    wizard.testing = false;
-  }
-}
-async function saveAiWizard(): Promise<void> {
-  const wizard = aiWizard.value;
-  if (!wizard) return;
-  const model = wizard.selectedModel || wizard.manualModel.trim();
-  if (!model) {
-    wizard.error = '请选择一个默认模型';
-    return;
-  }
-  const preset = presetById(wizard.presetId);
-  if (wizard.mode === 'create' && preset.requiresKey && !wizard.apiKey.trim()) {
-    wizard.error = `请先填写 ${preset.name} 的 API Key`;
-    return;
-  }
-  const headers = parseWizardHeaders();
-  if (!headers) {
-    wizard.error = '高级设置里的额外请求头必须是 JSON 对象';
-    return;
-  }
-  gatewayBusy.value = true;
-  wizard.error = '';
-  try {
-    if (wizard.mode === 'create') {
-      await api('/api/ops/model-gateway/providers', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: wizard.name.trim() || preset.name,
-          baseUrl: wizard.baseUrl.trim(),
-          apiKey: wizard.apiKey.trim() || undefined,
-          headers,
-          priority: wizard.priority,
-          timeoutMs: wizard.timeoutMs,
-          minOutputTokens: wizard.minOutputTokens > 0 ? wizard.minOutputTokens : null,
-          maxTokensField: wizard.maxTokensField,
-          defaultModel: model,
-        }),
-      });
-      notice.value = `${wizard.name.trim() || preset.name} 已启用,默认模型 ${model}`;
-    } else {
-      const providerId = wizard.providerId!;
-      await api(`/api/ops/model-gateway/providers/${providerId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: wizard.name.trim(),
-          baseUrl: wizard.baseUrl.trim(),
-          ...(wizard.apiKey.trim() ? { apiKey: wizard.apiKey.trim() } : {}),
-          headers,
-          priority: wizard.priority,
-          timeoutMs: wizard.timeoutMs,
-          minOutputTokens: wizard.minOutputTokens > 0 ? wizard.minOutputTokens : null,
-          maxTokensField: wizard.maxTokensField,
-        }),
-      });
-      const existingDefault = gatewayRoutes.value.find(
-        (route) => route.providerId === providerId && route.isDefault,
-      );
-      if (existingDefault) {
-        await api(`/api/ops/model-gateway/routes/${existingDefault.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ upstreamModel: model, enabled: true, isDefault: true }),
-        });
-      } else {
-        await api('/api/ops/model-gateway/routes', {
-          method: 'POST',
-          body: JSON.stringify({
-            providerId,
-            alias: 'default',
-            upstreamModel: model,
-            enabled: true,
-            isDefault: true,
-          }),
-        });
-      }
-      notice.value = `${wizard.name} 的默认模型已设为 ${model}`;
-    }
-    aiWizard.value = null;
-    await loadGateway();
-  } catch (err) {
-    wizard.error = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-function aiDefaultRoute(provider: Row): Row | null {
-  return gatewayRoutes.value.find(
-    (route) => route.providerId === provider.id && route.isDefault,
-  ) ?? null;
-}
-function aiProviderRouteCount(provider: Row): number {
-  return gatewayRoutes.value.filter((route) => route.providerId === provider.id).length;
-}
-async function toggleAiProvider(provider: Row): Promise<void> {
-  gatewayBusy.value = true;
-  try {
-    await api(`/api/ops/model-gateway/providers/${provider.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled: !provider.enabled }),
-    });
-    notice.value = `厂商 ${provider.name} 已${provider.enabled ? '停用' : '启用'}`;
-    await loadGateway();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-async function deleteAiProvider(provider: Row): Promise<void> {
-  if (!window.confirm(`删除 ${provider.name}?它的模型配置会一并删除。`)) return;
-  gatewayBusy.value = true;
-  try {
-    await api(`/api/ops/model-gateway/providers/${provider.id}`, { method: 'DELETE' });
-    notice.value = `${provider.name} 已删除`;
-    await loadGateway();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-async function testAiProvider(provider: Row): Promise<void> {
-  gatewayBusy.value = true;
-  delete aiTestResult.value[provider.id];
-  try {
-    const res = await api<{ data: Row }>(`/api/ops/model-gateway/providers/${provider.id}/test`, {
-      method: 'POST',
-      body: '{}',
-    });
-    const data = res.data ?? {};
-    if (data.ok) {
-      const count = Array.isArray(data.models) ? data.models.length : 0;
-      aiTestResult.value[provider.id] = {
-        tone: 'ok',
-        text: `连接正常 ${data.latencyMs}ms · ${data.model}${count ? ` · 可用模型 ${count} 个` : ''}`,
-      };
-    } else {
-      aiTestResult.value[provider.id] = {
-        tone: 'bad',
-        text: String(data.testError ?? data.error ?? '连接失败'),
-      };
-    }
-  } catch (err) {
-    aiTestResult.value[provider.id] = { tone: 'bad', text: err instanceof Error ? err.message : String(err) };
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-async function fetchAiModels(providerId: string): Promise<void> {
-  if (!providerId) return;
-  gatewayBusy.value = true;
-  try {
-    const res = await api<{ data: { models: string[] } }>(`/api/ops/model-gateway/providers/${providerId}/models`);
-    aiModelOptions.value = res.data?.models ?? [];
-    notice.value = `从服务商读取到 ${aiModelOptions.value.length} 个模型`;
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-function openCreateAiRoute(): void {
-  aiRouteModal.value = { mode: 'create', alias: '' };
-  aiRouteForm.value = {
-    providerId: String(gateway.value?.providers?.[0]?.id ?? ''),
-    alias: '',
-    upstreamModel: '',
-    isDefault: false,
-    enabled: true,
-  };
-  aiModelOptions.value = [];
-}
-function openEditAiRoute(route: Row): void {
-  aiRouteModal.value = { mode: 'edit', id: String(route.id), alias: String(route.alias) };
-  aiRouteForm.value = {
-    providerId: String(route.providerId ?? ''),
-    alias: String(route.alias ?? ''),
-    upstreamModel: String(route.upstreamModel ?? ''),
-    isDefault: Boolean(route.isDefault),
-    enabled: Boolean(route.enabled),
-  };
-  aiModelOptions.value = [];
-}
-function closeAiRouteModal(): void {
-  aiRouteModal.value = null;
-}
-async function saveAiRoute(): Promise<void> {
-  if (!aiRouteModal.value) return;
-  const form = aiRouteForm.value;
-  gatewayBusy.value = true;
-  error.value = '';
-  try {
-    if (aiRouteModal.value.mode === 'create') {
-      await api('/api/ops/model-gateway/routes', {
-        method: 'POST',
-        body: JSON.stringify({
-          providerId: form.providerId,
-          alias: form.alias.trim(),
-          upstreamModel: form.upstreamModel.trim(),
-          isDefault: form.isDefault,
-          enabled: form.enabled,
-        }),
-      });
-      notice.value = `模型别名 ${form.alias} 已创建`;
-    } else {
-      await api(`/api/ops/model-gateway/routes/${aiRouteModal.value.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          alias: form.alias.trim(),
-          upstreamModel: form.upstreamModel.trim(),
-          isDefault: form.isDefault,
-          enabled: form.enabled,
-        }),
-      });
-      notice.value = `模型别名 ${form.alias} 已更新`;
-    }
-    aiRouteModal.value = null;
-    await loadGateway();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-async function deleteAiRoute(route: Row): Promise<void> {
-  if (!window.confirm(`删除模型别名 ${route.alias} → ${route.upstreamModel}?`)) return;
-  gatewayBusy.value = true;
-  try {
-    await api(`/api/ops/model-gateway/routes/${route.id}`, { method: 'DELETE' });
-    notice.value = `模型别名 ${route.alias} 已删除`;
-    await loadGateway();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
-  }
-}
-async function setDefaultAiRoute(route: Row): Promise<void> {
-  gatewayBusy.value = true;
-  try {
-    await api(`/api/ops/model-gateway/routes/${route.id}`, { method: 'PATCH', body: JSON.stringify({ isDefault: true }) });
-    notice.value = `默认路由已切换为 ${route.alias}`;
-    await loadGateway();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    gatewayBusy.value = false;
   }
 }
 async function loadSources(): Promise<void> {
@@ -785,10 +324,14 @@ async function loadRevocations(): Promise<void> {
   try {
     const [list, policy] = await Promise.all([
       api<{ requests: Row[] }>('/api/ops/r4/revocations'),
-      api<{ states: Row[] }>('/api/ops/r4/policy-state'),
+      api<{ states: Row[]; triggerEnabled?: boolean; autoConfirm?: boolean }>('/api/ops/r4/policy-state'),
     ]);
     revocationRows.value = list.requests ?? [];
     revocationPolicy.value = policy.states ?? [];
+    r4Flags.value = {
+      triggerEnabled: policy.triggerEnabled ?? false,
+      autoConfirm: policy.autoConfirm ?? false,
+    };
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -796,10 +339,62 @@ async function loadRevocations(): Promise<void> {
   }
 }
 
+/** 撤销请求状态 → 中文标签;原码保留在徽标 title/次要行,便于对审计。 */
+const REVOCATION_STATE_LABELS: Record<string, string> = {
+  ACKED: '已生效',
+  PENDING_CONFIRMATION: '待确认',
+  PENDING: '待投递',
+  BLOCKED: '投递受阻',
+  STORED_STATE_CONFLICT: '状态冲突',
+  NO_LIVE_TARGET: '无生效授权',
+  CANCELLED: '已取消',
+};
+const REVOCATION_SOURCE_LABELS: Record<string, string> = {
+  POLICY_STATE: '政策停用',
+  BINDING_REVOKED: '绑定撤销',
+  OPERATOR: '运维手动',
+};
+function revocationStateLabel(state: unknown): string {
+  const key = String(state ?? '');
+  return REVOCATION_STATE_LABELS[key] ?? key;
+}
+function revocationSourceLabel(source: unknown): string {
+  const key = String(source ?? '');
+  return REVOCATION_SOURCE_LABELS[key] ?? key;
+}
+function reasonLabel(code: unknown): string {
+  const key = String(code ?? '');
+  return REVOCATION_REASONS.find((item) => item.value === key)?.label ?? key;
+}
+
 function revocationBadge(state: unknown): string {
-  if (state === 'ACKED') return 'is-ok';
-  if (state === 'PENDING_CONFIRMATION' || state === 'PENDING') return 'is-warn';
-  return 'is-bad';
+  switch (String(state ?? '')) {
+    case 'ACKED': return 'is-ok';
+    case 'PENDING_CONFIRMATION':
+    case 'PENDING': return 'is-warn';
+    case 'BLOCKED':
+    case 'STORED_STATE_CONFLICT': return 'is-bad';
+    default: return 'is-muted'; // NO_LIVE_TARGET / CANCELLED 是已解决的终态,不是故障
+  }
+}
+
+/** 最近一次投递尝试的摘要;attempts 由接口按 ordinal 倒序带 3 条。 */
+function latestAttempt(row: Row): Row | null {
+  const attempts = Array.isArray(row.attempts) ? (row.attempts as Row[]) : [];
+  return attempts[0] ?? null;
+}
+function attemptSummary(attempt: Row | null): string {
+  if (!attempt) return '—';
+  const outcome = attempt.outcome ? String(attempt.outcome) : '无结果';
+  const at = attempt.createdAt ? fmt(attempt.createdAt) : '';
+  return `#${attempt.ordinal} ${outcome}${at ? ` · ${at}` : ''}`;
+}
+
+/** 微分美元 → 可读金额;引擎 cap 字段以 microusd 计。 */
+function fmtUsd(value: unknown): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return `$${(n / 1_000_000).toFixed(2)}`;
 }
 
 async function createRevocation(): Promise<void> {
@@ -865,7 +460,6 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'overview') await loadOverview();
   if (tab === 'users') await loadUsers();
   if (tab === 'providers') await loadProviders();
-  if (tab === 'ai') await loadGateway();
   if (tab === 'sources') await loadSources();
   if (tab === 'budget') await loadBudget();
   if (tab === 'diagnostics') await Promise.all([loadWorkspaces(), loadGlobalDiagnostics()]);
@@ -1148,6 +742,9 @@ onMounted(checkSession);
               <h3>红灯</h3>
               <p>死信投递:{{ fmt(overview.redLights?.deadDeliveries) }}</p>
               <p>预算耗尽账户:{{ fmt(overview.redLights?.exhaustedBudgetAccounts) }}</p>
+              <p>未结平台撤销:{{ fmt(overview.redLights?.r4?.openRevocations) }}</p>
+              <p>投递结果未知:{{ fmt(overview.redLights?.r4?.deliveryUnknown) }}</p>
+              <p>平台授权轮次耗尽:{{ fmt(overview.redLights?.r4?.platformExhaustedAuthorities) }}</p>
               <p class="ops__muted">Temporal:{{ overview.redLights?.temporal?.reachable ? '可达' : '不可达' }}</p>
             </article>
             <article class="ops__card ops__card--wide">
@@ -1222,117 +819,6 @@ onMounted(checkSession);
             </table>
           </section>
 
-          <section v-else-if="active === 'ai' && gateway" class="ops__stack">
-            <article class="ops__ai-hero">
-              <div>
-                <span class="ops__kicker">AI 设置</span>
-                <h3>让 AI 用起来</h3>
-                <p>选一个常用服务商,填入 API Key。系统会自动测试连接、读取可用模型,你只需要选一个默认模型。</p>
-                <p v-if="!gateway.gateway?.configured" class="ops__warn">网关尚未启用:在服务器 .env 配置 MODEL_GATEWAY_API_KEY 后重启。</p>
-              </div>
-              <div class="ops__ai-hero-actions">
-                <span class="ops__badge" :class="gateway.gateway?.configured ? 'is-ok' : 'is-warn'">{{ gateway.gateway?.configured ? '网关已启用' : '网关未启用' }}</span>
-                <button v-if="gateway.providers.length > 0" type="button" class="ops__btn ops__btn--primary" @click="openAiWizard()">添加 AI 服务商</button>
-              </div>
-            </article>
-
-            <template v-if="gateway.providers.length === 0">
-              <div class="ops__preset-grid">
-                <button v-for="preset in AI_PRESETS" :key="preset.id" type="button" class="ops__preset-card" @click="openAiWizard(preset.id)">
-                  <span class="ops__preset-mark" :style="{ background: preset.color }">{{ preset.mark }}</span>
-                  <strong>{{ preset.name }}</strong>
-                  <small>{{ preset.hint }}</small>
-                </button>
-              </div>
-              <p class="ops__muted">接口地址已经帮你填好,通常只需要填 API Key。本机 Ollama 不需要 Key。</p>
-            </template>
-
-            <template v-else>
-              <div class="ops__ai-grid">
-                <article v-for="provider in gateway.providers" :key="provider.id" class="ops__ai-card">
-                  <header class="ops__ai-card-head">
-                    <span class="ops__preset-mark" :style="{ background: presetForProvider(provider).color }">{{ presetForProvider(provider).mark }}</span>
-                    <div class="ops__ai-card-title">
-                      <strong>{{ provider.name }}</strong>
-                      <small>{{ presetForProvider(provider).hint }}</small>
-                    </div>
-                    <span class="ops__badge" :class="provider.enabled ? 'is-ok' : 'is-warn'">{{ provider.enabled ? '使用中' : '已停用' }}</span>
-                  </header>
-                  <div class="ops__ai-default">
-                    <span>默认模型</span>
-                    <strong>{{ aiDefaultRoute(provider)?.upstreamModel || '未设置' }}</strong>
-                  </div>
-                  <p class="ops__muted">Key {{ provider.apiKeyMasked }} · 共 {{ aiProviderRouteCount(provider) }} 个模型配置</p>
-                  <p v-if="aiTestResult[provider.id]" class="ops__muted" :class="aiTestResult[provider.id]?.tone === 'ok' ? 'ops__ok' : 'ops__warn'">{{ aiTestResult[provider.id]?.text }}</p>
-                  <footer class="ops__ai-card-actions">
-                    <button type="button" class="ops__btn" :disabled="gatewayBusy" @click="testAiProvider(provider)">测试</button>
-                    <button type="button" class="ops__btn ops__btn--primary" :disabled="gatewayBusy" @click="openEditAiWizard(provider)">
-                      {{ aiDefaultRoute(provider) ? '更换模型 / Key' : '完成设置' }}
-                    </button>
-                    <button type="button" class="ops__btn" :disabled="gatewayBusy" @click="toggleAiProvider(provider)">{{ provider.enabled ? '停用' : '启用' }}</button>
-                    <button type="button" class="ops__btn ops__btn--danger" :disabled="gatewayBusy" @click="deleteAiProvider(provider)">删除</button>
-                  </footer>
-                </article>
-              </div>
-              <p v-if="!gatewayRoutes.some((route) => route.isDefault)" class="ops__warn ops__warn--inline">
-                还没有默认模型。点服务商的「完成设置」选一个模型;在那之前 AI 任务不会成功。
-              </p>
-            </template>
-
-            <details class="ops__card ops__card--wide ops__advanced">
-              <summary>高级:按模型别名路由(通常不需要)</summary>
-              <div class="ops__toolbar">
-                <h3>模型别名</h3>
-                <button type="button" class="ops__btn ops__btn--primary" :disabled="gateway.providers.length === 0" @click="openCreateAiRoute">新增别名</button>
-              </div>
-              <p class="ops__muted">只有想给不同任务指定不同模型时才需要。引擎按任务名请求;未命中别名时使用默认模型。</p>
-              <table class="ops__table">
-                <thead><tr><th>别名</th><th>服务商</th><th>实际模型</th><th>默认</th><th>状态</th><th></th></tr></thead>
-                <tbody>
-                  <tr v-for="route in gatewayRoutes" :key="route.id">
-                    <td><strong>{{ route.alias }}</strong></td>
-                    <td>{{ route.providerName }}</td>
-                    <td class="ops__json">{{ route.upstreamModel }}</td>
-                    <td><span v-if="route.isDefault" class="ops__badge is-ok">默认</span><span v-else class="ops__muted">—</span></td>
-                    <td><span class="ops__badge" :class="route.enabled ? 'is-ok' : 'is-warn'">{{ route.enabled ? '启用' : '停用' }}</span></td>
-                    <td class="ops__row-actions">
-                      <button v-if="!route.isDefault" type="button" class="ops__btn" :disabled="gatewayBusy" @click="setDefaultAiRoute(route)">设为默认</button>
-                      <button type="button" class="ops__btn" @click="openEditAiRoute(route)">编辑</button>
-                      <button type="button" class="ops__btn ops__btn--danger" :disabled="gatewayBusy" @click="deleteAiRoute(route)">删除</button>
-                    </td>
-                  </tr>
-                  <tr v-if="gatewayRoutes.length === 0"><td colspan="6" class="ops__muted">还没有模型别名;设置默认模型后会自动出现一条默认配置。</td></tr>
-                </tbody>
-              </table>
-              <div class="ops__advanced-env">
-                <p class="ops__muted">引擎侧配置(切换后生效):</p>
-                <pre class="ops__code">MODEL_GATEWAY_URL=http://127.0.0.1:4020/v1
-MODEL_GATEWAY_KEY=<与服务端 MODEL_GATEWAY_API_KEY 一致>
-MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
-              </div>
-            </details>
-
-            <details class="ops__card ops__card--wide ops__advanced">
-              <summary>调用记录(最近 100 条) · 24h {{ Object.entries(gateway.stats24h ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ') || '无调用' }}</summary>
-              <table class="ops__table">
-                <thead><tr><th>时间</th><th>请求模型 → 实际模型</th><th>服务商</th><th>状态</th><th>延迟</th><th>Token</th><th>错误</th></tr></thead>
-                <tbody>
-                  <tr v-for="call in gateway.calls" :key="call.id">
-                    <td>{{ fmt(call.at) }}</td>
-                    <td>{{ call.alias }}<br /><small class="ops__muted">{{ call.upstreamModel }}</small></td>
-                    <td>{{ call.providerName || '—' }}</td>
-                    <td><span class="ops__badge" :class="call.status === 'OK' ? 'is-ok' : 'is-warn'">{{ call.status }}</span></td>
-                    <td>{{ call.latencyMs }} ms</td>
-                    <td>{{ fmt(call.inputTokens) }} / {{ fmt(call.outputTokens) }}</td>
-                    <td class="ops__json">{{ call.error || '—' }}</td>
-                  </tr>
-                  <tr v-if="gateway.calls.length === 0"><td colspan="7" class="ops__muted">还没有调用记录</td></tr>
-                </tbody>
-              </table>
-              <p class="ops__muted">只记录元数据与 token 计数,不保存 prompt/补全。</p>
-            </details>
-          </section>
-
           <section v-else-if="active === 'sources'" class="ops__stack">
             <div class="ops__toolbar">
               <button type="button" class="ops__btn ops__btn--primary" @click="openCreateSource">新建源</button>
@@ -1395,15 +881,39 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
             <article class="ops__card ops__card--wide">
               <h3>授权(最近 100)</h3>
               <table class="ops__table">
-                <thead><tr><th>Workspace</th><th>Kind</th><th>Purpose</th><th>Cap</th><th>过期</th><th>已消费</th><th>撤销</th></tr></thead>
+                <thead><tr><th>Workspace / 绑定</th><th>类型</th><th>Purpose</th><th>上限</th><th>轮次</th><th>过期 / 租约</th><th>已消费</th><th>撤销</th></tr></thead>
                 <tbody>
                   <tr v-for="authority in budget.authorities" :key="authority.id">
-                    <td>{{ authority.workspace_id }}</td><td>{{ authority.authority_kind }}</td><td>{{ authority.purpose }}</td>
-                    <td>{{ authority.cap_microusd }}</td><td>{{ fmt(authority.expires_at) }}</td><td>{{ fmt(authority.consumed_at) }}</td><td>{{ fmt(authority.revoked_at) }}</td>
+                    <td>
+                      <template v-if="authority.authority_kind === 'PLATFORM'">
+                        <strong>平台(全部工作空间)</strong>
+                      </template>
+                      <template v-else>{{ authority.workspace_id || '—' }}</template>
+                      <template v-if="authority.schedule_id || authority.workflow_id">
+                        <br /><small class="ops__muted">{{ authority.schedule_id || '—' }}<template v-if="authority.workflow_id"> · {{ authority.workflow_id }}</template></small>
+                      </template>
+                    </td>
+                    <td>{{ authority.authority_kind === 'PLATFORM' ? '平台授权' : (authority.authority_kind === 'WORKSPACE_GRANT' ? '工作空间 Grant' : authority.authority_kind) }}</td>
+                    <td>{{ authority.purpose }}</td>
+                    <td>
+                      <template v-if="authority.authority_kind === 'PLATFORM'">
+                        {{ fmtUsd(authority.cap_per_run_microusd) }}/轮
+                        <template v-if="authority.campaign_cap_microusd != null"><br /><small class="ops__muted">活动 {{ fmtUsd(authority.campaign_cap_microusd) }}</small></template>
+                      </template>
+                      <template v-else>{{ fmtUsd(authority.cap_microusd) }}</template>
+                    </td>
+                    <td>
+                      <template v-if="authority.authority_kind === 'PLATFORM'">{{ authority.runs_consumed ?? 0 }}<template v-if="authority.max_runs != null"> / {{ authority.max_runs }}</template></template>
+                      <template v-else>{{ authority.runs_consumed ?? 0 }}</template>
+                    </td>
+                    <td>{{ fmt(authority.expires_at) }}<template v-if="authority.admission_lease_expires_at"><br /><small class="ops__muted">租约 {{ fmt(authority.admission_lease_expires_at) }}</small></template></td>
+                    <td>{{ fmt(authority.consumed_at) }}</td>
+                    <td>{{ fmt(authority.revoked_at) }}</td>
                   </tr>
-                  <tr v-if="budget.authorities.length === 0"><td colspan="7" class="ops__muted">无授权记录</td></tr>
+                  <tr v-if="budget.authorities.length === 0"><td colspan="8" class="ops__muted">无授权记录</td></tr>
                 </tbody>
               </table>
+              <p class="ops__muted">平台授权的金额上限按轮(cap_per_run)与活动累计(campaign)计;runs_consumed 达到 max_runs 后该授权耗尽,引擎会拒绝新的平台 run。</p>
             </article>
           </section>
 
@@ -1445,7 +955,7 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
               </div>
               <table class="ops__table"><thead><tr><th>Task / Op</th><th>Provider / Model</th><th>状态</th><th>延迟</th><th>Token</th><th>错误</th><th>时间</th></tr></thead>
                 <tbody><tr v-for="trace in traceRows" :key="trace.id"><td>{{ trace.task }}<br /><small class="ops__muted">{{ trace.op }}</small></td><td>{{ trace.provider }}<br /><small class="ops__muted">{{ trace.model }}</small></td><td><span class="ops__badge" :class="badgeClass(trace.status)">{{ trace.status }}</span></td><td>{{ fmt(trace.latency_ms) }}</td><td>{{ fmt(trace.input_tokens) }} / {{ fmt(trace.output_tokens) }}</td><td class="ops__json">{{ fmt(trace.error_message) }}</td><td>{{ fmt(trace.created_at) }}</td></tr>
-                  <tr v-if="traceRows.length === 0"><td colspan="7" class="ops__muted">无(模型网关恢复后才会有调用记录)</td></tr></tbody>
+                  <tr v-if="traceRows.length === 0"><td colspan="7" class="ops__muted">无(引擎产生模型调用后才会有记录)</td></tr></tbody>
               </table>
             </article>
             <article class="ops__card ops__card--wide">
@@ -1460,9 +970,9 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
                 <h3>线索</h3>
                 <button type="button" class="ops__btn" @click="exportLeadsCsv">导出 CSV</button>
               </div>
-              <table class="ops__table"><thead><tr><th>公司</th><th>队列</th><th>Fit</th><th>分数</th><th>创建</th></tr></thead>
-                <tbody><tr v-for="lead in leads" :key="lead.id"><td>{{ lead.company_name }}<br /><small class="ops__muted">{{ lead.company_domain }}</small></td><td>{{ lead.queue }}</td><td>{{ lead.fit_verdict }}</td><td>{{ fmt(lead.total_score) }}</td><td>{{ fmt(lead.created_at) }}</td></tr>
-                  <tr v-if="leads.length === 0"><td colspan="5" class="ops__muted">无</td></tr></tbody>
+              <table class="ops__table"><thead><tr><th>公司</th><th>队列</th><th>Fit</th><th>分数</th><th>Fit 说明</th><th>创建</th></tr></thead>
+                <tbody><tr v-for="lead in leads" :key="lead.id"><td>{{ lead.company_name }}<br /><small class="ops__muted">{{ lead.company_domain }}</small></td><td>{{ lead.queue }}</td><td>{{ lead.fit_verdict }}</td><td>{{ fmt(lead.total_score) }}</td><td class="ops__json" :title="lead.fit_reasons || ''">{{ lead.fit_reasons || '—' }}</td><td>{{ fmt(lead.created_at) }}</td></tr>
+                  <tr v-if="leads.length === 0"><td colspan="6" class="ops__muted">无</td></tr></tbody>
               </table>
             </article>
             <article class="ops__card ops__card--wide">
@@ -1545,20 +1055,28 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
 
           <section v-else-if="active === 'revocations'" class="ops__stack">
             <article class="ops__card ops__card--wide">
-              <h3>平台策略状态</h3>
+              <div class="ops__toolbar">
+                <h3>平台策略状态</h3>
+                <span class="ops__badge" :class="r4Flags.triggerEnabled ? 'is-ok' : 'is-warn'">
+                  撤销自动触发：{{ r4Flags.triggerEnabled ? '已启用' : '未启用' }}
+                </span>
+                <span class="ops__badge" :class="r4Flags.autoConfirm ? 'is-warn' : 'is-ok'">
+                  自动确认：{{ r4Flags.autoConfirm ? '开启（自动来源请求确认后直接投递）' : '关闭（自动来源请求需人工确认）' }}
+                </span>
+              </div>
               <table class="ops__table">
                 <thead><tr><th>Schedule</th><th>模式</th><th>更新人</th><th>更新时间</th></tr></thead>
                 <tbody>
                   <tr v-for="state in revocationPolicy" :key="state.scheduleId">
                     <td>{{ state.scheduleId }}</td>
-                    <td><span class="ops__badge" :class="state.mode === 'ENABLED' ? 'is-ok' : 'is-warn'">{{ state.mode }}</span></td>
+                    <td><span class="ops__badge" :class="state.mode === 'ENABLED' ? 'is-ok' : 'is-warn'">{{ state.mode === 'ENABLED' ? '启用（ENABLED）' : state.mode }}</span></td>
                     <td>{{ state.updatedBy }}</td>
                     <td>{{ fmt(state.updatedAt) }}</td>
                   </tr>
                   <tr v-if="revocationPolicy.length === 0"><td colspan="4" class="ops__muted">还没有策略状态记录（首次启用后会建立基线）。</td></tr>
                 </tbody>
               </table>
-              <p class="ops__muted">该状态是后端 policy asset 的镜像；两侧不一致会让引擎 readiness fail closed。</p>
+              <p class="ops__muted">该状态是后端 policy asset 的镜像；两侧不一致会让引擎 readiness fail closed。开关状态来自服务端实际配置，与 .env 同步显示。</p>
             </article>
             <article class="ops__card ops__card--wide">
               <h3>发起撤销</h3>
@@ -1574,25 +1092,42 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
                   </select>
                 </label>
                 <label class="ops__field"><span>备注</span><input v-model="revocationForm.note" maxlength="300" placeholder="为什么撤销（会记入审计）" /></label>
-                <button type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy" @click="createRevocation">发起撤销</button>
+                <button type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="createRevocation">发起撤销</button>
               </div>
-              <p class="ops__muted">撤销按 schedule 生效、当前不可重开；操作员发起的请求立即投递，自动来源的请求需在下方确认。只有三个有 egress 的 schedule 可撤销。</p>
+              <p class="ops__muted">
+                撤销按 schedule 生效、当前不可重开；只有三个有 egress 的 schedule 可撤销。
+                {{ r4Flags.triggerEnabled
+                  ? (r4Flags.autoConfirm
+                    ? '自动确认已开启：所有来源的请求确认后都会直接进入投递（当前为测试/特殊配置，注意风险）。'
+                    : '操作员发起的请求立即投递；自动来源的请求会停在「待确认」，需在下方人工确认。')
+                  : '撤销自动触发未启用，发起/确认/取消接口会被拒绝。' }}
+              </p>
             </article>
             <article class="ops__card ops__card--wide">
               <h3>撤销请求</h3>
               <table class="ops__table">
-                <thead><tr><th>创建</th><th>Schedule</th><th>原因 / 来源</th><th>状态</th><th>序列</th><th>ACK / 错误</th><th></th></tr></thead>
+                <thead><tr><th>创建</th><th>Schedule</th><th>原因 / 来源</th><th>状态</th><th>序列</th><th>投递</th><th></th></tr></thead>
                 <tbody>
                   <tr v-for="row in revocationRows" :key="row.id">
                     <td>{{ fmt(row.createdAt) }}</td>
                     <td>{{ row.scheduleId }}</td>
-                    <td>{{ row.reasonCode }}<br /><small class="ops__muted">{{ row.source }} · {{ row.requestedBy }}</small></td>
-                    <td><span class="ops__badge" :class="revocationBadge(row.state)">{{ row.state }}</span></td>
+                    <td>{{ reasonLabel(row.reasonCode) }}<br /><small class="ops__muted">{{ revocationSourceLabel(row.source) }} · {{ row.requestedBy }}</small></td>
+                    <td>
+                      <span class="ops__badge" :class="revocationBadge(row.state)" :title="row.state">{{ revocationStateLabel(row.state) }}</span>
+                      <small class="ops__muted">{{ row.state }}</small>
+                      <template v-if="row.deliveryUnknown">
+                        <br /><span class="ops__badge is-warn" title="有投递尝试但未取得确定结果（未拿到 ACK，也不确定是否未提交）">投递结果未知</span>
+                      </template>
+                    </td>
                     <td>{{ row.fenceSequence }}</td>
-                    <td class="ops__json">{{ row.state === 'ACKED' ? `receipt ${row.ackReceiptId} · generation ${row.ackGeneration} · in-flight ${row.ackInFlightAttempts}` : (row.lastError || '—') }}</td>
+                    <td class="ops__json">
+                      <div>最近尝试：{{ attemptSummary(latestAttempt(row)) }}<template v-if="(row.attemptCount ?? 0) > 0"> · 共 {{ row.attemptCount }} 次</template></div>
+                      <div v-if="row.state === 'ACKED'">receipt {{ row.ackReceiptId }} · generation {{ row.ackGeneration }}<template v-if="row.ackInFlightAttempts != null"> · in-flight {{ row.ackInFlightAttempts }}</template></div>
+                      <div v-else-if="row.lastError">{{ row.lastError }}</div>
+                    </td>
                     <td class="ops__row-actions">
-                      <button v-if="row.state === 'PENDING_CONFIRMATION'" type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy" @click="confirmRevocation(row.id, row.scheduleId)">确认投递</button>
-                      <button v-if="['PENDING_CONFIRMATION', 'BLOCKED', 'STORED_STATE_CONFLICT'].includes(row.state)" type="button" class="ops__btn" :disabled="!!revocationBusy" @click="cancelRevocation(row.id, row.scheduleId)">取消</button>
+                      <button v-if="row.state === 'PENDING_CONFIRMATION'" type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="confirmRevocation(row.id, row.scheduleId)">确认投递</button>
+                      <button v-if="['PENDING_CONFIRMATION', 'BLOCKED', 'STORED_STATE_CONFLICT'].includes(row.state)" type="button" class="ops__btn" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="cancelRevocation(row.id, row.scheduleId)">取消</button>
                     </td>
                   </tr>
                   <tr v-if="revocationRows.length === 0"><td colspan="7" class="ops__muted">还没有撤销请求。上方可对三个有 egress 的 schedule 发起撤销。</td></tr>
@@ -1639,132 +1174,6 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
         </form>
       </div>
 
-      <div v-if="aiWizard && aiWizardPreset" class="ops__modal" @click.self="closeAiWizard">
-        <form class="ops__modal-card ops__modal-card--wizard" @submit.prevent="saveAiWizard">
-          <header>
-            <div>
-              <span class="ops__kicker">{{ aiWizard.mode === 'create' ? '添加 AI 服务商' : 'AI 服务商设置' }}</span>
-              <h2>{{ aiWizardPreset.name }}</h2>
-            </div>
-            <button type="button" class="ops__btn" @click="closeAiWizard">关闭</button>
-          </header>
-
-          <div v-if="aiWizard.mode === 'create'" class="ops__preset-strip">
-            <button
-              v-for="preset in AI_PRESETS"
-              :key="preset.id"
-              type="button"
-              class="ops__preset-chip"
-              :class="{ 'is-active': aiWizard.presetId === preset.id }"
-              @click="selectAiPreset(preset)"
-            >
-              <span class="ops__preset-dot" :style="{ background: preset.color }">{{ preset.mark }}</span>
-              {{ preset.name }}
-            </button>
-          </div>
-
-          <div class="ops__ai-key-row">
-            <label class="ops__field ops__ai-key-input">
-              <span>API Key {{ aiWizardPreset.requiresKey ? '*' : '(本地服务可留空)' }}</span>
-              <input
-                v-model="aiWizard.apiKey"
-                type="password"
-                autocomplete="new-password"
-                :placeholder="aiWizard.mode === 'edit' ? '留空则保留当前 Key' : '粘贴服务商控制台里的 API Key'"
-              />
-            </label>
-            <div class="ops__ai-endpoint">
-              <span>{{ aiWizardPreset.hint }}</span>
-              <code>{{ aiWizard.baseUrl || '在高级设置里填写接口地址' }}</code>
-            </div>
-          </div>
-          <p class="ops__muted">Key 只用于调用 {{ aiWizardPreset.name }},加密保存在本机,不会回显。</p>
-
-          <details class="ops__advanced-toggle">
-            <summary>高级设置(接口地址、模型字段、超时)</summary>
-            <div class="ops__form-grid">
-              <label class="ops__field"><span>显示名称</span><input v-model="aiWizard.name" maxlength="80" /></label>
-              <label class="ops__field"><span>接口地址</span><input v-model="aiWizard.baseUrl" placeholder="https://api.example.com/v1" /></label>
-              <label class="ops__field"><span>max_tokens 字段</span>
-                <select v-model="aiWizard.maxTokensField">
-                  <option value="max_tokens">max_tokens(多数服务)</option>
-                  <option value="max_completion_tokens">max_completion_tokens(OpenAI 新推理模型)</option>
-                </select>
-              </label>
-              <label class="ops__field"><span>超时(毫秒)</span><input v-model.number="aiWizard.timeoutMs" type="number" min="5000" step="1000" /></label>
-              <label class="ops__field"><span>最小输出预算(可选)</span><input v-model.number="aiWizard.minOutputTokens" type="number" min="0" step="1024" placeholder="推理模型建议 16384" /></label>
-              <label class="ops__field"><span>优先级(越小越先)</span><input v-model.number="aiWizard.priority" type="number" min="1" step="1" /></label>
-            </div>
-            <label class="ops__field"><span>额外请求头(JSON,一般不用填)</span><textarea v-model="aiWizard.headersText" rows="3" spellcheck="false" placeholder='{"HTTP-Referer":"https://gainos.example"}' /></label>
-          </details>
-
-          <div class="ops__probe-panel">
-            <button type="button" class="ops__btn ops__btn--primary" :disabled="aiWizard.testing" @click="probeAiWizard">
-              {{ aiWizard.testing ? '正在连接并读取模型…' : aiWizard.tested ? '重新测试' : '测试连接并获取模型' }}
-            </button>
-            <span v-if="aiWizard.latencyMs" class="ops__ok">连接成功 · {{ aiWizard.latencyMs }}ms</span>
-          </div>
-          <p v-if="aiWizard.error" class="ops__error" role="alert">{{ aiWizard.error }}</p>
-          <p v-if="aiWizard.testError" class="ops__warn">连接测试未通过:{{ aiWizard.testError }}</p>
-          <p v-if="aiWizard.modelsError" class="ops__muted">模型列表未读取到:{{ aiWizard.modelsError }};可手动填写模型名。</p>
-
-          <section v-if="aiWizard.models.length > 0" class="ops__model-picker">
-            <h3>选择默认模型</h3>
-            <p class="ops__muted">所有 AI 任务先使用这个模型;以后可以在高级里按任务细分。</p>
-            <div class="ops__model-grid">
-              <label
-                v-for="model in aiWizard.models"
-                :key="model"
-                class="ops__model-option"
-                :class="{ 'is-selected': aiWizard.selectedModel === model }"
-              >
-                <input v-model="aiWizard.selectedModel" type="radio" :value="model" />
-                <span>{{ model }}</span>
-              </label>
-            </div>
-          </section>
-          <section v-else-if="aiWizard.tested" class="ops__model-fallback">
-            <label class="ops__field"><span>模型名称</span><input v-model="aiWizard.manualModel" placeholder="如 deepseek-chat" /></label>
-            <p class="ops__muted">没有自动读取到模型列表,可直接填写服务商控制台里的模型名。</p>
-          </section>
-
-          <div class="ops__modal-actions">
-            <button type="button" class="ops__btn" @click="closeAiWizard">取消</button>
-            <button type="submit" class="ops__btn ops__btn--primary" :disabled="!aiCanSave || gatewayBusy">
-              {{ gatewayBusy ? '保存中…' : '保存并启用' }}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div v-if="aiRouteModal" class="ops__modal" @click.self="closeAiRouteModal">
-        <form class="ops__modal-card" @submit.prevent="saveAiRoute">
-          <header>
-            <h2>{{ aiRouteModal.mode === 'create' ? '新增模型路由' : `编辑 ${aiRouteModal.alias}` }}</h2>
-            <button type="button" class="ops__btn" @click="closeAiRouteModal">关闭</button>
-          </header>
-          <div class="ops__form-grid">
-            <label class="ops__field"><span>上游厂商 *</span>
-              <select v-model="aiRouteForm.providerId" :disabled="aiRouteModal.mode === 'edit'" required @change="aiModelOptions = []">
-                <option v-for="provider in gateway?.providers ?? []" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
-              </select>
-            </label>
-            <label class="ops__field"><span>模型别名(引擎请求名) *</span><input v-model="aiRouteForm.alias" required placeholder="deepseek-v4-pro" /></label>
-            <label class="ops__field"><span>上游模型 *</span><input v-model="aiRouteForm.upstreamModel" required list="ai-model-options" placeholder="deepseek-chat / gpt-4o-mini" /></label>
-            <datalist id="ai-model-options"><option v-for="model in aiModelOptions" :key="model" :value="model" /></datalist>
-          </div>
-          <div class="ops__toolbar">
-            <button type="button" class="ops__btn" :disabled="gatewayBusy || !aiRouteForm.providerId" @click="fetchAiModels(aiRouteForm.providerId)">从上游拉取模型</button>
-            <label class="ops__check"><input v-model="aiRouteForm.enabled" type="checkbox" /> 启用</label>
-            <label class="ops__check"><input v-model="aiRouteForm.isDefault" type="checkbox" /> 设为默认路由(未命中别名时使用)</label>
-          </div>
-          <p class="ops__muted">同一别名可添加到多个厂商做按优先级回退;引擎收到的响应 model 会回写为别名。</p>
-          <div class="ops__modal-actions">
-            <button type="button" class="ops__btn" @click="closeAiRouteModal">取消</button>
-            <button type="submit" class="ops__btn ops__btn--primary" :disabled="gatewayBusy">{{ gatewayBusy ? '保存中…' : '保存' }}</button>
-          </div>
-        </form>
-      </div>
     </template>
   </div>
 </template>
@@ -1825,6 +1234,8 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
 .ops__badge { font-size: 11px; font-weight: 650; border-radius: 999px; padding: 2px 8px; background: #f1f5f9; color: #475569; }
 .ops__badge.is-ok { background: #e8f9f0; color: #008f52; }
 .ops__badge.is-warn { background: #fef3c7; color: #b45309; }
+.ops__badge.is-bad { background: #fee2e2; color: #991b1b; }
+.ops__badge.is-muted { background: #e2e8f0; color: #475569; }
 .ops__btn { border: 1px solid #cbd5e1; background: #fff; border-radius: 8px; padding: 5px 9px; font-size: 12px; cursor: pointer; color: #334155; }
 .ops__btn--danger { border-color: #fecaca; color: #b91c1c; }
 .ops__row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -1850,53 +1261,9 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
 .ops__field textarea { border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; resize: vertical; }
 .ops__modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .ops__check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: #334155; }
-.ops__code { margin: 0; padding: 12px 14px; border-radius: 10px; background: #0f172a; color: #e2e8f0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.8; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-.ops__ai-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 24px 26px; border-radius: 18px; border: 1px solid #d1fae5; background: linear-gradient(135deg, #f0fdf4 0%, #fff 62%); }
-.ops__ai-hero h3 { margin: 6px 0 0; font-size: 24px; letter-spacing: -.02em; color: #0f172a; }
-.ops__ai-hero p { margin: 8px 0 0; max-width: 640px; font-size: 13.5px; line-height: 1.75; color: #475569; }
-.ops__ai-hero-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ops__preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.ops__preset-card { display: grid; justify-items: start; gap: 8px; padding: 16px 18px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; cursor: pointer; text-align: left; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
-.ops__preset-card:hover { transform: translateY(-2px); border-color: #a7f3d0; box-shadow: 0 16px 36px -24px rgba(15,23,42,.35); }
-.ops__preset-card strong { font-size: 14px; color: #0f172a; }
-.ops__preset-card small { font-size: 11.5px; color: #94a3b8; }
-.ops__preset-mark { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-size: 16px; font-weight: 700; }
-.ops__preset-strip { display: flex; gap: 8px; flex-wrap: wrap; }
-.ops__preset-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #e2e8f0; background: #fff; border-radius: 999px; padding: 5px 11px 5px 6px; font-size: 12.5px; color: #475569; cursor: pointer; }
-.ops__preset-chip.is-active { border-color: var(--gs-accent, #00b96b); background: #f0fdf4; color: #047857; font-weight: 650; }
-.ops__preset-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
-.ops__ai-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 420px)); gap: 14px; }
-.ops__ai-card { display: grid; gap: 10px; padding: 18px 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fff; align-content: start; }
-.ops__ai-card-head { display: flex; align-items: center; gap: 10px; }
-.ops__ai-card-title { display: grid; gap: 2px; margin-right: auto; }
-.ops__ai-card-title strong { font-size: 14px; color: #0f172a; }
-.ops__ai-card-title small { font-size: 11px; color: #94a3b8; }
-.ops__ai-default { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 10px; padding: 10px 12px; }
-.ops__ai-default span { font-size: 11.5px; color: #64748b; }
-.ops__ai-default strong { font-size: 13px; color: #0f172a; word-break: break-all; text-align: right; }
-.ops__ai-card-actions { display: flex; gap: 7px; flex-wrap: wrap; padding-top: 2px; }
-.ops__warn--inline { margin: 0; padding: 10px 12px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; font-size: 12.5px; }
-.ops__advanced { padding: 16px 20px; }
-.ops__advanced > summary { cursor: pointer; font-size: 13.5px; font-weight: 650; color: #0f172a; }
-.ops__advanced > summary::marker { color: #94a3b8; }
-.ops__advanced[open] > summary { margin-bottom: 12px; }
-.ops__advanced-env { margin-top: 14px; display: grid; gap: 6px; }
-.ops__advanced-env p { margin: 0; }
-.ops__modal-card--wizard { width: min(780px, 100%); }
-.ops__ai-key-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: end; }
-.ops__ai-key-input input { font-size: 14px; }
-.ops__ai-endpoint { display: grid; gap: 4px; padding: 9px 11px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; min-width: 0; }
-.ops__ai-endpoint span { font-size: 11px; color: #64748b; }
-.ops__ai-endpoint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ops__advanced-toggle { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; }
-.ops__advanced-toggle > summary { cursor: pointer; font-size: 12.5px; color: #64748b; }
-.ops__advanced-toggle[open] > summary { margin-bottom: 10px; }
-.ops__advanced-toggle .ops__form-grid { margin-bottom: 10px; }
-.ops__probe-panel { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ops__model-picker { display: grid; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 14px; }
 .ops__model-picker h3 { margin: 0; font-size: 14px; color: #0f172a; }
 .ops__model-picker p { margin: 0; }
-.ops__model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; max-height: 260px; overflow: auto; padding-right: 4px; }
 .ops__model-option { display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 9px 11px; font-size: 12.5px; color: #334155; cursor: pointer; word-break: break-all; }
 .ops__model-option.is-selected { border-color: var(--gs-accent, #00b96b); background: #f0fdf4; color: #047857; font-weight: 600; }
 .ops__model-option input { accent-color: var(--gs-accent, #00b96b); }
@@ -1907,10 +1274,5 @@ MODEL_GATEWAY_STREAM_CHAT_COMPLETIONS=false</pre>
   .ops__body { grid-template-columns: 1fr; }
   .ops__nav { flex-direction: row; display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e2e8f0; }
   .ops__main { padding: 18px 14px 40px; }
-  .ops__ai-hero { flex-direction: column; padding: 18px; }
-  .ops__preset-grid { grid-template-columns: repeat(2, 1fr); }
-  .ops__ai-grid { grid-template-columns: 1fr; }
-  .ops__ai-key-row { grid-template-columns: 1fr; }
-  .ops__model-grid { grid-template-columns: 1fr; }
 }
 </style>

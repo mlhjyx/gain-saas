@@ -199,6 +199,11 @@ function queryFilterItems(query: Record<string, unknown>): Array<{ label: string
   if (tradeKey) items.push({ label: $t('gainos.findBuyers.queryFilter.tradeSide'), value: $t(tradeKey) });
   return items;
 }
+function planCostLabel(cents?: number | null): string {
+  const n = Number(cents);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return `$${(n / 100).toFixed(2)}`;
+}
 function planSourceSummary(plan: QueryPlan): string {
   const counts = new Map<string, number>();
   for (const query of plan.queries) {
@@ -867,7 +872,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
                 <div class="fb__plan-head">
                   <span class="fb__badge">{{ planStatusLabel(plan.status) }}</span>
                   <span class="fb__muted">
-                    {{ $t('gainos.findBuyers.planSearchCount', { count: plan.queries.length }) }}<span v-if="plan.estimatedVolume"> · {{ $t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }) }}</span>
+                    {{ $t('gainos.findBuyers.planSearchCount', { count: plan.queries.length }) }}<span v-if="plan.estimatedVolume"> · {{ $t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }) }}</span><span v-if="plan.estimatedCostCents"> · {{ $t('gainos.findBuyers.planEstimatedCost', { cost: planCostLabel(plan.estimatedCostCents) }) }}</span>
                   </span>
                 </div>
                 <p class="fb__muted">{{ $t('gainos.findBuyers.planSources') }}：{{ planSourceSummary(plan) }}</p>

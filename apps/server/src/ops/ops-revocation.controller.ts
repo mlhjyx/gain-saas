@@ -93,7 +93,13 @@ export class OpsRevocationController {
 
   @Get('policy-state')
   async policyState() {
-    return { states: await this.revocations.policyStates() };
+    // 开关状态随数据一起返回:页面据此显示"自动来源是否需要人工确认",
+    // 避免 .env 与 UI 文案漂移(2026-11-03 的 P1)。
+    return {
+      states: await this.revocations.policyStates(),
+      triggerEnabled: this.config.R4_REVOCATION_TRIGGER_ENABLED,
+      autoConfirm: this.config.R4_REVOCATION_AUTO_CONFIRM,
+    };
   }
 
   private assertEnabled(): void {

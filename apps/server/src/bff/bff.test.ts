@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BffHandler } from './bff.module.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { EngineHttp } from './engine-http.js';
-import { BFF_ROUTES, budgetQuoteRequest } from './routes.js';
+import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody } from './routes.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -104,6 +104,29 @@ describe('执行预算 quote 映射', () => {
       companyId: 'c-1',
     });
 
+    // 引擎支持 attemptId 后：每次点击的幂等键并入 quote；旧引擎则从转发体里剥离。
+    const discoverBody = {
+      lawfulBasis: 'legitimate_interest',
+      attemptId: '5a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d',
+    };
+    expect(
+      budgetQuoteRequest(discover, { id: 'c-1' }, discoverBody, { discoverAttemptId: true }),
+    ).toEqual({
+      operation: 'POST /canonical-companies/:id/discover-contacts',
+      companyId: 'c-1',
+      body: { attemptId: '5a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d' },
+    });
+    expect(
+      budgetQuoteRequest(discover, { id: 'c-1' }, { lawfulBasis: 'legitimate_interest' }, { discoverAttemptId: true }),
+    ).toEqual({
+      operation: 'POST /canonical-companies/:id/discover-contacts',
+      companyId: 'c-1',
+    });
+    expect(engineRequestBody(discover, discoverBody)).toEqual({
+      lawfulBasis: 'legitimate_interest',
+    });
+    expect(engineRequestBody(discover, discoverBody, { discoverAttemptId: true })).toEqual(discoverBody);
+
     const guess = BFF_ROUTES.find((r) => r.enginePath === '/canonical-companies/:id/guess-emails')!;
     const guessBody = { lawfulBasis: 'legitimate_interest', lawfulBasisRef: 'LIA-1', maxContacts: 10 };
     expect(budgetQuoteRequest(guess, { id: 'c-1' }, guessBody)).toEqual({
@@ -161,7 +184,7 @@ describe('决策人路由的 Grant 接线', () => {
         error: { code: 'EXECUTION_BUDGET_QUOTE_UNAVAILABLE', message: 'no envelope' },
       });
     });
-    const handler = new BffHandler(engine, { issue } as never, { record: vi.fn(async () => undefined) } as never);
+    const handler = new BffHandler(engine, { issue } as never, { record: vi.fn(async () => undefined) } as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const req = {
       method: 'POST',
@@ -204,7 +227,7 @@ describe('决策人路由的 Grant 接线', () => {
       headers: {},
     }));
     const audit = { record: vi.fn(async () => undefined) };
-    const handler = new BffHandler({ call } as never, { issue } as never, audit as never);
+    const handler = new BffHandler({ call } as never, { issue } as never, audit as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const body = { lawfulBasis: 'consent', lawfulBasisRef: 'CONSENT-1' };
     const req = {
@@ -265,7 +288,7 @@ describe('决策人路由的 Grant 接线', () => {
     );
     const issue = vi.fn(async () => 'grant-jws');
     const audit = { record: vi.fn(async () => undefined) };
-    const handler = new BffHandler(engine, { issue } as never, audit as never);
+    const handler = new BffHandler(engine, { issue } as never, audit as never, { ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false } as never);
 
     const req = {
       method: 'POST',

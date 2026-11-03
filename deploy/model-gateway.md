@@ -1,3 +1,5 @@
+> **2026-11-03 状态**:产品决定**保持 new-api 作为引擎模型网关**(引擎 `MODEL_GATEWAY_URL` 指向 new-api,任务级模型走引擎 `MODEL_ACQUISITION_TASK_MODELS`)。运营台「模型网关」管理界面与 `/api/ops/model-gateway/*` API 已移除;gain-saas 的 `/v1` 兼容入口与 settlement 读回代理保留。**本文与其中的 `model-gateway-apply.py` 仅作背景与回滚参考,当前决策下不要执行切换**。
+
 # 内嵌模型网关(替代 new-api 的获客模型入口)
 
 > 文档 ID:`DOC-SAAS-MODEL-GATEWAY-001`

@@ -10,9 +10,7 @@ import { OpsGuard } from './ops.guard.js';
 import { OpsService } from './ops.service.js';
 import { OpsSessionService } from './ops-session.service.js';
 import { OpsTemporalService } from './ops-temporal.service.js';
-import { OpsModelGatewayController } from './ops-model-gateway.controller.js';
 import { OpsRevocationController } from './ops-revocation.controller.js';
-import { ModelGatewayModule } from '../model-gateway/model-gateway.module.js';
 import { R4Module } from '../r4/r4.module.js';
 
 /**
@@ -21,8 +19,8 @@ import { R4Module } from '../r4/r4.module.js';
  * P9 起承载平台撤销的运营接口（复用 R4Module 的撤销服务）。
  */
 @Module({
-  imports: [ConfigModule, ModelGatewayModule, R4Module],
-  controllers: [OpsAuthController, OpsController, OpsModelGatewayController, OpsRevocationController],
+  imports: [ConfigModule, R4Module],
+  controllers: [OpsAuthController, OpsController, OpsRevocationController],
   providers: [OpsDatabase, OpsService, OpsSessionService, OpsGuard, OpsTemporalService, AuditService, PrismaService, AuthThrottleService],
 })
 export class OpsModule {}

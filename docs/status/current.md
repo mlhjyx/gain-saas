@@ -7,11 +7,11 @@
 
 ## P9 平台撤销自动触发(2026-11-01,已实现,默认关闭)
 
-撤销链的发起方已补齐:政策停用(`R4_PLATFORM_POLICY_MODES` 镜像 + `r4_platform_policy_state`)、部署绑定显式撤销(`revokedAt`)、运营台「平台撤销」页。模型为逻辑请求 + 追加式尝试:同一命令原字节重放,ACK 验签后才记成功,缺 ACK 不判未提交,`SEQUENCE_CONFLICT` 停住等人工;没有 live Grant 时记 `NO_LIVE_TARGET`(不挂起、不阻塞 capability)。Grant 签发与 capability 在策略停用/未结撤销/绑定被显式撤销时 fail closed。**默认关闭**(`R4_REVOCATION_TRIGGER_ENABLED=false`、`R4_REVOCATION_AUTO_CONFIRM=false`),尚未部署、未做真实撤销实测;实现与运维说明见 [technical/r4-revocation-autotrigger.md](../technical/r4-revocation-autotrigger.md),设计见 global-backend `docs/superpowers/plans/2026-11-01-platform-revocation-autotrigger.md`。开启与实测待后端受审计重开路径就绪后单独窗口。
+撤销链的发起方已补齐:政策停用(`R4_PLATFORM_POLICY_MODES` 镜像 + `r4_platform_policy_state`)、部署绑定显式撤销(`revokedAt`)、运营台「平台撤销」页。模型为逻辑请求 + 追加式尝试:同一命令原字节重放,ACK 验签后才记成功,缺 ACK 不判未提交,`SEQUENCE_CONFLICT` 停住等人工;没有 live Grant 时记 `NO_LIVE_TARGET`(不挂起、不阻塞 capability)。Grant 签发与 capability 在策略停用/未结撤销/绑定被显式撤销时 fail closed。**默认关闭**(`R4_REVOCATION_TRIGGER_ENABLED=false`、`R4_REVOCATION_AUTO_CONFIRM=false`),尚未部署、未做真实撤销实测;实现与运维说明见 [technical/r4-revocation-autotrigger.md](../technical/r4-revocation-autotrigger.md),设计见 global-backend `docs/superpowers/plans/2026-11-01-platform-revocation-autotrigger.md`。开启与实测待后端受审计重开路径就绪后单独窗口。2026-11-03 运营台适配:开关真实状态(启用/自动确认)随 `GET /api/ops/r4/policy-state` 返回并在页面显示,「发起/确认/取消」在未启用时禁用;撤销列表补投递结果未知标记、尝试次数与最近尝试结果,状态/来源/原因改中文标签(原码保留);概览红灯新增未结撤销、投递结果未知、平台授权轮次耗尽。当前 `.env` 的 `R4_REVOCATION_TRIGGER_ENABLED/AUTO_CONFIRM=true` 为测试临时值,测试结束按本文回退为 false/false。
 
 ## 一页结论
 
-M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台与设置页已完成。系统运行在 **http://100.68.31.20:4020**，登录、成员管理、邀请加入均为真实链路;获客引擎授权对接已完成(`verify-engine-integration.mjs` 13/13),BFF 读接口已通。**执行预算 Grant 已迁到 gain-saas 并切换引擎信任根**;运营台 `/ops` 具备独立登录域、数据源 Kill Switch、监控源 CRUD、Temporal 调度、跨租户诊断、CSV 导出与审计。**内嵌模型网关已上线并切到运行链路**(DeepSeek,默认模型 `deepseek-flash`);站点构建 settlement 读回透明代理到 new-api,客户 worker READY。
+M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台与设置页已完成。系统运行在 **http://100.68.31.20:4020**，登录、成员管理、邀请加入均为真实链路;获客引擎授权对接已完成(`verify-engine-integration.mjs` 13/13),BFF 读接口已通。**执行预算 Grant 已迁到 gain-saas 并切换引擎信任根**;运营台 `/ops` 具备独立登录域、数据源 Kill Switch、监控源 CRUD、Temporal 调度、跨租户诊断、CSV 导出与审计。**获客模型网关保持 new-api**(2026-11-03 产品决定:引擎 `MODEL_GATEWAY_URL` 继续指向 new-api,任务级模型由引擎 `MODEL_ACQUISITION_TASK_MODELS` 控制);运营台的「模型网关」管理界面与 API 已移除,gain-saas 保留 `/v1` 兼容入口与站点构建 settlement 读回代理,客户 worker READY。
 
 2026-10-29 晚批补齐:公司理解修复已部署,档案可到 REVIEW/ACTIVE;事件消费已实际启用并回放 297 条事件(297 条 ACK、11 条 LeadQualified),通知中心与未读角标上线;寻源任务关闭页面后可找回;企业档案增加概况/完整度/产品服务与人工事实;周报 CSV 的 withheld 响应头透传;线索包可下载,线索页支持按目标买家筛选/队列计数/管理员制裁复核;ICP 创建前校验已通过事实,已发起的寻源方案不再重复执行。运营台新增注册用户列表(工作空间/会话/最近活动)与停用/启用;客户端寻源任务页改为五段业务进度,技术统计折叠;目标买家详情属性、寻源方案来源/筛选/关键词中文化,原始查询收进技术详情;弹窗统一居中、限高滚动与移动端头部堆叠。工作空间页面补齐创建/改名/切换/退出;登录增加同 IP+邮箱 15 分钟 5 次失败的限流;企业事实支持已通过事实撤销与冲突裁决;线索页新增管理员可见的「合规待核」队列,制裁提示可直达并在档案包内复核;修复登录失败被会话过期拦截器递归触发 refresh→logout 导致按钮卡死的问题(登录/登出改走 base client,关闭 refresh-token 链路);前端 HTTP 超时从 10s 调到 240s,避免模型生成已完成但浏览器先超时、重试又撞上 Grant 复用。**仍未完成**:DSR 的 SaaS 侧级联删除、禁联名单(SD5)、CSRF 自定义头、JWKS 双钥轮换、运营域 E4 写白名单执行闸与 E5 中台退役;引擎侧 ICP Grant 前置校验修复已写入工作区但未发布镜像。(canonical 公司详情与决策人已对管理员上线,见「联系人挖掘 M4」;`personal-data:read` 仍不授任何用户角色。)
 
@@ -84,13 +84,13 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 | M1 | 注册/登录/登出/会话/工作空间切换(A1–A3、SD2、SD6 邀请码)、邀请/接受/角色变更/移除(A4,含最后管理员保护)、审计落库(A7)、BFF 路由表(SD7,错误三层映射)、事件消费完整实现(SD4:envelope/ACK/派生/游标)+ backfill 脚本、JWKS 签发 | server 37 单测;`pnpm build` 0 错误 |
 | M3 | **线索工作台**:四队列 + 六步进度、真实 `GET /leads` 列表、`GET /leads/:id/package` 档案包(不含具名联系人,SD5)、accept/reject + 12 个原因码、409 阻断族三层文案、接触草稿(模型可用时查看/复制) | web 构建通过;页面空态实拍;lead 数据待真实上游模型与寻源链路验证 |
 | M3 | **找买家(ICP)**:列表/创建初稿/详情(画像、买家委员会、目标市场、属性、痛点/信号/排除/价值主张)、编辑与激活、规则 CRUD + ruleLint、回测(样例 JSON)、查询计划生成/确认/执行、run 观察 | web 构建通过;ICP 生成/查询计划/执行待用真实上游模型验证 |
-| M3 | **寻源任务观察独立页** `/runs/:runId`:8 段阶段条(查询/归一/Fit/网站画像/富集/信号/监控/专利预热)、按源计数与治理/错误、Fit 分布、失败阶段与错误类型、阶段产出、运行中 3s 自动刷新 | 用真实 run 结构渲染实拍(测试行已清理);PARTIAL/FAILED 显示跳过/失败阶段 |
+| M3 | **寻源任务观察独立页** `/runs/:runId`:9 段阶段条(查询/归一/Fit/网站画像/富集/信号/联系人发现/监控/专利预热)、按源计数与治理/错误、Fit 分布、失败阶段与错误类型、阶段产出、运行中 3s 自动刷新 | 用真实 run 结构渲染实拍(测试行已清理);PARTIAL/FAILED 显示跳过/失败阶段 |
 | M4 | **周报**:目标买家/ISO 周筛选、CSV 导出(缺数据空态、withheld 计数)、反馈 CSV 原样上传(BFF `text/csv` 透传)与接受/跳过/拒绝行展示、**在线反馈表**(已接受线索逐条填写相关性/意愿/已联系/原因码/备注,POST `outcomes` 追加) | 在线反馈提交实测落库(`relevance=4`, `GOOD_FIT`, source=customer);测试数据已清理 |
 | 运营端/中台 | **独立运营台** `/ops`:ops_user 独立登录域/独立 cookie、概览(引擎 ready/DB/探针/计数/红灯/失败抓取/制裁/租约/Temporal)、数据源 Kill Switch、监控源列表/详情/新建/编辑/立即抓取/状态/删除、预算账户与授权、跨租户诊断(工作空间→runs/leads/outbox/traces + 平台 fetches/changes)、Temporal 调度(列表/pause/unpause/trigger/create/delete)与获客主链路 workflow 列表、CSV 导出(sources/fetches/entities/leads)、运营审计;E1 隔离已验证 | server 37 单测通过;源创建→编辑→导出→删除与三步审计实测;调度页与源新建实拍;workflow 状态已映射为 `TIMED_OUT` 等可读值并过滤掉 site-builder 噪声 |
 | 工作台 | **工作台 2.0**:按现有数据实时推导六步进度(档案→目标买家→方案→寻源→线索→周报)与下一步动作;六项业务指标(档案/目标买家/寻源/待判断/值得跟进/团队);内嵌通知中心(未读数、全部已读、点击跳转);最近线索按队列直达;多份生效中目标买家时优先展示最近真实发起过寻源的一份;"查看所有消息"深链到 `/workspace?panel=notifications`,自动滚动并高亮通知区;首次加载保留 query;线索通知与服务端链接改为直达「值得跟进」队列 | CDP 1440/390 实测:KPI 与队列计数一致、7 条通知、全部已读、线索/任务通知跳转正确、深链滚动高亮、无横向溢出 |
 | 界面 | **弹窗统一**:全屏遮罩提升到 vben 顶栏/侧栏之上;ICP 详情、编辑与线索档案包改为固定头尾 + 内部滚动;企业事实审批改为事实列表单独滚动、审批栏与底部操作常驻,148 条待审事实可连续勾选;修复「编辑目标买家」白屏(文案 `attributesHint`/`backtestHint` 含未转义花括号,vue-i18n 按 ICU 解析抛错后整页渲染失败);关闭弹窗时不再产生横向滚动 | web 构建通过;CDP 在 390/768/1024/1440 四档验证 `scrollWidth === innerWidth`、编辑层渲染、148 条事实滚动与固定操作栏、线索档案包头尾固定,实拍留档 |
 | 设置 | **审计**:当前操作者 tenant 审计(admin);**数据与隐私**:DSR 删除请求提交/按 id 跟踪/状态与计数回执(经 BFF 转发引擎 `/deletion-requests`),本地只存请求 id | 审计接口 200 实测;DSR 提交与查询实测返回引擎 `SUBJECT_NOT_FOUND`/`NOT_FOUND`(权限链通,非 403) |
-| 模型网关 | **内嵌 OpenAI 兼容聚合网关**:运营台「模型网关」向导式配置——预制 DeepSeek/OpenAI/火山方舟/通义千问/Kimi/智谱/Ollama/自定义,选服务商后只填 API Key;「测试连接并获取模型」自动拉取上游 `/models` 并完成一次聊天探测,选一个默认模型即保存启用(自动建默认路由,所有引擎任务兜底);高级区保留按别名路由、多厂商回退、优先级/超时/额外头、调用元数据日志(不存 prompt)。上游 Key AES-256-GCM 密文落库;引擎入口 `/v1/chat/completions` 与 `/v1/models` 使用独立 Bearer;`deploy/model-gateway-apply.py` 可把引擎 api/worker 切到 `/v1` 并支持回滚。**站点构建 settlement 兼容层**:capability 本地应答,其余读回与 settled 模型调用透明代理到 new-api | 迁移 `20261029130000_ai_gateway` + `20261029140000_ai_provider_max_tokens_field`;mock 上游端到端验证:预设向导→测试自动拉模型→选默认→保存→卡片显示→更换模型/Key→保存;切换后客户 worker 曾因 settlement capability 停在 STARTING,补兼容代理后恢复 READY,`verify-engine-integration.mjs` 13/13 |
+| 模型网关 | 2026-10-29 曾在运营台上线「模型网关」管理界面(厂商/别名路由/测试/调用记录);**2026-11-03 产品决定保持 new-api 作为引擎网关**,该管理界面与 `/api/ops/model-gateway/*` API 已整体移除。gain-saas 保留:`/v1/chat/completions`、`/v1/models` 兼容入口(独立 Bearer)与站点构建 settlement 读回兼容代理(`/api/settlement-readback/*` 本地 capability + settled 调用透传 new-api);`deploy/model-gateway-apply.py` 在当前决策下不要执行(会把引擎切到无管理面的 4020) | 移除后 server 161 单测全过;`/api/ops/model-gateway` 404、`/v1/models` 401(入口保留)、settlement capability 本地应答 200 |
 
 ## 联系人挖掘 M4(2026-11-02 已上线 dev,管理员 UAT 通过)
 
@@ -101,6 +101,19 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 | 上线记录 | 引擎镜像 `08b1b30c`(含 #718 窄 scope、#720 discover 报价)已上线;role map 经 `engine-integration-apply.py --apply` 只给 `saas-admin` 增补 `contact-discovery:read`(`personal-data:read` 仍只授事件消费身份);gain-saas main `f24806b` 重建并重启。管理员 UAT(Trik Pumpen):公司详情 200、发现 201(1 位决策人)、猜测 200(RISKY 邮箱)、验证 200(RISKY/`mail_from_rejected`,lawful basis 留痕)。运维记录见 `/global/_archive/engine-integration-gain-saas-xin-20261102/` |
 | 未覆盖/阻塞 | ① 周报 CSV 的「联系路径」列仍由引擎生成,引擎周报服务明确不读 `canonical_contact`/`contact_point`;升级需引擎侧改动(BFF 不做 CSV 重写,违反 SD7 只透传)。② 已观察缺陷:ftc-de.com `discover` 返回 500 `INTERNAL`(decision_maker 抽到 2 人但持久化失败,引擎 `HttpError` 日志无堆栈,待补未捕获异常日志并复现);缺 lawfulBasis 时引擎实测返回 400 `VALIDATION_ERROR` 而非文档写的 403;成员演示账号 `sales@demo.cn` 登录失效(文档待同步) |
 | 验证 | server 全量 149 单测全过(本 PR 新增 6 条 BFF 与 1 条 shared 文案用例,含 Grant 接线、quote body 绑定、业务 403 映射、quote 拒绝码透出);web typecheck/build 通过(仅剩仓库既有的 vxe-pc-ui 声明告警);管理员 UAT 见上 |
+
+## 前端信息补齐与联系人发现幂等(2026-11-03)
+
+| 内容 | 说明 | 验证 |
+| --- | --- | --- |
+| 寻源任务页 | 阶段条新增「联系人发现」;技术详情新增联系人产出卡(公司/联系人/邮箱/电话/失败/租约跳过/预算截断/诊断、联系人预算花费与上限、邮箱推测计数)与「跳过与降级」卡(跳过的查询、按阶段租约跳过、模型抽取调用/失败、不可重放跳过、传输失败、行业分类规则兜底/模型跳过、分阶段预算截断) | CDP 以拦截响应注入完整 contacts/skips 统计:5 张卡(数据源/匹配结论/联系人发现/阶段产出/跳过与降级)全部渲染,无 console error |
+| 线索档案包 | 评分维度改为引擎档案包的 snake_case(`demand_proof`/`data_quality`),补「综合分」;新增「公司画像」(贸易角色/置信度、自有制造、代理中国/外国品牌、代理品牌)、「登记号」(VAT/LEI/FDA/注册号)与「公司级联系方式」 | CDP 实拍 Biergangs Pumpen:画像、公司级联系方式、需求证明、资料质量、综合分 1 分均显示;无登记号数据时不渲染该块 |
+| 寻源方案 | 展示引擎返回的 `estimatedCostCents`(「· 预计成本 $x.xx」),缺失时不占位 | CDP 拦截注入 1234 分,方案头显示「4 组搜索 · 预计约 450 家 · 预计成本 $12.34」 |
+| i18n | zh-CN/en-US 新增 37 个键(寻源联系人/跳过、档案包画像/登记号、方案成本);全量 `baseCompile` 0 错误 | web typecheck 通过(仅仓库既有 vxe-pc-ui 声明告警)、production build 通过 |
+| 联系人发现 attemptId(引擎) | 引擎 `DiscoverContactsDto` 接受可选 `attemptId`;request scope 仅在带 attemptId 时并入 `{attemptId}`(缺省保持旧哈希);quote 校验同步;OpenAPI/合同更新。前端每次点击生成 UUID(`crypto.randomUUID` 不可用时退回 `getRandomValues`) | 引擎工作区已改但**未构建/未提交**(仓库无 node_modules);已补 scope/quote 单测(含旧哈希不变、非法 UUID 拒绝) |
+| BFF 兼容开关 | 新增 `ENGINE_DISCOVER_ATTEMPT_ID_ENABLED`(默认 false)。关闭时 BFF 从 quote 与转发体剥离 attemptId,旧引擎行为完全不变;引擎镜像升级后置 true | server typecheck 通过;161 单测全过;新增 quote 开关/剥离断言 |
+
+> 上线顺序:引擎合并并构建含 attemptId 的镜像 → 滚动更新 → 在 gain-saas `.env` 设 `ENGINE_DISCOVER_ATTEMPT_ID_ENABLED=true` 并重启 server。此前重复点击「发现联系人」仍会命中旧引擎的 `EXECUTION_BUDGET_GRANT_REUSED`,前端提示保持不变。
 
 ## 下一步(按序)
 

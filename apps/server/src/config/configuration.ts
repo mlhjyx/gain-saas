@@ -25,6 +25,12 @@ const schema = z.object({
   ENGINE_BUDGET_GRANT_KEY_ID: z.string().min(1),
   ENGINE_BUDGET_GRANT_ISSUER: z.string().min(1, 'ENGINE_BUDGET_GRANT_ISSUER 必填,且必须与引擎 EXECUTION_BUDGET_GRANT_ISSUER 逐字符一致'),
   ENGINE_BUDGET_GRANT_TTL_SECONDS: z.coerce.number().min(1).max(300).default(240),
+  // 引擎联系人发现 attemptId（引擎镜像升级后才支持）。默认关闭时 BFF 会从 quote 和转发体里
+  // 剥离该字段，保持与旧引擎的 requestSha256 及 DTO 校验兼容；升级镜像后再打开。
+  ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
   SESSION_TTL_MINUTES: z.coerce.number().default(60),
   // SD6:design partner 阶段的注册邀请码;不配置 = 不校验(开发期)
   INVITE_CODE: z.string().optional(),

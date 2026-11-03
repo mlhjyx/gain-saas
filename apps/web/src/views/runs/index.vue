@@ -43,6 +43,38 @@ function recordOf(key: string): Record<string, any> {
   const value = stats.value[key];
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
 }
+function recordValue(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
+}
+/** 微分美元 → 可读金额(引擎 contactBudget 等以 microusd 十进制字符串计)。 */
+function fmtUsd(value: unknown): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return `$${(n / 1_000_000).toFixed(2)}`;
+}
+/** 查询跳过原因 → 中文(未收录的原样显示,便于对引擎新增原因)。 */
+const SKIP_REASON_LABELS: Record<string, string> = {
+  source_disabled: '源已停用',
+  no_enabled_provider: '无可用数据源',
+  source_lineage_unavailable: '源血缘不可用',
+};
+function skipReasonLabel(reason: string): string {
+  return SKIP_REASON_LABELS[reason] ?? reason;
+}
+/** 租约跳过按阶段 → 用户可读阶段名(键与引擎 leaseSkips 一致)。 */
+const LEASE_STAGE_LABELS: Record<string, string> = {
+  queries: '搜索',
+  companies: '收集',
+  fit: '匹配',
+  enrich: '富集',
+  signals: '信号',
+  contacts: '联系人',
+  watches: '监控',
+  patentEnqueue: '专利',
+};
+function stageLabel(stage: string): string {
+  return LEASE_STAGE_LABELS[stage] ?? stage;
+}
 
 const fit = computed<Record<string, number>>(() => (recordOf('fit') as Record<string, number>) ?? {});
 type SourceRow = Record<string, any> & { source: string };
@@ -125,6 +157,17 @@ const stages = computed<StageView[]>(() => {
       hint: $t('gainos.runs.ofHint', { of: textOf(s.signals?.of), provider: textOf(s.signals?.provider) }),
     },
     {
+      key: 'contacts',
+      label: $t('gainos.runs.stageContacts'),
+      has: s.contacts !== undefined,
+      value: textOf(s.contacts?.people),
+      hint: $t('gainos.runs.contactsHint', {
+        companies: textOf(s.contacts?.companies),
+        emails: textOf(s.contacts?.emails),
+        phones: textOf(s.contacts?.phones),
+      }),
+    },
+    {
       key: 'watches',
       label: $t('gainos.runs.stageWatches'),
       has: s.watches !== undefined,
@@ -166,6 +209,7 @@ const FAILURE_STAGE: Record<string, string> = {
   fit: 'match',
   enrich: 'enrich',
   signals: 'enrich',
+  contacts: 'enrich',
   watches: 'enrich',
   patentEnqueue: 'enrich',
 };
@@ -433,6 +477,37 @@ onUnmounted(() => {
           <p class="run__muted">{{ $t('gainos.runs.unjudged') }} {{ textOf(stats.fitUnjudged) }} · {{ $t('gainos.runs.skippedForBudget') }} {{ textOf(stats.fitSkippedForBudget) }}</p>
         </article>
 
+        <article v-if="stats.contacts !== undefined" class="run__card run__card--wide">
+          <h2>{{ $t('gainos.runs.contactsTitle') }}</h2>
+          <div class="run__chips">
+            <span class="run__chip">{{ $t('gainos.runs.contactsCompanies', { count: textOf(stats.contacts.companies) }) }}</span>
+            <span class="run__chip">{{ $t('gainos.runs.contactsPeople', { count: textOf(stats.contacts.people) }) }}</span>
+            <span class="run__chip">{{ $t('gainos.runs.contactsEmails', { count: textOf(stats.contacts.emails) }) }}</span>
+            <span class="run__chip">{{ $t('gainos.runs.contactsPhones', { count: textOf(stats.contacts.phones) }) }}</span>
+            <span v-if="num(stats.contacts.failed)" class="run__chip is-warn">{{ $t('gainos.runs.contactsFailed', { count: textOf(stats.contacts.failed) }) }}</span>
+            <span v-if="num(stats.contacts.skippedForLease)" class="run__chip is-warn">{{ $t('gainos.runs.leaseSkipped', { count: textOf(stats.contacts.skippedForLease) }) }}</span>
+            <span v-if="stats.contacts.budgetTruncated" class="run__chip is-warn">{{ $t('gainos.runs.contactsBudgetCut') }}</span>
+            <span v-for="entry in Object.entries(recordValue(stats.contacts.diagnostics))" :key="`diag-${entry[0]}`" class="run__chip">{{ entry[0] }} {{ entry[1] }}</span>
+          </div>
+          <dl class="run__facts">
+            <div v-if="stats.contacts.contactBudget">
+              <dt>{{ $t('gainos.runs.contactsBudget') }}</dt>
+              <dd>{{ fmtUsd(stats.contacts.contactBudget.spentMicrousd) }} / {{ fmtUsd(stats.contacts.contactBudget.capMicrousd) }}<template v-if="stats.contacts.contactBudget.exhausted"> · {{ $t('gainos.runs.contactsBudgetExhausted') }}</template></dd>
+            </div>
+            <div v-if="stats.contacts.emailGuess">
+              <dt>{{ $t('gainos.runs.emailGuess') }}</dt>
+              <dd>{{ $t('gainos.runs.emailGuessValue', {
+                missing: textOf(stats.contacts.emailGuess.emaillessContacts),
+                attempted: textOf(stats.contacts.emailGuess.attempted),
+                persisted: textOf(stats.contacts.emailGuess.persisted),
+                verified: textOf(stats.contacts.emailGuess.verified),
+                risky: textOf(stats.contacts.emailGuess.risky),
+                blocked: textOf(stats.contacts.emailGuess.blocked),
+              }) }}</dd>
+            </div>
+          </dl>
+        </article>
+
         <article class="run__card">
           <h2>{{ $t('gainos.runs.outputsTitle') }}</h2>
           <dl class="run__facts">
@@ -443,6 +518,48 @@ onUnmounted(() => {
             <div><dt>patentEnqueue</dt><dd>{{ textOf(stats.patentEnqueue) }}</dd></div>
             <div><dt>skippedSubjects</dt><dd>{{ textOf(stats.skippedSubjects) }}</dd></div>
             <div><dt>budgetTruncated</dt><dd>{{ stats.budgetTruncated ? 'true' : 'false' }}</dd></div>
+          </dl>
+        </article>
+
+        <article class="run__card">
+          <h2>{{ $t('gainos.runs.skipsTitle') }}</h2>
+          <dl class="run__facts">
+            <div v-if="recordOf('skippedQueries') && Object.keys(recordOf('skippedQueries')).length">
+              <dt>{{ $t('gainos.runs.skippedQueries') }}</dt>
+              <dd>
+                <span v-for="(count, reason) in recordOf('skippedQueries')" :key="reason" class="run__chip is-warn" style="margin-right:6px">{{ skipReasonLabel(String(reason)) }} {{ count }}</span>
+              </dd>
+            </div>
+            <div v-if="recordOf('skippedForLease') && Object.keys(recordOf('skippedForLease')).length">
+              <dt>{{ $t('gainos.runs.skippedForLease') }}</dt>
+              <dd>
+                <span v-for="(count, stage) in recordOf('skippedForLease')" :key="stage" class="run__chip is-warn" style="margin-right:6px">{{ stageLabel(String(stage)) }} {{ count }}</span>
+              </dd>
+            </div>
+            <div v-if="recordOf('modelExtractions').failed">
+              <dt>{{ $t('gainos.runs.modelExtractions') }}</dt>
+              <dd>{{ $t('gainos.runs.modelExtractionsValue', { invoked: textOf(recordOf('modelExtractions').invoked), failed: textOf(recordOf('modelExtractions').failed) }) }}</dd>
+            </div>
+            <div v-if="num(recordOf('unreplayableSkips').fit) || num(recordOf('unreplayableSkips').signals)">
+              <dt>{{ $t('gainos.runs.unreplayable') }}</dt>
+              <dd>fit {{ textOf(recordOf('unreplayableSkips').fit) }} · signals {{ textOf(recordOf('unreplayableSkips').signals) }}</dd>
+            </div>
+            <div v-if="num(recordOf('transportFailed').signals)">
+              <dt>{{ $t('gainos.runs.transportFailed') }}</dt>
+              <dd>{{ textOf(recordOf('transportFailed').signals) }}</dd>
+            </div>
+            <div v-if="num(stats.taxonomyFallback) || num(stats.taxonomyModelSkipped)">
+              <dt>{{ $t('gainos.runs.taxonomy') }}</dt>
+              <dd>{{ $t('gainos.runs.taxonomyValue', { fallback: textOf(stats.taxonomyFallback ?? 0), modelSkipped: textOf(stats.taxonomyModelSkipped ?? 0) }) }}</dd>
+            </div>
+            <div>
+              <dt>{{ $t('gainos.runs.budgetCutByStage') }}</dt>
+              <dd>{{ $t('gainos.runs.budgetCutValue', {
+                discovery: stats.discoveryBudgetTruncated ? '✓' : '—',
+                enrich: stats.enrichBudgetTruncated ? '✓' : '—',
+                signals: stats.signalsBudgetTruncated ? '✓' : '—',
+              }) }}</dd>
+            </div>
           </dl>
         </article>
         </section>
