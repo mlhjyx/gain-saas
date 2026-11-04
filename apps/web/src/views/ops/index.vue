@@ -39,6 +39,7 @@ const users = ref<Row[]>([]);
 const userQuery = ref('');
 const userBusy = ref('');
 const workspaceId = ref('');
+const attributionRows = ref<Row[]>([]);
 const runs = ref<Row[]>([]);
 const leads = ref<Row[]>([]);
 const outbox = ref<Row[]>([]);
@@ -128,10 +129,35 @@ async function loadProviders(): Promise<void> {
   error.value = '';
   try {
     providers.value = (await api<{ providers: Row[] }>('/api/ops/providers')).providers ?? [];
+    // 数据源效能（Q33 PR-1）：工作空间维度漏斗，默认选第一个空间。
+    if (workspaces.value.length === 0) {
+      workspaces.value = (await api<{ workspaces: Row[] }>('/api/ops/workspaces')).workspaces ?? [];
+    }
+    if (!workspaceId.value && workspaces.value[0]) {
+      workspaceId.value = String(workspaces.value[0].id);
+    }
+    await loadAttribution();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
+  }
+}
+async function loadAttribution(): Promise<void> {
+  if (!workspaceId.value) {
+    attributionRows.value = [];
+    return;
+  }
+  try {
+    attributionRows.value =
+      (
+        await api<{ providers: Row[] }>(
+          `/api/ops/workspaces/${workspaceId.value}/provider-attribution`,
+        )
+      ).providers ?? [];
+  } catch (err) {
+    attributionRows.value = [];
+    error.value = err instanceof Error ? err.message : String(err);
   }
 }
 async function loadSources(): Promise<void> {
@@ -866,7 +892,34 @@ onMounted(checkSession);
             </table>
           </section>
 
-          <section v-else-if="active === 'providers'" class="ops__table-wrap">
+          <section v-else-if="active === 'providers'" class="ops__stack">
+            <div class="ops__toolbar">
+              <span class="ops__muted">数据源效能（按工作空间）：</span>
+              <select v-model="workspaceId" @change="loadAttribution">
+                <option v-for="workspace in workspaces" :key="workspace.id" :value="String(workspace.id)">
+                  {{ workspace.name || workspace.id }}
+                </option>
+              </select>
+            </div>
+            <div class="ops__table-wrap">
+              <table class="ops__table">
+                <thead><tr><th>Provider</th><th>原始记录</th><th>成本(分)</th><th>物化公司</th><th>进管线</th><th>快判</th><th>深判正</th><th>推荐</th></tr></thead>
+                <tbody>
+                  <tr v-for="row in attributionRows" :key="row.provider_key">
+                    <td>{{ row.provider_key }}</td>
+                    <td>{{ row.raw_records }}</td>
+                    <td>{{ row.cost_cents }}</td>
+                    <td>{{ row.companies }}</td>
+                    <td>{{ row.in_pipeline }}</td>
+                    <td>{{ row.quick_judged }}</td>
+                    <td>{{ row.deep_positive }}</td>
+                    <td>{{ row.recommended }}</td>
+                  </tr>
+                  <tr v-if="attributionRows.length === 0"><td colspan="8" class="ops__muted">暂无归因数据（该空间还没有挖掘记录）</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="ops__table-wrap">
             <table class="ops__table">
               <thead><tr><th>Key</th><th>Class</th><th>状态</th><th>单次成本</th><th>配置</th><th></th></tr></thead>
               <tbody>
@@ -881,6 +934,7 @@ onMounted(checkSession);
                 <tr v-if="providers.length === 0"><td colspan="6" class="ops__muted">没有数据源</td></tr>
               </tbody>
             </table>
+            </div>
           </section>
 
           <section v-else-if="active === 'sources'" class="ops__stack">
