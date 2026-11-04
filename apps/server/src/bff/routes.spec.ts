@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BFF_ROUTES, budgetQuoteRequest } from './routes.js';
+import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody } from './routes.js';
 
 describe('understanding retry BFF route', () => {
   const route = BFF_ROUTES.find(
@@ -74,5 +74,33 @@ describe('seller documents BFF routes', () => {
     expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
       binary: true,
     });
+  });
+});
+
+describe('P1 attempt 维度：三类写路由的 attemptId 透传与剥离', () => {
+  const find = (saasPath: string) =>
+    BFF_ROUTES.find((route) => route.method === 'POST' && route.saasPath === saasPath);
+  const ATTEMPT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const cases: Array<[string, Record<string, string>]> = [
+    ['companies/:companyId/icps', { companyId: 'c1' }],
+    ['icps/:icpId/query-plans', { icpId: 'i1' }],
+    ['query-plans/:planId/execute', { planId: 'p1' }],
+  ];
+
+  it.each(cases)('quotes the attempt body only when the flag is on (%s)', (saasPath, params) => {
+    const route = find(saasPath);
+    expect(route).toBeDefined();
+    expect(budgetQuoteRequest(route!, params, { attemptId: ATTEMPT })).not.toHaveProperty('body');
+    expect(budgetQuoteRequest(route!, params, { attemptId: ATTEMPT }, { writeAttemptId: true })).toMatchObject({
+      body: { attemptId: ATTEMPT },
+    });
+    expect(budgetQuoteRequest(route!, params, {}, { writeAttemptId: true })).not.toHaveProperty('body');
+  });
+
+  it('strips attemptId from the forwarded engine body only when the flag is off', () => {
+    const route = find('query-plans/:planId/execute');
+    const body = { taskRef: { taskId: 't1', taskRunId: 'r1' }, attemptId: ATTEMPT };
+    expect(engineRequestBody(route!, body)).toEqual({ taskRef: { taskId: 't1', taskRunId: 'r1' } });
+    expect(engineRequestBody(route!, body, { writeAttemptId: true })).toEqual(body);
   });
 });

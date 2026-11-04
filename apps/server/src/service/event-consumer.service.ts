@@ -32,6 +32,7 @@ interface EngineEventPage {
 }
 
 const MAX_PAGES_PER_TICK = 10;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class EventConsumerService implements OnModuleInit {
@@ -207,18 +208,35 @@ export class EventConsumerService implements OnModuleInit {
         where: { workspaceId, engineRunId: runId, status: 'RUNNING' },
         data: { status: terminalStatus, finishedAt: new Date() },
       });
+      // P1：BFF 在引擎 202 后丢响应的窗口里 TaskRun.engineRunId 为 NULL——用事件 payload 的
+      // taskRef（引擎 B1 起随 DiscoveryRunCompleted 携带）按 id 回填并镜像终态。
+      const taskRef = payload.taskRef as { taskRunId?: unknown } | undefined;
+      const taskRunId =
+        taskRef && typeof taskRef.taskRunId === 'string' && UUID.test(taskRef.taskRunId)
+          ? taskRef.taskRunId
+          : undefined;
+      if (taskRunId) {
+        await tx.taskRun.updateMany({
+          where: { workspaceId, id: taskRunId, engineRunId: null },
+          data: { engineRunId: runId, status: terminalStatus, finishedAt: new Date() },
+        });
+      }
       const notificationType =
         status === 'PARTIAL'
           ? 'DiscoveryRunPartial'
           : status === 'FAILED'
             ? 'DiscoveryRunFailed'
-            : 'DiscoveryRunCompleted';
+            : status === 'CANCELLED'
+              ? 'DiscoveryRunCancelled'
+              : 'DiscoveryRunCompleted';
       const title =
         status === 'PARTIAL'
           ? '寻源任务部分完成，已产出的线索可以先去判断'
           : status === 'FAILED'
             ? '寻源任务未完成，查看原因后调整目标买家'
-            : '寻源任务已完成，线索已就绪';
+            : status === 'CANCELLED'
+              ? '寻源任务已停止，已完成部分的线索保留'
+              : '寻源任务已完成，线索已就绪';
       await this.notify(tx, workspaceId, notificationType, runId, title);
       return;
     }

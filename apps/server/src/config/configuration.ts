@@ -31,6 +31,13 @@ const schema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
+  // P1 重试 attempt 维度（引擎 #791/B1 起支持）：默认关闭时 BFF 从 quote 与转发体里剥离
+  // attemptId，兼容未升级的引擎镜像；打开后三类写路由透传/兜底生成 attemptId，任务执行
+  // 每次尝试携带独立 attemptId（新请求哈希 → 新预算账户）。
+  ENGINE_RETRY_ATTEMPT_ID_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
   SESSION_TTL_MINUTES: z.coerce.number().default(60),
   // SD6:design partner 阶段的注册邀请码;不配置 = 不校验(开发期)
   INVITE_CODE: z.string().optional(),

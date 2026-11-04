@@ -135,6 +135,26 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 export interface BudgetQuoteOptions {
   /** 引擎是否已支持 discover-contacts 的 attemptId。默认关闭，兼容未升级的引擎镜像。 */
   readonly discoverAttemptId?: boolean;
+  /** 引擎是否已支持重试 attempt 维度（`ENGINE_RETRY_ATTEMPT_ID_ENABLED`，P1）。默认关闭时
+   *  三类写路由（ICP 生成 / 查询计划生成 / 计划执行）的 attemptId 会从 quote 与转发体里剥离。 */
+  readonly writeAttemptId?: boolean;
+}
+
+/** P1 attempt 维度覆盖的三类写路由（引擎 #791 起接受可选 body.attemptId）。 */
+const WRITE_ATTEMPT_ENGINE_PATHS: ReadonlySet<string> = new Set([
+  '/companies/:companyId/icps',
+  '/icps/:icpId/query-plans',
+  '/query-plans/:planId/execute',
+]);
+
+function writeAttemptBody(
+  body: unknown,
+  options: BudgetQuoteOptions,
+): { readonly body?: { readonly attemptId: string } } {
+  if (!options.writeAttemptId) return {};
+  const attemptId = (body as { attemptId?: unknown } | null)?.attemptId;
+  if (typeof attemptId !== 'string' || attemptId.length === 0) return {};
+  return { body: { attemptId } };
 }
 
 /**
@@ -191,11 +211,11 @@ export function budgetQuoteRequest(
       };
     }
     case '/companies/:companyId/icps':
-      return { operation: 'POST /companies/:companyId/icps', companyId: params.companyId };
+      return { operation: 'POST /companies/:companyId/icps', companyId: params.companyId, ...writeAttemptBody(body, options) };
     case '/icps/:icpId/query-plans':
-      return { operation: 'POST /icps/:icpId/query-plans', icpId: params.icpId };
+      return { operation: 'POST /icps/:icpId/query-plans', icpId: params.icpId, ...writeAttemptBody(body, options) };
     case '/query-plans/:planId/execute':
-      return { operation: 'POST /query-plans/:planId/execute', planId: params.planId };
+      return { operation: 'POST /query-plans/:planId/execute', planId: params.planId, ...writeAttemptBody(body, options) };
     case '/leads/:leadId/outreach-drafts':
       return { operation: 'POST /leads/:leadId/outreach-drafts', leadId: params.leadId };
     // 发现联系人绑定公司 ID；引擎支持 attemptId 后，把每次点击的幂等键并入请求哈希，
@@ -236,13 +256,12 @@ export function engineRequestBody(
   body: unknown,
   options: BudgetQuoteOptions = {},
 ): unknown {
-  if (
-    route.enginePath !== '/canonical-companies/:id/discover-contacts' ||
-    options.discoverAttemptId ||
-    !body ||
-    typeof body !== 'object' ||
-    Array.isArray(body)
-  ) {
+  // 旧引擎镜像不认识 attemptId：未升级前从转发体里剥离，保持 requestSha256 与 DTO 校验兼容。
+  // discover-contacts 由其专用开关控制；三类写路由由 `writeAttemptId`（P1）控制。
+  const needsStrip =
+    (route.enginePath === '/canonical-companies/:id/discover-contacts' && !options.discoverAttemptId) ||
+    (WRITE_ATTEMPT_ENGINE_PATHS.has(route.enginePath) && !options.writeAttemptId);
+  if (!needsStrip || !body || typeof body !== 'object' || Array.isArray(body)) {
     return body;
   }
   return Object.fromEntries(
