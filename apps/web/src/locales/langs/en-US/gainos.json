@@ -932,7 +932,8 @@
       "RUNNING": "Running",
       "DONE": "Done",
       "PARTIAL": "Partial",
-      "FAILED": "Failed"
+      "FAILED": "Failed",
+      "CANCELLED": "Stopped"
     },
     "stageQuery": "Queries",
     "stageCanonical": "Canonicalize",
@@ -1004,7 +1005,33 @@
     "budgetCutByStage": "Budget cut by stage",
     "budgetCutValue": "Discovery {discovery} · enrich {enrich} · signals {signals}",
     "outputsTitle": "Stage outputs",
-    "detailsTitle": "Technical details: full data"
+    "detailsTitle": "Technical details: full data",
+    "stopDeep": "Stop deep dive",
+    "stopConfirm": "Stopping keeps the results of finished companies; unfinished companies are re-queued on the next run. Stop now?",
+    "stopRequested": "Stop requested; finishing up. Results already produced are kept.",
+    "quickListTitle": "Quick-scan list",
+    "deepQueueTitle": "Deep-dive queue",
+    "jobName": "Company",
+    "jobStage": {
+      "queued": "Queued",
+      "prefiltered_out": "Prefiltered out",
+      "quick_judged": "Quick-judged",
+      "profiling": "Profiling",
+      "fitting": "Judging fit",
+      "signals": "Signals",
+      "contacts": "Contacts",
+      "done": "Done",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "jobVerdict": {
+      "match": "Match",
+      "weak": "Needs review",
+      "mismatch": "Mismatch"
+    },
+    "jobError": "Error code",
+    "jobsEmpty": "No company-level records yet (they appear once the quick scan starts).",
+    "jobStageColumn": "Stage"
   },
   "audit": {
     "title": "Audit log",
