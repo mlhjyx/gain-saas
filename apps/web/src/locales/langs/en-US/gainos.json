@@ -9,7 +9,8 @@
     "members": "Members & Roles",
     "workspaces": "Workspaces",
     "privacy": "Data & privacy",
-    "audit": "Audit"
+    "audit": "Audit",
+    "sources": "Data sources"
   },
   "workspaces": {
     "title": "Workspaces",
@@ -1114,5 +1115,63 @@
     "success": "Profile created — you are all set",
     "submitFailed": "Setup failed, please try again later",
     "logout": "Sign out"
+  },
+  "sources": {
+    "title": "Data sources",
+    "subtitle": "Enable approved channels or import your own buyer lists into this workspace’s private company pool.",
+    "availableTitle": "Available channels",
+    "availableDesc": "Channels approved by the platform. Once enabled, discovery runs consume the pool they build.",
+    "availableEmpty": "No channels available yet. Approved channels appear here.",
+    "trial": "Trial run",
+    "enable": "Enable",
+    "enabled": "Enabled",
+    "enabledNotice": "Channel “{name}” enabled.",
+    "disabledNotice": "Channel “{name}” disabled.",
+    "crawlPreviewOk": "Trial run of “{name}” finished.",
+    "crawlGateNote": "Crawl executions need the platform crawl budget authority; until it is approved, Trial run reports it is unavailable. Import channels are unaffected.",
+    "importTitle": "Import a buyer list",
+    "importDesc": "Upload a CSV (sample template available), map the columns, preview duplicates/suppression, then commit. A 200-row list usually reaches the quick-scan pool within two minutes.",
+    "chooseFile": "Choose CSV file",
+    "downloadTemplate": "Download sample CSV",
+    "mapName": "Company name",
+    "mapWebsite": "Website",
+    "mapCountry": "Country",
+    "mapIndustry": "Industry",
+    "preview": "Preview",
+    "commit": "Commit import",
+    "previewSummary": "{total} rows: {valid} valid, {duplicate} duplicates, {suppressed} suppressed, {invalid} invalid.",
+    "importResult": "Import finished (batch {batch}): {total} rows, {materialized} added, {duplicate} duplicates, {suppressed} suppressed, {invalid} invalid.",
+    "importDone": "Imported {count} companies; they are available to discovery runs now.",
+    "registryTitle": "Channel registry",
+    "registryDesc": "Platform channel status and failure streak (auto-disabled after three rounds above 30%).",
+    "colName": "Channel",
+    "colMode": "Mode",
+    "colStatus": "Status",
+    "colFailure": "Failure streak",
+    "colLastRun": "Last run",
+    "registryEmpty": "No channels registered.",
+    "createChannelTitle": "Add an import channel",
+    "createChannelDesc": "Register a private import channel for your lists (visible only in this workspace) to track output by source.",
+    "channelName": "Channel name",
+    "createChannel": "Create",
+    "channelCreated": "Channel created (disabled by default; imports still work).",
+    "category": {
+      "trade_fair": "Trade fair",
+      "customs": "Customs",
+      "association": "Association",
+      "directory": "Directory",
+      "tender": "Tender",
+      "other": "Other"
+    },
+    "mode": {
+      "api": "API",
+      "crawl": "Crawl",
+      "import": "Import"
+    },
+    "status": {
+      "DISABLED": "Disabled",
+      "ENABLED": "Enabled",
+      "AUTO_DISABLED": "Auto-disabled"
+    }
   }
 }

@@ -376,6 +376,57 @@ export interface DiscoveryRun {
   completedAt?: string | null;
 }
 
+/** M1 渠道数据源：平台渠道注册表（状态/治理/最近运行）。 */
+export interface SourceChannelView {
+  id: string;
+  name: string;
+  mode: 'api' | 'crawl' | 'import' | string;
+  category: string;
+  status: 'DISABLED' | 'ENABLED' | 'AUTO_DISABLED' | string;
+  license?: string | null;
+  tosUrl?: string | null;
+  robotsPolicy?: string | null;
+  failureStreak: number;
+  lastRunAt: string | null;
+  runs: Array<{
+    id: string;
+    status: string;
+    pagesFetched: number;
+    recordsFound: number;
+    recordsMaterialized: number;
+    failures: number;
+    errorCode: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+  }>;
+}
+
+/** 租户可用渠道 + 本工作空间是否已启用。 */
+export interface AvailableChannelView extends Omit<SourceChannelView, 'config' | 'runs'> {
+  enabled: boolean;
+}
+
+export interface ImportPreviewView {
+  headers: string[];
+  mapping: { name: string; domain?: string; website?: string; country?: string; industry?: string };
+  totalRows: number;
+  validRows: number;
+  invalid: Array<{ rowNumber: number; reason: string }>;
+  invalidCount: number;
+  preview: { duplicate: number; suppressed: number };
+  sample: Array<{ rowNumber: number; name: string; domain: string | null; country: string | null; industry: string | null }>;
+}
+
+export interface ImportResultView {
+  batchId: string;
+  totalRows: number;
+  validRows: number;
+  materialized: number;
+  duplicates: number;
+  suppressed: number;
+  invalidCount: number;
+}
+
 /** M0⑤：run 进度事件（按 seq 增量拉取）。 */
 export interface DiscoveryRunEvent {
   seq: number;
@@ -717,6 +768,29 @@ export const gainosApi = {
     requestClient.get<{ inviteCodeRequired: boolean }>('/auth/registration-policy'),
   /** 工作空间上下文（SD11）：角色、允许动作与引导状态。 */
   workspaceContext: () => requestClient.get<WorkspaceContextView>('/workspace/context'),
+  /** M1：平台渠道列表（状态/治理/最近运行）。 */
+  sourceChannels: () => requestClient.get<SourceChannelView[]>('/source-channels'),
+  /** M1：租户可用渠道（已批准）+ 是否已启用。 */
+  availableChannels: () => requestClient.get<AvailableChannelView[]>('/source-channels/available'),
+  createImportChannel: (input: { name: string; category: string }) =>
+    requestClient.post<SourceChannelView>('/source-channels', {
+      ...input,
+      mode: 'import',
+      config: {},
+    }),
+  enableChannel: (channelId: string) =>
+    requestClient.post<{ channelId: string; enabled: boolean }>(`/source-channels/${channelId}/enable`, {}),
+  disableChannel: (channelId: string) =>
+    requestClient.delete<{ channelId: string; enabled: boolean }>(`/source-channels/${channelId}/enable`),
+  previewChannelCrawl: (channelId: string) =>
+    requestClient.post<Record<string, unknown>>(`/source-channels/${channelId}/preview`, {}),
+  importTemplate: () => requestClient.get<{ csv: string }>('/source-channels/import-template'),
+  previewImport: (input: { csv: string; mapping: Record<string, string> }) =>
+    requestClient.post<ImportPreviewView>('/imported-buyers/preview', input),
+  commitImport: (input: { csv: string; mapping: Record<string, string>; channelId?: string }) =>
+    requestClient.post<ImportResultView>('/imported-buyers', input),
+  importedBuyers: (batchId: string) =>
+    requestClient.get<Array<Record<string, unknown>>>(`/imported-buyers/${batchId}`),
   /** 注册引导：状态查询与一次性建档（quote → Grant → 引擎 POST /companies）。 */
   onboardingStatus: () =>
     requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),

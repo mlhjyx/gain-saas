@@ -32,6 +32,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'SettingsSources',
+        path: 'sources',
+        component: () => import('#/views/settings/sources.vue'),
+        meta: {
+          authority: ['admin'],
+          icon: 'lucide:database',
+          title: $t('gainos.menu.sources'),
+        },
+      },
+      {
         name: 'SettingsPrivacy',
         path: 'privacy',
         component: () => import('#/views/settings/privacy.vue'),
