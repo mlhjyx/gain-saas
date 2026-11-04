@@ -33,7 +33,7 @@ function createService(cursor: string | null) {
     ENGINE_ORIGIN: 'http://engine.test',
   } as AppConfig;
   const signer = { mint: vi.fn(async () => 'token') } as unknown as EngineTokenSigner;
-  return { service: new EventConsumerService(config, signer, prisma), update };
+  return { service: new EventConsumerService(config, signer, prisma), update, tx };
 }
 
 function pageBody(nextCursor: string | null) {
@@ -110,6 +110,44 @@ describe('EventConsumerService 游标(引擎 page.next_cursor)', () => {
     );
     expect(update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ cursor: '42' }) }),
+    );
+  });
+});
+
+describe('P1：完成事件回填与停止文案', () => {
+  it('backfills engineRunId from payload.taskRef and mirrors CANCELLED', async () => {
+    const TASK_RUN_ID = '55555555-5555-4555-8555-555555555555';
+    const RUN_ID = '77777777-7777-4777-8777-777777777777';
+    const body = {
+      data: [
+        {
+          event_id: EVENT_ID,
+          event_type: 'DiscoveryRunCompleted',
+          workspace_id: WORKSPACE,
+          occurred_at: new Date().toISOString(),
+          aggregate_id: RUN_ID,
+          payload: { status: 'CANCELLED', taskRef: { taskRunId: TASK_RUN_ID } },
+        },
+      ],
+      page: { next_cursor: null, has_more: false },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+
+    await service.consumeOnce();
+
+    expect(tx.taskRun.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: TASK_RUN_ID, engineRunId: null }),
+        data: expect.objectContaining({ engineRunId: RUN_ID, status: 'CANCELLED' }),
+      }),
+    );
+    expect(tx.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('已停止') }) }),
     );
   });
 });

@@ -153,10 +153,20 @@ model TaskRun {
   startedAt   DateTime  @default(now()) @map("started_at")
   finishedAt  DateTime? @map("finished_at")
   createdAt   DateTime  @default(now()) @map("created_at")
+  /// P1 attempt 维度（attempt 业务权威在 SaaS）：本次执行对应的查询计划、任务内第 N 次尝试（1 起）、
+  /// 前端点击生成的幂等键（同键重放只算一次）、以及「重试自哪一次」（同任务同 plan 的上一 TaskRun）。
+  planId      String?   @map("plan_id") @db.Uuid
+  attempt     Int       @default(1)
+  attemptKey  String?   @map("attempt_key") @db.Uuid
+  rerunOf     String?   @map("rerun_of") @db.Uuid
 
-  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  task      AcquisitionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task       AcquisitionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  rerunOfRun TaskRun?        @relation("TaskRunRerun", fields: [rerunOf], references: [id], onDelete: SetNull)
+  reruns     TaskRun[]       @relation("TaskRunRerun")
 
+  @@unique([taskId, attempt])
+  @@unique([taskId, attemptKey])
   @@index([workspaceId, taskId, createdAt])
   @@map("task_run")
 }

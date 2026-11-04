@@ -13,6 +13,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { Inject } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
@@ -38,6 +42,9 @@ interface TaskRow {
   runs?: Array<{
     id: string;
     engineRunId: string | null;
+    planId?: string | null;
+    attempt?: number;
+    rerunOf?: string | null;
     trigger: string;
     status: string;
     startedAt: Date;
@@ -58,6 +65,9 @@ function taskView(row: TaskRow) {
     runs: (row.runs ?? []).map((run) => ({
       id: run.id,
       runId: run.engineRunId,
+      planId: run.planId ?? null,
+      attempt: run.attempt ?? 1,
+      rerunOf: run.rerunOf ?? null,
       trigger: run.trigger,
       status: run.status,
       startedAt: run.startedAt.toISOString(),
@@ -83,6 +93,7 @@ export class AcquisitionTasksController {
     private readonly audit: AuditService,
     private readonly engine: EngineHttp,
     private readonly budget: EngineBudgetGrantService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   @Get()
@@ -148,21 +159,51 @@ export class AcquisitionTasksController {
       throw new ConflictException({ error: { code: 'TASK_ARCHIVED', message: '任务已归档，不能发起执行' } });
     }
 
-    const run = await this.prisma.taskRun.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        taskId: task.id,
-        requestedBy: tenant.userId,
-        trigger: 'manual',
-      },
-    });
+    // P1 attempt 维度：attemptId 由前端在「用户意图」粒度生成（双击复用同一键）；老客户端不带时，
+    // 开关打开则服务端兜底生成一次性 attempt（行为等同现状，但同一计划不再被防重放砖化）。
+    const rawAttemptId = body?.attemptId;
+    if (rawAttemptId !== undefined && (typeof rawAttemptId !== 'string' || !UUID.test(rawAttemptId))) {
+      invalid('attemptId 必须是 UUID');
+    }
+    const attemptId: string | undefined =
+      typeof rawAttemptId === 'string'
+        ? rawAttemptId
+        : this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED
+          ? randomUUID()
+          : undefined;
 
+    // 同键重放（双击/网络重试）：直接返回既有记录，绝不再调引擎（避免双扣费）。
+    if (attemptId) {
+      const replayed = await this.prisma.taskRun.findFirst({
+        where: { taskId: task.id, attemptKey: attemptId },
+        select: { id: true, engineRunId: true, status: true },
+      });
+      if (replayed) {
+        return {
+          data: { taskRunId: replayed.id, runId: replayed.engineRunId, status: replayed.status, replayed: true },
+        };
+      }
+    }
+
+    const allocated = await this.allocateRun(tenant.workspaceId, task.id, planId, tenant.userId, attemptId);
+    if (allocated.replayed) {
+      const replayed = allocated.run as { id: string; engineRunId?: string | null; status?: string };
+      return {
+        data: { taskRunId: replayed.id, runId: replayed.engineRunId ?? null, status: replayed.status ?? 'RUNNING', replayed: true },
+      };
+    }
+    const run = allocated.run as { id: string; attempt?: number };
+    const previousAttempt = allocated.previousAttempt;
+
+    // 引擎侧 attempt：开关关闭时剥离（兼容未升级镜像，requestSha256 与旧版一致）。
+    const engineAttempt = this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED ? attemptId : undefined;
     let grant: string;
     try {
-      // 与 BFF execute 路由同一 quote 口径（operation + planId）。
+      // 与 BFF execute 路由同一 quote 口径（operation + planId + 可选 attemptId）。
       grant = await this.budget.issue(tenant, {
         operation: 'POST /query-plans/:planId/execute',
         planId,
+        ...(engineAttempt ? { body: { attemptId: engineAttempt } } : {}),
       });
     } catch (error) {
       await this.failRun(run.id);
@@ -178,7 +219,10 @@ export class AcquisitionTasksController {
     let response: Awaited<ReturnType<EngineHttp['call']>>;
     try {
       response = await this.engine.call(tenant, 'POST', `/query-plans/${planId}/execute`, {
-        body: { taskRef: { taskId: task.id, taskRunId: run.id } },
+        body: {
+          taskRef: { taskId: task.id, taskRunId: run.id },
+          ...(engineAttempt ? { attemptId: engineAttempt } : {}),
+        },
         headers: { 'x-execution-budget-grant': grant },
       });
     } catch {
@@ -232,8 +276,63 @@ export class AcquisitionTasksController {
         taskRunId: run.id,
         runId: data.runId,
         status: runStatus,
+        attempt: run.attempt ?? 1,
+        rerunOf: previousAttempt,
+        replayed: false,
       },
     };
+  }
+
+  /**
+   * 事务内串行化 attempt 取号（锁任务行）：attempt=max+1，rerunOf=同任务同 plan 的上一 TaskRun。
+   * 并发双击撞 (taskId, attemptKey) 唯一索引（P2002）时读回赢家行，按重放返回。
+   */
+  private async allocateRun(
+    workspaceId: string,
+    taskId: string,
+    planId: string,
+    requestedBy: string,
+    attemptId: string | undefined,
+  ): Promise<{ run: Record<string, unknown>; previousAttempt: string | null; replayed?: boolean }> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "acquisition_task" WHERE "id" = ${taskId}::uuid FOR UPDATE`;
+        const last = await tx.taskRun.findFirst({
+          where: { taskId },
+          orderBy: { attempt: 'desc' },
+          select: { attempt: true },
+        });
+        const previous = await tx.taskRun.findFirst({
+          where: { taskId, planId },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        const created = await tx.taskRun.create({
+          data: {
+            workspaceId,
+            taskId,
+            requestedBy,
+            trigger: 'manual',
+            planId,
+            attempt: (last?.attempt ?? 0) + 1,
+            ...(attemptId ? { attemptKey: attemptId } : {}),
+            ...(previous ? { rerunOf: previous.id } : {}),
+          },
+        });
+        return { run: created as unknown as Record<string, unknown>, previousAttempt: previous?.id ?? null };
+      });
+    } catch (error) {
+      if (attemptId && (error as { code?: string } | null)?.code === 'P2002') {
+        const replayed = await this.prisma.taskRun.findFirst({
+          where: { taskId, attemptKey: attemptId },
+          select: { id: true, engineRunId: true, status: true },
+        });
+        if (replayed) {
+          return { run: replayed as unknown as Record<string, unknown>, previousAttempt: null, replayed: true };
+        }
+      }
+      throw error;
+    }
   }
 
   private async failRun(taskRunId: string): Promise<void> {

@@ -17,6 +17,10 @@ const req = {
 function makeController(overrides: {
   task?: Record<string, unknown> | null;
   engineResponse?: { status: number; body: unknown };
+  /** P1：服务端是否已支持 attempt 维度（ENGINE_RETRY_ATTEMPT_ID_ENABLED）。 */
+  attemptEnabled?: boolean;
+  /** taskRun.findFirst 依次返回值（重放查询 → 最近 attempt → 同 plan 上一 TaskRun）。 */
+  taskRunFindFirst?: Array<Record<string, unknown> | null>;
 } = {}) {
   const now = new Date('2026-11-04T04:00:00Z');
   const prisma = {
@@ -57,9 +61,14 @@ function makeController(overrides: {
         ...data,
       })),
       update: vi.fn(async () => ({})),
+      findFirst: vi.fn(async () => (overrides.taskRunFindFirst ?? []).shift() ?? null),
     },
     discoveryRunLink: { upsert: vi.fn(async () => ({})) },
+    $queryRaw: vi.fn(async () => [{ id: TASK_ID }]),
   };
+  (prisma as Record<string, unknown>).$transaction = vi.fn(
+    async (callback: (client: typeof prisma) => Promise<unknown>) => callback(prisma),
+  );
   const engine = {
     call: vi.fn(async () => overrides.engineResponse ?? { status: 202, body: { data: { runId: ENGINE_RUN_ID, status: 'RUNNING' } } }),
     toClientStatus: vi.fn((status: number) => (status === 403 ? 403 : 502)),
@@ -72,11 +81,13 @@ function makeController(overrides: {
   };
   const budget = { issue: vi.fn(async () => 'grant-1') };
   const audit = { record: vi.fn(async () => undefined) };
+  const config = { ENGINE_RETRY_ATTEMPT_ID_ENABLED: overrides.attemptEnabled ?? false };
   const controller = new AcquisitionTasksController(
     prisma as never,
     audit as never,
     engine as never,
     budget as never,
+    config as never,
   );
   return { controller, prisma, engine, budget, audit };
 }
@@ -109,6 +120,8 @@ describe('Run 2.0 任务对象（M0②）', () => {
         taskId: TASK_ID,
         requestedBy: USER_ID,
         trigger: 'manual',
+        planId: PLAN_ID,
+        attempt: 1,
       },
     });
     expect(budget.issue).toHaveBeenCalledWith(req.tenant, {
@@ -177,6 +190,70 @@ describe('Run 2.0 任务对象（M0②）', () => {
       where: { id: TASK_RUN_ID },
       data: expect.objectContaining({ status: 'FAILED' }),
     });
+  });
+
+  it('allocates the next attempt and points rerunOf at the previous run of the same plan (P1)', async () => {
+    const PREV_RUN_ID = '88888888-8888-4888-8888-888888888888';
+    const { controller, prisma } = makeController({
+      taskRunFindFirst: [{ attempt: 2 }, { id: PREV_RUN_ID }],
+    });
+    const result = await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+
+    expect(prisma.taskRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ attempt: 3, planId: PLAN_ID, rerunOf: PREV_RUN_ID }),
+    });
+    expect(result).toMatchObject({ data: { attempt: 3, rerunOf: PREV_RUN_ID, replayed: false } });
+  });
+
+  it('replays the same attempt key without calling the engine again (P1 双击幂等)', async () => {
+    const ATTEMPT_ID = '99999999-9999-4999-8999-999999999999';
+    const { controller, prisma, budget, engine } = makeController({
+      taskRunFindFirst: [{ id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING' }],
+    });
+    const result = await controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: ATTEMPT_ID });
+
+    expect(budget.issue).not.toHaveBeenCalled();
+    expect(engine.call).not.toHaveBeenCalled();
+    expect(prisma.taskRun.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ data: { taskRunId: TASK_RUN_ID, replayed: true } });
+  });
+
+  it('mints an attemptId server-side when the flag is on and binds it into quote and engine body (P1)', async () => {
+    const { controller, prisma, budget, engine } = makeController({ attemptEnabled: true });
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+
+    const quoteRequest = budget.issue.mock.calls[0]![1] as { body?: { attemptId?: string } };
+    expect(quoteRequest.body?.attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const engineBody = (engine.call.mock.calls[0]![3] as { body: { attemptId?: string } }).body;
+    expect(engineBody.attemptId).toBe(quoteRequest.body?.attemptId);
+    expect(prisma.taskRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ attemptKey: quoteRequest.body?.attemptId }),
+    });
+  });
+
+  it('strips attemptId from quote and engine body when the flag is off but keeps it as the local idempotency key (P1)', async () => {
+    const ATTEMPT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const { controller, prisma, budget, engine } = makeController();
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: ATTEMPT_ID });
+
+    expect(budget.issue).toHaveBeenCalledWith(req.tenant, {
+      operation: 'POST /query-plans/:planId/execute',
+      planId: PLAN_ID,
+    });
+    const engineBody = (engine.call.mock.calls[0]![3] as { body: Record<string, unknown> }).body;
+    expect(engineBody).not.toHaveProperty('attemptId');
+    expect(prisma.taskRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ attemptKey: ATTEMPT_ID }),
+    });
+  });
+
+  it('rejects a malformed attemptId before any database or engine work (P1)', async () => {
+    const { controller, prisma, engine } = makeController();
+    await expect(
+      controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: 'not-a-uuid' }),
+    ).rejects.toMatchObject({ status: 400, response: { error: { code: 'VALIDATION_ERROR' } } });
+    expect(prisma.taskRun.create).not.toHaveBeenCalled();
+    expect(engine.call).not.toHaveBeenCalled();
   });
 
   it('rejects malformed ids before any database or engine work', async () => {

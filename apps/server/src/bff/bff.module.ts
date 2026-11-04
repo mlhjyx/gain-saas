@@ -127,7 +127,10 @@ export class BffHandler {
       body = injectPlatformLawfulBasis(body);
     }
     // 引擎镜像升级前，discover attemptId 既不能进 quote 也不能进转发体。
-    const quoteOptions = { discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED };
+    const quoteOptions = {
+      discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED,
+      writeAttemptId: this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED,
+    };
     const forwardBody = engineRequestBody(route, body, quoteOptions);
     const headers: Record<string, string> = {};
     const idempotencyKey = req.get('idempotency-key');
