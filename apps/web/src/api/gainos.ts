@@ -406,6 +406,28 @@ export interface AvailableChannelView extends Omit<SourceChannelView, 'config' |
   enabled: boolean;
 }
 
+/** M2 反馈闭环：ICP 建议卡与聚合。 */
+export interface IcpSuggestion {
+  type: string;
+  dimension: 'source' | 'channel' | 'industry' | 'country' | string;
+  key: string;
+  sampleSize: number;
+  acceptanceRate: number;
+  message: string;
+}
+
+export interface IcpFeedbackReport {
+  rows: Array<{
+    dimension: string;
+    dimensionKey: string;
+    accepted: number;
+    rejected: number;
+    reasonCounts: Record<string, number>;
+  }>;
+  families: Array<{ queryFamily: string; samples: number; accepted: number; qualityEma: number }>;
+  suggestions: IcpSuggestion[];
+}
+
 export interface ImportPreviewView {
   headers: string[];
   mapping: { name: string; domain?: string; website?: string; country?: string; industry?: string };
@@ -720,6 +742,8 @@ export const gainosApi = {
   runBacktest: (icpId: string, samples: BacktestSample[]) =>
     requestClient.post<Backtest>(`/icps/${icpId}/backtests`, { samples }),
   queryPlans: (icpId: string) => requestClient.get<QueryPlan[]>(`/icps/${icpId}/query-plans`),
+  /** M2：ICP 反馈聚合与建议卡（只读）。 */
+  icpFeedback: (icpId: string) => requestClient.get<IcpFeedbackReport>(`/icps/${icpId}/feedback`),
   createQueryPlan: (icpId: string) => requestClient.post<QueryPlan>(`/icps/${icpId}/query-plans`, {}),
   confirmQueryPlan: (planId: string) =>
     requestClient.post<QueryPlan>(`/query-plans/${planId}/confirm`, {}),

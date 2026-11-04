@@ -12,6 +12,7 @@ import {
   type Icp,
   type IcpRule,
   type IcpRuleInput,
+  type IcpFeedbackReport,
   type AcquisitionTaskView,
   type QueryPlan,
   type TaskRunView,
@@ -59,6 +60,16 @@ const planBusy = ref<string | null>(null);
 // Run 2.0（M0②）：挖掘任务（每个 ICP 复用一个活动任务）与最近运行。
 const taskRuns = ref<TaskRunView[]>([]);
 let taskCache: AcquisitionTaskView | null = null;
+// M2：反馈建议卡（只建议，采纳=手动改 ICP）。
+const feedback = ref<IcpFeedbackReport | null>(null);
+
+async function loadFeedback(icpId: string): Promise<void> {
+  try {
+    feedback.value = await gainosApi.icpFeedback(icpId);
+  } catch {
+    feedback.value = null;
+  }
+}
 
 /** 引擎没有“按方案列 run”的端点；把已发起的 runId 留在本机，关闭页面后还能回到任务。 */
 interface RunRef {
@@ -365,9 +376,10 @@ async function openDetail(icp: Icp): Promise<void> {
   ruleOpen.value = false;
   taskCache = null;
   taskRuns.value = [];
+  feedback.value = null;
   try {
     selected.value = await gainosApi.icp(icp.id);
-    await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id)]);
+    await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id), loadFeedback(icp.id)]);
   } catch (error) {
     detailError.value = failureText(error);
   } finally {
@@ -379,6 +391,7 @@ function closeDetail(): void {
   plans.value = [];
   taskRuns.value = [];
   taskCache = null;
+  feedback.value = null;
   backtest.value = null;
   ruleOpen.value = false;
 }
@@ -908,6 +921,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
             </template>
           </div>
           </details>
+
+          <div v-if="feedback && feedback.suggestions.length" class="fb__block">
+            <div class="fb__section-head">
+              <div>
+                <h3>{{ $t('gainos.findBuyers.suggestionsTitle') }}</h3>
+                <p class="fb__muted">{{ $t('gainos.findBuyers.suggestionsDesc') }}</p>
+              </div>
+            </div>
+            <ul class="fb__plans">
+              <li v-for="(card, index) in feedback.suggestions" :key="index">
+                <p class="fb__muted">{{ card.message }}</p>
+              </li>
+            </ul>
+          </div>
 
           <div class="fb__block">
             <div class="fb__section-head">

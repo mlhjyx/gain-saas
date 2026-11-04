@@ -572,7 +572,9 @@
       "PARTIAL": "部分完成",
       "FAILED": "失败",
       "CANCELLED": "已取消"
-    }
+    },
+    "suggestionsTitle": "反馈建议",
+    "suggestionsDesc": "来自你接受/拒绝的判断聚合（只给建议；采纳请在「编辑」里修改 ICP）。"
   },
   "leads": {
     "kicker": "M3 开放",
