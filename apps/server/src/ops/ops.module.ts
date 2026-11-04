@@ -5,7 +5,10 @@ import { PrismaService } from '../shared/prisma.service.js';
 import { AuthThrottleService } from '../shared/auth-throttle.service.js';
 import { OpsAuthController } from './ops-auth.controller.js';
 import { OpsController } from './ops.controller.js';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { OpsDatabase } from './ops-database.service.js';
+import { OpsExportThrottle } from './ops-export-throttle.js';
 import { OpsGuard } from './ops.guard.js';
 import { OpsService } from './ops.service.js';
 import { OpsSessionService } from './ops-session.service.js';
@@ -21,6 +24,20 @@ import { R4Module } from '../r4/r4.module.js';
 @Module({
   imports: [ConfigModule, R4Module],
   controllers: [OpsAuthController, OpsController, OpsRevocationController],
-  providers: [OpsDatabase, OpsService, OpsSessionService, OpsGuard, OpsTemporalService, AuditService, PrismaService, AuthThrottleService],
+  providers: [
+    OpsDatabase,
+    OpsService,
+    OpsSessionService,
+    OpsGuard,
+    OpsTemporalService,
+    AuditService,
+    PrismaService,
+    AuthThrottleService,
+    {
+      provide: OpsExportThrottle,
+      useFactory: (config: AppConfig) => new OpsExportThrottle(config.OPS_EXPORT_HOURLY_LIMIT),
+      inject: [APP_CONFIG],
+    },
+  ],
 })
 export class OpsModule {}

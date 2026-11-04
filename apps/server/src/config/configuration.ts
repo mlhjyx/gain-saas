@@ -55,6 +55,8 @@ const schema = z.object({
   OPS_APP_DATABASE_URL: z.string().optional(),
   OPS_OWNER_DATABASE_URL: z.string().optional(),
   OPS_SESSION_TTL_MINUTES: z.coerce.number().min(5).max(24 * 60).default(480),
+  /** 运营台批量导出：每个操作员每小时的导出次数上限（进程内滑动窗口）。 */
+  OPS_EXPORT_HOURLY_LIMIT: z.coerce.number().int().min(1).max(1000).default(20),
   // 内嵌模型网关:运营台管理上游厂商;引擎用这个 Bearer Key 调 /v1/chat/completions
   MODEL_GATEWAY_API_KEY: z.string().min(16).optional(),
   // 上游 API Key 落库加密材料;缺失时从 SESSION_SECRET 派生(轮换 SESSION_SECRET 会要求重录上游 Key)

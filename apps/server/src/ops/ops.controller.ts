@@ -145,30 +145,36 @@ export class OpsController {
   }
 
   @Get('export/sources')
-  async exportSources(@Res() res: Response, @Query('status') status?: string) {
-    const { csv, filename } = await this.ops.exportSources(status);
+  async exportSources(@Res() res: Response, @Req() req: OpsRequest, @Query('status') status?: string) {
+    const { csv, filename } = await this.ops.exportSources(req.opsUser!.id, status);
     sendCsv(res, csv, filename);
   }
 
   @Get('export/fetches')
-  async exportFetches(@Res() res: Response, @Query('status') status?: string) {
-    const { csv, filename } = await this.ops.exportFetches(status);
+  async exportFetches(@Res() res: Response, @Req() req: OpsRequest, @Query('status') status?: string) {
+    const { csv, filename } = await this.ops.exportFetches(req.opsUser!.id, status);
     sendCsv(res, csv, filename);
   }
 
   @Get('export/entities')
-  async exportEntities(@Res() res: Response, @Query('sourceId') sourceId?: string, @Query('search') search?: string) {
-    const { csv, filename } = await this.ops.exportEntities(sourceId, search);
+  async exportEntities(
+    @Res() res: Response,
+    @Req() req: OpsRequest,
+    @Query('sourceId') sourceId?: string,
+    @Query('search') search?: string,
+  ) {
+    const { csv, filename } = await this.ops.exportEntities(req.opsUser!.id, sourceId, search);
     sendCsv(res, csv, filename);
   }
 
   @Get('export/leads')
   async exportLeads(
     @Res() res: Response,
+    @Req() req: OpsRequest,
     @Query('workspaceId') workspaceId?: string,
     @Query('queue') queue?: string,
   ) {
-    const { csv, filename } = await this.ops.exportLeads(workspaceId, queue);
+    const { csv, filename } = await this.ops.exportLeads(req.opsUser!.id, workspaceId, queue);
     sendCsv(res, csv, filename);
   }
 
