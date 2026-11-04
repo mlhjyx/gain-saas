@@ -118,7 +118,11 @@ async function loadRunLinks(icpId: string): Promise<void> {
     const next = { ...runRefs.value };
     for (const row of rows as Array<{ runId?: string; planId?: string; startedAt?: string }>) {
       if (row.runId && row.planId) {
-        next[row.planId] = { runId: row.runId, startedAt: row.startedAt ?? '' };
+        // 保新（P1）：本机已记录的引用比服务器行更新时不要回退。
+        const existing = next[row.planId];
+        const rowStarted = row.startedAt ?? '';
+        if (existing && (existing.startedAt ?? '') > rowStarted) continue;
+        next[row.planId] = { runId: row.runId, startedAt: rowStarted };
       }
     }
     runRefs.value = next;
@@ -600,12 +604,18 @@ async function runBacktest(): Promise<void> {
   }
 }
 
+function mintAttemptId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid ?? `attempt-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+}
+
 async function createPlan(): Promise<void> {
   if (!selected.value) return;
   planBusy.value = 'create';
   plansError.value = null;
   try {
-    await gainosApi.createQueryPlan(selected.value.id);
+    // P1：每次「生成方案」点击带新的幂等键（同一计划不再被防重放砖化；同一次点击重试复用）。
+    await gainosApi.createQueryPlan(selected.value.id, mintAttemptId());
     await loadPlans(selected.value.id);
     notice.value = $t('gainos.findBuyers.planCreated');
   } catch (error) {
@@ -633,7 +643,14 @@ async function executePlan(plan: QueryPlan): Promise<void> {
   try {
     // 任务对象前移（M0②）：先确保该 ICP 的任务，再由任务发起执行（引擎侧带 taskRef）。
     const task = await ensureTask(plan.icpId);
-    const result = await gainosApi.startAcquisitionTaskRun(task.id, plan.id);
+    // P1：每次「执行」点击带新的幂等键；双击由 BFF 的 attempt_key 唯一约束兜底只算一次。
+    const result = await gainosApi.startAcquisitionTaskRun(task.id, plan.id, mintAttemptId());
+    if (!result.runId) {
+      // 重放命中一条引擎 run 尚未回填的执行（极少数竞态）：刷新任务视图，稍后从任务里进入。
+      await Promise.all([loadPlans(plan.icpId), loadTaskRuns(plan.icpId)]);
+      notice.value = $t('gainos.findBuyers.runStarting');
+      return;
+    }
     rememberRun(plan.id, result.runId);
     try {
       await gainosApi.recordDiscoveryRun({ runId: result.runId, planId: plan.id, icpId: plan.icpId });
