@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -15,6 +16,7 @@ import { PrismaService } from '../shared/prisma.service.js';
 import { ACTIVE_REQUEST_STATES } from '../r4/platform-revocation.service.js';
 import { csvFilename, toCsv, type CsvColumn } from './ops-csv.js';
 import { OpsDatabase } from './ops-database.service.js';
+import { OpsExportThrottle } from './ops-export-throttle.js';
 import { OpsTemporalService, SCHEDULE_WORKFLOW_WHITELIST } from './ops-temporal.service.js';
 
 type Row = Record<string, unknown>;
@@ -23,6 +25,8 @@ const PROVIDER_STATUSES = new Set(['ENABLED', 'DISABLED']);
 const SOURCE_STATUSES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED']);
 /** workspace 生命周期：ACTIVE 正常 / DISABLED 停用（可恢复）/ ARCHIVED 归档（仅运营可还原）。 */
 const WORKSPACE_STATUSES = new Set(['ACTIVE', 'DISABLED', 'ARCHIVED']);
+/** 导出单次行数上限（与各导出 SQL 的 LIMIT 一致），命中即视为截断。 */
+const EXPORT_ROW_LIMIT = 5000;
 
 const sourceCadence = z.union([
   z.object({ kind: z.literal('fixed'), everyMs: z.number().int().positive() }),
@@ -117,7 +121,40 @@ export class OpsService {
     private readonly temporal: OpsTemporalService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly exportThrottle: OpsExportThrottle,
   ) {}
+
+  /** 导出入闸：每个操作员每小时最多 N 次（OPS_EXPORT_HOURLY_LIMIT）。 */
+  private assertExportAllowed(actorId: string): void {
+    if (!this.exportThrottle.allow(actorId)) {
+      throw new HttpException(
+        {
+          error: {
+            code: 'EXPORT_RATE_LIMITED',
+            message: `导出频率超限（每小时最多 ${this.config.OPS_EXPORT_HOURLY_LIMIT} 次），请稍后再试`,
+          },
+        },
+        429,
+      );
+    }
+  }
+
+  /** 每次批量导出留一条审计：动作、筛选条件、行数、是否截断。 */
+  private async auditExport(
+    actorId: string,
+    action: string,
+    target: string,
+    rows: number,
+    filters: Record<string, unknown>,
+  ): Promise<void> {
+    await this.audit.record({
+      realm: 'ops',
+      actorId,
+      action,
+      target,
+      detail: { rows, truncated: rows >= EXPORT_ROW_LIMIT, filters },
+    });
+  }
 
   private async safe<T extends Row>(query: () => Promise<T[]>, fallback: T[] = []): Promise<T[]> {
     try { return await query(); } catch { return fallback; }
@@ -599,7 +636,8 @@ export class OpsService {
     });
   }
 
-  async exportSources(status?: string): Promise<{ csv: string; filename: string }> {
+  async exportSources(actorId: string, status?: string): Promise<{ csv: string; filename: string }> {
+    this.assertExportAllowed(actorId);
     const rows = await this.database.db.query(
       `SELECT s.source_key, s.label, s.provider_key, s.status, s.cadence, s.region, s.series_key,
               s.last_fetch_at, s.next_fetch_at, s.created_at,
@@ -610,10 +648,12 @@ export class OpsService {
        ORDER BY s.created_at DESC LIMIT 5000`,
       [status ?? null],
     );
+    await this.auditExport(actorId, 'export.sources', status ?? '*', rows.length, { status: status ?? null });
     return { csv: toCsv(rows, SOURCE_EXPORT_COLUMNS), filename: csvFilename('sources') };
   }
 
-  async exportFetches(status?: string): Promise<{ csv: string; filename: string }> {
+  async exportFetches(actorId: string, status?: string): Promise<{ csv: string; filename: string }> {
+    this.assertExportAllowed(actorId);
     const rows = await this.database.db.query(
       `SELECT f.started_at, f.finished_at, s.source_key, f.status, f.total, f.added, f.updated,
               f.removed, f.unchanged, f.cost_cents, f.error
@@ -622,10 +662,12 @@ export class OpsService {
        ORDER BY f.started_at DESC LIMIT 5000`,
       [status ?? null],
     );
+    await this.auditExport(actorId, 'export.fetches', status ?? '*', rows.length, { status: status ?? null });
     return { csv: toCsv(rows, FETCH_EXPORT_COLUMNS), filename: csvFilename('fetches') };
   }
 
-  async exportEntities(sourceId?: string, search?: string): Promise<{ csv: string; filename: string }> {
+  async exportEntities(actorId: string, sourceId?: string, search?: string): Promise<{ csv: string; filename: string }> {
+    this.assertExportAllowed(actorId);
     if (sourceId && !/^[0-9a-f-]{36}$/i.test(sourceId)) {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'sourceId 需要 UUID' } });
     }
@@ -638,10 +680,15 @@ export class OpsService {
        ORDER BY e.last_seen_at DESC LIMIT 5000`,
       [sourceId ?? null, search ?? null],
     );
+    await this.auditExport(actorId, 'export.entities', sourceId ?? '*', rows.length, {
+      sourceId: sourceId ?? null,
+      search: search ?? null,
+    });
     return { csv: toCsv(rows, ENTITY_EXPORT_COLUMNS), filename: csvFilename('entities') };
   }
 
-  async exportLeads(workspaceId: string | undefined, queue?: string): Promise<{ csv: string; filename: string }> {
+  async exportLeads(actorId: string, workspaceId: string | undefined, queue?: string): Promise<{ csv: string; filename: string }> {
+    this.assertExportAllowed(actorId);
     if (!workspaceId) {
       throw new BadRequestException({ error: { code: 'WORKSPACE_REQUIRED', message: 'lead 是租户表(RLS),必须带 ?workspaceId=' } });
     }
@@ -656,6 +703,7 @@ export class OpsService {
       );
       return rows;
     });
+    await this.auditExport(actorId, 'export.leads', workspaceId, rows.length, { queue: queue ?? null });
     return { csv: toCsv(rows, LEAD_EXPORT_COLUMNS), filename: csvFilename('leads') };
   }
 
