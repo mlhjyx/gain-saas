@@ -7,6 +7,8 @@ import { R4JwksController } from './r4-jwks.controller.js';
 import { LegacyJwksController } from './legacy-jwks.controller.js';
 import { PlatformGrantIssuer } from './platform-grant.service.js';
 import { PlatformGrantController } from './platform-grant.controller.js';
+import { PlatformCrawlGrantIssuer } from './platform-crawl-grant.service.js';
+import { PlatformCrawlGrantController } from './platform-crawl-grant.controller.js';
 import { MachineTokenService } from './machine-token.service.js';
 import { MachineTokenController } from './machine-token.controller.js';
 import { CapabilityIssuer } from './capability-issuer.service.js';
@@ -41,11 +43,12 @@ import { BindingRevocationWatcher } from './binding-revocation-watcher.service.j
  */
 @Module({
   imports: [ConfigModule],
-  controllers: [R4JwksController, LegacyJwksController, MachineTokenController, CapabilityController, PlatformGrantController],
+  controllers: [R4JwksController, LegacyJwksController, MachineTokenController, CapabilityController, PlatformGrantController, PlatformCrawlGrantController],
   providers: [
     R4Keyring,
     MachineTokenService,
     PlatformGrantIssuer,
+    PlatformCrawlGrantIssuer,
     CapabilityIssuer,
     RevocationIssuer,
     RevocationClient,
