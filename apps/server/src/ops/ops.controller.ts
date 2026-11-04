@@ -15,12 +15,16 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { OpsGuard, type OpsRequest } from './ops.guard.js';
+import { OpsChannelsService } from './ops-channels.service.js';
 import { OpsService } from './ops.service.js';
 
 @Controller('api/ops')
 @UseGuards(OpsGuard)
 export class OpsController {
-  constructor(private readonly ops: OpsService) {}
+  constructor(
+    private readonly ops: OpsService,
+    private readonly opsChannels: OpsChannelsService,
+  ) {}
 
   @Get('overview')
   overview() {
@@ -39,6 +43,35 @@ export class OpsController {
   async providerStatus(@Param('key') key: string, @Body() body: Record<string, unknown>, @Req() req: OpsRequest) {
     const status = typeof body.status === 'string' ? body.status : '';
     return { data: await this.ops.setProviderStatus(key, status, req.opsUser!.id) };
+  }
+
+  /** 平台渠道数据源（P3）：注册/治理/启停/试跑只属于运营台，经 saas-ops 引擎身份落库。 */
+  @Get('channels')
+  async channels(@Req() req: OpsRequest) {
+    return { channels: await this.opsChannels.list(req.opsUser!.id) };
+  }
+
+  @Post('channels')
+  @HttpCode(201)
+  async createChannel(@Body() body: unknown, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.create(req.opsUser!.id, body) };
+  }
+
+  @Patch('channels/:id')
+  async updateChannel(@Param('id') id: string, @Body() body: unknown, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.patch(req.opsUser!.id, id, body) };
+  }
+
+  @Post('channels/:id/preview')
+  @HttpCode(200)
+  async previewChannel(@Param('id') id: string, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.preview(req.opsUser!.id, id) };
+  }
+
+  @Post('channels/:id/run')
+  @HttpCode(200)
+  async runChannel(@Param('id') id: string, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.run(req.opsUser!.id, id) };
   }
 
   @Get('sources')

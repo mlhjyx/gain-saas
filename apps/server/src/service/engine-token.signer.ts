@@ -11,7 +11,15 @@ import { SignJWT, exportJWK, importPKCS8 } from 'jose';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 
-export type SaasRole = 'saas-admin' | 'saas-member' | 'saas-event-consumer';
+export type SaasRole = 'saas-admin' | 'saas-member' | 'saas-event-consumer' | 'saas-ops';
+
+/**
+ * 运营身份（saas-ops）调用引擎时的 workspace claim 哨兵值。
+ * 引擎 JWT 校验要求 workspace 为 UUID；平台级治理端点只操作全局表
+ * （source_channel 无 RLS），不使用该值做租户作用域——任何租户 RLS 查询
+ * 在哨兵下都选不到行（fail-closed）。租户角色永远不带 ops:* scope。
+ */
+export const OPS_ENGINE_WORKSPACE = '00000000-0000-4000-8000-000000000000';
 
 export interface MintInput {
   readonly subjectId: string;

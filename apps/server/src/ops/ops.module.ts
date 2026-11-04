@@ -15,6 +15,9 @@ import { OpsSessionService } from './ops-session.service.js';
 import { OpsTemporalService } from './ops-temporal.service.js';
 import { OpsRevocationController } from './ops-revocation.controller.js';
 import { R4Module } from '../r4/r4.module.js';
+import { ServiceModule } from '../service/service.module.js';
+import { OpsChannelsService } from './ops-channels.service.js';
+import { OpsEngineClient } from './ops-engine.client.js';
 
 /**
  * 运营域(SD9 / PRD §13):独立登录域 + 引擎库 app/owner 双池 + 白名单写。
@@ -22,7 +25,7 @@ import { R4Module } from '../r4/r4.module.js';
  * P9 起承载平台撤销的运营接口（复用 R4Module 的撤销服务）。
  */
 @Module({
-  imports: [ConfigModule, R4Module],
+  imports: [ConfigModule, R4Module, ServiceModule],
   controllers: [OpsAuthController, OpsController, OpsRevocationController],
   providers: [
     OpsDatabase,
@@ -30,6 +33,8 @@ import { R4Module } from '../r4/r4.module.js';
     OpsSessionService,
     OpsGuard,
     OpsTemporalService,
+    OpsEngineClient,
+    OpsChannelsService,
     AuditService,
     PrismaService,
     AuthThrottleService,

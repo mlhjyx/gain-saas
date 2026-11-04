@@ -9,7 +9,6 @@ import {
   type AvailableChannelView,
   type ImportPreviewView,
   type ImportResultView,
-  type SourceChannelView,
 } from '#/api/gainos';
 
 defineOptions({ name: 'SettingsSources' });
@@ -24,13 +23,7 @@ const error = ref<{ title: string; next?: string } | null>(null);
 const notice = ref<Notice | null>(null);
 
 const available = ref<AvailableChannelView[]>([]);
-const registry = ref<SourceChannelView[]>([]);
 const busyChannel = ref<string | null>(null);
-
-const CATEGORY_KEYS = ['trade_fair', 'customs', 'association', 'directory', 'tender', 'other'] as const;
-
-const createForm = ref({ name: '', category: 'customs' as string });
-const creating = ref(false);
 
 const csvText = ref('');
 const headers = ref<string[]>([]);
@@ -59,26 +52,11 @@ function modeLabel(mode: string): string {
   return value === key ? mode : value;
 }
 
-function statusLabel(status: string): string {
-  const key = `gainos.sources.status.${status}`;
-  const value = $t(key);
-  return value === key ? status : value;
-}
-
-function fmtTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
-}
-
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const [availableRows, registryRows] = await Promise.all([
-      gainosApi.availableChannels(),
-      gainosApi.sourceChannels(),
-    ]);
-    available.value = availableRows;
-    registry.value = registryRows;
+    available.value = await gainosApi.availableChannels();
   } catch (err) {
     error.value = failureText(err);
   } finally {
@@ -102,38 +80,6 @@ async function toggleChannel(channel: AvailableChannelView): Promise<void> {
     notice.value = { tone: 'warn', text: failureText(err).title };
   } finally {
     busyChannel.value = null;
-  }
-}
-
-async function previewCrawl(channel: AvailableChannelView): Promise<void> {
-  busyChannel.value = channel.id;
-  notice.value = null;
-  try {
-    await gainosApi.previewChannelCrawl(channel.id);
-    notice.value = { tone: 'ok', text: $t('gainos.sources.crawlPreviewOk', { name: channel.name }) };
-  } catch (err) {
-    notice.value = { tone: 'warn', text: failureText(err).title };
-  } finally {
-    busyChannel.value = null;
-  }
-}
-
-async function createImportChannel(): Promise<void> {
-  if (!createForm.value.name.trim() || creating.value) return;
-  creating.value = true;
-  notice.value = null;
-  try {
-    await gainosApi.createImportChannel({
-      name: createForm.value.name.trim(),
-      category: createForm.value.category,
-    });
-    createForm.value.name = '';
-    notice.value = { tone: 'ok', text: $t('gainos.sources.channelCreated') };
-    await load();
-  } catch (err) {
-    notice.value = { tone: 'warn', text: failureText(err).title };
-  } finally {
-    creating.value = false;
   }
 }
 
@@ -268,15 +214,6 @@ onMounted(load);
             </div>
             <div class="src__row-actions">
               <button
-                v-if="channel.mode === 'crawl'"
-                class="src__action"
-                type="button"
-                :disabled="busyChannel === channel.id"
-                @click="previewCrawl(channel)"
-              >
-                {{ $t('gainos.sources.trial') }}
-              </button>
-              <button
                 class="src__action"
                 :class="{ 'src__action--on': channel.enabled }"
                 type="button"
@@ -380,45 +317,6 @@ onMounted(load);
         </p>
       </section>
 
-      <section class="src__card">
-        <h2>{{ $t('gainos.sources.registryTitle') }}</h2>
-        <p class="src__muted">{{ $t('gainos.sources.registryDesc') }}</p>
-        <table class="src__table">
-          <thead>
-            <tr>
-              <th>{{ $t('gainos.sources.colName') }}</th>
-              <th>{{ $t('gainos.sources.colMode') }}</th>
-              <th>{{ $t('gainos.sources.colStatus') }}</th>
-              <th>{{ $t('gainos.sources.colFailure') }}</th>
-              <th>{{ $t('gainos.sources.colLastRun') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="channel in registry" :key="channel.id">
-              <td>{{ channel.name }}</td>
-              <td>{{ modeLabel(channel.mode) }}</td>
-              <td>{{ statusLabel(channel.status) }}</td>
-              <td>{{ channel.failureStreak }}</td>
-              <td>{{ fmtTime(channel.lastRunAt) }}</td>
-            </tr>
-            <tr v-if="registry.length === 0"><td colspan="5" class="src__muted">{{ $t('gainos.sources.registryEmpty') }}</td></tr>
-          </tbody>
-        </table>
-
-        <div class="src__create">
-          <h3>{{ $t('gainos.sources.createChannelTitle') }}</h3>
-          <p class="src__muted">{{ $t('gainos.sources.createChannelDesc') }}</p>
-          <div class="src__import-actions">
-            <input v-model="createForm.name" class="src__input" :placeholder="$t('gainos.sources.channelName')" maxlength="200" />
-            <select v-model="createForm.category" class="src__input">
-              <option v-for="category in CATEGORY_KEYS" :key="category" :value="category">{{ categoryLabel(category) }}</option>
-            </select>
-            <button class="src__action src__action--on" type="button" :disabled="creating || !createForm.name.trim()" @click="createImportChannel">
-              {{ creating ? $t('gainos.common.loading') : $t('gainos.sources.createChannel') }}
-            </button>
-          </div>
-        </div>
-      </section>
     </template>
   </div>
 </template>
