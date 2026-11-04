@@ -1,4 +1,4 @@
-import { type CanActivate, type ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
@@ -58,13 +58,19 @@ export class TenantGuard implements CanActivate {
       where: { userId: req.tenant.userId, workspaceId: req.tenant.workspaceId, status: 'active' },
       include: {
         workspace: {
-          select: { onboardingCompletedAt: true, onboardingCompanyId: true },
+          select: { status: true, onboardingCompletedAt: true, onboardingCompanyId: true },
         },
       },
     });
     if (!membership) {
       res.clearCookie(SESSION_COOKIE);
       throw new UnauthorizedException({ error: { code: 'NOT_A_MEMBER', message: '工作空间成员资格已失效' } });
+    }
+    if (membership.workspace.status !== 'ACTIVE') {
+      // 停用/归档：拦在所有租户请求之前（含 Grant 签发），数据保留，运营可恢复。
+      throw new ForbiddenException({
+        error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' },
+      });
     }
     req.tenant.role = membership.role as 'admin' | 'member';
     req.tenant.onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;

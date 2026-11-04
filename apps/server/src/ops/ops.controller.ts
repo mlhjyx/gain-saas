@@ -84,6 +84,14 @@ export class OpsController {
     return { data: await this.ops.deleteSource(id, req.opsUser!.id) };
   }
 
+  @Post('workspaces/:id/status')
+  @HttpCode(200)
+  async workspaceStatus(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() req: OpsRequest) {
+    const status = typeof body.status === 'string' ? body.status : '';
+    const note = typeof body.note === 'string' ? body.note : undefined;
+    return { data: await this.ops.setWorkspaceStatus(id, status, req.opsUser!.id, note) };
+  }
+
   @Get('budget')
   async budget() {
     return { data: await this.ops.budget() };

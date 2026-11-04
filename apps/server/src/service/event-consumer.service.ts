@@ -58,7 +58,9 @@ export class EventConsumerService implements OnModuleInit {
     if (!this.config.EVENT_CONSUMER_ENABLED) {
       return { workspaces: 0, pulled: 0, acked: 0, skipped: 'EVENT_CONSUMER_ENABLED=false' };
     }
-    const registry = await this.prisma.workspaceRegistry.findMany({ where: { enabled: true } });
+    const registry = await this.prisma.workspaceRegistry.findMany({
+      where: { enabled: true, workspace: { status: 'ACTIVE' } },
+    });
     let pulled = 0;
     let acked = 0;
     for (const ws of registry) {
