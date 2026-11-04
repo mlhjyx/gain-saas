@@ -16,6 +16,7 @@ const operator = ref<{ email: string } | null>(null);
 const TABS = [
   { key: 'overview', label: '概览' },
   { key: 'users', label: '用户' },
+  { key: 'workspaces', label: '工作空间' },
   { key: 'providers', label: '数据源' },
   { key: 'sources', label: '监控源' },
   { key: 'budget', label: '预算' },
@@ -155,6 +156,41 @@ async function loadBudget(): Promise<void> {
     loading.value = false;
   }
 }
+const workspaceBusy = ref('');
+
+async function loadWorkspaceAdmin(): Promise<void> {
+  try {
+    workspaces.value = (await api<{ workspaces: Row[] }>('/api/ops/workspaces')).workspaces ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function handleWorkspaceStatus(workspace: Row, event: Event): Promise<void> {
+  const status = (event.target as HTMLSelectElement).value;
+  if (status === workspace.status) return;
+  const ok = window.confirm(
+    `确认把工作空间「${workspace.name || workspace.id}」改为 ${status}？停用/归档后该空间全部请求会被拒绝（数据保留，可改回 ACTIVE 恢复）。`,
+  );
+  if (!ok) {
+    (event.target as HTMLSelectElement).value = String(workspace.status ?? 'ACTIVE');
+    return;
+  }
+  workspaceBusy.value = String(workspace.id);
+  try {
+    await api(`/api/ops/workspaces/${workspace.id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+    notice.value = '工作空间状态已更新';
+    await loadWorkspaceAdmin();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    workspaceBusy.value = '';
+  }
+}
+
 async function loadWorkspaces(): Promise<void> {
   try {
     workspaces.value = (await api<{ workspaces: Row[] }>('/api/ops/workspaces')).workspaces ?? [];
@@ -459,6 +495,7 @@ async function switchTab(tab: string): Promise<void> {
   notice.value = '';
   if (tab === 'overview') await loadOverview();
   if (tab === 'users') await loadUsers();
+  if (tab === 'workspaces') await loadWorkspaceAdmin();
   if (tab === 'providers') await loadProviders();
   if (tab === 'sources') await loadSources();
   if (tab === 'budget') await loadBudget();
@@ -800,6 +837,33 @@ onMounted(checkSession);
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <section v-else-if="active === 'workspaces'" class="ops__table-wrap">
+            <table class="ops__table">
+              <thead><tr><th>工作空间</th><th>成员</th><th>状态</th><th>状态更新</th><th>备注</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="workspace in workspaces" :key="workspace.id">
+                  <td><strong>{{ workspace.name || workspace.id }}</strong><br /><small class="ops__muted">{{ workspace.id }}</small></td>
+                  <td>{{ workspace.members ?? '-' }}</td>
+                  <td><span class="ops__badge" :class="badgeClass(workspace.status)">{{ workspace.status ?? 'ACTIVE' }}</span></td>
+                  <td>{{ fmt(workspace.status_updated_at) }}</td>
+                  <td class="ops__muted">{{ workspace.status_note ?? '' }}</td>
+                  <td>
+                    <select
+                      :value="workspace.status ?? 'ACTIVE'"
+                      :disabled="workspaceBusy === String(workspace.id)"
+                      @change="handleWorkspaceStatus(workspace, $event)"
+                    >
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="DISABLED">DISABLED</option>
+                      <option value="ARCHIVED">ARCHIVED</option>
+                    </select>
+                  </td>
+                </tr>
+                <tr v-if="workspaces.length === 0"><td colspan="6" class="ops__muted">没有工作空间</td></tr>
+              </tbody>
+            </table>
           </section>
 
           <section v-else-if="active === 'providers'" class="ops__table-wrap">

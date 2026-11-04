@@ -21,6 +21,8 @@ type Row = Record<string, unknown>;
 
 const PROVIDER_STATUSES = new Set(['ENABLED', 'DISABLED']);
 const SOURCE_STATUSES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED']);
+/** workspace 生命周期：ACTIVE 正常 / DISABLED 停用（可恢复）/ ARCHIVED 归档（仅运营可还原）。 */
+const WORKSPACE_STATUSES = new Set(['ACTIVE', 'DISABLED', 'ARCHIVED']);
 
 const sourceCadence = z.union([
   z.object({ kind: z.literal('fixed'), everyMs: z.number().int().positive() }),
@@ -290,6 +292,31 @@ export class OpsService {
     return { source: rows[0] };
   }
 
+  async setWorkspaceStatus(id: string, status: string, actorId: string, note?: string): Promise<Row> {
+    if (!WORKSPACE_STATUSES.has(status)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION', message: 'status 需要 ACTIVE|DISABLED|ARCHIVED' } });
+    }
+    const db = await this.database.writable();
+    const before = await db.query(`SELECT id::text, name, status FROM workspace WHERE id = $1`, [id]);
+    if (before.length === 0) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+    const rows = await db.query(
+      `UPDATE workspace
+          SET status = $2::"WorkspaceStatus", status_updated_at = now(), status_updated_by = $3,
+              status_note = $4, updated_at = now()
+        WHERE id = $1
+        RETURNING id::text, name, status, status_updated_at`,
+      [id, status, actorId, note ?? null],
+    );
+    await this.audit.record({
+      realm: 'ops',
+      actorId,
+      action: 'workspace.status',
+      target: String(before[0].name),
+      detail: { before: before[0], after: rows[0] },
+    });
+    return { workspace: rows[0] };
+  }
+
   async deleteSource(id: string, actorId: string): Promise<Row> {
     const db = await this.database.writable();
     const before = await db.query(`SELECT id::text, source_key, status FROM monitored_source WHERE id = $1`, [id]);
@@ -406,7 +433,9 @@ export class OpsService {
 
   async workspaces(): Promise<Row[]> {
     const db = this.database.db;
-    const sql = `SELECT id::text, name, created_at FROM workspace ORDER BY created_at`;
+    const sql = `SELECT w.id::text, w.name, w.status, w.status_updated_at, w.status_note, w.created_at,
+                        (SELECT count(*)::text FROM membership m WHERE m.workspace_id = w.id AND m.status = 'active') AS members
+                   FROM workspace w ORDER BY w.created_at`;
     return db.ownerPool ? db.ownerQuery(sql) : db.query(sql);
   }
 

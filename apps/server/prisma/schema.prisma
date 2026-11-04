@@ -27,6 +27,12 @@ model User {
 }
 
 /// 工作空间。id = 引擎租户 id(签发引擎 token 的 workspace claim)。
+enum WorkspaceStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
 model Workspace {
   id        String   @id @db.Uuid
   name      String
@@ -35,6 +41,11 @@ model Workspace {
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")
   /// 引导建档得到的引擎 CompanyProfile id(只存引用,事实仍在引擎 CompanyProfile)。
   onboardingCompanyId   String?   @map("onboarding_company_id") @db.Uuid
+  /// 生命周期状态：ACTIVE 正常 / DISABLED 停用（可恢复）/ ARCHIVED 归档（仅运营可还原）。
+  status          WorkspaceStatus @default(ACTIVE)
+  statusUpdatedAt DateTime?       @map("status_updated_at")
+  statusUpdatedBy String?         @map("status_updated_by")
+  statusNote      String?         @map("status_note")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
