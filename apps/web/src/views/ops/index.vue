@@ -18,6 +18,7 @@ const TABS = [
   { key: 'users', label: '用户' },
   { key: 'workspaces', label: '工作空间' },
   { key: 'providers', label: '数据源' },
+  { key: 'channels', label: '渠道数据源' },
   { key: 'sources', label: '监控源' },
   { key: 'budget', label: '预算' },
   { key: 'diagnostics', label: '诊断' },
@@ -81,6 +82,23 @@ const sourceForm = ref({
   cadenceMinutes: 0,
   configText: '{}',
 });
+
+const channelRows = ref<Row[]>([]);
+const channelBusy = ref('');
+const channelModal = ref<{ mode: 'create' | 'edit'; id?: string } | null>(null);
+const channelForm = ref({
+  name: '',
+  mode: 'import',
+  category: 'directory',
+  status: 'DISABLED',
+  license: '',
+  tosUrl: '',
+  robotsPolicy: '',
+  owner: '',
+  configText: '{}',
+});
+const CHANNEL_CATEGORIES = ['trade_fair', 'customs', 'association', 'directory', 'tender', 'other'] as const;
+const CHANNEL_STATUSES = ['DISABLED', 'ENABLED', 'AUTO_DISABLED'] as const;
 
 const activeLabel = computed(() => TABS.find((tab) => tab.key === active.value)?.label ?? '');
 
@@ -160,6 +178,133 @@ async function loadAttribution(): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
   }
 }
+async function loadChannels(): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const body = await api<{ channels: Row[] }>('/api/ops/channels');
+    channelRows.value = body.channels ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function openCreateChannel(): void {
+  channelModal.value = { mode: 'create' };
+  channelForm.value = {
+    name: '', mode: 'import', category: 'directory', status: 'DISABLED',
+    license: '', tosUrl: '', robotsPolicy: '', owner: '', configText: '{}',
+  };
+}
+
+function openEditChannel(channel: Row): void {
+  channelModal.value = { mode: 'edit', id: String(channel.id) };
+  channelForm.value = {
+    name: String(channel.name ?? ''),
+    mode: String(channel.mode ?? 'import'),
+    category: String(channel.category ?? 'directory'),
+    status: String(channel.status ?? 'DISABLED'),
+    license: String(channel.license ?? ''),
+    tosUrl: String(channel.tosUrl ?? ''),
+    robotsPolicy: String(channel.robotsPolicy ?? ''),
+    owner: String(channel.owner ?? ''),
+    configText: JSON.stringify(channel.config ?? {}, null, 2),
+  };
+}
+
+function closeChannelModal(): void {
+  channelModal.value = null;
+}
+
+async function saveChannel(): Promise<void> {
+  if (!channelModal.value) return;
+  const form = channelForm.value;
+  let config: Record<string, unknown>;
+  try {
+    config = form.configText.trim() ? JSON.parse(form.configText) : {};
+  } catch {
+    error.value = '渠道配置必须是合法 JSON';
+    return;
+  }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    error.value = '渠道配置必须是 JSON 对象';
+    return;
+  }
+  channelBusy.value = 'save';
+  error.value = '';
+  try {
+    if (channelModal.value.mode === 'create') {
+      await api('/api/ops/channels', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          mode: form.mode,
+          category: form.category,
+          config,
+          ...(form.license.trim() ? { license: form.license.trim() } : {}),
+          ...(form.tosUrl.trim() ? { tosUrl: form.tosUrl.trim() } : {}),
+          ...(form.robotsPolicy ? { robotsPolicy: form.robotsPolicy } : {}),
+          ...(form.owner.trim() ? { owner: form.owner.trim() } : {}),
+        }),
+      });
+      notice.value = `渠道 ${form.name.trim()} 已创建（DISABLED；登记许可+条款+robots 后方可启用）`;
+    } else {
+      await api(`/api/ops/channels/${channelModal.value.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          mode: form.mode,
+          category: undefined,
+          config,
+          status: form.status,
+          license: form.license.trim() || null,
+          tosUrl: form.tosUrl.trim() || null,
+          robotsPolicy: form.robotsPolicy || null,
+          owner: form.owner.trim() || null,
+        }),
+      });
+      notice.value = `渠道 ${form.name.trim()} 已更新`;
+    }
+    closeChannelModal();
+    await loadChannels();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    channelBusy.value = '';
+  }
+}
+
+async function previewChannel(channel: Row): Promise<void> {
+  channelBusy.value = String(channel.id);
+  error.value = '';
+  try {
+    await api(`/api/ops/channels/${channel.id}/preview`, { method: 'POST', body: '{}' });
+    notice.value = `渠道 ${channel.name} 试跑已受理`;
+    await loadChannels();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    channelBusy.value = '';
+  }
+}
+
+async function runChannel(channel: Row): Promise<void> {
+  if (!window.confirm(`立即运行渠道 ${channel.name}?运行受平台抓取预算上限约束(单轮页数/单渠道日配额)。`)) return;
+  channelBusy.value = String(channel.id);
+  error.value = '';
+  try {
+    await api(`/api/ops/channels/${channel.id}/run`, { method: 'POST', body: '{}' });
+    notice.value = `渠道 ${channel.name} 运行已受理`;
+    await loadChannels();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    channelBusy.value = '';
+  }
+}
+
 async function loadSources(): Promise<void> {
   loading.value = true;
   error.value = '';
@@ -523,6 +668,7 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'users') await loadUsers();
   if (tab === 'workspaces') await loadWorkspaceAdmin();
   if (tab === 'providers') await loadProviders();
+  if (tab === 'channels') await loadChannels();
   if (tab === 'sources') await loadSources();
   if (tab === 'budget') await loadBudget();
   if (tab === 'diagnostics') await Promise.all([loadWorkspaces(), loadGlobalDiagnostics()]);
@@ -937,6 +1083,35 @@ onMounted(checkSession);
             </div>
           </section>
 
+          <section v-else-if="active === 'channels'" class="ops__stack">
+            <article class="ops__card ops__card--wide">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                <h3>平台渠道数据源</h3>
+                <button type="button" class="ops__btn ops__btn--primary" @click="openCreateChannel">新建渠道</button>
+              </div>
+              <p class="ops__muted">平台渠道的注册/治理只属于运营台（引擎 ops:write）；租户在设置页只能启用/停用已批准渠道并发起私有导入。试跑/运行需要 platform.channel_crawl 授权链，落地前引擎按 fail-closed 返回 409。</p>
+              <table class="ops__table">
+                <thead><tr><th>名称</th><th>模式</th><th>类别</th><th>状态</th><th>失败连击</th><th>最近运行</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr v-for="channel in channelRows" :key="channel.id">
+                    <td>{{ channel.name }}</td>
+                    <td>{{ channel.mode }}</td>
+                    <td>{{ channel.category }}</td>
+                    <td><span class="ops__badge" :class="badgeClass(channel.status)">{{ channel.status }}</span></td>
+                    <td>{{ channel.failureStreak }}</td>
+                    <td>{{ fmt(channel.lastRunAt) }}</td>
+                    <td>
+                      <button type="button" class="ops__btn" @click="openEditChannel(channel)">编辑</button>
+                      <button type="button" class="ops__btn" :disabled="channelBusy === channel.id || channel.mode !== 'crawl'" @click="previewChannel(channel)">试跑</button>
+                      <button type="button" class="ops__btn" :disabled="channelBusy === channel.id || channel.mode !== 'crawl'" @click="runChannel(channel)">运行</button>
+                    </td>
+                  </tr>
+                  <tr v-if="channelRows.length === 0"><td colspan="7" class="ops__muted">没有渠道；先新建一个导入渠道，或等运营在引擎侧完成 crawl 渠道治理后试跑</td></tr>
+                </tbody>
+              </table>
+            </article>
+          </section>
+
           <section v-else-if="active === 'sources'" class="ops__stack">
             <div class="ops__toolbar">
               <button type="button" class="ops__btn ops__btn--primary" @click="openCreateSource">新建源</button>
@@ -1266,6 +1441,39 @@ onMounted(checkSession);
             </table>
           </section>
         </main>
+      </div>
+
+      <div v-if="channelModal" class="ops__modal" @click.self="closeChannelModal">
+        <form class="ops__modal-card" @submit.prevent="saveChannel">
+          <header>
+            <h2>{{ channelModal.mode === 'create' ? '新建平台渠道' : `编辑渠道 ${channelForm.name}` }}</h2>
+            <button type="button" class="ops__btn" @click="closeChannelModal">关闭</button>
+          </header>
+          <div class="ops__form-grid">
+            <label class="ops__field"><span>名称 *</span><input v-model="channelForm.name" required maxlength="200" /></label>
+            <label class="ops__field"><span>模式 *</span>
+              <select v-model="channelForm.mode"><option value="import">import</option><option value="crawl">crawl</option><option value="api">api</option></select>
+            </label>
+            <label class="ops__field"><span>类别 *</span>
+              <select v-model="channelForm.category"><option v-for="category in CHANNEL_CATEGORIES" :key="category" :value="category">{{ category }}</option></select>
+            </label>
+            <label v-if="channelModal.mode === 'edit'" class="ops__field"><span>状态</span>
+              <select v-model="channelForm.status"><option v-for="status in CHANNEL_STATUSES" :key="status" :value="status">{{ status }}</option></select>
+            </label>
+            <label class="ops__field"><span>许可（license）</span><input v-model="channelForm.license" maxlength="200" /></label>
+            <label class="ops__field"><span>条款 URL</span><input v-model="channelForm.tosUrl" maxlength="2048" /></label>
+            <label class="ops__field"><span>robots 结论</span>
+              <select v-model="channelForm.robotsPolicy"><option value="">—</option><option value="A">A（允许抓取）</option><option value="B">B（部分允许）</option><option value="C">C（禁止，永不启用）</option></select>
+            </label>
+            <label class="ops__field"><span>负责人</span><input v-model="channelForm.owner" maxlength="200" /></label>
+          </div>
+          <label class="ops__field"><span>渠道配置 JSON *</span><textarea v-model="channelForm.configText" rows="7" spellcheck="false" /></label>
+          <p class="ops__muted">启用前必须登记许可、条款与 robots 结论（crawl 仅允许 A）；新建默认 DISABLED。保存会写入运营审计。</p>
+          <div class="ops__modal-actions">
+            <button type="button" class="ops__btn" @click="closeChannelModal">取消</button>
+            <button type="submit" class="ops__btn ops__btn--primary" :disabled="channelBusy === 'save'">{{ channelBusy === 'save' ? '保存中…' : '保存' }}</button>
+          </div>
+        </form>
       </div>
 
       <div v-if="sourceModal" class="ops__modal" @click.self="closeSourceModal">

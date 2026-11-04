@@ -808,23 +808,16 @@ export const gainosApi = {
     requestClient.get<{ inviteCodeRequired: boolean }>('/auth/registration-policy'),
   /** 工作空间上下文（SD11）：角色、允许动作与引导状态。 */
   workspaceContext: () => requestClient.get<WorkspaceContextView>('/workspace/context'),
-  /** M1：平台渠道列表（状态/治理/最近运行）。 */
-  sourceChannels: () => requestClient.get<SourceChannelView[]>('/source-channels'),
-  /** M1：租户可用渠道（已批准）+ 是否已启用。 */
+  /** M1：租户可用渠道（已批准）+ 是否已启用。平台渠道的注册/治理只属于运营台（P3）。 */
   availableChannels: () => requestClient.get<AvailableChannelView[]>('/source-channels/available'),
-  createImportChannel: (input: { name: string; category: string }) =>
-    requestClient.post<SourceChannelView>('/source-channels', {
-      ...input,
-      mode: 'import',
-      config: {},
-    }),
   enableChannel: (channelId: string) =>
     requestClient.post<{ channelId: string; enabled: boolean }>(`/source-channels/${channelId}/enable`, {}),
   disableChannel: (channelId: string) =>
     requestClient.delete<{ channelId: string; enabled: boolean }>(`/source-channels/${channelId}/enable`),
-  previewChannelCrawl: (channelId: string) =>
-    requestClient.post<Record<string, unknown>>(`/source-channels/${channelId}/preview`, {}),
-  importTemplate: () => requestClient.get<{ csv: string }>('/source-channels/import-template'),
+  importTemplate: () =>
+    requestClient.get<{ csv: string; columns?: string[]; mapping?: Record<string, string> }>(
+      '/source-channels/import-template',
+    ),
   previewImport: (input: { csv: string; mapping: Record<string, string> }) =>
     requestClient.post<ImportPreviewView>('/imported-buyers/preview', input),
   commitImport: (input: { csv: string; mapping: Record<string, string>; channelId?: string }) =>

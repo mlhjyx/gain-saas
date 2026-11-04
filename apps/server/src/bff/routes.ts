@@ -78,16 +78,11 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'POST', saasPath: 'discovery-runs/:runId/cancel', enginePath: '/discovery-runs/:runId/cancel', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/events', enginePath: '/discovery-runs/:runId/events', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/jobs', enginePath: '/discovery-runs/:runId/jobs', access: 'member' },
-  // ── M1 渠道数据源平台 ──
-  { method: 'GET', saasPath: 'source-channels', enginePath: '/source-channels', access: 'admin' },
+  // ── M1 渠道数据源：租户面（P3 起平台渠道注册/治理/试跑只走运营台 /api/ops/channels）──
   { method: 'GET', saasPath: 'source-channels/available', enginePath: '/source-channels/available', access: 'member' },
   { method: 'GET', saasPath: 'source-channels/import-template', enginePath: '/source-channels/import-template', access: 'admin' },
-  { method: 'POST', saasPath: 'source-channels', enginePath: '/source-channels', access: 'admin' },
-  { method: 'PATCH', saasPath: 'source-channels/:channelId', enginePath: '/source-channels/:channelId', access: 'admin' },
   { method: 'POST', saasPath: 'source-channels/:channelId/enable', enginePath: '/source-channels/:channelId/enable', access: 'admin' },
   { method: 'DELETE', saasPath: 'source-channels/:channelId/enable', enginePath: '/source-channels/:channelId/enable', access: 'admin' },
-  { method: 'POST', saasPath: 'source-channels/:channelId/preview', enginePath: '/source-channels/:channelId/preview', access: 'admin' },
-  { method: 'POST', saasPath: 'source-channels/:channelId/run', enginePath: '/source-channels/:channelId/run', access: 'admin' },
   { method: 'POST', saasPath: 'imported-buyers/preview', enginePath: '/imported-buyers/preview', access: 'admin' },
   { method: 'POST', saasPath: 'imported-buyers', enginePath: '/imported-buyers', access: 'admin' },
   { method: 'GET', saasPath: 'imported-buyers/:batchId', enginePath: '/imported-buyers/:batchId', access: 'admin' },
