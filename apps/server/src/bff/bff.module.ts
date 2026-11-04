@@ -127,9 +127,13 @@ export class BffHandler {
       body = injectPlatformLawfulBasis(body);
     }
     // 引擎镜像升级前，discover attemptId 既不能进 quote 也不能进转发体。
+    // 单一能力语义（2026-11-04）：两个开关只要有一个打开，就视为引擎镜像支持 attemptId；
+    // 未升级的旧镜像默认两者都关，派发前从 quote 与转发体里剥离。
+    const attemptPassthroughEnabled =
+      this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED || this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED;
     const quoteOptions = {
-      discoverAttemptId: this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED,
-      writeAttemptId: this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED,
+      discoverAttemptId: attemptPassthroughEnabled,
+      writeAttemptId: attemptPassthroughEnabled,
     };
     const forwardBody = engineRequestBody(route, body, quoteOptions);
     const headers: Record<string, string> = {};

@@ -19,6 +19,8 @@ function makeController(overrides: {
   engineResponse?: { status: number; body: unknown };
   /** P1：服务端是否已支持 attempt 维度（ENGINE_RETRY_ATTEMPT_ID_ENABLED）。 */
   attemptEnabled?: boolean;
+  /** 同一能力的既有开关名（ENGINE_DISCOVER_ATTEMPT_ID_ENABLED）——任一为 true 即透传。 */
+  discoverAttemptEnabled?: boolean;
   /** taskRun.findFirst 依次返回值（重放查询 → 最近 attempt → 同 plan 上一 TaskRun）。 */
   taskRunFindFirst?: Array<Record<string, unknown> | null>;
 } = {}) {
@@ -81,7 +83,10 @@ function makeController(overrides: {
   };
   const budget = { issue: vi.fn(async () => 'grant-1') };
   const audit = { record: vi.fn(async () => undefined) };
-  const config = { ENGINE_RETRY_ATTEMPT_ID_ENABLED: overrides.attemptEnabled ?? false };
+  const config = {
+    ENGINE_RETRY_ATTEMPT_ID_ENABLED: overrides.attemptEnabled ?? false,
+    ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: overrides.discoverAttemptEnabled ?? false,
+  };
   const controller = new AcquisitionTasksController(
     prisma as never,
     audit as never,
@@ -245,6 +250,16 @@ describe('Run 2.0 任务对象（M0②）', () => {
     expect(prisma.taskRun.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ attemptKey: ATTEMPT_ID }),
     });
+  });
+
+  it('treats the discover attempt flag as the same capability switch (single-switch semantics, 2026-11-04)', async () => {
+    const { controller, budget } = makeController({ discoverAttemptEnabled: true });
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+
+    const quoteRequest = budget.issue.mock.calls[0]![1] as { body?: { attemptId?: string } };
+    expect(quoteRequest.body?.attemptId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it('rejects a malformed attemptId before any database or engine work (P1)', async () => {

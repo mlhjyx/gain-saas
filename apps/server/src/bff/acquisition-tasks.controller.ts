@@ -165,10 +165,15 @@ export class AcquisitionTasksController {
     if (rawAttemptId !== undefined && (typeof rawAttemptId !== 'string' || !UUID.test(rawAttemptId))) {
       invalid('attemptId 必须是 UUID');
     }
+    // 单一能力语义：任一 attempt 开关打开都视为「引擎镜像已支持 attemptId」——
+    // ENGINE_DISCOVER_ATTEMPT_ID_ENABLED 是既有部署里已开启的那个，单独只认新名字会让重试
+    // 静默剥离 attemptId 并撞 GRANT_REUSED（2026-11-04 验收阻断复现）。
+    const attemptPassthroughEnabled =
+      this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED || this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED;
     const attemptId: string | undefined =
       typeof rawAttemptId === 'string'
         ? rawAttemptId
-        : this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED
+        : attemptPassthroughEnabled
           ? randomUUID()
           : undefined;
 
@@ -196,7 +201,7 @@ export class AcquisitionTasksController {
     const previousAttempt = allocated.previousAttempt;
 
     // 引擎侧 attempt：开关关闭时剥离（兼容未升级镜像，requestSha256 与旧版一致）。
-    const engineAttempt = this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED ? attemptId : undefined;
+    const engineAttempt = attemptPassthroughEnabled ? attemptId : undefined;
     let grant: string;
     try {
       // 与 BFF execute 路由同一 quote 口径（operation + planId + 可选 attemptId）。
