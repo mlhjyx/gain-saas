@@ -129,6 +129,11 @@ export class OpsController {
     return { outbox: await this.ops.outbox(id) };
   }
 
+  @Get('workspaces/:id/provider-attribution')
+  async providerAttribution(@Param('id') id: string) {
+    return { providers: await this.ops.providerAttribution(id) };
+  }
+
   @Get('workspaces/:id/traces')
   async traces(@Param('id') id: string, @Query('status') status?: string, @Query('limit') limit?: string) {
     return { traces: await this.ops.traces(id, { status, limit: Number(limit) || undefined }) };

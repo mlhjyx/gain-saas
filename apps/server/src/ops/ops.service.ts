@@ -586,6 +586,59 @@ export class OpsService {
     });
   }
 
+  /**
+   * 数据源归因漏斗（Q33 PR-1）：按 provider 统计「原始记录 → 物化公司 → 进管线 →
+   * 快判 → 深判正面 → 推荐」与抓取成本。lead/raw_source_record 等是租户表（FORCE
+   * RLS），按工作空间聚合（运营诊断口径）；平台级汇总待专门的跨空间读取角色。
+   * 判定取每家公司最新一条 job/lead 作为现状（近似口径，文档注明）。
+   */
+  async providerAttribution(workspaceId: string): Promise<Row[]> {
+    if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION', message: 'workspaceId 需要 UUID' } });
+    }
+    return this.database.db.withWorkspace(workspaceId, async (client) => {
+      const { rows } = await client.query(
+        `WITH provider_records AS (
+           SELECT provider_key,
+                  count(*)::int AS raw_records,
+                  coalesce(sum(cost_cents), 0)::int AS cost_cents
+           FROM raw_source_record
+           GROUP BY provider_key
+         ), provider_companies AS (
+           SELECT r.provider_key, il.canonical_id AS company_id
+           FROM raw_source_record r
+           JOIN identity_link il ON il.raw_record_id = r.id
+           GROUP BY 1, 2
+         )
+         SELECT pr.provider_key,
+                pr.raw_records,
+                pr.cost_cents,
+                count(pc.company_id)::int AS companies,
+                count(j.canonical_company_id)::int AS in_pipeline,
+                count(j.canonical_company_id) FILTER (WHERE j.verdict_quick IS NOT NULL)::int AS quick_judged,
+                count(j.canonical_company_id) FILTER (WHERE j.verdict_deep IN ('match','weak'))::int AS deep_positive,
+                count(l.canonical_company_id) FILTER (WHERE l.queue = 'recommended')::int AS recommended
+         FROM provider_records pr
+         LEFT JOIN provider_companies pc ON pc.provider_key = pr.provider_key
+         LEFT JOIN LATERAL (
+           SELECT canonical_company_id, verdict_quick, verdict_deep
+           FROM discovery_company_job
+           WHERE canonical_company_id = pc.company_id
+           ORDER BY updated_at DESC LIMIT 1
+         ) j ON true
+         LEFT JOIN LATERAL (
+           SELECT canonical_company_id, queue
+           FROM lead
+           WHERE canonical_company_id = pc.company_id
+           ORDER BY scored_at DESC NULLS LAST LIMIT 1
+         ) l ON true
+         GROUP BY pr.provider_key, pr.raw_records, pr.cost_cents
+         ORDER BY companies DESC, pr.provider_key`,
+      );
+      return rows;
+    });
+  }
+
   async outbox(workspaceId: string): Promise<Row[]> {
     return this.database.db.withWorkspace(workspaceId, async (client) => {
       const { rows } = await client.query(
