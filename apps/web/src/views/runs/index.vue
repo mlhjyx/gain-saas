@@ -66,6 +66,130 @@ async function pollEvents(): Promise<void> {
   }
 }
 
+// P1（方案 2.5/G2）：失败/部分完成/已停止的 run 可重试——同一计划发起新 attempt（新预算账户），
+// 同一 attemptId 双击幂等；启动失败先核对任务是否其实已受理，再决定是否允许再点。
+interface AttemptRow {
+  id: string;
+  runId: string | null;
+  attempt: number;
+  rerunOf: string | null;
+  status: string;
+  startedAt: string;
+}
+const retrying = ref(false);
+const retryDialog = ref(false);
+const retryNotice = ref<string | null>(null);
+const retryError = ref<string | null>(null);
+const retryAttemptId = ref<string | null>(null);
+const taskAttempts = ref<AttemptRow[]>([]);
+
+const canRetry = computed(() => {
+  const status = run.value?.status;
+  return Boolean(run.value) &&
+    (status === 'FAILED' || status === 'PARTIAL' || status === 'CANCELLED') &&
+    Boolean(run.value?.taskRef?.taskId) &&
+    Boolean(run.value?.planId);
+});
+
+const retryOutcomeText = computed(() => {
+  const status = statusLabel(run.value?.status);
+  const stage = String(failure.value?.stage ?? '');
+  const key = FAILURE_STAGE[stage];
+  return key
+    ? $t('gainos.runs.retryLastOutcome', { status, stage: userStageLabel(key) })
+    : status;
+});
+
+function mintAttemptId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid ?? `attempt-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+}
+
+async function loadTaskAttempts(): Promise<void> {
+  const taskId = run.value?.taskRef?.taskId;
+  const icpId = run.value?.icpId;
+  if (!taskId || !icpId) {
+    taskAttempts.value = [];
+    return;
+  }
+  try {
+    const tasks = await gainosApi.acquisitionTasks(icpId);
+    const task = tasks.find((entry) => entry.id === taskId);
+    taskAttempts.value = (task?.runs ?? [])
+      .map((row) => ({
+        id: row.id,
+        runId: row.runId,
+        attempt: row.attempt ?? 1,
+        rerunOf: row.rerunOf ?? null,
+        status: row.status,
+        startedAt: row.startedAt,
+      }))
+      .sort((a, b) => a.attempt - b.attempt);
+  } catch {
+    // 尝试历史不可用时不影响主流程。
+  }
+}
+
+async function reconcileStartedRun(taskId: string): Promise<string | null> {
+  const icpId = run.value?.icpId;
+  if (!icpId) return null;
+  const before = new Set(taskAttempts.value.map((row) => row.runId).filter(Boolean));
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const tasks = await gainosApi.acquisitionTasks(icpId);
+      const task = tasks.find((entry) => entry.id === taskId);
+      const fresh = (task?.runs ?? []).find((row) => row.runId && !before.has(row.runId));
+      if (fresh?.runId) return fresh.runId;
+    } catch {
+      // 继续轮询到窗口结束。
+    }
+  }
+  return null;
+}
+
+async function confirmRetry(): Promise<void> {
+  if (retrying.value || !run.value) return;
+  const taskId = run.value.taskRef?.taskId;
+  const planId = run.value.planId;
+  if (!taskId || !planId) {
+    retryError.value = $t('gainos.runs.retryUnavailable');
+    return;
+  }
+  retrying.value = true;
+  retryError.value = null;
+  retryAttemptId.value ??= mintAttemptId();
+  try {
+    const result = await gainosApi.startAcquisitionTaskRun(taskId, planId, retryAttemptId.value);
+    retryDialog.value = false;
+    retryAttemptId.value = null;
+    retryNotice.value = $t('gainos.runs.retryRequested');
+    if (result.runId) {
+      await router.push({ name: 'DiscoveryRun', params: { runId: result.runId } });
+    } else {
+      await load();
+    }
+  } catch (err) {
+    const settled = await reconcileStartedRun(taskId);
+    if (settled) {
+      retryDialog.value = false;
+      retryAttemptId.value = null;
+      retryNotice.value = $t('gainos.runs.retryRequested');
+      await router.push({ name: 'DiscoveryRun', params: { runId: settled } });
+      return;
+    }
+    retryError.value = failureText(err).title;
+  } finally {
+    retrying.value = false;
+  }
+}
+
+function closeRetryDialog(): void {
+  if (retrying.value) return;
+  retryDialog.value = false;
+  retryError.value = null;
+}
+
 async function stopDeep(): Promise<void> {
   if (stopping.value) return;
   if (!window.confirm($t('gainos.runs.stopConfirm'))) return;
@@ -427,6 +551,7 @@ async function load(): Promise<void> {
     await Promise.all([
       pollEvents(),
       jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
+      loadTaskAttempts(),
     ]);
   } catch (err) {
     error.value = failureText(err);
@@ -477,6 +602,7 @@ onUnmounted(() => {
       <div class="run__head-actions">
         <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
         <button v-if="run?.status === 'RUNNING'" class="run__action run__action--danger" type="button" :disabled="stopping" @click="stopDeep">{{ stopping ? $t('gainos.common.loading') : $t('gainos.runs.stopDeep') }}</button>
+        <button v-if="canRetry" class="run__action run__action--primary" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
         <button class="run__action" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
       </div>
     </header>
@@ -505,6 +631,8 @@ onUnmounted(() => {
       </section>
 
       <p v-if="stopNotice" class="run__muted">{{ stopNotice }}</p>
+      <p v-if="retryNotice" class="run__muted">{{ retryNotice }}</p>
+      <p v-if="retryError" class="run__error-text" role="alert">{{ retryError }}</p>
       <p v-if="jobError" class="run__error-text" role="alert">{{ jobError }}</p>
 
       <section class="run__grid">
@@ -562,9 +690,30 @@ onUnmounted(() => {
           </p>
         </div>
         <div class="run__outcome-actions">
+          <button v-if="canRetry" class="run__action run__action--primary" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
           <button v-if="run.status === 'PARTIAL'" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
           <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.adjustIcp') }}</button>
         </div>
+      </section>
+
+      <section v-if="taskAttempts.length > 1" class="run__card run__card--wide">
+        <h2>{{ $t('gainos.runs.attemptHistoryTitle') }}</h2>
+        <table class="run__table">
+          <thead><tr><th>{{ $t('gainos.runs.attemptColumn') }}</th><th>{{ $t('gainos.runs.attemptStatus') }}</th><th>{{ $t('gainos.runs.started') }}</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="attempt in taskAttempts" :key="attempt.id">
+              <td>
+                {{ $t('gainos.runs.attemptNth', { n: attempt.attempt }) }}
+                <small v-if="attempt.rerunOf" class="run__muted"> · {{ $t('gainos.runs.attemptRetriedFrom', { n: taskAttempts.find((row) => row.id === attempt.rerunOf)?.attempt ?? '?' }) }}</small>
+              </td>
+              <td>{{ statusLabel(attempt.status) }}</td>
+              <td>{{ new Date(attempt.startedAt).toLocaleString() }}</td>
+              <td>
+                <button v-if="attempt.runId && attempt.runId !== runId" class="run__action" type="button" @click="router.push({ name: 'DiscoveryRun', params: { runId: attempt.runId } })">{{ $t('gainos.runs.attemptOpen') }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <details class="run__tech">
@@ -725,6 +874,19 @@ onUnmounted(() => {
         <pre>{{ JSON.stringify(run, null, 2) }}</pre>
       </details>
     </template>
+
+    <div v-if="retryDialog" class="run__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.runs.retryTitle')">
+      <div class="run__modal-card">
+        <h2>{{ $t('gainos.runs.retryTitle') }}</h2>
+        <p class="run__muted">{{ $t('gainos.runs.retryLastOutcomeLabel') }}：{{ retryOutcomeText }}</p>
+        <p class="run__muted">{{ $t('gainos.runs.retryBudget') }}</p>
+        <p v-if="retryError" class="run__error-text" role="alert">{{ retryError }}</p>
+        <div class="run__modal-actions">
+          <button class="run__action" type="button" :disabled="retrying" @click="closeRetryDialog">{{ $t('gainos.common.cancel') }}</button>
+          <button class="run__action run__action--primary" type="button" :disabled="retrying" @click="confirmRetry">{{ retrying ? $t('gainos.common.loading') : $t('gainos.runs.retryConfirm') }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -738,6 +900,10 @@ onUnmounted(() => {
 .run__head-actions { display: flex; align-items: center; gap: 12px; padding-top: 4px; }
 .run__auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gs-fg-muted); }
 .run__action { border: 1px solid var(--gs-border); background: var(--gs-surface); border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--gs-fg); }
+.run__modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.45); padding: 24px; }
+.run__modal-card { width: min(520px, 100%); background: var(--gs-surface); border-radius: 16px; padding: 22px 24px; display: grid; gap: 10px; box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28); }
+.run__modal-card h2 { margin: 0; font-size: 17px; }
+.run__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .run__action--primary { background: var(--gs-accent); border-color: var(--gs-accent); color: #fff; font-weight: 600; }
 .run__outcome {
   display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;

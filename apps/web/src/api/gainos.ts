@@ -332,6 +332,10 @@ export interface Backtest {
 export interface TaskRunView {
   id: string;
   runId: string | null;
+  /** P1 attempt 维度：本次尝试对应的计划、任务内第 N 次尝试、重试来源（同任务同 plan 的上一 TaskRun）。 */
+  planId?: string | null;
+  attempt?: number;
+  rerunOf?: string | null;
   trigger: 'manual' | 'schedule' | string;
   status: 'RUNNING' | 'DONE' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | string;
   startedAt: string;
@@ -744,22 +748,34 @@ export const gainosApi = {
   queryPlans: (icpId: string) => requestClient.get<QueryPlan[]>(`/icps/${icpId}/query-plans`),
   /** M2：ICP 反馈聚合与建议卡（只读）。 */
   icpFeedback: (icpId: string) => requestClient.get<IcpFeedbackReport>(`/icps/${icpId}/feedback`),
-  createQueryPlan: (icpId: string) => requestClient.post<QueryPlan>(`/icps/${icpId}/query-plans`, {}),
+  createQueryPlan: (icpId: string, attemptId?: string) =>
+    requestClient.post<QueryPlan>(`/icps/${icpId}/query-plans`, attemptId ? { attemptId } : {}),
   confirmQueryPlan: (planId: string) =>
     requestClient.post<QueryPlan>(`/query-plans/${planId}/confirm`, {}),
-  executeQueryPlan: (planId: string) =>
-    requestClient.post<{ runId: string; status: string }>(`/query-plans/${planId}/execute`, {}),
+  executeQueryPlan: (planId: string, attemptId?: string) =>
+    requestClient.post<{ runId: string; status: string }>(
+      `/query-plans/${planId}/execute`,
+      attemptId ? { attemptId } : {},
+    ),
   /** Run 2.0（M0②）：任务列表（含最近运行）。 */
   acquisitionTasks: (icpId?: string) =>
     requestClient.get<AcquisitionTaskView[]>('/tasks', { params: icpId ? { icpId } : {} }),
   createAcquisitionTask: (input: { icpId?: string; name: string }) =>
     requestClient.post<AcquisitionTaskView>('/tasks', input),
-  /** 发起一次任务执行：SaaS 建 TaskRun，BFF 走 quote→Grant 调引擎 execute（带 taskRef）。 */
-  startAcquisitionTaskRun: (taskId: string, planId: string) =>
-    requestClient.post<{ taskRunId: string; runId: string; status: string }>(
-      `/tasks/${taskId}/runs`,
-      { planId },
-    ),
+  /**
+   * 发起一次任务执行：SaaS 建 TaskRun，BFF 走 quote→Grant 调引擎 execute（带 taskRef）。
+   * P1：attemptId 是前端在「用户意图」粒度生成的幂等键——双击复用同一键只算一次；
+   * 引擎侧同键重放会被预算防重放拒绝，BFF 侧命中既有 TaskRun 时直接返回（replayed）。
+   */
+  startAcquisitionTaskRun: (taskId: string, planId: string, attemptId?: string) =>
+    requestClient.post<{
+      taskRunId: string;
+      runId: string | null;
+      status: string;
+      attempt?: number;
+      rerunOf?: string | null;
+      replayed?: boolean;
+    }>(`/tasks/${taskId}/runs`, attemptId ? { planId, attemptId } : { planId }),
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
   /** M0⑤：增量拉取 run 事件（after=上次的 nextAfter；事件可重放）。 */
   runEvents: (runId: string, after = 0, limit = 200) =>
