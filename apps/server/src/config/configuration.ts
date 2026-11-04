@@ -34,6 +34,7 @@ const schema = z.object({
   // P1 重试 attempt 维度（引擎 #791/B1 起支持）：默认关闭时 BFF 从 quote 与转发体里剥离
   // attemptId，兼容未升级的引擎镜像；打开后三类写路由透传/兜底生成 attemptId，任务执行
   // 每次尝试携带独立 attemptId（新请求哈希 → 新预算账户）。
+  // 与 ENGINE_DISCOVER_ATTEMPT_ID_ENABLED 是同一能力的两个名字：任一为 true 即透传。
   ENGINE_RETRY_ATTEMPT_ID_ENABLED: z
     .string()
     .default('false')
