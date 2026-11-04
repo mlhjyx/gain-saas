@@ -572,7 +572,9 @@
       "PARTIAL": "Partially completed",
       "FAILED": "Failed",
       "CANCELLED": "Cancelled"
-    }
+    },
+    "suggestionsTitle": "Feedback suggestions",
+    "suggestionsDesc": "Aggregated from your accept/reject decisions (advice only; adopt by editing the ICP)."
   },
   "leads": {
     "kicker": "Coming in M3",

@@ -94,6 +94,8 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 04 线索工作台 ──
   { method: 'POST', saasPath: 'icps/:icpId/qualify', enginePath: '/icps/:icpId/qualify', access: 'member' },
+  // M2 反馈闭环：聚合与建议卡（只读）。
+  { method: 'GET', saasPath: 'icps/:icpId/feedback', enginePath: '/icps/:icpId/feedback', access: 'member' },
   { method: 'GET', saasPath: 'leads', enginePath: '/leads', access: 'member' },
   { method: 'GET', saasPath: 'icps/:icpId/lead-queues', enginePath: '/icps/:icpId/lead-queues', access: 'member' },
   { method: 'GET', saasPath: 'leads/:leadId/package', enginePath: '/leads/:leadId/package', access: 'member' },
