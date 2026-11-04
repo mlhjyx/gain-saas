@@ -44,6 +44,8 @@ model Workspace {
   runLinks    DiscoveryRunLink[]
   complianceDeclarations WorkspaceComplianceDeclaration[]
   budgetPolicy WorkspaceBudgetPolicy?
+  tasks       AcquisitionTask[]
+  taskRuns    TaskRun[]
 
   @@map("workspace")
 }
@@ -101,6 +103,51 @@ model DiscoveryRunLink {
   @@index([workspaceId, planId])
   @@index([workspaceId, icpId])
   @@map("discovery_run_link")
+}
+
+/// Run 2.0（M0②）：挖掘任务（任务=挖掘需求，绑定引擎侧 ICP）。任务对象前移到 SaaS，
+/// 每次执行产生一条 TaskRun；引擎 run 通过 taskRef 关联回来（引擎 discovery_run.task_ref）。
+model AcquisitionTask {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  /// 引擎 ICP id（事实在引擎，这里只存引用）。
+  icpId       String?   @map("icp_id") @db.Uuid
+  name        String
+  /// active | paused | archived
+  status      String    @default("active")
+  createdBy   String    @map("created_by") @db.Uuid
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      TaskRun[]
+
+  @@index([workspaceId, icpId])
+  @@map("acquisition_task")
+}
+
+/// Run 2.0（M0②）：任务每次执行的记录；status 镜像引擎 run 状态（stats 仍以引擎为准）。
+model TaskRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  taskId      String    @map("task_id") @db.Uuid
+  engineRunId String?   @unique @map("engine_run_id") @db.Uuid
+  /// manual | schedule
+  trigger     String    @default("manual")
+  requestedBy String    @map("requested_by") @db.Uuid
+  /// RUNNING | DONE | PARTIAL | FAILED | CANCELLED（镜像引擎状态）
+  status      String    @default("RUNNING")
+  budgetRef   String?   @map("budget_ref")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      AcquisitionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId, createdAt])
+  @@map("task_run")
 }
 
 /// (user, workspace) 多对多,SD2:模型必做,UI 只做切换器。

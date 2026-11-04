@@ -561,6 +561,16 @@
       "manufacturer": "制造商/工厂",
       "distributor": "分销商/进口商",
       "buyer": "采购方"
+    },
+    "taskRunsTitle": "最近运行",
+    "taskRunsDesc": "这个 ICP 的任务执行历史；点「查看运行」回到当次进度与结果。",
+    "taskRunsEmpty": "还没有任务运行记录——确认查询计划后点「执行」即可开始。",
+    "taskRunStatus": {
+      "RUNNING": "进行中",
+      "DONE": "已完成",
+      "PARTIAL": "部分完成",
+      "FAILED": "失败",
+      "CANCELLED": "已取消"
     }
   },
   "leads": {

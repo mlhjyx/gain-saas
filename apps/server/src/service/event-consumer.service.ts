@@ -197,6 +197,14 @@ export class EventConsumerService implements OnModuleInit {
         (typeof payload.runId === 'string' && payload.runId) ||
         aggregateId;
       const status = typeof payload.status === 'string' ? payload.status : '';
+      // Run 2.0（M0②）：任务执行记录镜像引擎 run 的终态（stats 仍以引擎为准）。
+      const terminalStatus = ['DONE', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(status)
+        ? status
+        : 'DONE';
+      await tx.taskRun.updateMany({
+        where: { workspaceId, engineRunId: runId, status: 'RUNNING' },
+        data: { status: terminalStatus, finishedAt: new Date() },
+      });
       const notificationType =
         status === 'PARTIAL'
           ? 'DiscoveryRunPartial'

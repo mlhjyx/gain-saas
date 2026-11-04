@@ -328,6 +328,28 @@ export interface Backtest {
   createdAt: string;
 }
 
+/** Run 2.0（M0②）：任务对象（AcquisitionTask / TaskRun）。 */
+export interface TaskRunView {
+  id: string;
+  runId: string | null;
+  trigger: 'manual' | 'schedule' | string;
+  status: 'RUNNING' | 'DONE' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface AcquisitionTaskView {
+  id: string;
+  icpId: string | null;
+  name: string;
+  status: 'active' | 'paused' | 'archived' | string;
+  createdBy: string;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  runs: TaskRunView[];
+}
+
 export interface QueryPlan {
   id: string;
   icpId: string;
@@ -617,6 +639,17 @@ export const gainosApi = {
     requestClient.post<QueryPlan>(`/query-plans/${planId}/confirm`, {}),
   executeQueryPlan: (planId: string) =>
     requestClient.post<{ runId: string; status: string }>(`/query-plans/${planId}/execute`, {}),
+  /** Run 2.0（M0②）：任务列表（含最近运行）。 */
+  acquisitionTasks: (icpId?: string) =>
+    requestClient.get<AcquisitionTaskView[]>('/tasks', { params: icpId ? { icpId } : {} }),
+  createAcquisitionTask: (input: { icpId?: string; name: string }) =>
+    requestClient.post<AcquisitionTaskView>('/tasks', input),
+  /** 发起一次任务执行：SaaS 建 TaskRun，BFF 走 quote→Grant 调引擎 execute（带 taskRef）。 */
+  startAcquisitionTaskRun: (taskId: string, planId: string) =>
+    requestClient.post<{ taskRunId: string; runId: string; status: string }>(
+      `/tasks/${taskId}/runs`,
+      { planId },
+    ),
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
   discoveryRunLinks: (icpId: string) =>
     requestClient.get<DiscoveryRunLink[]>('/runs', { params: { icpId } }),
