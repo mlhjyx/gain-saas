@@ -119,39 +119,32 @@ export interface BudgetQuoteOptions {
   readonly discoverAttemptId?: boolean;
 }
 
-/** D6：租户声明的快照（服务层 Prisma 行的子集）。 */
-export interface ComplianceDeclarationSnapshot {
-  basis: string;
-  ref?: string | null;
-  note?: string | null;
-  version: number;
-  declaredAt: Date;
-}
+/**
+ * 平台级合法依据引用（2026-11-04 产品负责人决定：取消租户声明）。
+ *
+ * 平台以 OWNER-DECISION-2026-10-11 的 LIA 口径统一覆盖所有租户的联系人操作，
+ * 与引擎 run 内联系人阶段使用的 interim LIA 同一引用。引擎请求级字段与校验不变，
+ * 因此随时可恢复「租户声明」模式（历史声明只读留存，见 ComplianceDeclarationService.history）。
+ * 文本由产品负责人签字，见 docs/technical/platform-lia-and-privacy-placeholder.md。
+ */
+export const PLATFORM_LAWFUL_BASIS = Object.freeze({
+  basis: 'legitimate_interest',
+  ref: 'OWNER-DECISION-2026-10-11',
+  note: 'platform LIA (OWNER-DECISION-2026-10-11); tenant declarations retired 2026-11-04',
+});
 
 /**
- * D6：请求未显式携带 lawfulBasis 时，注入租户当前声明（带版本快照，审计可追溯）。
+ * 请求未显式携带 lawfulBasis 时，注入平台级合法依据引用。
  * 必须在 quote 构造之前调用——guess/verify 的 quote 绑定 body，注入晚于 quote 会 SCOPE_MISMATCH。
+ * 显式携带（per-call override）时不覆盖。
  */
-export function injectDeclaredCompliance(
-  body: unknown,
-  declared: ComplianceDeclarationSnapshot | null,
-): unknown {
-  if (!declared) return body;
+export function injectPlatformLawfulBasis(body: unknown): unknown {
   if (body && typeof body === 'object' && (body as Record<string, unknown>).lawfulBasis) return body;
-  // 引擎合同：lawfulBasisRef ≤512、lawfulBasisNote ≤1000，且两者均禁 C0/DEL 控制字符
-  // （backend discovery.controller.ts NO_CONTROL_CHARS）。声明全文（可多行、最长 4000）
-  // 只存 SaaS 声明表供审计；注入固定版本戳 + 压成单行并截断的 ref，历史脏行也不会打挂操作。
-  const stamp = `declared v${declared.version} ${declared.declaredAt.toISOString().slice(0, 10)}`;
-  const ref = declared.ref
-    ?.replace(/[\u0000-\u001f\u007f]+/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-    .slice(0, 480);
   return {
     ...(typeof body === 'object' && body ? body : {}),
-    lawfulBasis: declared.basis,
-    ...(ref ? { lawfulBasisRef: ref } : {}),
-    lawfulBasisNote: stamp,
+    lawfulBasis: PLATFORM_LAWFUL_BASIS.basis,
+    lawfulBasisRef: PLATFORM_LAWFUL_BASIS.ref,
+    lawfulBasisNote: PLATFORM_LAWFUL_BASIS.note,
   };
 }
 
