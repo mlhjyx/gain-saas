@@ -486,6 +486,30 @@ model R4PlatformGrant {
   @@map("r4_platform_grant")
 }
 
+/// 平台渠道抓取 Grant（P4-P3）：一张 Grant 绑定一个 channel-crawl 运行。
+/// replay 以 crawl_run_id 唯一；按渠道日页数配额对账读 (channel_id, issued_at)。
+model R4ChannelCrawlGrant {
+  jti                     String   @id @db.Uuid
+  purpose                 String
+  channelId               String   @map("channel_id") @db.Uuid
+  mode                    String
+  pageCap                 BigInt   @map("page_cap")
+  crawlRunId              String   @unique @map("crawl_run_id") @db.Uuid
+  requestSha256           String   @map("request_sha256")
+  technicalPolicyRevision String   @map("technical_policy_revision")
+  capPerRunMicrousd       BigInt   @map("cap_per_run_microusd")
+  campaignCapMicrousd     BigInt   @map("campaign_cap_microusd")
+  maxRuns                 BigInt   @map("max_runs")
+  issuedAt                DateTime @map("issued_at")
+  expiresAt               DateTime @map("expires_at")
+  token                   String
+  tokenSha256             String   @map("token_sha256")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@index([channelId, issuedAt])
+  @@map("r4_channel_crawl_grant")
+}
+
 /// 平台撤销的**逻辑请求**(P9 自动触发)。一个请求 = 一次「关闭某个 schedule」的意图;
 /// 可能有多次追加式尝试(attempt),但 fence_sequence 在请求创建时一次分配、不再变。
 /// state 语义:

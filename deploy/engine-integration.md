@@ -166,6 +166,26 @@ EXECUTION_BUDGET_GRANT_ALGORITHMS=RS256
 
 **预演结果(2026-10-29)**:用引擎仓编译好的 `ExecutionBudgetGrantVerifier` 对 gain-saas 签出的 Grant 做同代码路径验证,已通过(issuer `…/execution-budget`、kid `budget-2026-10-29`、cap `5870000`、purpose/workspace/request_sha256 全部匹配)。
 
+### 平台渠道抓取 Grant（`platform.channel_crawl`，P4-P3）
+
+引擎平台 worker 经同一道 mTLS 门（CN=`global-backend-platform-worker`）调用
+`POST /api/internal/v1/platform-channel-crawl-grants` 取渠道抓取 Grant。签发**默认关闭**，运营按需开启：
+
+```bash
+R4_CHANNEL_CRAWL_GRANT_ENABLED=true
+R4_CHANNEL_CRAWL_MAX_CAP_MICROUSD=5000000
+R4_CHANNEL_CRAWL_EXPECTED_TECHNICAL_POLICY_REVISION=e22cfd856be8698114106b1b24dd39232151c80b2ca22d3fd067b0caad15aa72
+# 期望值 = sha256(canonicalJson(v3 工件 channel_crawl 小节) + "\n")；2026-11-05 reviewed-v3 的值
+```
+
+请求字段：`channelId`(UUID)、`mode`(preview|run|refresh)、`pageCap`(preview 固定 1；run/refresh 1–50)、
+`crawlRunId`(UUID，一次性绑定)、`requestSha256`=sha256(规范 JSON `{"channelId":…,"mode":…,"pageCap":…}`，UTF-8 无换行)、
+`technicalPolicyRevision`（=上面的期望值）、`capPerRunMicrousd`、`campaignCapMicrousd`（≥单轮上限）。
+权威侧硬执行：单渠道 UTC 日累计签发页数 ≤500（引擎侧再按 `source_channel_run` 实际页数二次执行）、
+部署绑定未撤销未过期、任一 egress schedule 处于 DISABLED 时整体拒绝。签发记录落 `r4_channel_crawl_grant`
+（replay 以 `crawl_run_id` 唯一）。上线顺序：引擎镜像先含 P4-P1 契约与 reviewed-v3 工件 → 应用本配置 →
+引擎 P4-P4 接线后，渠道试跑/运行端点才会从 409 切到授权路径。
+
 apply 前必须让 gain-saas web 加载新代码和预算钥:
 
 ```bash

@@ -155,6 +155,15 @@ const schema = z.object({
         '"sanctions-refresh":{"requestSha256":"50b8dfae274bb16a825147c648f46789ea0eb291b3d32964c8bacf385340dffe","envelopeSha256":"c9e22f1fdad8d91f459dc084aa779c195c38dc3f018f158fd8b4987a0f088e64"}}',
     ),
 
+  // P4-P3 渠道抓取 Grant（platform.channel_crawl）：默认关闭；运营按需开启。
+  // 开启后仍要求请求与权威策略副本一致（technicalPolicyRevision = v3 工件
+  // channel_crawl 小节的 canonical sha256，2026-11-05 = e22cfd85…add15aa72）。
+  R4_CHANNEL_CRAWL_GRANT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  R4_CHANNEL_CRAWL_MAX_CAP_MICROUSD: z.string().regex(/^[1-9][0-9]*$/).optional(),
+  R4_CHANNEL_CRAWL_EXPECTED_TECHNICAL_POLICY_REVISION: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
   // 只接受这个客户端证书 CN 的 mTLS 调用（平台 worker）
   R4_PLATFORM_GRANT_CLIENT_SUBJECT: z.string().default('global-backend-platform-worker'),
   R4_LEASE_HEARTBEAT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
