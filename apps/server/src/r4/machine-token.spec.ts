@@ -58,6 +58,7 @@ describe('机器 token 签发', () => {
     ['temporal-customer-worker', ['default:worker']],
     ['temporal-customer-client', ['default:read', 'default:write']],
     ['temporal-reader', ['platform-automation:read']],
+    ['temporal-platform-client', ['platform-automation:write']],
   ] as const)('%s 的 permissions 与顺序固定', async (profile, permissions) => {
     const { service: s, keyring } = await service();
     const env = await s.issue({ profile, nonce: NONCE, subject: SUBJECT, configurationRevision: REVISION });

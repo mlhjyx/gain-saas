@@ -26,7 +26,10 @@ export type MachineTokenProfile =
   | 'temporal-customer-worker'
   | 'temporal-customer-client'
   // 平台上的 schedule 只读身份（GrowthOS reader 同一 subject：growthos-temporal-reader）
-  | 'temporal-reader';
+  | 'temporal-reader'
+  // P4-P4b：引擎 API 以平台 schedule writer 身份启动 platform-automation 工作流
+  // （抓取运行）。权限串与平台授权器的 ScheduleWriterSubject 身份逐字一致。
+  | 'temporal-platform-client';
 
 const CAPABILITY_AUDIENCE = 'platform-automation-capability-read';
 
@@ -35,6 +38,7 @@ const TEMPORAL_PERMISSIONS: Record<string, readonly string[]> = {
   'temporal-customer-worker': ['default:worker'],
   'temporal-customer-client': ['default:read', 'default:write'],
   'temporal-reader': ['platform-automation:read'],
+  'temporal-platform-client': ['platform-automation:write'],
 };
 
 export interface MachineTokenRequest {
