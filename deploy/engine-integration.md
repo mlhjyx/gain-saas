@@ -170,7 +170,8 @@ apply 前必须让 gain-saas web 加载新代码和预算钥:
 
 ```bash
 cd /global/gain-saas && pnpm --filter @gain-saas/shared build && pnpm --filter @gain-saas/server build
-# 重启 4020(开发期 nohup)
+# 重启 4020（systemd 托管；不要用 nohup 手工起受管进程）
+sudo systemctl restart gain-saas-web
 curl -s http://127.0.0.1:4020/.well-known/execution-budget-jwks.json   # 应 200 且 kid=budget-2026-10-29
 sudo python3 /global/gain-saas/deploy/engine-integration-apply.py --apply
 ```
@@ -185,12 +186,14 @@ apply 后 `POST /api/companies` 应返回 **202**(不再 402);`verify-engine-int
 ```bash
 # 1) 打开开关
 sed -i 's/^EVENT_CONSUMER_ENABLED=false/EVENT_CONSUMER_ENABLED=true/' /global/gain-saas/.env
-# 2) 启动 worker(systemd 单元装好之前用 nohup)
-cd /global/gain-saas/apps/server && setsid nohup node dist/worker.js >> /tmp/gain-saas-worker.log 2>&1 < /dev/null &
+# 2) 启动 worker（systemd 单元在 deploy/systemd/gain-saas-worker.service，仓库即唯一来源）
+sudo cp /global/gain-saas/deploy/systemd/gain-saas-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now gain-saas-worker
+systemctl status gain-saas-worker --no-pager
 # 3) 预期:按 registry 逐 workspace 拉取(每 workspace 每轮一页,默认 100 条,游标推进),
-#    event_inbox 入库,outbox_delivery 转 ACKED;344 条的主 workspace 需要约 4 轮(默认 2 分钟/轮)
-tail -f /tmp/gain-saas-worker.log
-psql "postgresql://global:global@127.0.0.1:5432/global_dev" -c "select status,count(*) from outbox_delivery group by 1"
+#    event_inbox 入库并被 ACK;344 条的主 workspace 需要约 4 轮(默认 2 分钟/轮)
+journalctl -u gain-saas-worker -f
+DB=$(grep '^DATABASE_URL=' /global/gain-saas/.env | cut -d= -f2-); psql "$DB" -c "select count(*) from event_inbox"
 ```
 
 ### 验证顺序
