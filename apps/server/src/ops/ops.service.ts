@@ -296,25 +296,29 @@ export class OpsService {
     if (!WORKSPACE_STATUSES.has(status)) {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'status 需要 ACTIVE|DISABLED|ARCHIVED' } });
     }
-    const db = await this.database.writable();
-    const before = await db.query(`SELECT id::text, name, status FROM workspace WHERE id = $1`, [id]);
-    if (before.length === 0) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
-    const rows = await db.query(
-      `UPDATE workspace
-          SET status = $2::"WorkspaceStatus", status_updated_at = now(), status_updated_by = $3,
-              status_note = $4, updated_at = now()
-        WHERE id = $1
-        RETURNING id::text, name, status, status_updated_at`,
-      [id, status, actorId, note ?? null],
-    );
+    const before = await this.prisma.workspace.findUnique({
+      where: { id },
+      select: { id: true, name: true, status: true },
+    });
+    if (!before) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+    const after = await this.prisma.workspace.update({
+      where: { id },
+      data: {
+        status: status as 'ACTIVE' | 'DISABLED' | 'ARCHIVED',
+        statusUpdatedAt: new Date(),
+        statusUpdatedBy: actorId,
+        statusNote: note ?? null,
+      },
+      select: { id: true, name: true, status: true, statusUpdatedAt: true },
+    });
     await this.audit.record({
       realm: 'ops',
       actorId,
       action: 'workspace.status',
-      target: String(before[0].name),
-      detail: { before: before[0], after: rows[0] },
+      target: String(before.name),
+      detail: { before, after },
     });
-    return { workspace: rows[0] };
+    return { workspace: after };
   }
 
   async deleteSource(id: string, actorId: string): Promise<Row> {
@@ -432,11 +436,28 @@ export class OpsService {
   }
 
   async workspaces(): Promise<Row[]> {
-    const db = this.database.db;
-    const sql = `SELECT w.id::text, w.name, w.status, w.status_updated_at, w.status_note, w.created_at,
-                        (SELECT count(*)::text FROM membership m WHERE m.workspace_id = w.id AND m.status = 'active') AS members
-                   FROM workspace w ORDER BY w.created_at`;
-    return db.ownerPool ? db.ownerQuery(sql) : db.query(sql);
+    // workspace 是 SaaS 自有库（5433）的表；provider/source 等运维表在引擎库（5432），不能混用。
+    const rows = await this.prisma.workspace.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        statusUpdatedAt: true,
+        statusNote: true,
+        createdAt: true,
+        _count: { select: { memberships: { where: { status: 'active' } } } },
+      },
+    });
+    return rows.map((w) => ({
+      id: w.id,
+      name: w.name,
+      status: w.status,
+      status_updated_at: w.statusUpdatedAt,
+      status_note: w.statusNote,
+      created_at: w.createdAt,
+      members: String(w._count.memberships),
+    }));
   }
 
   /** 平台运营查看 SaaS 注册用户（SaaS 自有库，不是引擎 workspace 影子行）。 */
