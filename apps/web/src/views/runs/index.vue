@@ -174,7 +174,9 @@ interface StageView {
 const stages = computed<StageView[]>(() => {
   const s = stats.value;
   const terminal = Boolean(run.value) && run.value!.status !== 'RUNNING';
-  const failureStage = recordOf('failure').stage as string | undefined;
+  const rawFailureStage = recordOf('failure').stage as string | undefined;
+  const failureStage = rawFailureStage ? (rawFailureStage && Object.prototype.hasOwnProperty.call(TECH_FAILURE_STAGE, rawFailureStage) ? TECH_FAILURE_STAGE[rawFailureStage] : rawFailureStage) : undefined;
+  const phaseCurrent = currentPhaseKey(run.value, terminal);
   const defs = [
     {
       key: 'query',
@@ -250,8 +252,12 @@ const stages = computed<StageView[]>(() => {
     if (def.has) tone = 'done';
     else if (failureStage === def.key) tone = 'failed';
     else if (!terminal) {
-      tone = assignedCurrent ? 'pending' : 'current';
-      assignedCurrent = true;
+      if (phaseCurrent) {
+        tone = def.key === phaseCurrent ? 'current' : 'pending';
+      } else {
+        tone = assignedCurrent ? 'pending' : 'current';
+        assignedCurrent = true;
+      }
     } else {
       tone = 'skipped';
     }
@@ -265,16 +271,56 @@ const failure = computed(() => {
 });
 
 const FAILURE_STAGE: Record<string, string> = {
+  // Run 2.0（P1）：引擎在 plan/quickScan/deep/finalize 阶段的失败也要落到对应的用户阶段卡上。
+  plan: 'search',
   query: 'search',
+  quickScan: 'match',
   canonicalize: 'collect',
   websiteProfile: 'collect',
   fit: 'match',
   enrich: 'enrich',
   signals: 'enrich',
   contacts: 'enrich',
+  deep: 'enrich',
   watches: 'enrich',
   patentEnqueue: 'enrich',
+  finalize: 'output',
 };
+
+/** Run 2.0 引擎阶段名 → 技术卡 key（技术卡仍按 query/fit/enrich/contacts 的细分展示）。 */
+const TECH_FAILURE_STAGE: Record<string, string> = {
+  plan: 'query',
+  quickScan: 'fit',
+  deep: 'enrich',
+  finalize: 'contacts',
+};
+
+/** 当前处于哪个技术卡：以引擎 run.phases 为准（池优先的 run 不再卡在「搜索」上）。 */
+interface PhaseView {
+  quickStartedAt?: unknown;
+  quickDoneAt?: unknown;
+  deepStartedAt?: unknown;
+  deepDoneAt?: unknown;
+}
+
+/**
+ * P1（方案 2.5）：当前阶段以引擎 run.phases 为准。
+ * - 进入深挖（deepStartedAt）→ 技术卡 enrich / 用户卡 enrich；
+ * - 快扫中（quickStartedAt 且未 quickDoneAt）→ 技术卡 fit / 用户卡 match；
+ * - 没有 phases（旧 run）或已终态 → null（沿用原有「首个未完成卡」推断）。
+ */
+function currentPhaseKey(
+  runRecord: unknown,
+  terminal: boolean,
+): 'fit' | 'enrich' | null {
+  if (terminal) return null;
+  const phases = (runRecord as { phases?: PhaseView } | null)?.phases;
+  const filled = (value: unknown): boolean => typeof value === 'string' && value.length > 0;
+  if (!phases) return null;
+  if (filled(phases.deepStartedAt)) return 'enrich';
+  if (filled(phases.quickStartedAt)) return filled(phases.quickDoneAt) ? 'enrich' : 'fit';
+  return null;
+}
 
 function userStageLabel(key: string): string {
   return $t(`gainos.runs.userStage.${key}`);
@@ -283,6 +329,7 @@ function userStageLabel(key: string): string {
 const userStages = computed(() => {
   const terminal = Boolean(run.value) && run.value!.status !== 'RUNNING';
   const failedKey = FAILURE_STAGE[String(recordOf('failure').stage ?? '')];
+  const phaseCurrent = currentPhaseKey(run.value, terminal);
   const hasSignals = stats.value.signals !== undefined;
   const defs = [
     {
@@ -322,7 +369,8 @@ const userStages = computed(() => {
       label: userStageLabel('output'),
       value: terminal ? statusLabel(run.value?.status) : $t('gainos.runs.userStage.outputRunning'),
       hint: $t('gainos.runs.userStage.outputHint'),
-      has: terminal,
+      // 失败/取消的 run 没有可交付产出——不要把 output 卡渲染成绿色的「完成」。
+      has: terminal && (run.value?.status === 'DONE' || run.value?.status === 'PARTIAL'),
     },
   ];
   let assignedCurrent = false;
@@ -331,8 +379,12 @@ const userStages = computed(() => {
     if (def.has) tone = 'done';
     else if (failedKey === def.key) tone = 'failed';
     else if (!terminal) {
-      tone = assignedCurrent ? 'pending' : 'current';
-      assignedCurrent = true;
+      if (phaseCurrent) {
+        tone = def.key === phaseCurrent ? 'current' : 'pending';
+      } else {
+        tone = assignedCurrent ? 'pending' : 'current';
+        assignedCurrent = true;
+      }
     } else {
       tone = 'skipped';
     }
