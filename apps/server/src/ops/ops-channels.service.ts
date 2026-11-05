@@ -114,6 +114,14 @@ export class OpsChannelsService {
     return this.crawl(`/source-channels/${channelId}/preview`, 'channel.preview', actorId, channelId);
   }
 
+  /** 渠道最近物化的抓取记录（含联系人字段；只读，不写审计——与 list 同）。 */
+  async records(actorId: string, channelId: string, limitRaw?: string): Promise<unknown> {
+    const limit = typeof limitRaw === 'string' && /^[0-9]{1,3}$/u.test(limitRaw) ? limitRaw : '50';
+    const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}/records?limit=${limit}`);
+    if (result.status >= 300) throw engineError(result);
+    return engineData(result);
+  }
+
   async run(actorId: string, channelId: string): Promise<unknown> {
     return this.crawl(`/source-channels/${channelId}/run`, 'channel.run', actorId, channelId);
   }

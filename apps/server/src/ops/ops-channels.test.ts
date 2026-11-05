@@ -36,6 +36,26 @@ describe('OpsChannelsService（P3 数据源归属）', () => {
     });
   });
 
+  it('records 透传 GET /source-channels/:id/records 并夹取 limit（不写审计）', async () => {
+    const { service, calls, audit } = makeService({
+      '/source-channels/ch-1/records?limit=50': {
+        status: 200,
+        body: { data: { channelId: 'ch-1', records: [{ id: 'rec-1', name: 'Acme' }] } },
+      },
+    });
+    await expect(service.records('op-1', 'ch-1')).resolves.toEqual({
+      channelId: 'ch-1',
+      records: [{ id: 'rec-1', name: 'Acme' }],
+    });
+    expect(calls[0]).toMatchObject({ actorId: 'op-1', method: 'GET', path: '/source-channels/ch-1/records?limit=50' });
+    expect(audit.record).not.toHaveBeenCalled();
+
+    // 非法 limit 回退为默认 50，不进入 path 注入。
+    const second = makeService();
+    await second.service.records('op-1', 'ch-1', '99999; DROP');
+    expect(second.calls[0]!.path).toBe('/source-channels/ch-1/records?limit=50');
+  });
+
   it('create 先做形状校验（缺 name 不发引擎调用），成功后写 ops 审计', async () => {
     const { service, engine, audit } = makeService();
     const invalid = await service.create('op-1', { mode: 'import', category: 'directory' }).catch((err: unknown) => err);
