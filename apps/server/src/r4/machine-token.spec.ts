@@ -58,7 +58,6 @@ describe('机器 token 签发', () => {
     ['temporal-customer-worker', ['default:worker']],
     ['temporal-customer-client', ['default:read', 'default:write']],
     ['temporal-reader', ['platform-automation:read']],
-    ['temporal-platform-client', ['platform-automation:write']],
   ] as const)('%s 的 permissions 与顺序固定', async (profile, permissions) => {
     const { service: s, keyring } = await service();
     const env = await s.issue({ profile, nonce: NONCE, subject: SUBJECT, configurationRevision: REVISION });
@@ -70,6 +69,21 @@ describe('机器 token 签发', () => {
     expect(payload.profile).toBe(profile);
     expect(payload.permissions).toEqual([...permissions]);
     expect(payload.aud).toBe('global-backend:platform-temporal');
+  });
+
+  it('temporal-platform-client 是固定身份：typ=JWT、不带 profile（平台 writer 是可调度的无 profile 身份）', async () => {
+    const { service: s, keyring } = await service();
+    const env = await s.issue({ profile: 'temporal-platform-client', nonce: NONCE, subject: SUBJECT, configurationRevision: REVISION });
+    const header = decodeProtectedHeader(env.token);
+    // 平台的 machine_policy 要求空 profile 身份：typ 必须恰为 JWT 且 payload 不得带 profile 声明，
+    // 否则 `Authorization error: PLATFORM_TEMPORAL_READER_AUTH_DENIED`（2026-11-05 真机验收）。
+    expect(header).toEqual({ alg: 'RS256', kid: 'temporal-test', typ: 'JWT' });
+    const { payload } = await jwtVerify(env.token, createLocalJWKSet(keyring.publicJwks('temporalRuntime')));
+    expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'jti', 'nbf', 'permissions', 'sub']);
+    expect(payload.profile).toBeUndefined();
+    expect(payload.permissions).toEqual(['platform-automation:write']);
+    expect(payload.aud).toBe('global-backend:platform-temporal');
+    expect(payload.exp! - payload.iat!).toBe(300);
   });
 
   it('拒绝非法 nonce / revision / profile', async () => {
