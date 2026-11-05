@@ -85,6 +85,9 @@ const sourceForm = ref({
 
 const channelRows = ref<Row[]>([]);
 const channelBusy = ref('');
+const recordChannel = ref<Row | null>(null);
+const recordRows = ref<Row[]>([]);
+const recordsBusy = ref(false);
 const channelModal = ref<{ mode: 'create' | 'edit'; id?: string } | null>(null);
 const channelForm = ref({
   name: '',
@@ -274,6 +277,27 @@ async function saveChannel(): Promise<void> {
   } finally {
     channelBusy.value = '';
   }
+}
+
+async function openChannelRecords(channel: Row): Promise<void> {
+  recordChannel.value = channel;
+  recordRows.value = [];
+  recordsBusy.value = true;
+  error.value = '';
+  try {
+    const body = await api<{ records: Row[] }>(`/api/ops/channels/${channel.id}/records?limit=50`);
+    recordRows.value = body.records ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    recordChannel.value = null;
+  } finally {
+    recordsBusy.value = false;
+  }
+}
+
+function closeChannelRecords(): void {
+  recordChannel.value = null;
+  recordRows.value = [];
 }
 
 async function previewChannel(channel: Row): Promise<void> {
@@ -1104,6 +1128,7 @@ onMounted(checkSession);
                       <button type="button" class="ops__btn" @click="openEditChannel(channel)">编辑</button>
                       <button type="button" class="ops__btn" :disabled="channelBusy === channel.id || channel.mode !== 'crawl'" @click="previewChannel(channel)">试跑</button>
                       <button type="button" class="ops__btn" :disabled="channelBusy === channel.id || channel.mode !== 'crawl'" @click="runChannel(channel)">运行</button>
+                      <button type="button" class="ops__btn" @click="openChannelRecords(channel)">记录</button>
                     </td>
                   </tr>
                   <tr v-if="channelRows.length === 0"><td colspan="7" class="ops__muted">没有渠道；先新建一个导入渠道，或等运营在引擎侧完成 crawl 渠道治理后试跑</td></tr>
@@ -1441,6 +1466,31 @@ onMounted(checkSession);
             </table>
           </section>
         </main>
+      </div>
+
+      <div v-if="recordChannel" class="ops__modal" @click.self="closeChannelRecords">
+        <div class="ops__modal-card">
+          <header>
+            <h2>最近记录 · {{ recordChannel.name }}</h2>
+            <button type="button" class="ops__btn" @click="closeChannelRecords">关闭</button>
+          </header>
+          <p class="ops__muted">抓取物化的公司与联系人记录（最近 50 条，按最后见到时间）。联系人字段为渠道页公开信息；请仅用于获客联系目的。</p>
+          <p v-if="recordsBusy" class="ops__muted">加载中…</p>
+          <p v-else-if="recordRows.length === 0" class="ops__muted">还没有记录；先试跑/运行该渠道。</p>
+          <table v-else class="ops__table">
+            <thead><tr><th>公司</th><th>官网</th><th>国家</th><th>联系人</th><th>邮箱</th><th>最后见到</th></tr></thead>
+            <tbody>
+              <tr v-for="record in recordRows" :key="record.id">
+                <td>{{ record.name }}</td>
+                <td><a v-if="record.website" :href="record.website" target="_blank" rel="noreferrer">{{ record.website }}</a></td>
+                <td>{{ record.country }}</td>
+                <td>{{ record.contactName }}<small v-if="record.contactTitle" class="ops__muted"> · {{ record.contactTitle }}</small></td>
+                <td>{{ record.email }}</td>
+                <td>{{ fmt(record.lastSeenAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div v-if="channelModal" class="ops__modal" @click.self="closeChannelModal">

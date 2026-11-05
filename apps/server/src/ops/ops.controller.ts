@@ -74,6 +74,15 @@ export class OpsController {
     return { data: await this.opsChannels.run(req.opsUser!.id, id) };
   }
 
+  @Get('channels/:id/records')
+  async channelRecords(
+    @Param('id') id: string,
+    @Query('limit') limit: string | undefined,
+    @Req() req: OpsRequest,
+  ) {
+    return { data: await this.opsChannels.records(req.opsUser!.id, id, limit) };
+  }
+
   @Get('sources')
   async sources(
     @Query('status') status?: string,
