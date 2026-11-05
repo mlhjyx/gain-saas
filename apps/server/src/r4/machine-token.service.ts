@@ -90,18 +90,29 @@ export class MachineTokenService {
       ? CAPABILITY_AUDIENCE
       : this.config.R4_MACHINE_TOKEN_TEMPORAL_AUDIENCE;
 
+    // 平台的 schedule-writer 是「无 profile 的固定身份」：machine_policy 要求该主体
+    // 的令牌 typ 恰为 JWT 且 payload 不得携带 profile 声明，否则一律
+    // PLATFORM_TEMPORAL_READER_AUTH_DENIED（2026-11-05 真机验收暴露）。其余 temporal
+    // 档案（reader/worker）仍走带 profile 的 temporal-runtime+jwt 形状。
+    const fixedIdentity = request.profile === 'temporal-platform-client';
     const claims: Record<string, unknown> = capability
       ? { scope: CAPABILITY_AUDIENCE }
-      : {
-          profile: request.profile,
-          permissions: [...(TEMPORAL_PERMISSIONS[request.profile] ?? [])],
-        };
+      : fixedIdentity
+        ? { permissions: [...(TEMPORAL_PERMISSIONS[request.profile] ?? [])] }
+        : {
+            profile: request.profile,
+            permissions: [...(TEMPORAL_PERMISSIONS[request.profile] ?? [])],
+          };
 
     const token = await new SignJWT(claims)
       .setProtectedHeader({
         alg: 'RS256',
         kid,
-        typ: capability ? 'platform-automation-capability-reader+jwt' : 'temporal-runtime+jwt',
+        typ: capability
+          ? 'platform-automation-capability-reader+jwt'
+          : fixedIdentity
+            ? 'JWT'
+            : 'temporal-runtime+jwt',
       })
       .setIssuer(issuer)
       .setAudience(audience)
