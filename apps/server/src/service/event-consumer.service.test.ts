@@ -115,14 +115,14 @@ describe('EventConsumerService 游标(引擎 page.next_cursor)', () => {
 });
 
 describe('1b 花费维度：成本落账', () => {
-  function eventPage(eventType: string, payload: Record<string, unknown>) {
+  function eventPage(eventType: string, payload: Record<string, unknown>, occurredAt = '2026-10-01T08:30:00.000Z') {
     return {
       data: [
         {
           event_id: EVENT_ID,
           event_type: eventType,
           workspace_id: WORKSPACE,
-          occurred_at: new Date().toISOString(),
+          occurred_at: occurredAt,
           payload,
         },
       ],
@@ -164,6 +164,29 @@ describe('1b 花费维度：成本落账', () => {
 
   it('cost 缺失或非正数不落账', async () => {
     const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: 0 });
+    expect(tx.costLedger.createMany).not.toHaveBeenCalled();
+  });
+
+  it('occurredAt 用事件信封的 occurred_at，积压补消费不挤进当前窗口', async () => {
+    const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: 0.42 });
+    expect(tx.costLedger.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ occurredAt: new Date('2026-10-01T08:30:00.000Z') })],
+      }),
+    );
+  });
+
+  it('超大 cost 钳到 int4 上限而不是抛错卡死事件流', async () => {
+    const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: 3000 });
+    expect(tx.costLedger.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ amountMicros: 2_147_483_647 })] }),
+    );
+    // 事件本身照常派生（通知），游标可推进。
+    expect(tx.notification.create).toHaveBeenCalled();
+  });
+
+  it('非有限 cost（Infinity/NaN 字符串转换产物）不落账', async () => {
+    const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: Number.POSITIVE_INFINITY });
     expect(tx.costLedger.createMany).not.toHaveBeenCalled();
   });
 });
