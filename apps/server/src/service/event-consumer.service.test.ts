@@ -13,7 +13,7 @@ function createService(cursor: string | null) {
     eventInbox: { create: vi.fn(async () => ({})) },
     notification: { create: vi.fn(async () => ({})) },
     qualifiedLead: { create: vi.fn(async () => ({})) },
-    costLedger: { create: vi.fn(async () => ({})) },
+    costLedger: { createMany: vi.fn(async () => ({ count: 1 })) },
     taskRun: { updateMany: vi.fn(async () => ({ count: 0 })) },
   };
   const prisma = {
@@ -111,6 +111,60 @@ describe('EventConsumerService 游标(引擎 page.next_cursor)', () => {
     expect(update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ cursor: '42' }) }),
     );
+  });
+});
+
+describe('1b 花费维度：成本落账', () => {
+  function eventPage(eventType: string, payload: Record<string, unknown>) {
+    return {
+      data: [
+        {
+          event_id: EVENT_ID,
+          event_type: eventType,
+          workspace_id: WORKSPACE,
+          occurred_at: new Date().toISOString(),
+          payload,
+        },
+      ],
+      page: { next_cursor: null, has_more: false },
+    };
+  }
+
+  async function consumeSingle(eventType: string, payload: Record<string, unknown>) {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(eventPage(eventType, payload)), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    await service.consumeOnce();
+    return tx;
+  }
+
+  it('DiscoveryRunCompleted 携带 cost 也会落账（分支早退不再吞掉成本）', async () => {
+    const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: 0.42 });
+    expect(tx.costLedger.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          workspaceId: WORKSPACE,
+          sourceEventId: EVENT_ID,
+          amountMicros: 420_000,
+        }),
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('其它类型事件带 cost 同样落账（落账先于类型分支）', async () => {
+    const tx = await consumeSingle('LeadQualified', { lead_id: 'l1', cost_usd: 0.02 });
+    expect(tx.costLedger.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ amountMicros: 20_000 })] }),
+    );
+  });
+
+  it('cost 缺失或非正数不落账', async () => {
+    const tx = await consumeSingle('DiscoveryRunCompleted', { status: 'DONE', cost: 0 });
+    expect(tx.costLedger.createMany).not.toHaveBeenCalled();
   });
 });
 

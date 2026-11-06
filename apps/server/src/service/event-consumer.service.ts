@@ -176,6 +176,17 @@ export class EventConsumerService implements OnModuleInit {
     const payload = (evt.payload ?? {}) as Record<string, unknown>;
     const aggregateId = typeof evt.aggregate_id === 'string' ? evt.aggregate_id : '';
 
+    // 成本落账必须先于事件类型分支：DiscoveryRunCompleted 等分支处理完即 return,
+    // 放在末尾会让携带 cost 的终态事件永远走不到（1b 花费维度补口）。
+    // createMany + (workspace_id, source_event_id) 唯一索引吸收 at-least-once 重放。
+    const cost = payload.cost ?? payload.cost_usd;
+    if (typeof cost === 'number' && cost > 0) {
+      await tx.costLedger.createMany({
+        data: [{ workspaceId, sourceEventId: evt.event_id, amountMicros: Math.round(cost * 1_000_000), occurredAt: new Date() }],
+        skipDuplicates: true,
+      });
+    }
+
     if (type === 'LeadQualified') {
       const leadId =
         (typeof payload.lead_id === 'string' && payload.lead_id) ||
@@ -243,12 +254,6 @@ export class EventConsumerService implements OnModuleInit {
 
     // 单条事实审批不生成站内通知：一次理解会产生上百条 Claim，逐条通知会把铃铛淹没。
     // 审批结果仍在企业事实页与审计中可见。
-    const cost = payload.cost ?? payload.cost_usd;
-    if (typeof cost === 'number' && cost > 0) {
-      await tx.costLedger.create({
-        data: { workspaceId, sourceEventId: evt.event_id, amountMicros: Math.round(cost * 1_000_000), occurredAt: new Date() },
-      });
-    }
   }
 
   private async notify(
