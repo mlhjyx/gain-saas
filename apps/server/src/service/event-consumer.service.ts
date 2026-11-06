@@ -176,6 +176,32 @@ export class EventConsumerService implements OnModuleInit {
     const payload = (evt.payload ?? {}) as Record<string, unknown>;
     const aggregateId = typeof evt.aggregate_id === 'string' ? evt.aggregate_id : '';
 
+    // 成本落账必须先于事件类型分支：DiscoveryRunCompleted 等分支处理完即 return,
+    // 放在末尾会让携带 cost 的终态事件永远走不到（1b 花费维度补口）。
+    // createMany + (workspace_id, source_event_id) 唯一索引吸收 at-least-once 重放。
+    const cost = payload.cost ?? payload.cost_usd;
+    if (typeof cost === 'number' && cost > 0 && Number.isFinite(cost)) {
+      // amount_micros 是 int4：越界会让整个事件事务抛错、游标不前进、单条毒事件
+      // 永久卡死该 workspace 的事件流。钳到 int4 上限并记 warn（正常量级 $15/30 天
+      // 窗口远达不到这里，触发即上游成本异常）。
+      const INT4_MAX = 2_147_483_647;
+      const micros = Math.round(cost * 1_000_000);
+      if (micros > INT4_MAX) {
+        this.logger.warn(
+          `event ${evt.event_id} cost ${cost} exceeds int4 micro-USD range; clamped to ${INT4_MAX} (workspace ${workspaceId})`,
+        );
+      }
+      const amountMicros = Math.min(micros, INT4_MAX);
+      // 配额窗口按事件发生时间（信封 occurred_at）归属，与 event_inbox 同源；
+      // 积压补消费的旧事件不会挤进当前 30 天窗口。
+      const eventTime = new Date(evt.occurred_at);
+      const occurredAt = Number.isNaN(eventTime.getTime()) ? new Date() : eventTime;
+      await tx.costLedger.createMany({
+        data: [{ workspaceId, sourceEventId: evt.event_id, amountMicros, occurredAt }],
+        skipDuplicates: true,
+      });
+    }
+
     if (type === 'LeadQualified') {
       const leadId =
         (typeof payload.lead_id === 'string' && payload.lead_id) ||
@@ -243,12 +269,6 @@ export class EventConsumerService implements OnModuleInit {
 
     // 单条事实审批不生成站内通知：一次理解会产生上百条 Claim，逐条通知会把铃铛淹没。
     // 审批结果仍在企业事实页与审计中可见。
-    const cost = payload.cost ?? payload.cost_usd;
-    if (typeof cost === 'number' && cost > 0) {
-      await tx.costLedger.create({
-        data: { workspaceId, sourceEventId: evt.event_id, amountMicros: Math.round(cost * 1_000_000), occurredAt: new Date() },
-      });
-    }
   }
 
   private async notify(

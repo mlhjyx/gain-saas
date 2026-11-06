@@ -336,6 +336,7 @@ model CostLedger {
   occurredAt    DateTime @map("occurred_at")
   createdAt     DateTime @default(now()) @map("created_at")
 
+  @@unique([workspaceId, sourceEventId], map: "cost_ledger_workspace_id_source_event_id_key")
   @@index([workspaceId])
   @@map("cost_ledger")
 }
