@@ -37,4 +37,41 @@ describe('copyForError', () => {
     expect(copyForError('EXECUTION_BUDGET_AUTHORITY_REVOKED').title).toContain('撤销');
     expect(copyForError('EXECUTION_BUDGET_QUOTE_UNAVAILABLE').title).toContain('执行预算账户');
   });
+
+  it('P5 高频码（租户/引导/档案）全部有登记(不再落 fallback)', () => {
+    const p5Codes = [
+      'NO_APPROVED_CLAIMS',
+      'WORKSPACE_DISABLED',
+      'ONBOARDING_INCOMPLETE',
+      'RATE_LIMITED',
+      'EMAIL_TAKEN',
+      'ALREADY_MEMBER',
+      'FORBIDDEN',
+      'NOT_A_MEMBER',
+      'LAST_ADMIN',
+      'LAST_MEMBER',
+      'VERSION_CONFLICT',
+      'UNDERSTANDING_WEBSITE_REQUIRED',
+      'UNDERSTANDING_ALREADY_PENDING',
+      'UNDERSTANDING_RETRY_NOT_ALLOWED',
+      'COMPANY_NOT_DELETABLE',
+      'INVALID_URL',
+      'INVITE_INVALID',
+      'SANCTIONS_CONFIRMED_IMMUTABLE',
+      'INTERNAL',
+    ];
+    for (const code of p5Codes) {
+      expect(ENGINE_ERROR_COPY[code as keyof typeof ENGINE_ERROR_COPY], `${code} 未登记`).toBeTruthy();
+    }
+    expect(copyForError('NO_APPROVED_CLAIMS').next).toContain('事实');
+    expect(copyForError('WORKSPACE_DISABLED').title).toContain('停用');
+  });
+
+  it('表内每条文案三层齐全、无空白占位', () => {
+    for (const [code, copy] of Object.entries(ENGINE_ERROR_COPY)) {
+      expect(copy.title.trim(), `${code}.title`).not.toBe('');
+      expect(copy.why.trim(), `${code}.why`).not.toBe('');
+      expect(copy.next.trim(), `${code}.next`).not.toBe('');
+    }
+  });
 });

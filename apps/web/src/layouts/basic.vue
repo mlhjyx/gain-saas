@@ -57,9 +57,13 @@ function notificationTitle(row: AppNotification): string {
     case 'DiscoveryRunCompleted': return $t('gainos.notifications.runCompleted');
     case 'DiscoveryRunPartial': return $t('gainos.notifications.runPartial');
     case 'DiscoveryRunFailed': return $t('gainos.notifications.runFailed');
+    case 'DiscoveryRunCancelled': return $t('gainos.notifications.runCancelled');
     case 'LeadQualified': return $t('gainos.notifications.leadQualified');
     case 'ClaimApproved': return $t('gainos.notifications.claimApproved');
     case 'ClaimRejected': return $t('gainos.notifications.claimRejected');
+    case 'SanctionsHoldDetected': return $t('gainos.notifications.sanctionsHold');
+    case 'WorkspaceQuotaWarning': return $t('gainos.notifications.quotaWarning');
+    case 'WorkspaceQuotaExceeded': return $t('gainos.notifications.quotaExceeded');
     default: return row.title ?? $t('gainos.notifications.default');
   }
 }
@@ -69,9 +73,15 @@ function notificationMessage(row: AppNotification): string {
     case 'DiscoveryRunCompleted': return $t('gainos.notifications.runCompletedMessage');
     case 'DiscoveryRunPartial': return $t('gainos.notifications.runPartialMessage');
     case 'DiscoveryRunFailed': return $t('gainos.notifications.runFailedMessage');
+    case 'DiscoveryRunCancelled': return $t('gainos.notifications.runCancelledMessage');
     case 'LeadQualified': return $t('gainos.notifications.leadQualifiedMessage');
     case 'ClaimApproved': return $t('gainos.notifications.claimApprovedMessage');
     case 'ClaimRejected': return $t('gainos.notifications.claimRejectedMessage');
+    // 服务端标题带计数/额度明细（无 PII），优先原样展示。
+    case 'SanctionsHoldDetected':
+    case 'WorkspaceQuotaWarning':
+    case 'WorkspaceQuotaExceeded':
+      return row.title ?? $t('gainos.notifications.default');
     default: return row.title ?? '';
   }
 }

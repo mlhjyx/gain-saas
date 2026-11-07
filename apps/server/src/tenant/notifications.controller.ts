@@ -4,6 +4,9 @@ import { PrismaService } from '../shared/prisma.service.js';
 import { TenantGuard } from './tenant.guard.js';
 
 function linkFor(type: string, refId: string | null): string | undefined {
+  // P5：不依赖 refId 的类型先判，避免 refId 为空时被上面的 run 兜底吞掉。
+  if (type === 'SanctionsHoldDetected') return '/leads?queue=sanctions_hold';
+  if (type.startsWith('WorkspaceQuota')) return '/settings';
   if (!refId) return type.startsWith('DiscoveryRun') ? '/find-buyers' : undefined;
   if (type.startsWith('DiscoveryRun')) return `/runs/${refId}`;
   if (type === 'LeadQualified') return '/leads?queue=recommended';

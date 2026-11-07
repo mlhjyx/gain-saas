@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
+import ErrorNotice from '#/components/error-notice.vue';
 
 import {
   failureText,
@@ -44,7 +45,7 @@ const notice = ref<string | null>(null);
 const createOpen = ref(false);
 const selectedCompanyId = ref('');
 const creating = ref(false);
-const createError = ref<{ title: string; next?: string } | null>(null);
+const createError = ref<ReturnType<typeof failureText> | null>(null);
 const approvedClaimCount = ref<number | null>(null);
 const claimsChecking = ref(false);
 const claimsCheckError = ref<string | null>(null);
@@ -763,10 +764,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
           <button class="fb__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="createOpen = false">×</button>
         </header>
         <div class="fb__modal-body">
-          <div v-if="createError" class="fb__error" role="alert">
-            <h3>{{ createError.title }}</h3>
-            <p v-if="createError.next">{{ createError.next }}</p>
-          </div>
+          <ErrorNotice
+            v-if="createError"
+            :title="createError.title"
+            :why="createError.why"
+            :next="createError.next"
+            :code="createError.code"
+          />
           <label class="fb__field">
             <span>{{ $t('gainos.findBuyers.company') }}</span>
             <select v-model="selectedCompanyId" :disabled="companiesWithoutIcp.length === 0">
