@@ -171,6 +171,102 @@ export const ENGINE_ERROR_COPY = {
     why: '当前工作空间在额度周期内的运行次数或预算已达到上限,这次操作没有执行、也没有产生费用。',
     next: '联系运营提升额度,或等下个周期再试。',
   },
+  // ── P5 补表：租户/引导/档案高频码（设计 2026-11-08-p5-user-loop §5.4）──────────
+  NO_APPROVED_CLAIMS: {
+    title: '还没有已确认的企业事实，暂时无法生成买家画像',
+    why: '买家画像只能建立在你确认过的企业事实上，系统不会凭空生成。',
+    next: '到「公司档案 → 企业事实」确认至少一条；没有待确认事实时，先用「从档案生成事实草稿」补齐。',
+  },
+  WORKSPACE_DISABLED: {
+    title: '当前工作空间已停用',
+    why: '空间被停用或归档后，所有读写都会暂停（数据仍保留）。',
+    next: '联系运营确认原因并恢复；恢复后刷新页面继续。',
+  },
+  ONBOARDING_INCOMPLETE: {
+    title: '先完成建档向导',
+    why: '公司信息与主营产品是后续能力的基础，完成向导前业务功能暂不开放。',
+    next: '按页面引导完成建档（公司、产品、目标市场）。',
+  },
+  RATE_LIMITED: {
+    title: '操作太频繁，请稍后再试',
+    why: '登录与敏感操作有频率限制，用于保护账号安全。',
+    next: '等待几分钟后重试；反复出现请联系运营。',
+  },
+  EMAIL_TAKEN: {
+    title: '该邮箱已注册',
+    why: '同一邮箱只能注册一个账号。',
+    next: '直接登录；忘记密码请走重置流程。',
+  },
+  ALREADY_MEMBER: {
+    title: '该用户已是工作空间成员',
+    why: '邀请的对象已经在成员列表里。',
+    next: '到「设置 → 成员」查看现有成员，无需重复邀请。',
+  },
+  FORBIDDEN: {
+    title: '当前账号没有执行这一步的权限',
+    why: '该操作只对工作空间管理员开放。',
+    next: '请管理员完成该操作，或请管理员调整你的角色。',
+  },
+  NOT_A_MEMBER: {
+    title: '你已不在该工作空间',
+    why: '成员资格被移除后，原会话立即失效。',
+    next: '重新登录；若应保留权限，请联系工作空间管理员重新邀请。',
+  },
+  LAST_ADMIN: {
+    title: '至少保留一名管理员',
+    why: '移除或降级最后一名管理员会让工作空间无人可管理。',
+    next: '先把另一位成员设为管理员，再执行本次操作。',
+  },
+  LAST_MEMBER: {
+    title: '你是最后一名成员，不能退出',
+    why: '工作空间至少要有一名成员。',
+    next: '邀请成员加入后再退出，或直接停用该空间。',
+  },
+  VERSION_CONFLICT: {
+    title: '这条内容刚被更新过',
+    why: '你看到的是旧版本，系统拒绝用旧内容覆盖新内容。',
+    next: '刷新页面查看最新内容后重新操作。',
+  },
+  UNDERSTANDING_WEBSITE_REQUIRED: {
+    title: '先补充公司官网',
+    why: '企业理解需要从官网抓取内容，没有官网时不会启动。',
+    next: '在「公司档案」补齐官网后重试；也可以先用「从档案生成事实草稿」继续。',
+  },
+  UNDERSTANDING_ALREADY_PENDING: {
+    title: '企业理解已在进行中',
+    why: '同一家公司的理解任务已在排队或执行。',
+    next: '稍后刷新公司档案查看进度。',
+  },
+  UNDERSTANDING_RETRY_NOT_ALLOWED: {
+    title: '当前状态不能重新理解',
+    why: '只有草稿状态的档案可以启动或重试理解。',
+    next: '刷新页面确认档案状态；已完成理解则无需重试。',
+  },
+  COMPANY_NOT_DELETABLE: {
+    title: '只有草稿档案可以删除',
+    why: '已进入理解或已可用的档案被下游引用，不能直接删除。',
+    next: '如需停用请联系运营处理。',
+  },
+  INVALID_URL: {
+    title: '这个网址不可用',
+    why: '只接受可公开访问的 http/https 地址；内网地址或无法解析的域名会被拒绝。',
+    next: '填写公司官网首页地址（例如 https://example.com）后重试。',
+  },
+  INVITE_INVALID: {
+    title: '邀请链接无效或已过期',
+    why: '邀请已被使用、撤销或超过有效期。',
+    next: '请管理员重新发送邀请。',
+  },
+  SANCTIONS_CONFIRMED_IMMUTABLE: {
+    title: '已确认的制裁命中不可直接解除',
+    why: '真命中结论只能经更高层级的人工合规流程变更。',
+    next: '联系运营走合规升级流程。',
+  },
+  INTERNAL: {
+    title: '系统出了点问题，操作没有完成',
+    why: '服务端遇到未预期的错误，与你的输入无关。',
+    next: '请重试；若反复出现，请复制「技术详情」联系运营。',
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

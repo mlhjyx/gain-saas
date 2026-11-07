@@ -687,6 +687,12 @@ export const gainosApi = {
     requestClient.get<CompanyClaim[]>(`/companies/${companyId}/claims`, {
       params: status ? { status } : {},
     }),
+  /** P5：从公司档案（注册引导字段/产品）生成待审事实草稿（幂等）。 */
+  synthesizeClaimDrafts: (companyId: string) =>
+    requestClient.post<{ created: number; skipped: number; claims: CompanyClaim[] }>(
+      `/onboarding/companies/${companyId}/claim-drafts`,
+      {},
+    ),
   approveClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/approve`, {}),
   rejectClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/reject`, {}),
   revokeClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/revoke`, {}),
@@ -835,10 +841,17 @@ export const gainosApi = {
   deleteNotification: (id: string) => requestClient.delete<{ ok: boolean }>(`/notifications/${id}`),
 };
 
-/** 引擎/合同错误信息提取(三层文案优先) */
-export function failureText(error: unknown): { title: string; next: string | undefined; code?: string } {
+/** 引擎/合同错误信息提取(三层文案优先:发生了什么/为什么/怎么办;code 供技术详情折叠) */
+export function failureText(error: unknown): {
+  title: string;
+  why: string | undefined;
+  next: string | undefined;
+  code?: string;
+} {
   const detail = (error as { response?: { data?: { error?: { code?: string; userCopy?: { title?: string; why?: string; next?: string }; message?: string }; meta?: { engineCode?: string } } } })?.response?.data?.error;
   const code = detail?.code ?? (detail as { meta?: { engineCode?: string } } | undefined)?.meta?.engineCode;
-  if (detail?.userCopy?.title) return { title: detail.userCopy.title, next: detail.userCopy.next, code };
-  return { title: detail?.message ?? (error as Error)?.message ?? '请求失败，请稍后重试', next: undefined, code };
+  if (detail?.userCopy?.title) {
+    return { title: detail.userCopy.title, why: detail.userCopy.why, next: detail.userCopy.next, code };
+  }
+  return { title: detail?.message ?? (error as Error)?.message ?? '请求失败，请稍后重试', why: undefined, next: undefined, code };
 }

@@ -72,6 +72,11 @@ export class EventConsumerService implements OnModuleInit {
       } catch (err) {
         this.logger.warn(`workspace ${ws.workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.message : String(err)}`);
       }
+      try {
+        await this.evaluateQuotaAlerts(ws.workspaceId);
+      } catch (err) {
+        this.logger.warn(`workspace ${ws.workspaceId} 配额告警评估失败(不影响事件消费): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     return { workspaces: registry.length, pulled, acked };
   }
@@ -170,6 +175,51 @@ export class EventConsumerService implements OnModuleInit {
     });
   }
 
+  /**
+   * P5 配额告警：与签发闸门同口径（workspace_budget_policy + cost_ledger + discovery_run_link）。
+   * 每窗口每档一条（≥80% 预警、≥100% 耗尽）；豁免空间（policy.enabled=false）与
+   * WORKSPACE_QUOTA_ENFORCE=false 不发——未被强制的额度不做惊吓式提醒。
+   */
+  private async evaluateQuotaAlerts(workspaceId: string): Promise<void> {
+    if (!this.config.WORKSPACE_QUOTA_ENFORCE) return;
+    const policy = await this.prisma.workspaceBudgetPolicy.findUnique({ where: { workspaceId } });
+    if (!policy || !policy.enabled) return;
+    const since = new Date(Date.now() - policy.windowDays * 86_400_000);
+    const [spend, usedRuns] = await Promise.all([
+      this.prisma.costLedger.aggregate({
+        _sum: { amountMicros: true },
+        where: { workspaceId, occurredAt: { gte: since } },
+      }),
+      this.prisma.discoveryRunLink.count({
+        where: { workspaceId, createdAt: { gte: since } },
+      }),
+    ]);
+    const usedSpendMicros = BigInt(spend._sum.amountMicros ?? 0);
+    const maxSpendMicros = BigInt(policy.maxSpendMicros);
+    const spendRatio =
+      maxSpendMicros === 0n ? 1 : Number(usedSpendMicros) / Number(maxSpendMicros);
+    const runsRatio = policy.maxRuns <= 0 ? 1 : usedRuns / policy.maxRuns;
+    const ratio = Math.max(spendRatio, runsRatio);
+    const type =
+      ratio >= 1 ? 'WorkspaceQuotaExceeded' : ratio >= 0.8 ? 'WorkspaceQuotaWarning' : null;
+    if (!type) return;
+    const existing = await this.prisma.notification.findFirst({
+      where: { workspaceId, type, createdAt: { gte: since } },
+      select: { id: true },
+    });
+    if (existing) return;
+    const detail =
+      `花费 $${(Number(usedSpendMicros) / 1_000_000).toFixed(2)} / $${(Number(maxSpendMicros) / 1_000_000).toFixed(2)}，` +
+      `运行 ${usedRuns}/${policy.maxRuns} 次`;
+    const title =
+      type === 'WorkspaceQuotaExceeded'
+        ? `本期额度已用完（${detail}），新的寻源任务将被暂停`
+        : `额度提醒：已使用本期额度的 ${Math.min(999, Math.round(ratio * 100))}%（${detail}），接近上限`;
+    await this.prisma.notification.create({
+      data: { workspaceId, type, refId: null, title },
+    });
+  }
+
   /** 派生:LeadQualified→qualified_lead;终态/关键事件→notification;成本→cost_ledger(SD3)。 */
   private async derive(tx: Prisma.TransactionClient, workspaceId: string, evt: EngineEventEnvelope): Promise<void> {
     const type = evt.event_type;
@@ -217,6 +267,28 @@ export class EventConsumerService implements OnModuleInit {
         },
       });
       await this.notify(tx, workspaceId, type, leadId, '有一条新的「值得跟进」买家线索，待你查看');
+      return;
+    }
+
+    if (type === 'LeadsScored') {
+      // P5：制裁命中进隔离队列 → 站内提醒（管理员复核）。载荷只有计数，无个人数据。
+      const queues = payload.queues;
+      const hold =
+        queues && typeof queues === 'object' && !Array.isArray(queues)
+          ? (queues as Record<string, unknown>).sanctions_hold
+          : undefined;
+      if (typeof hold === 'number' && hold > 0) {
+        const icpId =
+          aggregateId ||
+          (typeof payload.icp_id === 'string' ? payload.icp_id : '');
+        await this.notify(
+          tx,
+          workspaceId,
+          'SanctionsHoldDetected',
+          icpId,
+          `有 ${hold} 家线索命中制裁名单，已进入隔离队列，需管理员复核`,
+        );
+      }
       return;
     }
 

@@ -228,3 +228,139 @@ describe('P1：完成事件回填与停止文案', () => {
     );
   });
 });
+
+describe('P5：制裁 hold 通知（LeadsScored）', () => {
+  async function consumeLeadsScored(payload: Record<string, unknown>) {
+    const body = {
+      data: [
+        {
+          event_id: EVENT_ID,
+          event_type: 'LeadsScored',
+          workspace_id: WORKSPACE,
+          occurred_at: new Date().toISOString(),
+          aggregate_id: '99999999-9999-4999-8999-999999999999',
+          payload,
+        },
+      ],
+      page: { next_cursor: null, has_more: false },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    await service.consumeOnce();
+    return tx;
+  }
+
+  it('queues.sanctions_hold > 0 时产生隔离提醒（含计数与 ICP 引用）', async () => {
+    const tx = await consumeLeadsScored({ scored: 12, queues: { recommended: 9, sanctions_hold: 3 } });
+    expect(tx.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: WORKSPACE,
+        type: 'SanctionsHoldDetected',
+        refId: '99999999-9999-4999-8999-999999999999',
+        title: expect.stringContaining('3 家'),
+      }),
+    });
+  });
+
+  it('没有命中时不产生制裁通知', async () => {
+    const tx = await consumeLeadsScored({ scored: 5, queues: { recommended: 5, sanctions_hold: 0 } });
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条）', () => {
+  function createQuotaService(options: {
+    policy?: { windowDays: number; maxRuns: number; maxSpendMicros: bigint; enabled: boolean } | null;
+    spentMicros?: number;
+    usedRuns?: number;
+    existing?: boolean;
+    enforce?: boolean;
+  }) {
+    const notificationCreate = vi.fn(async () => ({}));
+    const notificationFindFirst = vi.fn(async () => (options.existing ? { id: 'n1' } : null));
+    const prisma = {
+      workspaceRegistry: {
+        findMany: vi.fn(async () => [{ workspaceId: WORKSPACE, cursor: null }]),
+        update: vi.fn(async () => ({})),
+      },
+      eventInbox: {
+        findUnique: vi.fn(async () => null),
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+      workspaceBudgetPolicy: { findUnique: vi.fn(async () => options.policy ?? null) },
+      costLedger: { aggregate: vi.fn(async () => ({ _sum: { amountMicros: options.spentMicros ?? 0 } })) },
+      discoveryRunLink: { count: vi.fn(async () => options.usedRuns ?? 0) },
+      notification: { findFirst: notificationFindFirst, create: notificationCreate },
+    } as unknown as PrismaService;
+    const config = {
+      EVENT_CONSUMER_ENABLED: true,
+      EVENT_CONSUMER_PAGE_LIMIT: 100,
+      ENGINE_ORIGIN: 'http://engine.test',
+      WORKSPACE_QUOTA_ENFORCE: options.enforce ?? true,
+    } as AppConfig;
+    const signer = { mint: vi.fn(async () => 'token') } as unknown as EngineTokenSigner;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [], page: { next_cursor: null, has_more: false } }), { status: 200 }),
+      ),
+    );
+    return { service: new EventConsumerService(config, signer, prisma), notificationCreate, notificationFindFirst };
+  }
+
+  const POLICY = { windowDays: 30, maxRuns: 30, maxSpendMicros: 15_000_000n, enabled: true };
+
+  it('花费达到 80% 产生 WorkspaceQuotaWarning（标题带百分比与明细）', async () => {
+    const { service, notificationCreate } = createQuotaService({ policy: POLICY, spentMicros: 12_000_000 });
+    await service.consumeOnce();
+    expect(notificationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: WORKSPACE,
+        type: 'WorkspaceQuotaWarning',
+        title: expect.stringContaining('80%'),
+      }),
+    });
+  });
+
+  it('运行次数用到上限产生 WorkspaceQuotaExceeded', async () => {
+    const { service, notificationCreate } = createQuotaService({ policy: POLICY, usedRuns: 30 });
+    await service.consumeOnce();
+    expect(notificationCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'WorkspaceQuotaExceeded' }),
+    });
+  });
+
+  it('同窗口已有同类通知时不重复写入', async () => {
+    const { service, notificationCreate } = createQuotaService({
+      policy: POLICY,
+      spentMicros: 16_000_000,
+      existing: true,
+    });
+    await service.consumeOnce();
+    expect(notificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('豁免空间（policy.enabled=false）与未强制（enforce=false）都不发', async () => {
+    const exempt = createQuotaService({ policy: { ...POLICY, enabled: false }, spentMicros: 16_000_000 });
+    await exempt.service.consumeOnce();
+    expect(exempt.notificationCreate).not.toHaveBeenCalled();
+
+    const unenforced = createQuotaService({ policy: POLICY, spentMicros: 16_000_000, enforce: false });
+    await unenforced.service.consumeOnce();
+    expect(unenforced.notificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('低于阈值不发', async () => {
+    const { service, notificationCreate } = createQuotaService({
+      policy: POLICY,
+      spentMicros: 6_000_000,
+      usedRuns: 3,
+    });
+    await service.consumeOnce();
+    expect(notificationCreate).not.toHaveBeenCalled();
+  });
+});

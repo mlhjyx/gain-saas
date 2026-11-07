@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 import { newAttemptId } from '#/utils/attempt-id';
+import ErrorNotice from '#/components/error-notice.vue';
 
 import {
   failureText,
@@ -60,7 +61,7 @@ const claimsOpen = ref(false);
 const claimsCompany = ref<CompanyProfile | null>(null);
 const claims = ref<CompanyClaim[]>([]);
 const claimsLoading = ref(false);
-const claimsError = ref<string | null>(null);
+const claimsError = ref<ReturnType<typeof failureText> | null>(null);
 const claimTab = ref<ClaimTab>('NEEDS_REVIEW');
 const claimQuery = ref('');
 const selectedClaimIds = ref<string[]>([]);
@@ -85,6 +86,7 @@ const manualStatement = ref('');
 const manualEvidence = ref('');
 const manualBusy = ref(false);
 const manualError = ref<string | null>(null);
+const synthBusy = ref(false);
 
 const pendingClaims = computed(() => claims.value.filter((claim) => claim.status === 'NEEDS_REVIEW'));
 const approvedClaims = computed(() => claims.value.filter((claim) => claim.status === 'APPROVED'));
@@ -246,6 +248,28 @@ async function saveManualClaim(): Promise<void> {
   }
 }
 
+/** P5：把注册引导/档案事实（产品、行业、目标市场）确定性转成待审事实草稿（幂等）。 */
+async function synthesizeDrafts(): Promise<void> {
+  const companyId = claimsCompany.value?.id;
+  if (!companyId || synthBusy.value) return;
+  synthBusy.value = true;
+  claimActionError.value = null;
+  claimNotice.value = null;
+  try {
+    const result = unwrap(await gainosApi.synthesizeClaimDrafts(companyId));
+    claimNotice.value =
+      result.created > 0
+        ? $t('gainos.companies.synthesizeDraftsCreated', { count: result.created })
+        : $t('gainos.companies.synthesizeDraftsNone');
+    claimTab.value = 'NEEDS_REVIEW';
+    await Promise.all([loadClaims(), loadCompanyOverview()]);
+  } catch (err) {
+    claimActionError.value = failureText(err).title;
+  } finally {
+    synthBusy.value = false;
+  }
+}
+
 async function loadClaims(): Promise<void> {
   const companyId = claimsCompany.value?.id;
   if (!companyId) return;
@@ -258,7 +282,7 @@ async function loadClaims(): Promise<void> {
     selectedClaimIds.value = selectedClaimIds.value.filter((id) =>
       claims.value.some((claim) => claim.id === id && claim.status === 'NEEDS_REVIEW'));
   } catch (err) {
-    claimsError.value = failureText(err).title;
+    claimsError.value = failureText(err);
     claims.value = [];
   } finally {
     claimsLoading.value = false;
@@ -1147,7 +1171,10 @@ onUnmounted(() => {
             <button type="button" class="cp__manual-toggle" @click="manualOpen = !manualOpen">
               {{ manualOpen ? $t('gainos.companies.manualCancel') : $t('gainos.companies.manualAdd') }}
             </button>
-            <span class="cp__muted">{{ $t('gainos.companies.manualHint') }}</span>
+            <button type="button" class="cp__manual-toggle" :disabled="synthBusy" @click="synthesizeDrafts">
+              {{ synthBusy ? $t('gainos.common.loading') : $t('gainos.companies.synthesizeDrafts') }}
+            </button>
+            <span class="cp__muted">{{ $t('gainos.companies.synthesizeDraftsHint') }}</span>
           </div>
           <div v-if="manualOpen" class="cp__manual-form">
             <label class="cp__field">
@@ -1178,7 +1205,12 @@ onUnmounted(() => {
           <div v-if="claimsLoading" class="cp__claims-state">{{ $t('gainos.companies.claimsLoading') }}</div>
 
           <div v-else-if="claimsError" class="cp__claims-state cp__claims-state--error">
-            <p>{{ claimsError }}</p>
+            <ErrorNotice
+              :title="claimsError.title"
+              :why="claimsError.why"
+              :next="claimsError.next"
+              :code="claimsError.code"
+            />
             <button type="button" class="cp__state-retry" @click="loadClaims">{{ $t('gainos.common.retry') }}</button>
           </div>
 
