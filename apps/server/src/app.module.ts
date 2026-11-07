@@ -6,6 +6,7 @@ import { TenantModule } from './tenant/tenant.module.js';
 import { OpsModule } from './ops/ops.module.js';
 import { ServiceModule } from './service/service.module.js';
 import { BffModule } from './bff/bff.module.js';
+import { CampaignModule } from './campaign/campaign.module.js';
 import { ModelGatewayModule } from './model-gateway/model-gateway.module.js';
 import { R4Module } from './r4/r4.module.js';
 
@@ -18,7 +19,7 @@ import { R4Module } from './r4/r4.module.js';
  * 三个登录域/三条 guard 链在这里汇聚,边界负向测试对应 PRD E1。
  */
 @Module({
-  imports: [ConfigModule, TenantModule, OpsModule, ServiceModule, BffModule, ModelGatewayModule, R4Module],
+  imports: [ConfigModule, TenantModule, OpsModule, ServiceModule, BffModule, CampaignModule, ModelGatewayModule, R4Module],
   controllers: [HealthController],
   providers: [PrismaService],
 })
