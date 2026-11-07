@@ -348,12 +348,22 @@ export class OpsService {
       },
       select: { id: true, name: true, status: true, statusUpdatedAt: true },
     });
+    // M2.0：停用/归档联动撤销该空间全部未过期执行授权（campaign 控制面 §8）。
+    const revokedAuthorizations =
+      status === 'ACTIVE'
+        ? 0
+        : (
+            await this.prisma.campaignExecutionAuthorization.updateMany({
+              where: { workspaceId: id, state: 'ISSUED' },
+              data: { state: 'REVOKED', revokedAt: new Date(), revokeReason: `WORKSPACE_${status}` },
+            })
+          ).count;
     await this.audit.record({
       realm: 'ops',
       actorId,
       action: 'workspace.status',
       target: String(before.name),
-      detail: { before, after },
+      detail: { before, after, revokedAuthorizations },
     });
     return { workspace: after };
   }
