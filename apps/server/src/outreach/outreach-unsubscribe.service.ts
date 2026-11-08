@@ -28,8 +28,12 @@ export class OutreachUnsubscribeService {
     private readonly audit: AuditService,
   ) {}
 
-  async issue(tenant: OutreachTenant, contactRef: string) {
+  async issue(tenant: OutreachTenant, contactRef: string, recipientEmail?: string | null) {
     if (!UUID_RE.test(contactRef)) invalidToken();
+    const email =
+      typeof recipientEmail === 'string' && recipientEmail.includes('@')
+        ? recipientEmail.trim().toLowerCase().slice(0, 320)
+        : null;
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
@@ -37,6 +41,7 @@ export class OutreachUnsubscribeService {
       data: {
         workspaceId: tenant.workspaceId,
         contactRef,
+        recipientEmail: email,
         tokenHash,
         expiresAt,
       },
@@ -53,6 +58,8 @@ export class OutreachUnsubscribeService {
 
   async consume(token: unknown): Promise<{
     contactRef: string;
+    workspaceId: string;
+    recipientEmail: string | null;
     alreadyUsed: boolean;
   }> {
     if (typeof token !== 'string' || token.length < 16 || token.length > 128) {
@@ -64,7 +71,12 @@ export class OutreachUnsubscribeService {
     });
     if (!row || row.expiresAt.getTime() <= Date.now()) invalidToken();
     if (row.usedAt) {
-      return { contactRef: row.contactRef, alreadyUsed: true };
+      return {
+        contactRef: row.contactRef,
+        workspaceId: row.workspaceId,
+        recipientEmail: row.recipientEmail,
+        alreadyUsed: true,
+      };
     }
     const used = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.outreachUnsubscribeToken.updateMany({
@@ -86,7 +98,12 @@ export class OutreachUnsubscribeService {
       return true;
     });
     if (!used) {
-      return { contactRef: row.contactRef, alreadyUsed: true };
+      return {
+        contactRef: row.contactRef,
+        workspaceId: row.workspaceId,
+        recipientEmail: row.recipientEmail,
+        alreadyUsed: true,
+      };
     }
     await this.audit.record({
       realm: 'tenant',
@@ -95,6 +112,11 @@ export class OutreachUnsubscribeService {
       target: row.contactRef,
       detail: { tokenId: row.id, source: 'unsubscribe' },
     });
-    return { contactRef: row.contactRef, alreadyUsed: false };
+    return {
+      contactRef: row.contactRef,
+      workspaceId: row.workspaceId,
+      recipientEmail: row.recipientEmail,
+      alreadyUsed: false,
+    };
   }
 }

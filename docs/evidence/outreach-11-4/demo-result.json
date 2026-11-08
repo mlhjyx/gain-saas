@@ -1,0 +1,357 @@
+{
+  "generatedAt": "2026-11-08T12:05:25.369Z",
+  "workspaceId": "d0a13d51-5974-4f88-9e66-b071957598ce",
+  "batchIds": {
+    "A": "6c8f0743-c488-4a6e-b0bb-2f5a41bed4b5",
+    "B": "dfd70666-bcc4-4551-a23e-e8dea827e858",
+    "C": "fa436881-3618-43e6-8e28-e3a6e6923d97",
+    "D": "ed38dbc1-9939-4f5d-a3dc-a3a094320b42",
+    "E": "2a9a7c98-722e-44cd-a467-1a729d0821f1"
+  },
+  "steps": [
+    {
+      "step": "负向：未批准直发",
+      "expected": "OUTREACH_DRAFT_NOT_APPROVED",
+      "actual": "OUTREACH_DRAFT_NOT_APPROVED",
+      "pass": true
+    },
+    {
+      "step": "批次 A 发送",
+      "expected": "SENT 2",
+      "actual": {
+        "batchId": "6c8f0743-c488-4a6e-b0bb-2f5a41bed4b5",
+        "status": "SENT",
+        "sent": 2,
+        "failed": 0,
+        "skipped": 0,
+        "results": [
+          {
+            "draftId": "c668070e-2c3f-4f34-bd98-6ad077d387a3",
+            "status": "SENT",
+            "messageId": "4c8e7a43-b07e-41cc-9fc3-63263c7cdbec"
+          },
+          {
+            "draftId": "9f025176-6073-4b47-b5d0-7d305b5e04ea",
+            "status": "SENT",
+            "messageId": "78125ce9-fa94-49ca-99d7-31ab97f6a41d"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "step": "Mailpit 收到",
+      "expected": "2 封",
+      "actual": 2,
+      "pass": true
+    },
+    {
+      "step": "DKIM 签名存在",
+      "expected": "DKIM-Signature v=1",
+      "actual": true,
+      "pass": true
+    },
+    {
+      "step": "List-Unsubscribe 头",
+      "expected": "unsubscribe?token=",
+      "actual": true,
+      "pass": true
+    },
+    {
+      "step": "退订 token 在邮件中",
+      "expected": "存在",
+      "actual": "present",
+      "pass": true
+    },
+    {
+      "step": "退订消费",
+      "expected": "unsubscribed true",
+      "actual": {
+        "data": {
+          "unsubscribed": true,
+          "alreadyUsed": false
+        }
+      },
+      "pass": true
+    },
+    {
+      "step": "退订写入 OPT_OUT",
+      "expected": "OPT_OUT",
+      "actual": "OPT_OUT",
+      "pass": true
+    },
+    {
+      "step": "平台抑制同步调用",
+      "expected": "1 次",
+      "actual": [
+        {
+          "email": "buyer@example.test",
+          "reason": "unsubscribe",
+          "source": "gain-saas:unsubscribe"
+        }
+      ],
+      "pass": true
+    },
+    {
+      "step": "退订后发送跳过",
+      "expected": "COMPLETED skipped 1, 无新增邮件",
+      "actual": {
+        "sendB": {
+          "batchId": "dfd70666-bcc4-4551-a23e-e8dea827e858",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "237a38ad-acb9-4c92-9809-e7a3d38baa4d",
+              "status": "SKIPPED",
+              "error": "OUTREACH_OPTED_OUT"
+            }
+          ]
+        },
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "回复分类回写",
+      "expected": "NEGATIVE 1 条",
+      "actual": {
+        "count": 1,
+        "classification": "NEGATIVE"
+      },
+      "pass": true
+    },
+    {
+      "step": "回复后发送跳过",
+      "expected": "COMPLETED skipped 1, 无新增邮件",
+      "actual": {
+        "sendC": {
+          "batchId": "fa436881-3618-43e6-8e28-e3a6e6923d97",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "148a3fc5-4989-4598-af66-7b1eac9b8776",
+              "status": "SKIPPED",
+              "error": "OUTREACH_OPTED_OUT"
+            }
+          ]
+        },
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "DNC 命中跳过并记录原因",
+      "expected": "SKIPPED + OUTREACH_DNC_BLOCKED",
+      "actual": {
+        "sendD": {
+          "batchId": "ed38dbc1-9939-4f5d-a3dc-a3a094320b42",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "116234fb-2516-4da7-ac74-512392b73eb4",
+              "status": "SKIPPED",
+              "error": "OUTREACH_DNC_BLOCKED: global:unsubscribe"
+            }
+          ]
+        },
+        "newMessages": 0,
+        "reason": "OUTREACH_DNC_BLOCKED: global:unsubscribe"
+      },
+      "pass": true
+    },
+    {
+      "step": "DNC 查询失败 fail closed",
+      "expected": "OUTREACH_DNC_UNAVAILABLE, 无新增邮件",
+      "actual": {
+        "code": "OUTREACH_DNC_UNAVAILABLE",
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "负向：重放已发送批次",
+      "expected": "OUTREACH_BATCH_ALREADY_SENT",
+      "actual": "OUTREACH_BATCH_ALREADY_SENT",
+      "pass": true
+    },
+    {
+      "step": "审计包结构",
+      "expected": "schema + approval + drafts + events",
+      "actual": {
+        "schemaVersion": "outreach-audit-package/v1",
+        "decidedBy": "demo-operator@example.test",
+        "draftCount": 2,
+        "eventTypes": [
+          "BATCH_CREATED",
+          "DRAFT_ADDED",
+          "DRAFT_ADDED",
+          "BATCH_SUBMITTED",
+          "BATCH_APPROVED",
+          "BATCH_SENT"
+        ],
+        "packageHash": "d7a3393678165a5262ee31039cf6ebe2d263aa7166f85cba1e2112a69bb4677a"
+      },
+      "pass": true
+    }
+  ],
+  "auditPackage": {
+    "package": {
+      "schemaVersion": "outreach-audit-package/v1",
+      "generatedAt": "2026-11-08T12:05:25.366Z",
+      "workspaceId": "d0a13d51-5974-4f88-9e66-b071957598ce",
+      "batch": {
+        "id": "6c8f0743-c488-4a6e-b0bb-2f5a41bed4b5",
+        "name": "Demo A 正常发送",
+        "campaignId": null,
+        "status": "SENT",
+        "contentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a",
+        "createdBy": "demo-operator@example.test",
+        "submittedAt": "2026-11-08T12:05:24.357Z",
+        "decidedAt": "2026-11-08T12:05:24.386Z",
+        "queuedAt": "2026-11-08T12:05:24.386Z"
+      },
+      "approval": {
+        "id": "3f533c31-4d7e-47c4-8f28-b2990da378f7",
+        "state": "APPROVED",
+        "contentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a",
+        "requestedBy": "demo-operator@example.test",
+        "decidedBy": "demo-operator@example.test",
+        "decidedAt": "2026-11-08T12:05:24.386Z",
+        "expiresAt": "2026-11-11T12:05:24.357Z",
+        "decisionReason": "demo approval",
+        "selfApproval": true
+      },
+      "drafts": [
+        {
+          "draftId": "c668070e-2c3f-4f34-bd98-6ad077d387a3",
+          "contactRef": "1dfd9a91-981e-401f-bd22-08c464efd160",
+          "recipientEmail": "buyer@example.test",
+          "companyName": "Beispiel GmbH",
+          "subject": "TEST A1",
+          "body": "Guten Tag,\r\n\r\nTEST-Nachricht 1. Keine echte Zustellung.\r\n\r\nGainOS Demo Demo A 正常发送.",
+          "subjectHash": "b09c8b94150ed1a63760b784f32dbbebb701539481ff2112ea2224586dc6cb95",
+          "bodyHash": "4ddfca51ba6bde34dbdaf4275e2f1ef2666be3de73c6dea1d2b1874d4e51722a",
+          "contentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a",
+          "status": "SENT",
+          "approvedBy": "demo-operator@example.test",
+          "approvedAt": "2026-11-08T12:05:24.386Z",
+          "complianceBasis": {
+            "consentStatus": "OPT_OUT",
+            "consentSource": "unsubscribe",
+            "lawfulBasis": "consent_withdrawal",
+            "consentRecordedAt": "2026-11-08T12:05:24.667Z",
+            "approvalContentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a"
+          },
+          "sends": [
+            {
+              "attempt": 1,
+              "status": "SENT",
+              "messageId": "4c8e7a43-b07e-41cc-9fc3-63263c7cdbec",
+              "error": null,
+              "sentAt": "2026-11-08T12:05:24.556Z",
+              "createdAt": "2026-11-08T12:05:24.560Z"
+            }
+          ]
+        },
+        {
+          "draftId": "9f025176-6073-4b47-b5d0-7d305b5e04ea",
+          "contactRef": "3ad4af5d-8876-416b-ae2b-91099e83d5ae",
+          "recipientEmail": "einkauf@example.test",
+          "companyName": "Beispiel GmbH",
+          "subject": "TEST A2",
+          "body": "Guten Tag,\r\n\r\nTEST-Nachricht 2. Keine echte Zustellung.\r\n\r\nGainOS Demo Demo A 正常发送.",
+          "subjectHash": "6e2bc8303405ad57f43eb933d98ee91edae784d66bb14846869ee295bc483eb4",
+          "bodyHash": "053be61984fc5777162b6b0e3041dcb0f1e3dc8a5cf2ef682ba1edc6716c5efc",
+          "contentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a",
+          "status": "SENT",
+          "approvedBy": "demo-operator@example.test",
+          "approvedAt": "2026-11-08T12:05:24.386Z",
+          "complianceBasis": {
+            "consentStatus": null,
+            "consentSource": null,
+            "lawfulBasis": null,
+            "consentRecordedAt": null,
+            "approvalContentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a"
+          },
+          "sends": [
+            {
+              "attempt": 1,
+              "status": "SENT",
+              "messageId": "78125ce9-fa94-49ca-99d7-31ab97f6a41d",
+              "error": null,
+              "sentAt": "2026-11-08T12:05:24.589Z",
+              "createdAt": "2026-11-08T12:05:24.590Z"
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "type": "BATCH_CREATED",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "name": "Demo A 正常发送"
+          },
+          "createdAt": "2026-11-08T12:05:24.304Z"
+        },
+        {
+          "type": "DRAFT_ADDED",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "draftId": "c668070e-2c3f-4f34-bd98-6ad077d387a3",
+            "contactRef": "1dfd9a91-981e-401f-bd22-08c464efd160"
+          },
+          "createdAt": "2026-11-08T12:05:24.328Z"
+        },
+        {
+          "type": "DRAFT_ADDED",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "draftId": "9f025176-6073-4b47-b5d0-7d305b5e04ea",
+            "contactRef": "3ad4af5d-8876-416b-ae2b-91099e83d5ae"
+          },
+          "createdAt": "2026-11-08T12:05:24.346Z"
+        },
+        {
+          "type": "BATCH_SUBMITTED",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "expiresAt": "2026-11-11T12:05:24.357Z",
+            "approvalId": "3f533c31-4d7e-47c4-8f28-b2990da378f7",
+            "contentHash": "0d04024d7c96b76237c14f911c53eb741f26ef1f56460bb2be1c103daabd265a"
+          },
+          "createdAt": "2026-11-08T12:05:24.372Z"
+        },
+        {
+          "type": "BATCH_APPROVED",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "approvalId": "3f533c31-4d7e-47c4-8f28-b2990da378f7",
+            "selfApproval": true
+          },
+          "createdAt": "2026-11-08T12:05:24.395Z"
+        },
+        {
+          "type": "BATCH_SENT",
+          "actor": "demo-operator@example.test",
+          "detail": {
+            "sent": 2,
+            "failed": 0
+          },
+          "createdAt": "2026-11-08T12:05:24.604Z"
+        }
+      ]
+    },
+    "packageHash": "d7a3393678165a5262ee31039cf6ebe2d263aa7166f85cba1e2112a69bb4677a",
+    "persistedAt": null
+  }
+}

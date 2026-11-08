@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { EngineHttp } from '../bff/engine-http.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 
+export const OUTREACH_DNC_SUPPRESSOR = Symbol('OUTREACH_DNC_SUPPRESSOR');
+
 export interface OutreachDncChecker {
   /** Returns canonical email → suppression reasons; absent = not suppressed. */
   check(
@@ -11,13 +13,21 @@ export interface OutreachDncChecker {
   ): Promise<Map<string, string[]>>;
 }
 
+export interface OutreachDncSuppressor {
+  /** 平台级抑制（跨租户）：只传邮箱与原因，引擎只落 SHA-256。 */
+  suppressGlobal(
+    tenant: OutreachTenant,
+    input: { email: string; reason: 'unsubscribe' | 'bounce' | 'complaint'; source: string },
+  ): Promise<void>;
+}
+
 /**
  * gain-saas 侧的 DNC 预检：调用引擎 `POST /outreach/dnc/check`（同时查租户
  * suppression_record 与平台全局抑制）。引擎返回邮箱哈希，这里按本地规范化
  * （trim + lowercase）还原为邮箱键；无法规范化的地址由调用方先行拒绝。
  */
 @Injectable()
-export class EngineOutreachDncChecker implements OutreachDncChecker {
+export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDncSuppressor {
   constructor(private readonly engine: EngineHttp) {}
 
   async check(
@@ -49,5 +59,18 @@ export class EngineOutreachDncChecker implements OutreachDncChecker {
       if (reasons.length > 0) out.set(canonical, reasons);
     }
     return out;
+  }
+
+  async suppressGlobal(
+    tenant: OutreachTenant,
+    input: { email: string; reason: 'unsubscribe' | 'bounce' | 'complaint'; source: string },
+  ): Promise<void> {
+    const result = await this.engine.call(tenant, 'POST', '/outreach/dnc/suppress', {
+      body: input,
+      timeoutMs: 10_000,
+    });
+    if (result.status >= 400) {
+      throw new Error(`平台抑制写入失败（HTTP ${result.status}）`);
+    }
   }
 }

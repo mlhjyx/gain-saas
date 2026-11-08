@@ -101,6 +101,8 @@ const schema = z.object({
   OUTREACH_SMTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
   // 单次发送调用的草稿上限（防止一次请求无限期占用连接）；超出部分留待下次。
   OUTREACH_SEND_BATCH_LIMIT: z.coerce.number().int().min(1).max(500).default(50),
+  // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
+  OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   CAMPAIGN_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
   CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: z.coerce.number().int().min(1).max(10000).default(1000),
   // 跨服务 verify 端点的服务令牌；未配置时端点 fail-closed（503）。

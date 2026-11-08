@@ -1,0 +1,2 @@
+dkim_verify: PASS
+dns_queries: ['test20261108._domainkey.mail.gainos.test.']

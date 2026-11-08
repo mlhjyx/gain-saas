@@ -1,3 +1,5 @@
 # 测试夹具里的占位私钥：内容只有 "test"，不是可用密钥（configuration.test.ts）。
 apps/server/src/config/configuration.test.ts:private-key:7
 apps/server/src/config/configuration.test.ts:private-key:10
+# 已消费的一次性退订 token，仅存在于本地 Mailpit 演示原文（.test 域、无真实用户）；不是可用凭据。
+docs/evidence/outreach-11-4/mailpit-raw.eml:generic-api-key:20

@@ -66,6 +66,7 @@ model Workspace {
   outreachBatchEvents      OutreachBatchEvent[]
   outreachSends            OutreachSend[]
   outreachAuditPackages    OutreachAuditPackage[]
+  outreachReplies          OutreachReply[]
   qgos        Qgo[]
   saos        Sao[]
   opportunityOutcomes OpportunityOutcome[]
@@ -318,6 +319,8 @@ model OutreachUnsubscribeToken {
   id          String    @id @default(uuid()) @db.Uuid
   workspaceId String    @map("workspace_id") @db.Uuid
   contactRef  String    @map("contact_ref") @db.Uuid
+  /// 退订时同步平台级抑制所需；11-1 签发的旧 token 为 NULL（只做租户内退订）。
+  recipientEmail String? @map("recipient_email") @db.VarChar(320)
   tokenHash   String    @unique @map("token_hash") @db.Char(64)
   expiresAt   DateTime  @map("expires_at")
   usedAt      DateTime? @map("used_at")
@@ -339,6 +342,8 @@ enum OutreachBatchStatus {
   EXPIRED
   QUEUED
   SENT
+  /// 全部草稿进入终态（已发送或已跳过），但并非全部发送成功。
+  COMPLETED
   CANCELLED
 }
 
@@ -456,6 +461,8 @@ model OutreachBatchEvent {
 enum OutreachSendStatus {
   SENT
   FAILED
+  /// DNC/退订命中，未尝试投递；error 字段记录跳过原因。
+  SKIPPED
 }
 
 /// 发送台账（append-only）：每次发送尝试一行；同一批次/草稿的重试以 attempt 递增。
@@ -500,6 +507,43 @@ model OutreachAuditPackage {
   @@unique([batchId, packageHash])
   @@index([workspaceId, batchId])
   @@map("outreach_audit_package")
+}
+
+// ─── M2 步 11-4：回复/退信/退订回写 ─────────────────────────────────────────
+
+enum OutreachReplyKind {
+  REPLY
+  BOUNCE
+  UNSUBSCRIBE
+}
+
+enum OutreachReplyClassification {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  OUT_OF_OFFICE
+  UNKNOWN
+}
+
+/// 入站回复/退信/退订事件（append-only）。任何回复都写入 OPT_OUT 同意，后续批次即停。
+model OutreachReply {
+  id             String                     @id @default(uuid()) @db.Uuid
+  workspaceId    String                     @map("workspace_id") @db.Uuid
+  contactRef     String                     @map("contact_ref") @db.Uuid
+  recipientEmail String?                    @map("recipient_email") @db.VarChar(320)
+  kind           OutreachReplyKind          @default(REPLY)
+  classification OutreachReplyClassification @default(UNKNOWN)
+  subject        String?                    @db.VarChar(300)
+  snippet        String?                    @db.VarChar(500)
+  externalId     String?                    @map("external_id") @db.VarChar(256)
+  receivedAt     DateTime                   @default(now()) @map("received_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, contactRef, receivedAt])
+  @@index([workspaceId, kind, receivedAt])
+  @@map("outreach_reply")
 }
 
 /// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。
