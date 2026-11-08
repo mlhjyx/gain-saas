@@ -1,26 +1,25 @@
 <script lang="ts" setup>
 /**
  * 「商机与触达」合并入口（P6 设计 D-14-a）：一个一级导航，页内三 tab。
- * 14-1 为空壳与语义落位；14-2 按 M2.1（战役计划/审批）、步 10（商机）、步 11（触达）的 API 挂接。
- * 页面用语一律走 glossary（tab 名）与 gainos.growth.*（句子），状态图例用 glossary 状态表。
+ * 14-2：战役计划 / 商机两个 tab 直接内嵌各自真实页面（M2.1 审批列表、步 10 QGO 管线），
+ * 触达 tab 在步 11 落地上线前保持如实占位（不提供假交互）。
+ * tab 与 URL `?tab=` 同步，可深链；独立路由 /campaigns、/qgos 仍保留给通知与线索页的深链。
  */
-import { computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-
 import type { StatusTone } from '@gain-saas/shared';
 
-import {
-  APPROVAL_STATE,
-  CAMPAIGN_STATUS,
-  glossaryTerm,
-  QGO_STATE,
-  statusClass,
-} from '@gain-saas/shared';
+import { computed, defineAsyncComponent } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+
+import { APPROVAL_STATE, glossaryTerm, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
 
 defineOptions({ name: 'Growth' });
+
+// 内嵌的真实页面按 tab 懒加载：切换 tab 才拉数据，首屏不付出两份页面的代价。
+const CampaignsList = defineAsyncComponent(() => import('#/views/campaigns/index.vue'));
+const QgosList = defineAsyncComponent(() => import('#/views/qgos/index.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -61,105 +60,46 @@ function legend(
   });
 }
 
-const campaignLegend = legend(CAMPAIGN_STATUS, ['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED']);
-const qgoLegend = legend(QGO_STATE, ['OPEN', 'CONVERTED', 'DROPPED']);
+// 触达占位仍展示批次审批的状态色板（步 11 上线后由真实页面取代）。
 const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED', 'EXPIRED']);
 </script>
 
 <template>
   <div class="gr">
-    <header class="gr__head">
-      <div class="gr__head-main">
-        <h1>{{ $t('gainos.growth.title') }}</h1>
-        <p class="gr__sub">{{ $t('gainos.growth.subtitle') }}</p>
-      </div>
-      <span class="gs-badge gs-badge--processing">{{ $t('gainos.growth.shadowBadge') }}</span>
-    </header>
+    <div class="gr__bar">
+      <header class="gr__head">
+        <div class="gr__head-main">
+          <h1>{{ $t('gainos.growth.title') }}</h1>
+          <p class="gr__sub">{{ $t('gainos.growth.subtitle') }}</p>
+        </div>
+        <span class="gs-badge gs-badge--processing">{{ $t('gainos.growth.shadowBadge') }}</span>
+      </header>
 
-    <nav class="gr__tabs" role="tablist" :aria-label="$t('gainos.growth.title')">
-      <button
-        v-for="tab in TABS"
-        :key="tab.key"
-        :aria-selected="active === tab.key"
-        :class="{ 'is-active': active === tab.key }"
-        class="gr__tab"
-        role="tab"
-        type="button"
-        @click="select(tab.key)"
-      >
-        {{ tab.label }}
-      </button>
-    </nav>
+      <nav class="gr__tabs" role="tablist" :aria-label="$t('gainos.growth.title')">
+        <button
+          v-for="tab in TABS"
+          :key="tab.key"
+          :aria-selected="active === tab.key"
+          :class="{ 'is-active': active === tab.key }"
+          class="gr__tab"
+          role="tab"
+          type="button"
+          @click="select(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+    </div>
 
     <section v-if="active === 'campaigns'" class="gr__panel" role="tabpanel">
-      <div class="gr__shadow">
-        <strong>{{ $t('gainos.growth.shadowTitle') }}</strong>
-        <p>{{ $t('gainos.growth.shadowDesc') }}</p>
-      </div>
-      <article class="gr__card">
-        <div class="gr__card-head">
-          <h2>{{ $t('gainos.growth.campaignTitle') }}</h2>
-          <div class="gr__legend">
-            <span
-              v-for="item in campaignLegend"
-              :key="item.key"
-              class="gs-badge"
-              :class="statusClass(item.tone)"
-            >
-              {{ item.label }}
-            </span>
-          </div>
-        </div>
-        <p class="gr__desc">{{ $t('gainos.growth.campaignDesc') }}</p>
-        <ul class="gr__points">
-          <li>{{ $t('gainos.growth.campaignPoint1') }}</li>
-          <li>{{ $t('gainos.growth.campaignPoint2') }}</li>
-          <li>{{ $t('gainos.growth.campaignPoint3') }}</li>
-        </ul>
-        <div class="gr__actions">
-          <button class="gr__cta" type="button" @click="router.push('/campaigns')">
-            {{ $t('gainos.growth.campaignListCta') }}
-          </button>
-          <button class="gr__ghost gr__ghost--link" type="button" @click="router.push('/find-buyers')">
-            {{ $t('gainos.growth.campaignCta') }}
-          </button>
-        </div>
-      </article>
+      <CampaignsList />
     </section>
 
     <section v-else-if="active === 'opportunities'" class="gr__panel" role="tabpanel">
-      <article class="gr__card">
-        <div class="gr__card-head">
-          <h2>{{ $t('gainos.growth.qgoTitle') }}</h2>
-          <div class="gr__legend">
-            <span
-              v-for="item in qgoLegend"
-              :key="item.key"
-              class="gs-badge"
-              :class="statusClass(item.tone)"
-            >
-              {{ item.label }}
-            </span>
-          </div>
-        </div>
-        <p class="gr__desc">{{ $t('gainos.growth.qgoDesc') }}</p>
-        <ul class="gr__points">
-          <li>{{ $t('gainos.growth.qgoPoint1') }}</li>
-          <li>{{ $t('gainos.growth.qgoPoint2') }}</li>
-          <li>{{ $t('gainos.growth.qgoPoint3') }}</li>
-        </ul>
-        <div class="gr__actions">
-          <button class="gr__cta" type="button" @click="router.push('/qgos')">
-            {{ $t('gainos.growth.qgoListCta') }}
-          </button>
-          <button class="gr__ghost gr__ghost--link" type="button" @click="router.push('/leads')">
-            {{ $t('gainos.growth.qgoCta') }}
-          </button>
-        </div>
-      </article>
+      <QgosList />
     </section>
 
-    <section v-else class="gr__panel" role="tabpanel">
+    <section v-else class="gr__panel gr__panel--inner" role="tabpanel">
       <article class="gr__card">
         <div class="gr__card-head">
           <h2>{{ $t('gainos.growth.outreachTitle') }}</h2>
@@ -196,13 +136,22 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
 
 <style scoped>
 .gr {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 24px 20px 48px;
   display: grid;
-  gap: 16px;
+  gap: 0;
 }
 
+/* 页头与 tab 跟内嵌页面共用同一容器宽度（1080 + 24 内边距），避免双重缩进 */
+.gr__bar {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 24px 6px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 14px;
+}
+
+/* 枢纽页头保持克制：真正的页面主标题由各 tab 内嵌的真实页面承担 */
 .gr__head {
   display: flex;
   align-items: flex-start;
@@ -213,17 +162,17 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
 
 .gr__head-main h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 15px;
   font-weight: 650;
-  color: var(--gs-fg);
-  letter-spacing: -0.01em;
+  color: var(--gs-fg-2);
+  letter-spacing: 0.01em;
 }
 
 .gr__sub {
-  margin: 6px 0 0;
-  font-size: 13.5px;
-  line-height: 1.7;
-  color: var(--gs-fg-muted);
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--gs-fg-subtle);
   max-width: 640px;
 }
 
@@ -259,28 +208,18 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
 }
 
 .gr__panel {
-  display: grid;
-  gap: 14px;
+  /* 块级流：内嵌页面（max-width + margin:auto）在块级父容器里才会撑满到 1080；
+     若这里是 grid，auto 外边距会让页面收缩成 fit-content，与页头/tab 对不齐。 */
+  display: block;
 }
 
-.gr__shadow {
-  border: 1px solid var(--gs-border);
-  border-left: 3px solid var(--gs-accent);
-  background: var(--gs-surface-3);
-  border-radius: 12px;
-  padding: 14px 16px;
-}
-
-.gr__shadow strong {
-  font-size: 13.5px;
-  color: var(--gs-fg);
-}
-
-.gr__shadow p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--gs-fg-muted);
+/* 触达占位不是整页组件，自己补齐与页面一致的容器 */
+.gr__panel--inner {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+  box-sizing: border-box;
 }
 
 .gr__card {

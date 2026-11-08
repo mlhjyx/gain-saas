@@ -102,46 +102,42 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   await page.waitForURL((url) => url.pathname === '/reports');
 });
 
-test('商机与触达：三 tab 空壳、影子语义与词表', async ({ page }, testInfo) => {
+test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', async ({ page }, testInfo) => {
   await mockApi(page);
   await login(page);
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
 
-  // 页头与影子期徽标（全站统一的「将执行但不执行」语义）
-  await expect(page.getByRole('heading', { level: 1, name: '商机与触达' })).toBeVisible();
+  // 枢纽页头与影子期徽标（全站统一的「将执行但不执行」语义）
+  await settle(page);
+  await expect(page.getByRole('heading', { level: 1, name: '商机与触达', exact: true })).toBeVisible();
   await expect(page.getByText('影子期 · 将执行但不执行')).toBeVisible();
 
   // 三 tab：战役计划 / 商机 / 触达（术语取自 glossary）
   const tabs = page.getByRole('tab');
   await expect(tabs).toHaveText(['战役计划', '商机', '触达']);
+
+  // tab 1：内嵌真实战役计划列表（M2.1）——空态与新建入口都是真页面自己的
+  await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '新建计划' })).toBeVisible();
+  await expect(page.getByText('还没有任何计划。先新建一个，再让系统起草。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-campaigns.png') });
 
-  // 战役计划 tab 接真实列表页（14-2 前的入口收编）
-  await page.getByRole('button', { name: '打开战役计划' }).click();
-  await page.waitForURL((url) => url.pathname === '/campaigns');
-  await page.getByRole('menuitem', { name: '商机与触达' }).click();
-  await page.waitForURL((url) => url.pathname === '/growth');
-  await settle(page);
-
+  // tab 2：内嵌真实商机管线（步 10）——空态引导回买家线索
   await tabs.nth(1).click();
   await page.waitForURL(/tab=opportunities/);
-  await expect(page.getByRole('heading', { level: 2, name: '商机' })).toBeVisible();
+  await settle(page);
+  await expect(page.getByRole('heading', { level: 1, name: '商机', exact: true })).toBeVisible();
+  await expect(page.getByText('还没有商机')).toBeVisible();
+  await expect(page.getByRole('link', { name: '去买家线索' })).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-opportunities.png') });
 
-  // 商机 tab 接真实列表页（/qgos，入口收编）
-  await page.getByRole('button', { name: '打开商机列表' }).click();
-  await page.waitForURL((url) => url.pathname === '/qgos');
-  await page.getByRole('menuitem', { name: '商机与触达' }).click();
-  await page.waitForURL((url) => url.pathname === '/growth');
-  await settle(page);
-  await page.getByRole('tab', { name: '商机' }).first().click();
-  await page.waitForURL(/tab=opportunities/);
-
+  // tab 3：触达在步 11 落地上线前如实占位（无假交互）
   await tabs.nth(2).click();
   await page.waitForURL(/tab=outreach/);
-  await expect(page.getByRole('heading', { level: 2, name: '触达' })).toBeVisible();
+  await settle(page);
+  await expect(page.getByRole('heading', { level: 2, name: '触达', exact: true })).toBeVisible();
   await expect(page.getByText('发送通道开放前，系统不会发出任何邮件。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-outreach.png') });
