@@ -12,6 +12,15 @@ describe('copyForError', () => {
     expect(copy.next).toContain('运营');
   });
 
+  it('401 家族有登记且引导重新登录,不落兜底「重试」', () => {
+    for (const code of ['AUTH_REQUIRED', 'SESSION_EXPIRED']) {
+      const copy = copyForError(code);
+      expect(copy.title).toContain('登录已过期');
+      expect(copy.next).toContain('重新登录');
+    }
+    expect(copyForError('NOT_A_MEMBER').next).toContain('工作空间');
+  });
+
   it('PRD D6 的 409 阻断族全部有登记', () => {
     const blockers = [
       'SUPPRESSED',
