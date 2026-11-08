@@ -187,6 +187,29 @@ describe('CampaignPlanJobService.completePlanJob', () => {
     expect(tx.campaignRevision.create).not.toHaveBeenCalled();
   });
 
+  it('records replan traces and persists the history when the plan came from a replan loop', async () => {
+    const { service, tx } = buildService();
+    tx.campaignPlanJob.findFirst.mockResolvedValue(jobRow());
+    const replanHistory = [
+      { round: 0, reasonCode: 'VALIDATOR_ISSUES', issues: [{ path: 'goal.objective', message: 'x' }] },
+    ];
+    await service.completePlanJob({ ...body, replanHistory });
+    expect(tx.campaignDecisionTrace.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: WORKSPACE,
+        campaignId: CAMPAIGN,
+        decisionType: 'campaign.replan',
+        reasonCode: 'VALIDATOR_ISSUES',
+        traceId: `campaign-plan:${JOB}`,
+      }),
+    });
+    expect(tx.campaignPlanJob.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ state: 'SUCCEEDED', replanHistory }),
+      }),
+    );
+  });
+
   it('409s a repeated callback whose plan hash differs', async () => {
     const { service, tx } = buildService();
     tx.campaignPlanJob.findFirst.mockResolvedValue(
@@ -262,6 +285,60 @@ describe('CampaignPlanJobService.reportJobFailure', () => {
       error: 'CAMPAIGN_PLAN_INVALID',
     });
     expect(same.state).toBe('FAILED');
+    await expect(
+      service.reportJobFailure(JOB, {
+        workspaceId: WORKSPACE,
+        state: 'FAILED',
+        error: 'CAMPAIGN_PLAN_FAILED',
+      }),
+    ).rejects.toMatchObject({
+      response: { error: { code: 'CAMPAIGN_PLAN_JOB_CONFLICT' } },
+    });
+  });
+
+  it('accepts NEEDS_HUMAN, writes replan traces, and audits the transition', async () => {
+    const { service, tx, audit } = buildService();
+    tx.campaignPlanJob.findFirst
+      .mockResolvedValueOnce(jobRow())
+      .mockResolvedValueOnce(jobRow({ state: 'NEEDS_HUMAN', error: 'CAMPAIGN_PLAN_NEEDS_HUMAN' }));
+    const replanHistory = [
+      { round: 0, reasonCode: 'VALIDATOR_ISSUES', issues: [{ path: 'data', message: 'invalid' }] },
+      { round: 1, reasonCode: 'VALIDATOR_ISSUES', issues: [{ path: 'data', message: 'invalid' }] },
+    ];
+    const view = await service.reportJobFailure(JOB, {
+      workspaceId: WORKSPACE,
+      state: 'NEEDS_HUMAN',
+      error: 'CAMPAIGN_PLAN_NEEDS_HUMAN',
+      issues: [{ path: 'data', message: 'invalid' }],
+      replanHistory,
+    });
+    expect(view.state).toBe('NEEDS_HUMAN');
+    expect(tx.campaignPlanJob.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          state: 'NEEDS_HUMAN',
+          error: 'CAMPAIGN_PLAN_NEEDS_HUMAN',
+          replanHistory,
+        }),
+      }),
+    );
+    expect(tx.campaignDecisionTrace.create).toHaveBeenCalledTimes(2);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'campaign.plan_job.needs_human' }),
+    );
+  });
+
+  it('keeps NEEDS_HUMAN terminal: same state is idempotent, FAILED afterwards is a 409', async () => {
+    const { service, tx } = buildService();
+    tx.campaignPlanJob.findFirst.mockResolvedValue(
+      jobRow({ state: 'NEEDS_HUMAN', error: 'CAMPAIGN_PLAN_NEEDS_HUMAN' }),
+    );
+    const same = await service.reportJobFailure(JOB, {
+      workspaceId: WORKSPACE,
+      state: 'NEEDS_HUMAN',
+      error: 'CAMPAIGN_PLAN_NEEDS_HUMAN',
+    });
+    expect(same.state).toBe('NEEDS_HUMAN');
     await expect(
       service.reportJobFailure(JOB, {
         workspaceId: WORKSPACE,

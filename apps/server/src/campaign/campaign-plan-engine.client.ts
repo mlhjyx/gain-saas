@@ -34,6 +34,11 @@ export interface CampaignPlanEngineTriggerInput {
   icpId?: string;
   audienceSizeCap?: number;
   budgetCapMicros?: number;
+  /** M2.2：允许的自动重规划轮数（0–2；引擎再按 job 成本上限压低）。 */
+  maxReplans?: number;
+  /** M2.2：人工拒绝后的重生成——上一版被拒计划与理由。 */
+  previousPlan?: unknown;
+  replanReason?: { code: 'HUMAN_DECLINE'; detail?: string };
 }
 
 export class CampaignPlanEngineError extends Error {
@@ -115,6 +120,11 @@ export class CampaignPlanEngineClient {
             : {}),
           ...(input.budgetCapMicros !== undefined
             ? { budgetCapMicros: input.budgetCapMicros }
+            : {}),
+          ...(input.maxReplans !== undefined ? { maxReplans: input.maxReplans } : {}),
+          ...(input.previousPlan !== undefined ? { previousPlan: input.previousPlan } : {}),
+          ...(input.replanReason !== undefined
+            ? { replanReason: input.replanReason }
             : {}),
         }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
