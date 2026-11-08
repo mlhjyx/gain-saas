@@ -3,6 +3,9 @@ import { ConfigModule } from '../shared/config.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { OutreachBatchController } from './outreach-batch.controller.js';
 import { OutreachBatchService } from './outreach-batch.service.js';
+import { OutreachPublicController } from './outreach-public.controller.js';
+import { OutreachReplyController } from './outreach-reply.controller.js';
+import { OutreachReplyService } from './outreach-reply.service.js';
 import { OutreachSendController } from './outreach-send.controller.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import { OutreachSendService } from './outreach-send.service.js';
@@ -10,7 +13,10 @@ import {
   OUTREACH_TRANSPORT,
   SmtpOutreachTransport,
 } from './outreach-smtp.transport.js';
-import { EngineOutreachDncChecker } from './outreach-dnc.checker.js';
+import {
+  EngineOutreachDncChecker,
+  OUTREACH_DNC_SUPPRESSOR,
+} from './outreach-dnc.checker.js';
 import { OutreachController } from './outreach.controller.js';
 import {
   OUTREACH_DNC_CHECKER,
@@ -24,14 +30,23 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
  */
 @Module({
   imports: [ConfigModule, TenantModule],
-  controllers: [OutreachController, OutreachBatchController, OutreachSendController],
+  controllers: [
+    OutreachController,
+    OutreachBatchController,
+    OutreachSendController,
+    OutreachReplyController,
+    OutreachPublicController,
+  ],
   providers: [
     OutreachConsentService,
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,
     OutreachSendService,
-    { provide: OUTREACH_DNC_CHECKER, useClass: EngineOutreachDncChecker },
+    OutreachReplyService,
+    EngineOutreachDncChecker,
+    { provide: OUTREACH_DNC_CHECKER, useExisting: EngineOutreachDncChecker },
+    { provide: OUTREACH_DNC_SUPPRESSOR, useExisting: EngineOutreachDncChecker },
     { provide: OUTREACH_TRANSPORT, useClass: SmtpOutreachTransport },
   ],
   exports: [
@@ -40,6 +55,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachBatchService,
     OutreachSendGate,
     OutreachSendService,
+    OutreachReplyService,
   ],
 })
 export class OutreachModule {}

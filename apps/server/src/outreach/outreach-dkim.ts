@@ -39,6 +39,8 @@ const SIGNED_HEADERS = [
   'mime-version',
   'content-type',
   'content-transfer-encoding',
+  'list-unsubscribe',
+  'list-unsubscribe-post',
 ] as const;
 
 /**

@@ -11,6 +11,8 @@ export interface OutreachMailMessage {
   to: string;
   subject: string;
   body: string;
+  /** 附加头（如 List-Unsubscribe）；名称/值会清洗 CRLF。 */
+  headers?: Record<string, string>;
 }
 
 export interface OutreachTransport {
@@ -204,6 +206,7 @@ export function buildMimeMessage(input: {
   body: string;
   messageId: string;
   date: Date;
+  headers?: Record<string, string>;
 }): string {
   const domain = input.fromAddress.split('@')[1] || 'localhost';
   const from = input.fromName
@@ -212,6 +215,9 @@ export function buildMimeMessage(input: {
   const encodedBody = Buffer.from(input.body, 'utf8')
     .toString('base64')
     .replace(/(.{76})/g, '$1\r\n');
+  const extraHeaders = Object.entries(input.headers ?? {}).map(
+    ([name, value]) => `${sanitizeHeader(name)}: ${sanitizeHeader(value)}`,
+  );
   return [
     `From: ${from}`,
     `To: <${sanitizeHeader(input.to)}>`,
@@ -221,6 +227,7 @@ export function buildMimeMessage(input: {
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
     'Content-Transfer-Encoding: base64',
+    ...extraHeaders,
     '',
     encodedBody,
   ].join('\r\n');
@@ -349,6 +356,7 @@ export class SmtpOutreachTransport implements OutreachTransport {
         body: message.body,
         messageId,
         date: new Date(),
+        headers: message.headers,
       });
       if (dkim) {
         mime = signDkimMessage(mime, dkim);

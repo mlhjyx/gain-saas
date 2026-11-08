@@ -27,6 +27,7 @@ interface TokenRow {
   id: string;
   workspaceId: string;
   contactRef: string;
+  recipientEmail?: string | null;
   tokenHash: string;
   expiresAt: Date;
   usedAt: Date | null;
@@ -223,7 +224,12 @@ describe('outreach 11-1 compliance base', () => {
 
     const issued = await service.issue(tenantA, CONTACT);
     const first = await service.consume(issued.token);
-    expect(first).toEqual({ contactRef: CONTACT, alreadyUsed: false });
+    expect(first).toEqual({
+      contactRef: CONTACT,
+      workspaceId: WS_A,
+      recipientEmail: null,
+      alreadyUsed: false,
+    });
     expect(prisma.consents).toHaveLength(1);
     expect(prisma.consents[0]).toMatchObject({
       workspaceId: WS_A,
@@ -233,7 +239,12 @@ describe('outreach 11-1 compliance base', () => {
     });
 
     const second = await service.consume(issued.token);
-    expect(second).toEqual({ contactRef: CONTACT, alreadyUsed: true });
+    expect(second).toEqual({
+      contactRef: CONTACT,
+      workspaceId: WS_A,
+      recipientEmail: null,
+      alreadyUsed: true,
+    });
     expect(prisma.consents).toHaveLength(1);
 
     const expired = await service.issue(tenantA, CONTACT);

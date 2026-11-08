@@ -142,6 +142,10 @@ class FakeSendPrisma {
       ),
   };
 
+  readonly outreachUnsubscribeToken = {
+    create: async ({ data }: { data: Row }) => ({ id: this.id(), ...data }),
+  };
+
   readonly $transaction = async (operations: Promise<unknown>[]) => Promise.all(operations);
 }
 
@@ -237,18 +241,36 @@ function service(
   prisma: FakeSendPrisma,
   transport: OutreachTransport,
   enabled = true,
+  dncReasons: Map<string, string[]> = new Map(),
+  dncFails = false,
 ) {
   const gate = new OutreachSendGate({ OUTREACH_SEND_ENABLED: enabled } as AppConfig);
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
+  const dnc = {
+    check: vi.fn(async () => {
+      if (dncFails) throw new Error('engine down');
+      return dncReasons;
+    }),
+  };
+  const unsubscribe = {
+    issue: vi.fn(async () => ({
+      token: 'test-unsubscribe-token-0123456789abcdef',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      tokenId: 'token-id',
+    })),
+  };
   const config = {
     OUTREACH_SEND_BATCH_LIMIT: 50,
     OUTREACH_SMTP_FROM_ADDRESS: 'outreach@example.test',
+    OUTREACH_UNSUBSCRIBE_BASE_URL: 'http://127.0.0.1:4020',
   } as AppConfig;
   return new OutreachSendService(
     prisma as unknown as PrismaService,
     audit,
     gate,
     transport,
+    dnc,
+    unsubscribe as never,
     config,
   );
 }
@@ -382,6 +404,92 @@ describe('OutreachSendService', () => {
     expect(second).toMatchObject({ status: 'SENT', sent: 1, failed: 0 });
     expect(transport.send).toHaveBeenCalledTimes(3);
     expect(prisma.batches[0].status).toBe('SENT');
+  });
+
+  it('DNC 命中：该封跳过并记录原因，其余照发，批次标记已完成', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const dncReasons = new Map([
+      ['buyer@example.de', ['global:unsubscribe']],
+    ]);
+
+    const result = await service(prisma, transport, true, dncReasons).sendBatch(
+      tenantA,
+      BATCH,
+    );
+
+    expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, failed: 0, skipped: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    expect(prisma.drafts[0].status).toBe('SKIPPED');
+    expect(prisma.drafts[1].status).toBe('SENT');
+    const skippedLedger = prisma.sends.find((send) => send.status === 'SKIPPED')!;
+    expect(skippedLedger.error).toContain('OUTREACH_DNC_BLOCKED');
+    expect(prisma.batches[0].status).toBe('COMPLETED');
+    expect(
+      prisma.events.some((event) => event.type === 'DRAFT_SKIPPED'),
+    ).toBe(true);
+  });
+
+  it('负向：退订（最新同意 OPT_OUT）后该封不再发送', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.consents[0].status = 'OPT_OUT';
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    expect(prisma.sends.find((send) => send.status === 'SKIPPED')!.error).toBe(
+      'OUTREACH_OPTED_OUT',
+    );
+  });
+
+  it('负向：DNC 查询失败时 fail closed，整批不发送', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+
+    await expect(
+      service(prisma, transport, true, new Map(), true).sendBatch(tenantA, BATCH),
+    ).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_DNC_UNAVAILABLE',
+    );
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(prisma.sends).toHaveLength(0);
+  });
+
+  it('负向：批次已完成（含跳过）后重放被拒绝', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.batches[0].status = 'COMPLETED';
+    const transport = fakeTransport();
+
+    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_BATCH_ALREADY_COMPLETED',
+    );
+    expect(transport.send).not.toHaveBeenCalled();
+  });
+
+  it('发送时附带退订链接与 List-Unsubscribe 头', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+
+    await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    const firstCall = transport.send.mock.calls[0][0] as {
+      body: string;
+      headers: Record<string, string>;
+    };
+    expect(firstCall.body).toContain(
+      'http://127.0.0.1:4020/api/public/outreach/unsubscribe?token=test-unsubscribe-token',
+    );
+    expect(firstCall.headers['List-Unsubscribe']).toContain('unsubscribe?token=');
+    expect(firstCall.headers['List-Unsubscribe-Post']).toBe(
+      'List-Unsubscribe=One-Click',
+    );
   });
 
   it('审计包按 workspace 隔离：跨租户不可见', async () => {

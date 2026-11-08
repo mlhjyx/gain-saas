@@ -11,12 +11,17 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { hashDraftField, hashJson, hashOutreachDrafts } from './outreach-content.js';
-import type { OutreachTenant } from './outreach-consent.service.js';
+import {
+  OUTREACH_DNC_CHECKER,
+  type OutreachTenant,
+} from './outreach-consent.service.js';
+import type { OutreachDncChecker } from './outreach-dnc.checker.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import {
   OUTREACH_TRANSPORT,
   type OutreachTransport,
 } from './outreach-smtp.transport.js';
+import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -61,6 +66,8 @@ export class OutreachSendService {
     private readonly audit: AuditService,
     private readonly gate: OutreachSendGate,
     @Inject(OUTREACH_TRANSPORT) private readonly transport: OutreachTransport,
+    @Inject(OUTREACH_DNC_CHECKER) private readonly dnc: OutreachDncChecker,
+    private readonly unsubscribe: OutreachUnsubscribeService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -101,6 +108,9 @@ export class OutreachSendService {
     if (batch.status === 'SENT') {
       conflict('OUTREACH_BATCH_ALREADY_SENT', '该批次已发送，不能重复发送');
     }
+    if (batch.status === 'COMPLETED') {
+      conflict('OUTREACH_BATCH_ALREADY_COMPLETED', '该批次已处理完毕，不能重复发送');
+    }
     if (batch.status !== 'QUEUED') {
       conflict('OUTREACH_BATCH_NOT_QUEUED', '只有已批准进入待发队列的批次可以发送');
     }
@@ -120,6 +130,8 @@ export class OutreachSendService {
     }
 
     for (const draft of batch.drafts) {
+      // 已按退订/DNC 跳过的草稿不再参与发送，也不再要求重新批准。
+      if (draft.status === 'SKIPPED') continue;
       if (
         !SENDABLE_DRAFT_STATUSES.has(draft.status) ||
         !draft.approvedBy ||
@@ -150,9 +162,13 @@ export class OutreachSendService {
     const sentDraftIds = new Set(
       batch.sends.filter((send) => send.status === 'SENT').map((send) => send.draftId),
     );
+    const skippedDraftIds = new Set(
+      batch.sends.filter((send) => send.status === 'SKIPPED').map((send) => send.draftId),
+    );
     const pending = batch.drafts
-      .filter((draft) => !sentDraftIds.has(draft.id))
+      .filter((draft) => !sentDraftIds.has(draft.id) && !skippedDraftIds.has(draft.id))
       .slice(0, this.config.OUTREACH_SEND_BATCH_LIMIT);
+    const skipReasons = await this.computeSkipReasons(tenant, pending);
 
     const results: OutreachSendSummary['results'] = [];
     for (const draft of pending) {
@@ -163,11 +179,57 @@ export class OutreachSendService {
             .filter((send) => send.draftId === draft.id)
             .map((send) => send.attempt),
         ) + 1;
+      const skipReason = skipReasons.get(draft.id);
+      if (skipReason) {
+        await this.prisma.$transaction([
+          this.prisma.outreachSend.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              batchId,
+              draftId: draft.id,
+              attempt,
+              recipientEmail: draft.recipientEmail,
+              subjectHash: hashDraftField(draft.subject),
+              bodyHash: hashDraftField(draft.body),
+              mailboxAddress: this.config.OUTREACH_SMTP_FROM_ADDRESS ?? 'unconfigured',
+              status: 'SKIPPED',
+              error: skipReason.slice(0, 1000),
+            },
+          }),
+          this.prisma.outreachDraft.update({
+            where: { id: draft.id },
+            data: { status: 'SKIPPED' },
+          }),
+          this.prisma.outreachBatchEvent.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              batchId,
+              type: 'DRAFT_SKIPPED',
+              actor: tenant.userId,
+              detail: { draftId: draft.id, reason: skipReason },
+            },
+          }),
+        ]);
+        skippedDraftIds.add(draft.id);
+        results.push({ draftId: draft.id, status: 'SKIPPED', error: skipReason });
+        continue;
+      }
+
       try {
+        const unsubscribe = await this.unsubscribe.issue(
+          tenant,
+          draft.contactRef,
+          draft.recipientEmail,
+        );
+        const unsubscribeUrl = this.unsubscribeUrl(unsubscribe.token);
         const { messageId } = await this.transport.send({
           to: draft.recipientEmail,
           subject: draft.subject,
-          body: draft.body,
+          body: `${draft.body}\r\n\r\n---\r\nAbmelden / Unsubscribe: ${unsubscribeUrl}`,
+          headers: {
+            'List-Unsubscribe': `<${unsubscribeUrl}>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          },
         });
         await this.prisma.$transaction([
           this.prisma.outreachSend.create({
@@ -219,11 +281,18 @@ export class OutreachSendService {
     }
 
     const allSent = batch.drafts.every((draft) => sentDraftIds.has(draft.id));
+    const allTerminal = batch.drafts.every(
+      (draft) => sentDraftIds.has(draft.id) || skippedDraftIds.has(draft.id),
+    );
     const failed = results.filter((result) => result.status === 'FAILED').length;
     const sent = results.filter((result) => result.status === 'SENT').length;
+    const skipped = results.filter((result) => result.status === 'SKIPPED').length;
     const attemptedDraftIds = new Set(results.map((result) => result.draftId));
-    const skipped = batch.drafts.filter(
-      (draft) => !sentDraftIds.has(draft.id) && !attemptedDraftIds.has(draft.id),
+    const remaining = batch.drafts.filter(
+      (draft) =>
+        !sentDraftIds.has(draft.id) &&
+        !skippedDraftIds.has(draft.id) &&
+        !attemptedDraftIds.has(draft.id),
     ).length;
 
     if (allSent) {
@@ -242,6 +311,22 @@ export class OutreachSendService {
           },
         }),
       ]);
+    } else if (allTerminal) {
+      await this.prisma.$transaction([
+        this.prisma.outreachBatch.update({
+          where: { id: batchId },
+          data: { status: 'COMPLETED' },
+        }),
+        this.prisma.outreachBatchEvent.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            batchId,
+            type: 'BATCH_COMPLETED',
+            actor: tenant.userId,
+            detail: { sent, failed, skipped },
+          },
+        }),
+      ]);
     } else if (results.length > 0) {
       await this.prisma.outreachBatchEvent.create({
         data: {
@@ -249,7 +334,7 @@ export class OutreachSendService {
           batchId,
           type: 'BATCH_SEND_PARTIAL',
           actor: tenant.userId,
-          detail: { sent, failed, remaining: skipped },
+          detail: { sent, failed, skipped, remaining },
         },
       });
     }
@@ -257,7 +342,11 @@ export class OutreachSendService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
-      action: allSent ? 'outreach.batch.sent' : 'outreach.batch.send_partial',
+      action: allSent
+        ? 'outreach.batch.sent'
+        : allTerminal
+          ? 'outreach.batch.completed'
+          : 'outreach.batch.send_partial',
       target: batchId,
       detail: { sent, failed, skipped },
     });
@@ -266,12 +355,72 @@ export class OutreachSendService {
 
     return {
       batchId,
-      status: allSent ? 'SENT' : 'QUEUED',
+      status: allSent ? 'SENT' : allTerminal ? 'COMPLETED' : 'QUEUED',
       sent,
       failed,
       skipped,
       results,
     };
+  }
+
+  private unsubscribeUrl(token: string): string {
+    const base = this.config.OUTREACH_UNSUBSCRIBE_BASE_URL.replace(/\/+$/, '');
+    return `${base}/api/public/outreach/unsubscribe?token=${encodeURIComponent(token)}`;
+  }
+
+  /**
+   * 发送前逐封跳过判定：最新同意为 OPT_OUT（含回复/退订回写）或 DNC 命中。
+   * DNC 查询失败时 fail closed（整批不发送），不把不可达的禁联名单当成“没命中”。
+   */
+  private async computeSkipReasons(
+    tenant: OutreachTenant,
+    drafts: ReadonlyArray<{ id: string; contactRef: string; recipientEmail: string }>,
+  ): Promise<Map<string, string>> {
+    const reasons = new Map<string, string>();
+    if (drafts.length === 0) return reasons;
+
+    const contactRefs = [...new Set(drafts.map((draft) => draft.contactRef))];
+    const consents = await this.prisma.outreachConsent.findMany({
+      where: {
+        workspaceId: tenant.workspaceId,
+        channel: 'email',
+        contactRef: { in: contactRefs },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const latest = new Map<string, (typeof consents)[number]>();
+    for (const consent of consents) {
+      if (!latest.has(consent.contactRef)) latest.set(consent.contactRef, consent);
+    }
+    for (const draft of drafts) {
+      if (latest.get(draft.contactRef)?.status === 'OPT_OUT') {
+        reasons.set(draft.id, 'OUTREACH_OPTED_OUT');
+      }
+    }
+
+    const remaining = drafts.filter((draft) => !reasons.has(draft.id));
+    if (remaining.length === 0) return reasons;
+    let suppressed: Map<string, string[]>;
+    try {
+      suppressed = await this.dnc.check(
+        tenant,
+        remaining.map((draft) => draft.recipientEmail),
+      );
+    } catch {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'OUTREACH_DNC_UNAVAILABLE',
+          message: '禁联名单检查失败，拒绝发送',
+        },
+      });
+    }
+    for (const draft of remaining) {
+      const hit = suppressed.get(draft.recipientEmail.trim().toLowerCase());
+      if (hit && hit.length > 0) {
+        reasons.set(draft.id, `OUTREACH_DNC_BLOCKED: ${hit.join(',')}`);
+      }
+    }
+    return reasons;
   }
 
   /**
