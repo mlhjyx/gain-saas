@@ -3,14 +3,15 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * M2.1 影子期「无调用路径」结构证明（设计 2026-11-08-campaign-planner-m2-1 §8-1，D-M2.1-c）。
+ * Campaign ExecutionAuthorization 接线结构证明。
  *
- * v0 不交付任何执行接线：审批通过只签发 ExecutionAuthorization（业务动作边界凭据），
- * 但系统内**不存在**消费该授权去执行动作的代码路径——没有执行器、没有调度器、
- * 没有对外动作调用。`CAMPAIGN_EXECUTION_SHADOW` 闸门因此在本阶段是空真的；
- * M2.2 接执行方时**必须**同时实现该闸门（默认 on）并由本组断言改为闸门行为测试。
- *
- * 本 spec 用源码扫描把「无调用路径」钉成可回归的事实，而不是文档里的一句话。
+ * 历史：M2.1 影子期本文件是「无调用路径」的 absence spec（授权无消费者）。
+ * P4 首波（第 5 章 P4-03）按 spec 交接约定改写为接线后的结构断言：
+ * - 授权消费方 = outreach 发送执行器唯一的 OutreachAuthorizationConsumer；
+ * - 签发/撤销仍由 campaign 服务独占，ops 只在 workspace 停用/归档时联动置 REVOKED；
+ * - uses 递增（逐封消费）只允许发生在消费者内；
+ * - CAMPAIGN_EXECUTION_SHADOW 影子闸门已实现（默认 on，行为测试在 outreach-send.service.spec.ts）；
+ * - 发送的唯一外部出口是 outreach 模块内的 SMTP transport。
  */
 const SOURCE_ROOT = join(import.meta.dirname, '..');
 
@@ -34,16 +35,29 @@ const sources = productionSources(SOURCE_ROOT).map((path) => ({
   text: readFileSync(path, 'utf8'),
 }));
 
-describe('campaign execution wiring is absent (shadow period structural proof)', () => {
-  it('only campaign issuance and the ops revocation hook touch the authorization model', () => {
+describe('campaign execution wiring（P4 首波接线后的结构断言）', () => {
+  it('only campaign issuance/revocation, the ops revocation hook, and the outreach consumer touch the authorization model', () => {
     const referencing = sources
       .filter((source) => source.text.includes('campaignExecutionAuthorization'))
       .map((source) => source.rel)
       .sort();
-    // campaign 服务负责签发/撤销/校验；ops 只在 workspace 停用时联动撤销（M2.0 设计），
-    // 两处都不是执行路径。
-    expect(referencing).toEqual(['campaign/campaign.service.ts', 'ops/ops.service.ts']);
-    // ops 侧的这一次出现必须是「置 REVOKED」的联动撤销，而不是任何消费/执行。
+    // campaign 服务负责签发/撤销/校验；ops 只在 workspace 停用时联动撤销；
+    // outreach 侧的 OutreachAuthorizationConsumer 是执行器唯一的只读消费点。
+    expect(referencing).toEqual([
+      'campaign/campaign.service.ts',
+      'ops/ops.service.ts',
+      'outreach/outreach-authorization.consumer.ts',
+    ]);
+  });
+
+  it('uses 递增（逐封消费）只允许发生在授权消费者内', () => {
+    const incrementers = sources
+      .filter((source) => source.text.includes('uses: { increment'))
+      .map((source) => source.rel);
+    expect(incrementers).toEqual(['outreach/outreach-authorization.consumer.ts']);
+  });
+
+  it('ops 侧的引用仍是「置 REVOKED」的联动撤销，不是任何消费/执行', () => {
     const ops = sources.find((source) => source.rel === 'ops/ops.service.ts')!;
     const occurrences = ops.text.split('campaignExecutionAuthorization').length - 1;
     expect(occurrences).toBe(1);
@@ -62,7 +76,7 @@ describe('campaign execution wiring is absent (shadow period structural proof)',
     expect(callers).toEqual(['campaign/campaign-internal.controller.ts']);
   });
 
-  it('no module outside campaign/ imports the campaign service (no execution coordinator exists)', () => {
+  it('outreach 不导入 campaign 服务（执行器不经过 campaign 模块，只读模型行）', () => {
     const importers = sources
       .filter(
         (source) =>
@@ -82,7 +96,6 @@ describe('campaign execution wiring is absent (shadow period structural proof)',
       .map((source) => source.rel)
       .sort();
     expect(fetchers).toEqual(['campaign/campaign-plan-engine.client.ts']);
-    // 该客户端只允许调用引擎的 draft 入口（外加本仓收据查询不在此文件），不含任何动作执行路径。
     const client = campaignSources.find(
       (source) => source.rel === 'campaign/campaign-plan-engine.client.ts',
     )!;
@@ -90,11 +103,23 @@ describe('campaign execution wiring is absent (shadow period structural proof)',
     expect(enginePaths).toEqual(['/api/v1/internal/campaign-plans/draft']);
   });
 
-  it('does not claim a CAMPAIGN_EXECUTION_SHADOW gate before any executor exists', () => {
-    // 空真的开关是假安全：M2.2 接执行方时再实现该闸门，并在此处替换为闸门行为测试。
+  it('影子闸门已实现：CAMPAIGN_EXECUTION_SHADOW 只出现在配置与发送执行器，默认 on', () => {
     const references = sources
       .filter((source) => source.text.includes('CAMPAIGN_EXECUTION_SHADOW'))
+      .map((source) => source.rel)
+      .sort();
+    expect(references).toEqual(['config/configuration.ts', 'outreach/outreach-send.service.ts']);
+    const config = sources.find((source) => source.rel === 'config/configuration.ts')!;
+    expect(config.text).toContain("CAMPAIGN_EXECUTION_SHADOW: z.string().default('true')");
+  });
+
+  it('发送唯一出口：outreach 模块外的代码不直接引用 SMTP transport', () => {
+    const importers = sources
+      .filter(
+        (source) =>
+          !source.rel.startsWith('outreach/') && source.text.includes('outreach-smtp.transport'),
+      )
       .map((source) => source.rel);
-    expect(references).toEqual([]);
+    expect(importers).toEqual([]);
   });
 });

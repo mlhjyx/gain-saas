@@ -27,6 +27,13 @@ const draftBody = z.object({
   companyName: z.string().trim().max(200).optional(),
   subject: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(20_000),
+  /** 收件人国家（P4-01 法域同意门输入）；缺失时发送会被 REVIEW_REQUIRED 跳过。 */
+  countryCode: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/)
+    .transform((value) => value.toUpperCase())
+    .optional(),
 });
 
 const decideBody = z.object({

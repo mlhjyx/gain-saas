@@ -6,7 +6,9 @@ import { OutreachBatchService } from './outreach-batch.service.js';
 import { OutreachPublicController } from './outreach-public.controller.js';
 import { OutreachReplyController } from './outreach-reply.controller.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
+import { OutreachAuthorizationConsumer } from './outreach-authorization.consumer.js';
 import { OutreachSendController } from './outreach-send.controller.js';
+import { OutreachSendControls } from './outreach-send-controls.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import { OutreachSendService } from './outreach-send.service.js';
 import {
@@ -42,6 +44,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,
+    OutreachSendControls,
+    OutreachAuthorizationConsumer,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,

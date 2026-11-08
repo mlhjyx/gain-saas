@@ -1,5 +1,6 @@
 {
   "menu": {
+    "settingsNav": "设置导航",
     "tasks": "挖掘任务",
     "reports": "周报",
     "members": "成员与角色",
@@ -1201,7 +1202,18 @@
     "action": "动作",
     "target": "对象",
     "detail": "详情",
-    "empty": "还没有审计记录"
+    "empty": "还没有审计记录",
+    "filterAction": "动作",
+    "filterActionPlaceholder": "例如 member.invite",
+    "filterFrom": "起始日期",
+    "filterTo": "结束日期",
+    "applyFilters": "筛选",
+    "resetFilters": "重置",
+    "exportCsv": "导出 CSV",
+    "exporting": "导出中…",
+    "loaded": "已加载 {count} 条",
+    "totalLoaded": "共 {count} 条 · 已加载 {loaded} 条",
+    "loadMore": "加载更多"
   },
   "privacy": {
     "title": "数据与隐私",
@@ -1218,7 +1230,7 @@
     "subjectCompany": "公司",
     "subjectContact": "联系人",
     "subjectId": "主体 ID",
-    "subjectIdHint": "引擎内公司或联系人的 UUID",
+    "subjectIdHint": "公司可从下拉选择；联系人为引擎内联系人 UUID",
     "reason": "依据",
     "reasonErasure": "擦除 (Art.17)",
     "reasonObjection": "反对 (Art.21)",
@@ -1233,7 +1245,7 @@
     "invalidId": "主体 ID 不是合法 UUID",
     "invalidIdHint": "请从公司或联系人详情复制 UUID",
     "refreshing": "刷新中…",
-    "trackedTitle": "已跟踪的请求",
+    "trackedTitle": "本机记录的请求",
     "lookupHint": "输入请求 id 查询",
     "lookup": "查询",
     "found": "已加入跟踪 {id}",
@@ -1245,7 +1257,7 @@
     "createdAt": "创建时间",
     "receiptSummary": "联系人 {contacts} · 联系点 {points} · 证据 {evidence}",
     "unknownStatus": "未查到（可能在执行或不属于本公司）",
-    "trackedNote": "回执只含计数，不含个人数据；浏览器本地记录可清除，服务端不受影响。"
+    "trackedNote": "回执只含计数、不含个人数据。请求列表目前只保存在这台设备的浏览器里（服务端列表尚未开放）；清除本地记录不影响服务端。"
   },
   "onboarding": {
     "title": "完善企业档案",

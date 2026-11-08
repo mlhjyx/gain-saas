@@ -131,7 +131,7 @@ describe('outreach 11-1 compliance base', () => {
     expect((checker as unknown as { check: ReturnType<typeof vi.fn> }).check).not.toHaveBeenCalled();
   });
 
-  it('DE with OPT_IN is allowed; US follows opt-out; other jurisdictions require review', async () => {
+  it('DE with OPT_IN is allowed; US/FR follow opt-out; other jurisdictions require review', async () => {
     const prisma = new FakePrisma();
     const service = new OutreachConsentService(prisma as never, audit(), dnc());
     await service.record(tenantA, {
@@ -154,13 +154,22 @@ describe('outreach 11-1 compliance base', () => {
     });
     expect(us.allowed).toBe(true);
 
+    // 第 5 章 §5.3.1.1：FR 属 CNIL B2B 合法利益（opt-out 模型），不要求事先同意；
+    // 发送路径上的来源告知页脚要求由发送门的 evaluateEmailJurisdiction 校验。
     const fr = await service.eligibility(tenantA, {
       contactRef: CONTACT,
       countryCode: 'FR',
       email: EMAIL,
     });
-    expect(fr.allowed).toBe(false);
-    if (!fr.allowed) expect(fr.code).toBe('JURISDICTION_REVIEW_REQUIRED');
+    expect(fr.allowed).toBe(true);
+
+    const it_ = await service.eligibility(tenantA, {
+      contactRef: CONTACT,
+      countryCode: 'IT',
+      email: EMAIL,
+    });
+    expect(it_.allowed).toBe(false);
+    if (!it_.allowed) expect(it_.code).toBe('JURISDICTION_REVIEW_REQUIRED');
   });
 
   it('negative 2: OPT_OUT blocks every later send regardless of jurisdiction', async () => {

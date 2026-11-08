@@ -9,7 +9,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachDncChecker } from './outreach-dnc.checker.js';
 import {
-  outreachJurisdictionPolicy,
+  evaluateConsentPolicy,
   type OutreachJurisdictionPolicy,
 } from './outreach-jurisdiction.js';
 
@@ -129,34 +129,17 @@ export class OutreachConsentService {
   ): Promise<OutreachEligibility> {
     const consent = await this.latest(tenant, input.contactRef);
     const consentStatus = consent?.status ?? ('MISSING' as const);
-    const jurisdictionPolicy = outreachJurisdictionPolicy(input.countryCode);
-
-    if (consentStatus === OutreachConsentStatus.OPT_OUT) {
+    // 与发送门共用同一条法域同意判定梯（evaluateConsentPolicy），避免两份合规规则漂移。
+    const policyDecision = evaluateConsentPolicy({
+      countryCode: input.countryCode,
+      consentStatus,
+    });
+    const jurisdictionPolicy = policyDecision.policy;
+    if (!policyDecision.allowed) {
       return {
         allowed: false,
-        code: 'OUTREACH_OPTED_OUT',
-        message: '该联系人已退订，任何批次不得再发送',
-        jurisdictionPolicy,
-        consentStatus,
-      };
-    }
-    if (jurisdictionPolicy === 'REVIEW_REQUIRED') {
-      return {
-        allowed: false,
-        code: 'JURISDICTION_REVIEW_REQUIRED',
-        message: '该法域默认不发送，需运营逐国启用',
-        jurisdictionPolicy,
-        consentStatus,
-      };
-    }
-    if (
-      jurisdictionPolicy === 'CONSENT_REQUIRED' &&
-      consentStatus !== OutreachConsentStatus.OPT_IN
-    ) {
-      return {
-        allowed: false,
-        code: 'JURISDICTION_CONSENT_REQUIRED',
-        message: '该法域要求事先显式同意（OPT_IN）',
+        code: policyDecision.code ?? 'JURISDICTION_REVIEW_REQUIRED',
+        message: policyDecision.message ?? '该法域默认不发送',
         jurisdictionPolicy,
         consentStatus,
       };

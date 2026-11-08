@@ -39,6 +39,33 @@ describe('copyForError', () => {
     expect(copyForError('OUTREACH_DRAFT_VERSION_CONFLICT').title).toContain('版本冲突');
   });
 
+  it('发送门（法域同意/执行授权/控制面）的错误码全部有登记', () => {
+    const sendGateCodes = [
+      'JURISDICTION_CONSENT_REQUIRED',
+      'JURISDICTION_REVIEW_REQUIRED',
+      'JURISDICTION_US_POSTAL_ADDRESS_REQUIRED',
+      'JURISDICTION_FR_SOURCE_NOTICE_REQUIRED',
+      'OUTREACH_WINDOW_CLOSED',
+      'OUTREACH_MAILBOX_DAILY_CAP',
+      'OUTREACH_MAILBOX_WEEKLY_CAP',
+      'OUTREACH_DOMAIN_RATE_LIMITED',
+      'OUTREACH_MAILBOX_PAUSED',
+      'OUTREACH_DOMAIN_PAUSED',
+      'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
+      'OUTREACH_SCHEDULE_OUT_OF_WINDOW',
+      'OUTREACH_BUDGET_EXCEEDED',
+      'CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED',
+      'CAMPAIGN_AUTHORIZATION_INVALID',
+      'CAMPAIGN_AUTHORIZATION_REVOKED',
+      'CAMPAIGN_AUTHORIZATION_EXPIRED',
+      'OUTREACH_BATCH_SIZE_EXCEEDED',
+    ] as const;
+    for (const code of sendGateCodes) {
+      expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);
+    }
+    expect(copyForError('JURISDICTION_CONSENT_REQUIRED', 'en').title).toContain('consent');
+  });
+
   it('联系人挖掘的合规/前置错误码有登记', () => {
     expect(copyForError('CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED').title).toContain('合法性依据');
     expect(copyForError('NO_DOMAIN').why).toContain('域名');

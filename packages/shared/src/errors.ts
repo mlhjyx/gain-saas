@@ -570,6 +570,187 @@ export const ENGINE_ERROR_COPY = {
       next: "Pick one from the list and retry.",
     },
   },
+  // ── 第 5 章 P4：触达发送门（法域同意 / 执行授权 / 控制面）─────────────────
+  JURISDICTION_CONSENT_REQUIRED: {
+    title: '该收件人所在国家要求事先同意',
+    why: '德国/奥地利法律要求对电子邮件广告取得事先明示同意，这位收件人目前没有同意记录。',
+    next: '补充同意记录（表单/展会 opt-in）后再发送，或从本批次移除该联系人。',
+    en: {
+      title: "This recipient's country requires prior consent",
+      why: "German/Austrian law requires explicit prior consent for e-mail advertising; this recipient has no consent on file.",
+      next: "Record consent (form or fair opt-in) before sending, or remove this contact from the batch.",
+    },
+  },
+  JURISDICTION_REVIEW_REQUIRED: {
+    title: '该收件人国家暂未开放发送',
+    why: '系统的法域策略默认只覆盖 US/FR/DE/AT；该国别（或草稿缺少收件人国家）需要运营先启用。',
+    next: '在草稿里补齐收件人国家，或联系运营为该国家启用发送策略。',
+    en: {
+      title: "Outreach to this country is not enabled yet",
+      why: "The jurisdiction policy covers US/FR/DE/AT by default; this country (or a missing recipient country) needs operator enablement first.",
+      next: "Add the recipient country to the draft, or ask operations to enable this country.",
+    },
+  },
+  JURISDICTION_US_POSTAL_ADDRESS_REQUIRED: {
+    title: '缺少美国法定的物理地址页脚',
+    why: 'CAN-SPAM 要求营销邮件包含真实物理邮政地址；系统尚未配置该地址，因此不会发出这封邮件。',
+    next: '联系运营配置发件物理地址（OUTREACH_US_POSTAL_ADDRESS）后重试。',
+    en: {
+      title: "The U.S. physical postal address footer is missing",
+      why: "CAN-SPAM requires a real physical postal address in marketing e-mail; none is configured, so this message is not sent.",
+      next: "Ask operations to configure the sender postal address (OUTREACH_US_POSTAL_ADDRESS), then retry.",
+    },
+  },
+  JURISDICTION_FR_SOURCE_NOTICE_REQUIRED: {
+    title: '缺少法国要求的来源告知页脚',
+    why: 'CNIL 要求面向职业邮箱的推广告知数据来源与反对方式；系统尚未配置来源说明，因此不会发出这封邮件。',
+    next: '联系运营配置来源告知（OUTREACH_FR_SOURCE_NOTICE）后重试。',
+    en: {
+      title: "The French data-source notice footer is missing",
+      why: "CNIL requires telling business recipients where their data came from and how to object; no notice is configured, so this message is not sent.",
+      next: "Ask operations to configure the source notice (OUTREACH_FR_SOURCE_NOTICE), then retry.",
+    },
+  },
+  OUTREACH_WINDOW_CLOSED: {
+    title: '当前不在收件人的接收时段',
+    why: '发送窗口按收件人当地时区（工作日 09:00–17:00）判定，现在发出去容易被忽视或投诉。',
+    next: '无需操作：该封已顺延，草稿保留在批次里，窗口开启后再次发送即可。',
+    en: {
+      title: "Outside the recipient's receiving window",
+      why: "The send window follows the recipient's local time (weekdays 09:00–17:00); sending now risks missed or complained mail.",
+      next: "No action needed: this message is deferred and the draft stays in the batch for a later window.",
+    },
+  },
+  OUTREACH_MAILBOX_DAILY_CAP: {
+    title: '发件信箱今日额度已用完',
+    why: '每个发件信箱每天有发送上限，用于保护域名声誉与送达率。',
+    next: '无需操作：该封已顺延，草稿保留在批次里，明天或换信箱后再次发送即可。',
+    en: {
+      title: "Today's mailbox sending quota is used up",
+      why: "Each sending mailbox has a daily cap that protects domain reputation and deliverability.",
+      next: "No action needed: this message is deferred and the draft stays in the batch for tomorrow.",
+    },
+  },
+  OUTREACH_MAILBOX_WEEKLY_CAP: {
+    title: '发件信箱本周额度已用完',
+    why: '每个发件信箱每周有发送上限，用于保护域名声誉与送达率。',
+    next: '无需操作：该封已顺延，草稿保留在批次里，下周再次发送即可。',
+    en: {
+      title: "This week's mailbox sending quota is used up",
+      why: "Each sending mailbox has a weekly cap that protects domain reputation and deliverability.",
+      next: "No action needed: this message is deferred and the draft stays in the batch for next week.",
+    },
+  },
+  OUTREACH_DOMAIN_RATE_LIMITED: {
+    title: '同一家公司的收件过多',
+    why: '同一收件域每小时最多发送 5 封，避免同一公司同时收到多封造成骚扰与投诉。',
+    next: '无需操作：该封已顺延到下一小时，草稿保留在批次里。',
+    en: {
+      title: "Too many messages to the same company domain",
+      why: "At most 5 messages per recipient domain per hour, to avoid flooding one company.",
+      next: "No action needed: this message is deferred to the next hour and the draft stays in the batch.",
+    },
+  },
+  OUTREACH_MAILBOX_PAUSED: {
+    title: '发送已暂停：退信率超过熔断线',
+    why: '滚动 7 天的硬退信率达到 5% 熔断线，继续发送会损害域名声誉，整批已停止。',
+    next: '联系运营复核名单质量（剔除 catch-all/猜测地址），清除原因后再恢复发送。',
+    en: {
+      title: "Sending paused: bounce rate above the circuit-breaker line",
+      why: "The rolling 7-day hard-bounce rate reached the 5% breaker; continuing would damage domain reputation, so the batch was stopped.",
+      next: "Ask operations to review list quality (drop catch-all/guessed addresses), then resume once the cause is cleared.",
+    },
+  },
+  OUTREACH_DOMAIN_PAUSED: {
+    title: '发送已暂停：投诉率超过红线',
+    why: '滚动 7 天的投诉率达到 0.3% 红线（Gmail 硬线），继续发送可能导致域名被封。',
+    next: '联系运营复核模板与名单；根因清除并人工确认后才可恢复。',
+    en: {
+      title: "Sending paused: complaint rate above the hard line",
+      why: "The rolling 7-day complaint rate reached the 0.3% hard line (Gmail's threshold); continuing risks domain blocking.",
+      next: "Ask operations to review templates and lists; resume only after the root cause is cleared and confirmed.",
+    },
+  },
+  OUTREACH_AUTHORIZATION_SCOPE_MISMATCH: {
+    title: '执行授权与当前批次不一致',
+    why: '授权绑定的是某一次批准冻结的批次内容与收件人范围；当前批次内容或范围与授权不符，系统拒绝发送。',
+    next: '重新提交该批次审批，取得与当前内容一致的新授权后再发送。',
+    en: {
+      title: "The execution authorization does not match this batch",
+      why: "An authorization is bound to the approved, frozen content and recipient set; this batch no longer matches it, so sending is refused.",
+      next: "Re-submit this batch for approval to obtain a matching authorization, then send.",
+    },
+  },
+  OUTREACH_SCHEDULE_OUT_OF_WINDOW: {
+    title: '当前不在授权计划的发送时段',
+    why: '执行授权带有计划发送区间（notBefore–notAfter），现在不在该区间内。',
+    next: '到授权计划时间再发送；若计划有误，重新提交审批调整窗口。',
+    en: {
+      title: "Outside the authorized send schedule",
+      why: "The execution authorization carries a planned window (notBefore–notAfter); the current time is outside it.",
+      next: "Send within the planned window, or re-submit for approval to adjust it.",
+    },
+  },
+  OUTREACH_BUDGET_EXCEEDED: {
+    title: '本批预估成本超出授权预算',
+    why: '执行授权带有本批发送成本上限；按整批估算已超过该上限，系统拒绝发送。',
+    next: '缩小批次规模，或重新提交审批申请更高的预算上限。',
+    en: {
+      title: "Estimated cost exceeds the authorized budget",
+      why: "The execution authorization caps this batch's sending cost; the whole-batch estimate exceeds it, so sending is refused.",
+      next: "Shrink the batch, or re-submit for approval with a higher budget cap.",
+    },
+  },
+  CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED: {
+    title: '执行授权次数已用完',
+    why: '执行授权按收件人数逐封消费，剩余次数不足以覆盖本次待发邮件。',
+    next: '重新提交审批以取得新的授权后再发送。',
+    en: {
+      title: "The execution authorization is used up",
+      why: "Each authorization is consumed once per recipient; the remaining uses cannot cover this send.",
+      next: "Re-submit for approval to obtain a fresh authorization, then send.",
+    },
+  },
+  CAMPAIGN_AUTHORIZATION_INVALID: {
+    title: '批次没有有效的执行授权',
+    why: '发送必须持有与批次绑定的执行授权；当前批次缺少授权或授权不可用。',
+    next: '重新提交该批次审批，待授权签发并绑定后再发送。',
+    en: {
+      title: "This batch has no valid execution authorization",
+      why: "Sending requires an execution authorization bound to the batch; it is missing or unusable.",
+      next: "Re-submit the batch for approval and send once a new authorization is issued and bound.",
+    },
+  },
+  CAMPAIGN_AUTHORIZATION_REVOKED: {
+    title: '执行授权已被撤销',
+    why: '授权会在同意撤销、批次取消或工作空间停用时联动失效。',
+    next: '确认原因并重新提交审批，取得新授权后再发送。',
+    en: {
+      title: "The execution authorization was revoked",
+      why: "Authorizations are revoked automatically when consent is withdrawn, the batch is cancelled, or the workspace is disabled.",
+      next: "Confirm the cause and re-submit for approval to obtain a fresh authorization.",
+    },
+  },
+  CAMPAIGN_AUTHORIZATION_EXPIRED: {
+    title: '执行授权已过期',
+    why: '执行授权有有效期；过期后不能再用于发送。',
+    next: '重新提交审批，取得新授权后再发送。',
+    en: {
+      title: "The execution authorization expired",
+      why: "Execution authorizations are time-limited and cannot be used after expiry.",
+      next: "Re-submit for approval to obtain a fresh authorization, then send.",
+    },
+  },
+  OUTREACH_BATCH_SIZE_EXCEEDED: {
+    title: '单批收件人超过上限',
+    why: '单个批次最多 50 位收件人，这是发送质量与可审计性约束（扩量靠加信箱与加域）。',
+    next: '拆分为多个批次后重新提交审批。',
+    en: {
+      title: "Too many recipients in one batch",
+      why: "A batch is capped at 50 recipients to protect quality and auditability; scale comes from more mailboxes and domains.",
+      next: "Split into several batches and re-submit for approval.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

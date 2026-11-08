@@ -35,6 +35,8 @@ export interface OutreachDraftInput {
   companyName?: string | null;
   subject: string;
   body: string;
+  /** 收件人国家（ISO 3166-1 alpha-2）；发送时法域同意门的输入，缺失按 REVIEW_REQUIRED 拒发。 */
+  countryCode?: string | null;
 }
 
 function normalizeDraft(input: OutreachDraftInput) {
@@ -57,7 +59,18 @@ function normalizeDraft(input: OutreachDraftInput) {
   if (companyName && companyName.length > 200) {
     invalid('VALIDATION_ERROR', '公司名不超过 200 字');
   }
-  return { contactRef: input.contactRef, recipientEmail, companyName, subject, body };
+  const countryCode = input.countryCode?.trim().toUpperCase() || null;
+  if (countryCode && !/^[A-Z]{2}$/.test(countryCode)) {
+    invalid('VALIDATION_ERROR', 'countryCode 必须是 ISO 3166-1 两位国家代码');
+  }
+  return {
+    contactRef: input.contactRef,
+    recipientEmail,
+    companyName,
+    subject,
+    body,
+    countryCode,
+  };
 }
 
 /**
@@ -68,6 +81,7 @@ function normalizeDraft(input: OutreachDraftInput) {
 @Injectable()
 export class OutreachBatchService {
   private readonly approvalTtlMs: number;
+  private readonly maxRecipients: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -75,6 +89,8 @@ export class OutreachBatchService {
     @Inject(APP_CONFIG) config: AppConfig,
   ) {
     this.approvalTtlMs = config.OUTREACH_APPROVAL_TTL_HOURS * 3600_000;
+    // 单批收件人上限（M2 D-11-d：≤50），建草稿与提交两个入口都拦。
+    this.maxRecipients = config.OUTREACH_BATCH_MAX_RECIPIENTS ?? 50;
   }
 
   async createBatch(
@@ -150,6 +166,13 @@ export class OutreachBatchService {
   async addDraft(tenant: OutreachTenant, batchId: string, input: OutreachDraftInput) {
     const normalized = normalizeDraft(input);
     await this.requireDraftableBatch(tenant, batchId);
+    const existing = await this.prisma.outreachDraft.count({ where: { batchId } });
+    if (existing >= this.maxRecipients) {
+      conflict(
+        'OUTREACH_BATCH_SIZE_EXCEEDED',
+        `单批收件人上限 ${this.maxRecipients}，请拆分为多个批次`,
+      );
+    }
     try {
       const draft = await this.prisma.outreachDraft.create({
         data: {
@@ -187,9 +210,12 @@ export class OutreachBatchService {
         error: { code: 'OUTREACH_DRAFT_NOT_FOUND', message: '触达草稿不存在' },
       });
     }
+    // PATCH 语义：未提供 countryCode 时保留原值，不能被整体替换悄悄清空。
+    const data: Partial<typeof normalized> = { ...normalized };
+    if (input.countryCode === undefined) delete data.countryCode;
     const updated = await this.prisma.outreachDraft.update({
       where: { id: draftId },
-      data: normalized,
+      data,
     });
     await this.event(tenant, batchId, 'DRAFT_EDITED', {
       draftId,
@@ -224,6 +250,12 @@ export class OutreachBatchService {
     }
     if (batch.drafts.length === 0) {
       conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
+    }
+    if (batch.drafts.length > this.maxRecipients) {
+      conflict(
+        'OUTREACH_BATCH_SIZE_EXCEEDED',
+        `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.maxRecipients}`,
+      );
     }
     const contentHash = hashOutreachDrafts(batch.drafts);
     const now = new Date();
