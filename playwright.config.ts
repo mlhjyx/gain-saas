@@ -23,4 +23,21 @@ export default defineConfig({
     timeout: 300_000,
     url: 'http://127.0.0.1:4173',
   },
+  /**
+   * P5b-19：按形态分 project——桌面为主；移动端冒烟与深色模式各自独立，
+   * 真栈冒烟默认跳过（只有设置 GAINOS_SMOKE_* 才跑）。每个 spec 只跑一次。
+   */
+  projects: [
+    {
+      name: 'desktop',
+      testIgnore: [
+        '**/responsive.spec.ts',
+        '**/dark-mode.spec.ts',
+        '**/real-stack-smoke.spec.ts',
+      ],
+    },
+    { name: 'mobile', testMatch: ['**/responsive.spec.ts'] },
+    { name: 'dark', testMatch: ['**/dark-mode.spec.ts'] },
+    { name: 'real-stack', testMatch: ['**/real-stack-smoke.spec.ts'] },
+  ],
 });
