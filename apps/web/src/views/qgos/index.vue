@@ -186,6 +186,7 @@ onMounted(load);
         <p>{{ $t('gainos.qgos.subtitle') }}</p>
       </div>
       <div class="qg__head-actions">
+        <router-link class="qg__link" to="/growth?tab=campaigns">{{ $t('gainos.qgos.goCampaigns') }}</router-link>
         <router-link class="qg__link" to="/leads">{{ $t('gainos.qgos.backToLeads') }}</router-link>
         <button class="qg__btn" type="button" :class="{ 'is-loading': loading }" @click="load">
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}

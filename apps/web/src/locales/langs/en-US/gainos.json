@@ -1328,6 +1328,7 @@
     }
   },
   "campaigns": {
+    "goOutreach": "Go to outreach",
     "title": "Campaign plans",
     "subtitle": "Have the system draft what to do, how large, and the budget cap; it only takes effect after your approval. Shadow period: approvals do not execute.",
     "stage": "Stage 3 · Plan & approval",
@@ -1396,6 +1397,7 @@
     "planVersion": "Plan version"
   },
   "qgos": {
+    "goCampaigns": "Go to campaigns",
     "stage": "Convert",
     "title": "Opportunities",
     "subtitle": "Evidenced opportunities, manual sales acceptance and outcome logging — the fuel for attribution and unit economics.",

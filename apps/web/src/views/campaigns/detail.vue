@@ -248,6 +248,7 @@ onUnmounted(stopPolling);
   <div class="cd">
     <header class="cd__head">
       <button type="button" class="cd__back" @click="router.push({ name: 'Campaigns' })">←</button>
+      <router-link class="cd__ghost" to="/growth?tab=outreach">{{ $t('gainos.campaigns.goOutreach') }}</router-link>
       <div>
         <h1>{{ detail?.name ?? $t('gainos.menu.campaigns') }}</h1>
         <p v-if="detail?.objective">{{ detail.objective }}</p>
@@ -462,7 +463,7 @@ onUnmounted(stopPolling);
 .cd__head { display: flex; gap: 16px; align-items: flex-start; }
 .cd__head h1 { margin: 0; font-size: 24px; }
 .cd__head p { margin: 4px 0 0; color: #6b6257; }
-.cd__back { border: 1px solid #d8cbb8; background: #fff; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; }
+.cd__back { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; width: 34px; height: 34px; cursor: pointer; color: var(--gs-fg-2); }
 .cd__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
 .cd__danger { background: var(--gs-surface); color: var(--gs-danger); border: 1px solid var(--gs-danger-border); border-radius: 10px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
 .cd__ghost { background: var(--gs-surface-2); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
