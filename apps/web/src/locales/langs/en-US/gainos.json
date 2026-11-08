@@ -1,5 +1,6 @@
 {
   "menu": {
+    "settingsNav": "Settings navigation",
     "tasks": "Tasks",
     "reports": "Weekly Report",
     "members": "Members & Roles",
@@ -1179,7 +1180,18 @@
     "action": "Action",
     "target": "Target",
     "detail": "Detail",
-    "empty": "No audit entries yet"
+    "empty": "No audit entries yet",
+    "filterAction": "Action",
+    "filterActionPlaceholder": "e.g. member.invite",
+    "filterFrom": "From date",
+    "filterTo": "To date",
+    "applyFilters": "Filter",
+    "resetFilters": "Reset",
+    "exportCsv": "Export CSV",
+    "exporting": "Exporting…",
+    "loaded": "{count} loaded",
+    "totalLoaded": "{count} total · {loaded} loaded",
+    "loadMore": "Load more"
   },
   "privacy": {
     "title": "Data & privacy",
@@ -1196,7 +1208,7 @@
     "subjectCompany": "Company",
     "subjectContact": "Contact",
     "subjectId": "Subject ID",
-    "subjectIdHint": "Engine UUID of the company or contact",
+    "subjectIdHint": "Pick a company from the list; for a contact, paste its engine UUID",
     "reason": "Basis",
     "reasonErasure": "Erasure (Art.17)",
     "reasonObjection": "Objection (Art.21)",
@@ -1211,7 +1223,7 @@
     "invalidId": "Subject ID is not a UUID",
     "invalidIdHint": "Copy the UUID from the company or contact details",
     "refreshing": "Refreshing…",
-    "trackedTitle": "Tracked requests",
+    "trackedTitle": "Requests tracked on this device",
     "lookupHint": "Enter a request id",
     "lookup": "Look up",
     "found": "Added to tracking {id}",
@@ -1223,7 +1235,7 @@
     "createdAt": "Created",
     "receiptSummary": "Contacts {contacts} · points {points} · evidence {evidence}",
     "unknownStatus": "Not found (still processing or not in this company)",
-    "trackedNote": "Receipts contain counts only. Clearing this browser's local list does not affect the server."
+    "trackedNote": "Receipts contain counts only, never personal data. This list currently lives only in this browser (no server-side list yet); clearing it does not affect the server."
   },
   "onboarding": {
     "title": "Complete your company profile",

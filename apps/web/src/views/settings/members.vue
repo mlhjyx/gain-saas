@@ -3,6 +3,8 @@ import { onMounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import SettingsShell from '#/components/gainos/settings-shell.vue';
+
 import { failureText, gainosApi, type MembersResponse } from '#/api/gainos';
 
 defineOptions({ name: 'SettingsMembers' });
@@ -83,16 +85,12 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="mb">
-    <header class="mb__head">
-      <div>
-        <h1>{{ $t('gainos.members.title') }}</h1>
-        <p>{{ $t('gainos.members.subtitle') }}</p>
-      </div>
+  <SettingsShell :subtitle="$t('gainos.members.subtitle')" :title="$t('gainos.members.title')">
+    <template #actions>
       <button class="mb__cta" type="button" @click="inviteOpen = true; inviteLink = null; inviteForm.email = ''; inviteForm.role = 'member'; inviteError = null">
         {{ $t('gainos.members.invite') }}
       </button>
-    </header>
+    </template>
 
     <div v-if="loading" class="mb__state">{{ $t('gainos.members.loading') }}</div>
     <div v-else-if="error" class="mb__state mb__state--err">{{ error }}<button type="button" @click="load">{{ $t('gainos.common.retry') }}</button></div>
@@ -169,7 +167,7 @@ onMounted(load);
         </div>
       </div>
     </Teleport>
-  </div>
+  </SettingsShell>
 </template>
 
 <style scoped>

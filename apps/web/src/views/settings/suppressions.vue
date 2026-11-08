@@ -10,6 +10,8 @@ import { onMounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import SettingsShell from '#/components/gainos/settings-shell.vue';
+
 import { formatDate } from '@gain-saas/shared';
 
 import {
@@ -123,13 +125,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="sp">
-    <header class="sp__head">
-      <div>
-        <h1>{{ $t('gainos.suppressions.title') }}</h1>
-        <p>{{ $t('gainos.suppressions.subtitle') }}</p>
-      </div>
-    </header>
+  <SettingsShell :subtitle="$t('gainos.suppressions.subtitle')" :title="$t('gainos.suppressions.title')">
 
     <p v-if="notice" class="sp__notice" role="status">{{ notice }}</p>
 
@@ -213,7 +209,7 @@ onMounted(load);
         </p>
       <p class="sp__hint">{{ $t('gainos.suppressions.releaseHint') }}</p>
     </section>
-  </div>
+  </SettingsShell>
 </template>
 
 <style scoped>
