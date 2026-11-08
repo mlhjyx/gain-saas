@@ -16,7 +16,8 @@ import { OutreachReplyService } from './outreach-reply.service.js';
 const replyBody = z.object({
   contactRef: z.string().uuid(),
   recipientEmail: z.string().trim().email().max(320).optional(),
-  kind: z.enum(['REPLY', 'BOUNCE', 'UNSUBSCRIBE']).optional(),
+  // COMPLAINT：ARF 投诉报告或人工录入，进投诉率熔断（P4-02 v1）。
+  kind: z.enum(['REPLY', 'BOUNCE', 'UNSUBSCRIBE', 'COMPLAINT']).optional(),
   classification: z
     .enum(['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'OUT_OF_OFFICE', 'UNKNOWN'])
     .optional(),
