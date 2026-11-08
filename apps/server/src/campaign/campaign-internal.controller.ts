@@ -1,5 +1,6 @@
 import {
   Body,
+  UseGuards,
   CanActivate,
   Controller,
   ExecutionContext,
@@ -57,6 +58,7 @@ export class CampaignServiceTokenGuard implements CanActivate {
 
 /** 跨服务授权验证端点（设计文档 §6.2；引擎接入在 M2.1/步 9b）。 */
 @Controller('api/internal/v1/execution-authorizations')
+@UseGuards(CampaignServiceTokenGuard)
 export class CampaignInternalController {
   constructor(private readonly campaigns: CampaignService) {}
 

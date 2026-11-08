@@ -1,13 +1,13 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { $t } from '#/locales';
+import { navTitle } from '../nav';
 
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:building-2',
       order: 2,
-      title: $t('gainos.menu.companies'),
+      title: navTitle('companies'),
     },
     name: 'Companies',
     path: '/companies',

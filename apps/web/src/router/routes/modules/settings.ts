@@ -2,12 +2,14 @@ import type { RouteRecordRaw } from 'vue-router';
 
 import { $t } from '#/locales';
 
+import { navTitle } from '../nav';
+
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:settings',
       order: 6,
-      title: $t('gainos.menu.settings'),
+      title: navTitle('settings'),
     },
     name: 'Settings',
     path: '/settings',

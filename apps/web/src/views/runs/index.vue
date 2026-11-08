@@ -2,6 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { glossaryStatus } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
+
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob } from '#/api/gainos';
@@ -533,10 +536,9 @@ const statusTone = computed(() => {
   return 'is-running';
 });
 
+// 状态文案取自 @gain-saas/shared 的 glossary（P6 §4），未登记值不裸奔。
 function statusLabel(status?: string): string {
-  const key = `gainos.runs.status.${status ?? 'RUNNING'}`;
-  const value = $t(key);
-  return value === key ? (status ?? '') : value;
+  return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
 
 function toneLabel(tone: Tone): string {

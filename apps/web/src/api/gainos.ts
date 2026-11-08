@@ -56,7 +56,7 @@ export interface CompanyOffering {
   createdAt?: string;
 }
 
-/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入目标买家设计。 */
+/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入目标客户画像设计。 */
 export interface CompanyClaim {
   id: string;
   companyId: string;
@@ -274,6 +274,100 @@ export interface IcpRule {
   rationale?: string | null;
 }
 
+export interface CampaignPlanV0View {
+  schemaVersion: string;
+  goal: { objective: string; successMetric?: string };
+  audience: { icpIds: string[]; sizeCap: number };
+  motions: Array<{ type: string; icpIds: string[] }>;
+  budget: { capMicros?: number; currency: string };
+  approvalPolicy: { required: boolean };
+  decisionPolicy: { maxReplans: number };
+}
+
+export interface CampaignSummary {
+  id: string;
+  name: string;
+  objective: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  latestRevision: {
+    id: string;
+    revisionNo: number;
+    state: string;
+    planHash: string;
+  } | null;
+}
+
+export interface CampaignApprovalView {
+  id: string;
+  state: string;
+  requestedBy: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionReason: string | null;
+  expiresAt: string;
+}
+
+export interface CampaignRevisionView {
+  id: string;
+  revisionNo: number;
+  state: string;
+  planHash: string;
+  plan: CampaignPlanV0View;
+  createdAt: string;
+  audience: { icpIds: string[]; sizeCap: number } | null;
+  approvals: CampaignApprovalView[];
+}
+
+export interface CampaignAuthorizationView {
+  id: string;
+  revisionId: string;
+  planHash: string;
+  scope: unknown;
+  state: string;
+  uses: number;
+  maxUses: number;
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export interface CampaignTraceEntry {
+  traceId: string;
+  stepType: string;
+  actor: string;
+  actorType: string;
+  decisionType: string;
+  chosenOption: string | null;
+  reasonCode: string | null;
+  createdAt: string;
+}
+
+export interface CampaignDetail {
+  id: string;
+  name: string;
+  objective: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  revisions: CampaignRevisionView[];
+  authorizations: CampaignAuthorizationView[];
+  recentTrace: CampaignTraceEntry[];
+}
+
+export interface CampaignPlanJobView {
+  id: string;
+  campaignId: string;
+  state: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  objective: string;
+  error: string | null;
+  issues: Array<{ path: string; message: string }> | null;
+  planHash: string | null;
+  revisionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Icp {
   id: string;
   companyId: string;
@@ -484,7 +578,7 @@ export interface DiscoveryRunJob {
   finishedAt: string | null;
 }
 
-/** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回寻源任务。 */
+/** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回挖掘任务。 */
 export interface DiscoveryRunLink {
   runId: string;
   planId: string;
@@ -737,6 +831,18 @@ export const gainosApi = {
     );
     return response?.data?.data ?? null;
   },
+  // ── M2 步 10：商机域（QGO/SAO/Outcome）──
+  qgos: (params: { state?: string; campaignId?: string; limit?: number; cursor?: string } = {}) =>
+    requestClient.get<QgoView[]>('/qgos', { params }),
+  qgo: (id: string) => requestClient.get<QgoView>(`/qgos/${id}`),
+  promoteQgo: (input: PromoteQgoInput) =>
+    requestClient.post<{ qgo: QgoView; created: boolean }>('/qgos', input),
+  acceptQgo: (id: string) => requestClient.post<QgoView>(`/qgos/${id}/accept`, {}),
+  declineQgo: (id: string, reason: string) => requestClient.post<QgoView>(`/qgos/${id}/decline`, { reason }),
+  addQgoOutcome: (
+    saoId: string,
+    input: { outcome: QgoOutcomeValue; occurredAt?: string; note?: string; evidenceRef?: string },
+  ) => requestClient.post<QgoOutcomeView>(`/saos/${saoId}/outcomes`, input),
   icps: (companyId?: string) =>
     requestClient.get<Icp[]>('/icps', { params: companyId ? { companyId } : {} }),
   icp: (icpId: string) => requestClient.get<Icp>(`/icps/${icpId}`),
@@ -835,11 +941,104 @@ export const gainosApi = {
     requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),
   completeOnboarding: (input: OnboardingCompanyInput) =>
     requestClient.post<CompanyProfile>('/onboarding/company', input),
+  // ── M2.1 Campaign 控制面（docs/superpowers/plans/2026-11-08-campaign-planner-m2-1.md）──
+  campaigns: () => requestClient.get<CampaignSummary[]>('/campaigns'),
+  campaign: (campaignId: string) => requestClient.get<CampaignDetail>(`/campaigns/${campaignId}`),
+  createCampaign: (input: { name: string; objective?: string }) =>
+    requestClient.post<CampaignSummary>('/campaigns', input),
+  /** 触发一次受限规划（异步 job）；计划由引擎回调落成草稿 revision。 */
+  createCampaignPlanDraft: (
+    campaignId: string,
+    input: {
+      objective?: string;
+      icpId?: string;
+      audienceSizeCap?: number;
+      budgetCapMicros?: number;
+    } = {},
+  ) =>
+    requestClient.post<CampaignPlanJobView>(`/campaigns/${campaignId}/plan-drafts`, input),
+  campaignPlanDraft: (campaignId: string, jobId: string) =>
+    requestClient.get<CampaignPlanJobView>(`/campaigns/${campaignId}/plan-drafts/${jobId}`),
+  submitCampaignRevision: (campaignId: string, revisionId: string) =>
+    requestClient.post<{
+      revision: { id: string; revisionNo: number; state: string };
+      approval: { id: string; state: string; expiresAt: string };
+    }>(`/campaigns/${campaignId}/revisions/${revisionId}/submit`, {}),
+  decideCampaignApproval: (
+    campaignId: string,
+    approvalId: string,
+    input: { decision: 'approve' | 'decline'; reason?: string },
+  ) =>
+    requestClient.post<{
+      approval: { id: string; state: string; decidedBy: string | null; decidedAt: string | null };
+      authorization: {
+        id: string;
+        state: string;
+        expiresAt: string;
+        maxUses: number;
+      } | null;
+    }>(`/campaigns/${campaignId}/approvals/${approvalId}/decide`, input),
+  campaignTrace: (campaignId: string) =>
+    requestClient.get<{ items: CampaignTraceEntry[]; nextCursor: string | null }>(
+      `/campaigns/${campaignId}/trace`,
+    ),
   notifications: () => requestClient.get<NotificationPage>('/notifications'),
   readNotification: (id: string) => requestClient.post<{ ok: boolean }>(`/notifications/${id}/read`, {}),
   readAllNotifications: () => requestClient.post<{ updated: number }>('/notifications/read-all', {}),
   deleteNotification: (id: string) => requestClient.delete<{ ok: boolean }>(`/notifications/${id}`),
 };
+
+// ── M2 步 10：商机域（QGO/SAO/Outcome）──────────────────────────────────────
+export interface QgoEvidenceItem {
+  type: string;
+  url?: string;
+  retrievedAt?: string;
+  support?: string;
+}
+
+export interface QgoOutcomeView {
+  id: string;
+  outcome: string;
+  occurredAt: string;
+  source: string;
+  evidenceRef?: string | null;
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface QgoView {
+  id: string;
+  leadRef: string;
+  canonicalCompanyRef: string;
+  icpRef: string | null;
+  campaignId: string | null;
+  title: string;
+  score: number | null;
+  evidence: QgoEvidenceItem[];
+  nextStep: string;
+  state: 'OPEN' | 'CONVERTED' | 'DROPPED' | string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  sao: { id: string; state: string; decidedAt: string; reason: string | null } | null;
+  outcomes?: QgoOutcomeView[];
+}
+
+export interface PromoteQgoInput {
+  leadRef: string;
+  evidence: QgoEvidenceItem[];
+  nextStep: string;
+  campaignId?: string;
+}
+
+export type QgoOutcomeValue =
+  | 'REPLIED'
+  | 'MEETING_BOOKED'
+  | 'QUOTE_SENT'
+  | 'WON'
+  | 'LOST'
+  | 'NO_RESPONSE'
+  | 'DISQUALIFIED';
 
 /** 引擎/合同错误信息提取(三层文案优先:发生了什么/为什么/怎么办;code 供技术详情折叠) */
 export function failureText(error: unknown): {
