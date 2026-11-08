@@ -69,7 +69,7 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
 
   // tab 1：内嵌真实战役计划列表（M2.1）——父页已给标题，内嵌页不再渲染自己的 H1（F0：双页头消除）
   await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '新建计划' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '新建计划' }).first()).toBeVisible();
   await expect(page.getByText('还没有任何计划。先新建一个，再让系统起草。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-campaigns.png') });
