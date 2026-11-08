@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 import ErrorNotice from '#/components/error-notice.vue';
@@ -17,8 +16,6 @@ import {
  * 证据卡展示「为什么是商机」；接受/拒绝即 SAO；结果登记 append-only。
  */
 defineOptions({ name: 'Qgos' });
-
-const router = useRouter();
 
 const OUTCOME_VALUES: QgoOutcomeValue[] = [
   'REPLIED',

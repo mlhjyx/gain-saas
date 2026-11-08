@@ -335,7 +335,7 @@ onUnmounted(stopPolling);
           <summary>{{ $t('gainos.campaigns.whyTechnical') }}</summary>
           <p class="cd__muted">{{ $t('gainos.campaigns.whyTechnicalHint') }}</p>
           <pre>{{ JSON.stringify(latest.plan, null, 2) }}</pre>
-          <code>plan_hash: {{ latest.planHash }}</code>
+          <code>{{ $t('gainos.campaigns.planVersion') }} · {{ latest.planHash }}</code>
           <code>revision_id: {{ latest.id }}</code>
           <code>job_id: {{ draft?.id ?? '—' }}</code>
         </details>
