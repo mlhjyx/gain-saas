@@ -6,7 +6,7 @@
     "privacy": "数据与隐私",
     "audit": "审计",
     "sources": "数据源",
-    "campaigns": "经营计划"
+    "campaigns": "战役计划"
   },
   "growth": {
     "title": "商机与触达",
@@ -20,14 +20,12 @@
     "campaignPoint2": "人工审批：待审批、已批准、已拒绝、已过期",
     "campaignPoint3": "影子期：只审不执行，任何对外动作都不会发生",
     "campaignCta": "去完善目标客户画像",
-    "campaignDisabled": "新建战役计划（即将开放）",
     "qgoTitle": "商机",
     "qgoDesc": "从「值得跟进」的买家线索提升为商机：每条商机都带需求与时机证据、以及明确的下一步；接受与拒绝都留痕。",
     "qgoPoint1": "提升为商机：证据与下一步缺一不可",
     "qgoPoint2": "人工接受后才进入触达准备",
     "qgoPoint3": "结果登记：已回复、已约会议、已报价、赢单、丢单等",
     "qgoCta": "去判断买家线索",
-    "qgoDisabled": "商机管线（即将开放）",
     "outreachTitle": "触达",
     "outreachDesc": "触达按批次管理：草稿先审后发、发送窗口与信箱上限受控、回复即停；退订与禁联名单在每次发送前自动校验。",
     "outreachPoint1": "草稿审批：预览、编辑、批准之后才可能发送",
@@ -35,7 +33,9 @@
     "outreachPoint3": "回复处理：分类结果与建议结果一键确认",
     "outreachNote": "发送通道开放前，系统不会发出任何邮件。",
     "outreachCta": "去查看买家线索",
-    "outreachDisabled": "新建触达批次（即将开放）"
+    "outreachDisabled": "新建触达批次（即将开放）",
+    "campaignListCta": "打开战役计划",
+    "qgoListCta": "打开商机列表"
   },
   "workspaces": {
     "title": "工作空间",
@@ -1219,7 +1219,7 @@
     }
   },
   "campaigns": {
-    "title": "经营计划（Campaign）",
+    "title": "战役计划",
     "subtitle": "让系统先起草一份「做什么、做到多大、花多少钱上限」的计划；你批准后才生效。影子期：批准也不会真的执行。",
     "stage": "阶段 3 · 计划与审批",
     "newCampaign": "新建计划",
@@ -1283,7 +1283,8 @@
     "loadError": "加载失败，请稍后重试。",
     "traceTitle": "决策记录",
     "approvalExpires": "有效期至",
-    "approveConfirm": "批准后将签发执行授权；影子期不会真的执行。"
+    "approveConfirm": "批准后将签发执行授权；影子期不会真的执行。",
+    "planVersion": "计划版本"
   },
   "qgos": {
     "stage": "Convert",
