@@ -475,6 +475,7 @@ onUnmounted(stopPolling);
 .cd__why-3 pre { background: #f6f1e7; padding: 10px; border-radius: 8px; overflow: auto; max-height: 320px; font-size: 12px; }
 .cd__why-3 code { display: block; margin-top: 6px; font-size: 12px; color: #6b6257; }
 .cd__timeline { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.cd__timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .cd__state { margin: 0 8px; color: var(--gs-warn); }
 .cd__error { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; }
 .cd__error details { margin-top: 6px; }

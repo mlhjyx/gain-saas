@@ -114,7 +114,10 @@ onMounted(load);
       <p v-if="error.next">{{ error.next }}</p>
       <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
     </div>
-    <p v-else-if="!hasCampaigns" class="cp__hint">{{ $t('gainos.campaigns.empty') }}</p>
+    <div v-else-if="!hasCampaigns" class="cp__empty">
+      <p>{{ $t('gainos.campaigns.empty') }}</p>
+      <button class="cp__primary" type="button" @click="showCreate = true">{{ $t('gainos.campaigns.newCampaign') }}</button>
+    </div>
 
     <table v-else class="cp__table">
       <thead>
@@ -182,6 +185,8 @@ onMounted(load);
 .cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: #7a6a52; text-transform: uppercase; }
 .cp h1 { margin: 6px 0; font-size: 26px; }
 .cp__head p { margin: 0; color: #6b6257; max-width: 640px; }
+.cp__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface); padding: 40px 24px; display: grid; place-items: center; gap: 12px; color: var(--gs-fg-muted); font-size: 13.5px; }
+.cp__empty p { margin: 0; }
 .cp__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
 .cp__banner { margin: 18px 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
 .cp__hint { color: #6b6257; }

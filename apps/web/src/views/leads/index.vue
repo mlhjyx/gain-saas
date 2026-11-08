@@ -1084,7 +1084,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__error p { margin: 0; font-size: 13px; color: var(--gs-fg-muted); }
 .ld__error button { justify-self: start; border: 0; border-radius: 8px; padding: 7px 14px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; font-size: 13px; }
 .ld__skeletons { display: grid; gap: 12px; }
-.ld__skeleton { height: 104px; border-radius: 14px; background: var(--gs-divider); animation: ld-pulse 1.4s ease-in-out infinite; }
+.ld__skeleton { height: 104px; border-radius: 14px; background: var(--gs-surface-2); border: 1px solid var(--gs-border); animation: ld-pulse 1.4s ease-in-out infinite; }
 @keyframes ld-pulse { 50% { opacity: .55; } }
 .ld__empty {
   max-width: 760px; margin: 0 auto; display: grid; place-items: center; gap: 6px; text-align: center;

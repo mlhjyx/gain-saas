@@ -1184,7 +1184,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 .fb__rule-actions button { border: 0; background: transparent; color: var(--gs-accent-strong); font-size: 12px; cursor: pointer; padding: 0; }
 .fb__rule-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; background: var(--gs-surface-3); border-radius: 10px; padding: 12px; }
 .fb__rule-form .fb__modal-actions { grid-column: 1 / -1; }
-.fb__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); }
+.fb__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); min-width: 0; }
+.fb__field input, .fb__field select, .fb__field textarea { max-width: 100%; box-sizing: border-box; min-width: 0; }
 .fb__field input, .fb__field select, .fb__field textarea, .fb__textarea {
   width: 100%; box-sizing: border-box; border: 1px solid var(--gs-border-strong); border-radius: 9px; background: var(--gs-surface); color: var(--gs-fg);
   padding: 9px 11px; font-size: 13px; font-family: inherit;

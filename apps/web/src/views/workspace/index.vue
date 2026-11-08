@@ -46,6 +46,7 @@ const STEPS = computed(() =>
 );
 
 const loading = ref(true);
+const loadError = ref<{ title: string; next?: string } | null>(null);
 const engineNotice = ref<string | null>(null);
 const workspaceName = ref('');
 const role = ref<'admin' | 'member' | ''>('');
@@ -686,6 +687,7 @@ async function load(): Promise<void> {
   notificationsLoading.value = true;
   engineNotice.value = null;
   notificationsError.value = null;
+  loadError.value = null;
 
   try {
     const [sessionRes, companyRes, icpRes, notificationsRes, membersRes] =
@@ -824,6 +826,12 @@ async function load(): Promise<void> {
     } else {
       completenessByCompany.value = {};
     }
+
+    // 关键接口失败时给出可见错误与重试（审计 二-03：此前失败被静默显示成「未授权/全 0」）。
+    const critical = [sessionRes, companyRes, icpRes].filter((r) => r.status === 'rejected');
+    if (critical.length > 0) {
+      loadError.value = failureText((critical[0] as PromiseRejectedResult).reason);
+    }
   } finally {
     loading.value = false;
     notificationsLoading.value = false;
@@ -900,6 +908,13 @@ onUnmounted(() => {
 
 <template>
   <div class="wk">
+    <div v-if="loadError" class="wk__error" role="alert">
+      <div>
+        <strong>{{ loadError.title }}</strong>
+        <p v-if="loadError.next">{{ loadError.next }}</p>
+      </div>
+      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
+    </div>
     <header class="wk__hero">
       <div class="wk__hero-main">
         <div class="wk__eyebrow">
@@ -1018,7 +1033,7 @@ onUnmounted(() => {
           <h2>{{ $t('gainos.workspace.recentLeads') }}</h2>
           <button type="button" class="wk__text-btn" @click="router.push('/leads')">{{ $t('gainos.workspace.viewAllLeads') }}</button>
         </header>
-        <p v-if="recentLeadRows.length === 0" class="wk__empty">{{ $t('gainos.workspace.recentLeadsEmpty') }}</p>
+        <p v-if="!loading && recentLeadRows.length === 0" class="wk__empty">{{ $t('gainos.workspace.recentLeadsEmpty') }}</p>
         <ul v-else class="wk__lead-list">
           <li v-for="lead in recentLeadRows" :key="lead.id">
             <button type="button" class="wk__lead" @click="openLead(lead)">
@@ -1209,6 +1224,9 @@ onUnmounted(() => {
 .wk__lead-badge--sanctions_hold { background: var(--gs-danger-bg); color: var(--gs-danger); }
 .wk__lead-score { font-size: 11px; color: var(--gs-fg-muted); font-variant-numeric: tabular-nums; }
 
+.wk__error { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); border-radius: 12px; padding: 14px 16px; color: var(--gs-danger); font-size: 13px; }
+.wk__error p { margin: 4px 0 0; }
+.wk__error button { flex: none; border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger); }
 .wk__empty { margin: 0; padding: 26px 10px; text-align: center; font-size: 12.8px; line-height: 1.7; color: var(--gs-fg-subtle); }
 .wk__empty p { margin: 0 0 8px; }
 
