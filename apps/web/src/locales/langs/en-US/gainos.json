@@ -725,7 +725,26 @@
       "GOOD_FIT": "Strong fit",
       "WILL_FOLLOW_UP": "Will follow up"
     },
-    "reasonSelect": "Choose a reason"
+    "reasonSelect": "Choose a reason",
+    "qgoEntry": "Opportunities",
+    "promoteQgo": "Promote to QGO",
+    "promoteTitle": "Promote to opportunity (QGO)",
+    "promoteEvidence": "Demand / timing evidence (at least one)",
+    "promoteEvidenceType": "Evidence type",
+    "addEvidence": "Add another evidence",
+    "promoteUrlHint": "Evidence link (https://…, optional)",
+    "promoteSupportHint": "One line: what does this evidence support? (optional)",
+    "promoteNextStep": "Next step",
+    "promoteNextStepHint": "e.g. Send sample quote and book a call this week",
+    "promoteSubmit": "Promote to opportunity",
+    "promoteDone": "Promoted — opening the opportunity list.",
+    "evidenceType": {
+      "customer_reply": "Customer reply",
+      "purchase_page": "Purchasing page",
+      "tender_hit": "Tender hit",
+      "customs_signal": "Customs signal",
+      "other": "Other"
+    }
   },
   "contacts": {
     "title": "Decision makers",
@@ -1267,5 +1286,52 @@
     "traceTitle": "Decision log",
     "approvalExpires": "Expires",
     "approveConfirm": "Approving issues an execution authorization; during the shadow period nothing executes."
+  },
+  "qgos": {
+    "stage": "Convert",
+    "title": "Opportunities",
+    "subtitle": "Evidenced opportunities, manual sales acceptance and outcome logging — the fuel for attribution and unit economics.",
+    "backToLeads": "Back to leads",
+    "stateFilter": "Filter by state",
+    "all": "All",
+    "emptyTitle": "No opportunities yet",
+    "emptyDesc": "Accept a lead in Buyers, then use “Promote to QGO” to attach demand/timing evidence and a next step.",
+    "emptyCta": "Go to leads",
+    "nextStep": "Next step",
+    "score": "Fit {score}",
+    "evidenceCount": "{count} evidence items",
+    "detailTitle": "Opportunity detail",
+    "evidenceTitle": "Evidence",
+    "saoTitle": "Sales acceptance (SAO)",
+    "saoPending": "Not decided yet — accepting or declining leaves a human record.",
+    "saoAccepted": "Accepted",
+    "saoDeclined": "Declined",
+    "declineReason": "Decline reason",
+    "decideTitle": "Manual decision",
+    "declineReasonHint": "Reason for declining (required)",
+    "accept": "Accept opportunity",
+    "decline": "Decline",
+    "declineConfirm": "Confirm decline",
+    "outcomeTitle": "Log outcome",
+    "occurredAt": "Occurred at (optional)",
+    "outcomeNoteHint": "Note (optional)",
+    "outcomeSubmit": "Log outcome",
+    "outcomeSaved": "Outcome logged.",
+    "acceptedNotice": "Accepted — the opportunity is now in follow-up.",
+    "declinedNotice": "Declined and recorded.",
+    "state": {
+      "OPEN": "Pending",
+      "CONVERTED": "Accepted",
+      "DROPPED": "Declined"
+    },
+    "outcome": {
+      "REPLIED": "Replied",
+      "MEETING_BOOKED": "Meeting booked",
+      "QUOTE_SENT": "Quote sent",
+      "WON": "Won",
+      "LOST": "Lost",
+      "NO_RESPONSE": "No response",
+      "DISQUALIFIED": "Disqualified"
+    }
   }
 }

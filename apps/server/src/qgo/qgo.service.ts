@@ -101,7 +101,7 @@ type QgoRow = Prisma.QgoGetPayload<Record<string, never>>;
 
 function serializeQgo(
   row: QgoRow,
-  sao?: { state: string; decidedAt: Date; reason: string | null } | null,
+  sao?: { id: string; state: string; decidedAt: Date; reason: string | null } | null,
   outcomes?: Array<Record<string, unknown>>,
 ) {
   return {
@@ -119,7 +119,7 @@ function serializeQgo(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     sao: sao
-      ? { state: sao.state, decidedAt: sao.decidedAt.toISOString(), reason: sao.reason }
+      ? { id: sao.id, state: sao.state, decidedAt: sao.decidedAt.toISOString(), reason: sao.reason }
       : null,
     ...(outcomes === undefined ? {} : { outcomes }),
   };
@@ -234,7 +234,7 @@ export class QgoService {
       take: opts.limit + 1,
       ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      include: { sao: { select: { state: true, decidedAt: true, reason: true } } },
+      include: { sao: { select: { id: true, state: true, decidedAt: true, reason: true } } },
     });
     const page = rows.slice(0, opts.limit);
     const hasMore = rows.length > opts.limit;

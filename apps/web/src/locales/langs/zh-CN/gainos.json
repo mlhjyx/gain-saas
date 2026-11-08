@@ -725,7 +725,26 @@
       "GOOD_FIT": "匹配度高",
       "WILL_FOLLOW_UP": "会主动跟进"
     },
-    "reasonSelect": "请选择原因"
+    "reasonSelect": "请选择原因",
+    "qgoEntry": "商机",
+    "promoteQgo": "提升为商机",
+    "promoteTitle": "提升为商机（QGO）",
+    "promoteEvidence": "需求/时机证据（至少一条）",
+    "promoteEvidenceType": "证据类型",
+    "addEvidence": "再加一条证据",
+    "promoteUrlHint": "证据链接（https://…，可选）",
+    "promoteSupportHint": "一句话说明这条证据支持什么（可选）",
+    "promoteNextStep": "下一步动作",
+    "promoteNextStepHint": "例如：发样品报价并约定本周电话",
+    "promoteSubmit": "提升为商机",
+    "promoteDone": "已提升为商机，正在打开商机列表。",
+    "evidenceType": {
+      "customer_reply": "客户回复",
+      "purchase_page": "官网采购页",
+      "tender_hit": "招标命中",
+      "customs_signal": "海关信号",
+      "other": "其他"
+    }
   },
   "contacts": {
     "title": "决策人",
@@ -1267,5 +1286,52 @@
     "traceTitle": "决策记录",
     "approvalExpires": "有效期至",
     "approveConfirm": "批准后将签发执行授权；影子期不会真的执行。"
+  },
+  "qgos": {
+    "stage": "Convert",
+    "title": "商机",
+    "subtitle": "带证据的商机、销售接受与结果登记——归因与单位经济的原料。",
+    "backToLeads": "返回线索",
+    "stateFilter": "按状态筛选",
+    "all": "全部",
+    "emptyTitle": "还没有商机",
+    "emptyDesc": "在「买家线索」里接受线索后，用「提升为商机」把需求/时机证据与下一步带进来。",
+    "emptyCta": "去买家线索",
+    "nextStep": "下一步",
+    "score": "匹配度 {score}",
+    "evidenceCount": "{count} 条证据",
+    "detailTitle": "商机详情",
+    "evidenceTitle": "证据",
+    "saoTitle": "销售接受（SAO）",
+    "saoPending": "尚未裁决——接受或拒绝后留下人工记录。",
+    "saoAccepted": "已接受",
+    "saoDeclined": "已拒绝",
+    "declineReason": "拒绝理由",
+    "decideTitle": "人工裁决",
+    "declineReasonHint": "拒绝理由（必填）",
+    "accept": "接受商机",
+    "decline": "拒绝",
+    "declineConfirm": "确认拒绝",
+    "outcomeTitle": "结果登记",
+    "occurredAt": "发生时间（可选）",
+    "outcomeNoteHint": "备注（可选）",
+    "outcomeSubmit": "登记结果",
+    "outcomeSaved": "结果已登记。",
+    "acceptedNotice": "已接受，商机转为跟进中。",
+    "declinedNotice": "已拒绝并留痕。",
+    "state": {
+      "OPEN": "待裁决",
+      "CONVERTED": "已接受",
+      "DROPPED": "已拒绝"
+    },
+    "outcome": {
+      "REPLIED": "已回复",
+      "MEETING_BOOKED": "已约会议",
+      "QUOTE_SENT": "已报价",
+      "WON": "赢单",
+      "LOST": "丢单",
+      "NO_RESPONSE": "无响应",
+      "DISQUALIFIED": "不合格"
+    }
   }
 }

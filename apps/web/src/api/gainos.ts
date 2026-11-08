@@ -831,6 +831,18 @@ export const gainosApi = {
     );
     return response?.data?.data ?? null;
   },
+  // ── M2 步 10：商机域（QGO/SAO/Outcome）──
+  qgos: (params: { state?: string; campaignId?: string; limit?: number; cursor?: string } = {}) =>
+    requestClient.get<QgoView[]>('/qgos', { params }),
+  qgo: (id: string) => requestClient.get<QgoView>(`/qgos/${id}`),
+  promoteQgo: (input: PromoteQgoInput) =>
+    requestClient.post<{ qgo: QgoView; created: boolean }>('/qgos', input),
+  acceptQgo: (id: string) => requestClient.post<QgoView>(`/qgos/${id}/accept`, {}),
+  declineQgo: (id: string, reason: string) => requestClient.post<QgoView>(`/qgos/${id}/decline`, { reason }),
+  addQgoOutcome: (
+    saoId: string,
+    input: { outcome: QgoOutcomeValue; occurredAt?: string; note?: string; evidenceRef?: string },
+  ) => requestClient.post<QgoOutcomeView>(`/saos/${saoId}/outcomes`, input),
   icps: (companyId?: string) =>
     requestClient.get<Icp[]>('/icps', { params: companyId ? { companyId } : {} }),
   icp: (icpId: string) => requestClient.get<Icp>(`/icps/${icpId}`),
@@ -973,6 +985,58 @@ export const gainosApi = {
   readAllNotifications: () => requestClient.post<{ updated: number }>('/notifications/read-all', {}),
   deleteNotification: (id: string) => requestClient.delete<{ ok: boolean }>(`/notifications/${id}`),
 };
+
+// ── M2 步 10：商机域（QGO/SAO/Outcome）──────────────────────────────────────
+export interface QgoEvidenceItem {
+  type: string;
+  url?: string;
+  retrievedAt?: string;
+  support?: string;
+}
+
+export interface QgoOutcomeView {
+  id: string;
+  outcome: string;
+  occurredAt: string;
+  source: string;
+  evidenceRef?: string | null;
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface QgoView {
+  id: string;
+  leadRef: string;
+  canonicalCompanyRef: string;
+  icpRef: string | null;
+  campaignId: string | null;
+  title: string;
+  score: number | null;
+  evidence: QgoEvidenceItem[];
+  nextStep: string;
+  state: 'OPEN' | 'CONVERTED' | 'DROPPED' | string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  sao: { id: string; state: string; decidedAt: string; reason: string | null } | null;
+  outcomes?: QgoOutcomeView[];
+}
+
+export interface PromoteQgoInput {
+  leadRef: string;
+  evidence: QgoEvidenceItem[];
+  nextStep: string;
+  campaignId?: string;
+}
+
+export type QgoOutcomeValue =
+  | 'REPLIED'
+  | 'MEETING_BOOKED'
+  | 'QUOTE_SENT'
+  | 'WON'
+  | 'LOST'
+  | 'NO_RESPONSE'
+  | 'DISQUALIFIED';
 
 /** 引擎/合同错误信息提取(三层文案优先:发生了什么/为什么/怎么办;code 供技术详情折叠) */
 export function failureText(error: unknown): {

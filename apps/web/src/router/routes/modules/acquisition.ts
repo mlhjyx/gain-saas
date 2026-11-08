@@ -43,6 +43,16 @@ const routes: RouteRecordRaw[] = [
     path: '/reports',
     component: () => import('#/views/reports/index.vue'),
   },
+  {
+    // M2 步 10：商机列表（不占 P6 导航；入口在线索页，路由隐藏于菜单）。
+    meta: {
+      hideInMenu: true,
+      title: $t('gainos.qgos.title'),
+    },
+    name: 'Qgos',
+    path: '/qgos',
+    component: () => import('#/views/qgos/index.vue'),
+  },
 ];
 
 export default routes;
