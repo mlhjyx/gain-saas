@@ -24,6 +24,7 @@ const replyBody = z.object({
   snippet: z.string().trim().max(500).optional(),
   externalId: z.string().trim().max(256).optional(),
   receivedAt: z.string().datetime().optional(),
+  saoId: z.string().uuid().optional(),
 });
 
 function invalid(message: string): never {

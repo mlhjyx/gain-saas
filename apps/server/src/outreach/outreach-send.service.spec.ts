@@ -492,6 +492,30 @@ describe('OutreachSendService', () => {
     );
   });
 
+  it('审计包 hash 不含 generatedAt：重复读取命中持久化版本', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    await service(prisma, fakeTransport()).sendBatch(tenantA, BATCH);
+
+    const first = await service(prisma, fakeTransport()).getAuditPackage(tenantA, BATCH);
+    const second = await service(prisma, fakeTransport()).getAuditPackage(tenantA, BATCH);
+    expect(first.packageHash).toBe(second.packageHash);
+    expect(first.persistedAt).not.toBeNull();
+  });
+
+  it('门拒绝也落批次事件与审计包（13-1 G4）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma, { expired: true });
+
+    await expect(
+      service(prisma, fakeTransport()).sendBatch(tenantA, BATCH),
+    ).rejects.toSatisfy((error) => errorCode(error) === 'OUTREACH_APPROVAL_EXPIRED');
+
+    expect(prisma.events.some((event) => event.type === 'BATCH_REJECTED')).toBe(true);
+    expect(prisma.packages.length).toBeGreaterThan(0);
+    expect(prisma.sends).toHaveLength(0);
+  });
+
   it('审计包按 workspace 隔离：跨租户不可见', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);

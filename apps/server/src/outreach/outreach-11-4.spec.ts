@@ -8,7 +8,12 @@ import { OutreachReplyService } from './outreach-reply.service.js';
 const WS_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const WS_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const CONTACT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const tenantA: OutreachTenant = { userId: 'user-a', workspaceId: WS_A, role: 'admin' };
+const SAO = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const tenantA: OutreachTenant = {
+  userId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  workspaceId: WS_A,
+  role: 'admin',
+};
 
 interface Row {
   [key: string]: unknown;
@@ -17,6 +22,8 @@ interface Row {
 class FakeReplyPrisma {
   replies: Row[] = [];
   consents: Row[] = [];
+  outcomes: Row[] = [];
+  saos: Row[] = [];
   seq = 0;
 
   private id(): string {
@@ -44,6 +51,30 @@ class FakeReplyPrisma {
     create: async ({ data }: { data: Row }) => {
       const row = { id: this.id(), createdAt: new Date(), ...data };
       this.consents.push(row);
+      return row;
+    },
+  };
+
+  readonly sao = {
+    findFirst: async ({ where }: { where: Row }) =>
+      this.saos.find(
+        (row) => row.id === where.id && row.workspaceId === where.workspaceId,
+      ) ?? null,
+  };
+
+  readonly opportunityOutcome = {
+    findUnique: async ({ where }: { where: Row }) => {
+      const key = (where as { saoId_sourceEventId: { saoId: string; sourceEventId: string } })
+        .saoId_sourceEventId;
+      return (
+        this.outcomes.find(
+          (row) => row.saoId === key.saoId && row.sourceEventId === key.sourceEventId,
+        ) ?? null
+      );
+    },
+    create: async ({ data }: { data: Row }) => {
+      const row = { id: this.id(), createdAt: new Date(), ...data };
+      this.outcomes.push(row);
       return row;
     },
   };
@@ -89,6 +120,47 @@ describe('OutreachReplyService（M2 步 11-4）', () => {
       source: 'reply:reply',
       lawfulBasis: 'consent_withdrawal',
     });
+  });
+
+  it('REPLY + saoId 回写 REPLIED outcome（12-3 接缝），重放幂等', async () => {
+    const prisma = new FakeReplyPrisma();
+    prisma.saos.push({ id: SAO, workspaceId: WS_A });
+    const row = await service(prisma).record(tenantA, {
+      contactRef: CONTACT,
+      kind: 'REPLY',
+      classification: 'POSITIVE',
+      saoId: SAO,
+    });
+    expect(prisma.outcomes).toHaveLength(1);
+    expect(prisma.outcomes[0]).toMatchObject({
+      workspaceId: WS_A,
+      saoId: SAO,
+      outcome: 'REPLIED',
+      source: 'SYSTEM',
+      sourceEventId: row.id,
+      evidenceRef: row.id,
+    });
+
+    await service(prisma).record(tenantA, {
+      contactRef: CONTACT,
+      kind: 'REPLY',
+      saoId: SAO,
+    });
+    expect(prisma.outcomes).toHaveLength(2);
+  });
+
+  it('负向：saoId 不属于当前 workspace 时拒绝', async () => {
+    const prisma = new FakeReplyPrisma();
+    prisma.saos.push({ id: SAO, workspaceId: WS_B });
+    await expect(
+      service(prisma).record(tenantA, {
+        contactRef: CONTACT,
+        kind: 'REPLY',
+        saoId: SAO,
+      }),
+    ).rejects.toSatisfy((error) => errorCode(error) === 'VALIDATION_ERROR');
+    expect(prisma.outcomes).toHaveLength(0);
+    expect(prisma.replies).toHaveLength(0);
   });
 
   it('退信（BOUNCE）同样写入 OPT_OUT', async () => {
