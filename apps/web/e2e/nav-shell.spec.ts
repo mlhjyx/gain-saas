@@ -46,7 +46,7 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   await page.locator('.vben-menu').getByText('设置', { exact: true }).click();
   await page.getByRole('menuitem', { name: '成员与角色' }).click();
   await page.waitForURL((url) => url.pathname === '/settings/members');
-  await expect(page.locator('.mb')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
 
   // 收编不等于删除：/reports 深链仍可达
   await page.goto('/reports');
