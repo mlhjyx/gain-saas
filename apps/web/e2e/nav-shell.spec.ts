@@ -33,7 +33,7 @@ async function mockApi(page: Page): Promise<void> {
     if (path === '/notifications') return json({ items: [], unreadCount: 0 });
     if (path === '/workspaces') return json(SESSION.workspaces);
     if (path === '/members') return json({ invites: [], members: [] });
-    if (['/companies', '/discovery-runs', '/icps', '/leads'].includes(path)) return json([]);
+    if (['/campaigns', '/companies', '/discovery-runs', '/icps', '/leads', '/qgos'].includes(path)) return json([]);
     if (
       request.method() === 'GET' &&
       path !== '/' &&
@@ -82,6 +82,8 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   }
   await expect(page.locator('.vben-menu').getByText('设置', { exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
+  // 战役计划收编在「商机与触达」入口内（D-14-a），不占一级导航
+  await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
   for (const item of TOP_NAV) {
     await page.getByRole('menuitem', { name: item.name }).click();
@@ -115,11 +117,25 @@ test('商机与触达：三 tab 空壳、影子语义与词表', async ({ page }
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-campaigns.png') });
 
+  // 战役计划 tab 接真实列表页（14-2 前的入口收编）
+  await page.getByRole('button', { name: '打开战役计划' }).click();
+  await page.waitForURL((url) => url.pathname === '/campaigns');
+  await page.getByRole('menuitem', { name: '商机与触达' }).click();
+  await page.waitForURL((url) => url.pathname === '/growth');
+
   await tabs.nth(1).click();
   await page.waitForURL(/tab=opportunities/);
   await expect(page.getByRole('heading', { level: 2, name: '商机' })).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-opportunities.png') });
+
+  // 商机 tab 接真实列表页（/qgos，入口收编）
+  await page.getByRole('button', { name: '打开商机列表' }).click();
+  await page.waitForURL((url) => url.pathname === '/qgos');
+  await page.getByRole('menuitem', { name: '商机与触达' }).click();
+  await page.waitForURL((url) => url.pathname === '/growth');
+  await page.getByRole('tab', { name: '商机' }).click();
+  await page.waitForURL(/tab=opportunities/);
 
   await tabs.nth(2).click();
   await page.waitForURL(/tab=outreach/);

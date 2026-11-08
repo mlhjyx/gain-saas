@@ -48,7 +48,7 @@ interface LegendItem {
 }
 
 function legend(
-  table: Record<string, { en: string; tone: string; zh: string }>,
+  table: Record<string, { en: string; tone: StatusTone; zh: string }>,
   keys: string[],
 ): LegendItem[] {
   return keys.map((key) => {
@@ -117,11 +117,11 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
           <li>{{ $t('gainos.growth.campaignPoint3') }}</li>
         </ul>
         <div class="gr__actions">
-          <button class="gr__cta" type="button" @click="router.push('/find-buyers')">
-            {{ $t('gainos.growth.campaignCta') }}
+          <button class="gr__cta" type="button" @click="router.push('/campaigns')">
+            {{ $t('gainos.growth.campaignListCta') }}
           </button>
-          <button class="gr__ghost" type="button" disabled>
-            {{ $t('gainos.growth.campaignDisabled') }}
+          <button class="gr__ghost gr__ghost--link" type="button" @click="router.push('/find-buyers')">
+            {{ $t('gainos.growth.campaignCta') }}
           </button>
         </div>
       </article>
@@ -149,11 +149,11 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
           <li>{{ $t('gainos.growth.qgoPoint3') }}</li>
         </ul>
         <div class="gr__actions">
-          <button class="gr__cta" type="button" @click="router.push('/leads')">
-            {{ $t('gainos.growth.qgoCta') }}
+          <button class="gr__cta" type="button" @click="router.push('/qgos')">
+            {{ $t('gainos.growth.qgoListCta') }}
           </button>
-          <button class="gr__ghost" type="button" disabled>
-            {{ $t('gainos.growth.qgoDisabled') }}
+          <button class="gr__ghost gr__ghost--link" type="button" @click="router.push('/leads')">
+            {{ $t('gainos.growth.qgoCta') }}
           </button>
         </div>
       </article>
@@ -368,5 +368,17 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
   border-radius: 10px;
   padding: 9px 16px;
   cursor: not-allowed;
+}
+
+.gr__ghost--link {
+  border-style: solid;
+  border-color: var(--gs-border-strong);
+  color: var(--gs-fg-2);
+  cursor: pointer;
+}
+
+.gr__ghost--link:hover {
+  border-color: var(--gs-accent);
+  color: var(--gs-accent-strong);
 }
 </style>
