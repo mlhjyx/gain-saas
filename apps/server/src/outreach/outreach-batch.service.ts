@@ -5,13 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { hashOutreachDrafts } from './outreach-content.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -225,7 +225,7 @@ export class OutreachBatchService {
     if (batch.drafts.length === 0) {
       conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
     }
-    const contentHash = hashDrafts(batch.drafts);
+    const contentHash = hashOutreachDrafts(batch.drafts);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.approvalTtlMs);
     const result = await this.prisma.$transaction(async (tx) => {
@@ -496,23 +496,3 @@ export class OutreachBatchService {
   }
 }
 
-function hashDrafts(
-  drafts: ReadonlyArray<{
-    contactRef: string;
-    recipientEmail: string;
-    subject: string;
-    body: string;
-  }>,
-): string {
-  const canonical = drafts
-    .map((draft) => ({
-      contactRef: draft.contactRef,
-      recipientEmail: draft.recipientEmail.trim().toLowerCase(),
-      subject: draft.subject,
-      body: draft.body,
-    }))
-    .sort((left, right) =>
-      left.contactRef < right.contactRef ? -1 : left.contactRef > right.contactRef ? 1 : 0,
-    );
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
-}

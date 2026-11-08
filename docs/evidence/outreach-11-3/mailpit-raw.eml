@@ -1,0 +1,17 @@
+Return-Path: <outreach@mail.gainos.test>
+Received: from gain-saas.local (unknown [172.17.0.1])
+        by 32d913c50c14 (Mailpit) with SMTP
+        for <buyer@example.test>; Sun, 8 Nov 2026 11:37:26 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=mail.gainos.test; s=test20261108; t=1794137846; h=from:to:subject:date:message-id:mime-version:content-type:content-transfer-encoding; bh=B7fJrWOEv9u/0lW80aRfJe8/uoCD1feeGEbHcndB+f0=; b=YO5li6PCqYzkQzAqLPsoCVdrgApqx1/CtrFImgzj57n+NSgboOyjS0X2CVb19y+fAHtfPA6oe1ouWk7cvbWjpkMz/wmlU2XAA4Z1ZQkFQxU1A8+HBChQZULrru1Qzc0ZrWamY89JgYj4cnq1YwuDeKzgQJIJKyuZoL17Cm28r50/b+ex0hDkbbAM5syCdlbVfZI3Gog5ibCS3UiHzdfF20lMU4UFwTfbchDT6+n9AJfcHpMPIeITL4c3qr14QTrc3tjvnEPkDUjmsdUXUIQ6i3o56sx35/Ze7/2VokOgOEsw2Ls/x9pdVFRbdwDIWIrMlrlkLldmqStzJBnhExXOoQ==
+From: GainOS TEST <outreach@mail.gainos.test>
+To: <buyer@example.test>
+Subject: =?UTF-8?B?VEVTVCDigJMgR2Fpbk9TIOinpui+vumTvui3r+acrOWcsOaKlemAkg==?=
+Date: Sun, 08 Nov 2026 11:37:26 GMT
+Message-ID: <01c46f24-b67d-4270-940e-598b3cf1998f@mail.gainos.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+RGllcyBpc3QgZWluZSBURVNULU5hY2hyaWNodCBhbiBlaW5lbiBsb2thbGVuIFNNVFAtU2luay4N
+CktlaW5lIGVjaHRlIFp1c3RlbGx1bmcuIEJpdHRlIGlnbm9yaWVyZW4uDQoNCkdhaW5PUyBNMiBT
+dGVwIDExLTMgbG9jYWwgc2luayBldmlkZW5jZS4=

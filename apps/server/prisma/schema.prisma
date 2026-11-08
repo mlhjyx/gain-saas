@@ -64,6 +64,8 @@ model Workspace {
   outreachDrafts           OutreachDraft[]
   outreachBatchApprovals   OutreachBatchApproval[]
   outreachBatchEvents      OutreachBatchEvent[]
+  outreachSends            OutreachSend[]
+  outreachAuditPackages    OutreachAuditPackage[]
   qgos        Qgo[]
   saos        Sao[]
   opportunityOutcomes OpportunityOutcome[]
@@ -336,6 +338,7 @@ enum OutreachBatchStatus {
   DECLINED
   EXPIRED
   QUEUED
+  SENT
   CANCELLED
 }
 
@@ -375,6 +378,8 @@ model OutreachBatch {
   drafts    OutreachDraft[]
   approvals OutreachBatchApproval[]
   events    OutreachBatchEvent[]
+  sends     OutreachSend[]
+  auditPackages OutreachAuditPackage[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, campaignId])
@@ -444,6 +449,57 @@ model OutreachBatchEvent {
 
   @@index([workspaceId, batchId, createdAt])
   @@map("outreach_batch_event")
+}
+
+// ─── M2 步 11-3：发送台账与审计包 ───────────────────────────────────────────
+
+enum OutreachSendStatus {
+  SENT
+  FAILED
+}
+
+/// 发送台账（append-only）：每次发送尝试一行；同一批次/草稿的重试以 attempt 递增。
+model OutreachSend {
+  id              String             @id @default(uuid()) @db.Uuid
+  workspaceId     String             @map("workspace_id") @db.Uuid
+  batchId         String             @map("batch_id") @db.Uuid
+  draftId         String             @map("draft_id") @db.Uuid
+  attempt         Int                @default(1)
+  recipientEmail  String             @map("recipient_email") @db.VarChar(320)
+  subjectHash     String             @map("subject_hash") @db.Char(64)
+  bodyHash        String             @map("body_hash") @db.Char(64)
+  mailboxAddress  String             @map("mailbox_address") @db.VarChar(320)
+  messageId       String?            @map("message_id") @db.VarChar(256)
+  status          OutreachSendStatus @default(SENT)
+  error           String?            @db.VarChar(1000)
+  sentAt          DateTime?          @map("sent_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batch     OutreachBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, draftId, attempt])
+  @@index([workspaceId, batchId, status])
+  @@map("outreach_send")
+}
+
+/// 审计包（不可变）：谁批/何时/发什么/合规依据，packageHash 内容寻址。
+model OutreachAuditPackage {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  contentHash String   @map("content_hash") @db.Char(64)
+  package     Json
+  packageHash String   @map("package_hash") @db.Char(64)
+  createdBy   String   @map("created_by") @db.VarChar(256)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batch     OutreachBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, packageHash])
+  @@index([workspaceId, batchId])
+  @@map("outreach_audit_package")
 }
 
 /// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。
