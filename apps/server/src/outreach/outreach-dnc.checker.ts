@@ -44,23 +44,34 @@ export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDnc
       body: { emails },
       timeoutMs: 10_000,
     });
+    // 合规门 fail closed：403/5xx 或畸形响应必须当成“无法确认”，不能当成“没命中”。
+    if (result.status >= 400) {
+      throw new Error(`DNC 检查失败（HTTP ${result.status}）`);
+    }
     const body = result.body as {
       data?: { results?: Array<{ emailHash?: unknown; reasons?: unknown }> };
     };
-    const rows = Array.isArray(body?.data?.results) ? body.data.results : [];
+    if (!Array.isArray(body?.data?.results)) {
+      throw new Error('DNC 响应格式不合法：缺少 data.results');
+    }
     const byHash = new Map<string, string[]>();
-    for (const row of rows) {
-      if (typeof row.emailHash !== 'string') continue;
-      const reasons = Array.isArray(row.reasons)
-        ? row.reasons.filter((reason): reason is string => typeof reason === 'string')
-        : [];
-      byHash.set(row.emailHash, reasons);
+    for (const row of body.data.results) {
+      if (typeof row.emailHash !== 'string' || !Array.isArray(row.reasons)) {
+        throw new Error('DNC 响应格式不合法：条目缺少 emailHash/reasons');
+      }
+      byHash.set(
+        row.emailHash,
+        row.reasons.filter((reason): reason is string => typeof reason === 'string'),
+      );
     }
     const out = new Map<string, string[]>();
     for (const email of emails) {
       const canonical = email.trim().toLowerCase();
-      const reasons =
-        byHash.get(createHash('sha256').update(canonical).digest('hex')) ?? [];
+      const hash = createHash('sha256').update(canonical).digest('hex');
+      const reasons = byHash.get(hash);
+      if (!reasons) {
+        throw new Error(`DNC 响应缺少邮箱条目（${hash.slice(0, 8)}…）`);
+      }
       if (reasons.length > 0) out.set(canonical, reasons);
     }
     return out;
