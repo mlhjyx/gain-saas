@@ -8,10 +8,10 @@ import { ServiceUnavailableException } from '@nestjs/common';
  * 而部署实际以 development 运行——公网可无凭据铸 token（2026-11-08 安全审计实测）。
  * 现在改为无条件要求 TLS 到达：引擎经 R4_TLS_PORT(18447) 访问不受影响。
  */
-export function assertInternalTls(
-  req: { socket?: { encrypted?: boolean } } | undefined,
-): void {
-  if (req?.socket?.encrypted === true) return;
+export function assertInternalTls(req: unknown): void {
+  // express 的 Request.socket 是 net.Socket，TLS 专有的 `encrypted` 不在类型里；此处收窄读取。
+  const socket = (req as { socket?: { encrypted?: boolean } } | undefined)?.socket;
+  if (socket?.encrypted === true) return;
   throw new ServiceUnavailableException({
     error: {
       code: 'INTERNAL_ENDPOINT_TLS_ONLY',
