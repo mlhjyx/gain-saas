@@ -62,6 +62,28 @@ pnpm --filter @gain-saas/server exec tsx src/scripts/attribution-12-3-live.ts <w
 
 上述两处接通后重跑本命令即应退出 0；对账差异仍按既有口径如实报告（plan v0 占位差异属预期）。
 
+### 3.1 正式收口（2026-11-08 部署后复跑，8/8 通过）
+
+- **前提落地**：G5（reply→outcome SYSTEM 回写，PR #115，main `71afd55`）已并入 main 并随本批
+  补发上线（gain-saas web/worker 于 20:47:06 CST 重启，晚于 #115 合并 12:45:54Z）；引擎侧同批
+  切到 5c969c33（digest 902b41ff）。
+- **fixture**（m1-5 部署库重跑，长期保留在 dev）：workspace `5c47d7fd` / campaign `9a67796e`
+  （M2 11-4 Demo Campaign，DRAFT）/ SAO `7920ddd6`；batch 5 / draft 6（APPROVED 1、SENT 2、
+  SKIPPED 3）/ send 5（SENT 2、SKIPPED 3）/ reply 1（REPLY/NEGATIVE，`478469f6`）/
+  audit package 12。
+- **复跑结果**：`attribution-12-3-live.ts 5c47d7fd… 9a67796e…` → **8/8 全过，退出码 0**：
+  - REPLIED outcome 1 条：source=SYSTEM，`source_event_id = reply.id`，挂 SAO `7920ddd6`；
+  - 归因视图：qgo=1 / sao=1 / replyCount=1 = distinct SAO(REPLIED) 1；positive/negative=0
+    （fixture 无对应 outcome）；
+  - 对账：balanced=true，无差异行。
+- **两跑对照与口径说明**：G5 前首跑（早期 workspace `5a725465`，无 campaign、无 outcome）
+  退出 2、断点如实入档（§3）；fixture 的 reply/outcome 行产生于部署前 12:41:29（G5 分支代码经
+  API 写入，与部署代码一致），本次正式跑为只读断言，验证数据链→视图→对账口径；部署后写路径
+  本身由 11-x 用例（17/17 PASS）覆盖，12-3 不重复写数据。
+- **对账为何平衡**：fixture campaign 为 DRAFT 且无 execution authorization，exec/plan 成本为 0，
+  无 plan v0 占位差异可对；与「diff≠0 → balanced=false」规则不冲突，属口径内为真的绿灯。
+- 早期 workspace `5a725465` 无 campaign，仅作 G5 前对照，勿复用。
+
 ## 4. 已备好的预演回归（不依赖沙箱）
 
 `apps/server/src/ops/ops-attribution.e2e.test.ts`（一次性真库 + 真实 Campaign/QGO 服务）：
@@ -74,6 +96,6 @@ pnpm --filter @gain-saas/server exec tsx src/scripts/attribution-12-3-live.ts <w
 ## 5. 边界
 
 - `outreach_reply` 与 `opportunity_outcome` 的桥接（分类回写 REPLIED）由 11-x/m1-5 线提供；
-  本线只消费 outcome 并断言归因口径，不改 11-x 代码。2026-11-08 已确认现状缺失，接缝方案见 §3，
-  归入 11-x/13-1 缺口清单修复后重跑本联调。
+  本线只消费 outcome 并断言归因口径，不改 11-x 代码。接缝缺口已由 G5（#115）修复并入部署，
+  正式收口结果见 §3.1。
 - plan 成本 v0 占位：对账红是**预期**信号，直至 M2.1 计划成本进入视图口径。
