@@ -237,8 +237,8 @@ onMounted(loadBatches);
     <header class="ob__head">
       <div v-if="!embedded">
         <h2>{{ $t('gainos.outreach.title') }}</h2>
-        <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       </div>
+      <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       <button class="ob__primary" type="button" @click="showCreate = !showCreate">
         {{ $t('gainos.outreach.newBatch') }}
       </button>
