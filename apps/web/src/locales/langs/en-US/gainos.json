@@ -6,7 +6,7 @@
     "privacy": "Data & privacy",
     "audit": "Audit",
     "sources": "Data sources",
-    "campaigns": "Campaigns"
+    "campaigns": "Campaign plans"
   },
   "growth": {
     "title": "Opportunities & outreach",
@@ -20,14 +20,12 @@
     "campaignPoint2": "Human approval: pending, approved, declined, expired",
     "campaignPoint3": "Shadow mode: review only — no external action ever happens",
     "campaignCta": "Go to target customer profiles",
-    "campaignDisabled": "New campaign plan (coming soon)",
     "qgoTitle": "Opportunities",
     "qgoDesc": "Promote a \"worth following up\" buyer lead to an opportunity: every opportunity carries demand and timing evidence plus a clear next step; accept and decline are both recorded.",
     "qgoPoint1": "Promotion: evidence and a next step are both required",
     "qgoPoint2": "Outreach preparation only after human acceptance",
     "qgoPoint3": "Outcome log: replied, meeting booked, quote sent, won, lost and more",
     "qgoCta": "Go to buyer leads",
-    "qgoDisabled": "Opportunity pipeline (coming soon)",
     "outreachTitle": "Outreach",
     "outreachDesc": "Outreach is organized in reviewed batches: drafts are approved before anything is sent, send windows and mailbox caps are enforced, and replies stop the sequence; unsubscribe and do-not-contact checks are enforced before every send.",
     "outreachPoint1": "Draft approval: preview, edit and approve before anything can be sent",
@@ -35,7 +33,9 @@
     "outreachPoint3": "Reply handling: classification and suggested outcome confirmed in one click",
     "outreachNote": "No e-mail is sent until the sending channel is enabled.",
     "outreachCta": "Go to buyer leads",
-    "outreachDisabled": "New outreach batch (coming soon)"
+    "outreachDisabled": "New outreach batch (coming soon)",
+    "campaignListCta": "Open campaign plans",
+    "qgoListCta": "Open opportunities"
   },
   "workspaces": {
     "title": "Workspaces",
@@ -1219,7 +1219,7 @@
     }
   },
   "campaigns": {
-    "title": "Campaigns",
+    "title": "Campaign plans",
     "subtitle": "Have the system draft what to do, how large, and the budget cap; it only takes effect after your approval. Shadow period: approvals do not execute.",
     "stage": "Stage 3 · Plan & approval",
     "newCampaign": "New campaign",
@@ -1241,8 +1241,8 @@
     "planSummary": "Plan summary",
     "summaryGoal": "Goal",
     "summaryMetric": "Success metric",
-    "summaryAudience": "Audience (ICPs)",
-    "summarySizeCap": "Max companies per ICP",
+    "summaryAudience": "Audience (target customer profiles)",
+    "summarySizeCap": "Max companies per target customer profile",
     "summaryBudget": "Budget cap",
     "summaryMotion": "Motion",
     "motionDiscovery": "Discover buyers (search only, no outreach)",
@@ -1283,7 +1283,8 @@
     "loadError": "Failed to load. Please retry.",
     "traceTitle": "Decision log",
     "approvalExpires": "Expires",
-    "approveConfirm": "Approving issues an execution authorization; during the shadow period nothing executes."
+    "approveConfirm": "Approving issues an execution authorization; during the shadow period nothing executes.",
+    "planVersion": "Plan version"
   },
   "qgos": {
     "stage": "Convert",
