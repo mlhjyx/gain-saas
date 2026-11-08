@@ -1,8 +1,9 @@
 /**
- * 界面用语映射(PRD §14.2)。
+ * 界面用语映射(PRD §14.2 旧表,保留兼容)。
  *
- * 这是界面文案的唯一真值:引擎/系统术语不得直接进租户界面,
- * 前端渲染与 BFF 错误映射都从这里取词。一处概念一个词。
+ * @deprecated M2 步 14 起,对象/状态词表以 ./glossary.ts 为唯一真值
+ * (run→挖掘任务、ICP→目标客户画像、campaign→战役计划、QGO→商机)。
+ * 新代码一律从 glossary 取词;本文件不再新增词条。
  */
 
 export interface Term {
@@ -13,9 +14,9 @@ export interface Term {
 }
 
 export const TERMINOLOGY = {
-  icp: { zh: '目标买家', note: '引擎 ICP;「设定目标买家」页' },
+  icp: { zh: '目标客户画像', note: '引擎 ICP;旧词「目标买家」已并入 glossary' },
   queryPlan: { zh: '寻源方案', note: '引擎 Query Plan' },
-  discoveryRun: { zh: '寻源任务', note: '引擎 DiscoveryRun' },
+  discoveryRun: { zh: '挖掘任务', note: '引擎 DiscoveryRun;状态词以 glossary RUN_STATUS 为准' },
   runRunning: { zh: '进行中', note: 'run 状态' },
   runPartial: { zh: '部分完成', note: '引擎 PARTIAL' },
   runFailed: { zh: '未完成', note: '引擎 FAILED' },

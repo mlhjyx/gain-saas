@@ -56,7 +56,7 @@ export interface CompanyOffering {
   createdAt?: string;
 }
 
-/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入目标买家设计。 */
+/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入目标客户画像设计。 */
 export interface CompanyClaim {
   id: string;
   companyId: string;
@@ -578,7 +578,7 @@ export interface DiscoveryRunJob {
   finishedAt: string | null;
 }
 
-/** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回寻源任务。 */
+/** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回挖掘任务。 */
 export interface DiscoveryRunLink {
   runId: string;
   planId: string;

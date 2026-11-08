@@ -2,13 +2,15 @@ import type { RouteRecordRaw } from 'vue-router';
 
 import { $t } from '#/locales';
 
-/** 主链路 IA(PRD §14.1):找买家 / 买家线索 / 周报。M2 期间为阶段页。 */
+import { navTitle } from '../nav';
+
+/** 主链路 IA（M2 步 14 六项导航）：找买家 / 买家线索；任务详情与周报收编为隐藏路由。 */
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:radar',
       order: 3,
-      title: $t('gainos.menu.findBuyers'),
+      title: navTitle('findBuyers'),
     },
     name: 'FindBuyers',
     path: '/find-buyers',
@@ -27,16 +29,16 @@ const routes: RouteRecordRaw[] = [
     meta: {
       icon: 'lucide:users',
       order: 4,
-      title: $t('gainos.menu.leads'),
+      title: navTitle('leads'),
     },
     name: 'Leads',
     path: '/leads',
     component: () => import('#/views/leads/index.vue'),
   },
   {
+    // 周报迁出六项导航（P6 设计 §3）：入口保留在工作台，路由不删（渐进披露）。
     meta: {
-      icon: 'lucide:calendar-check',
-      order: 5,
+      hideInMenu: true,
       title: $t('gainos.menu.reports'),
     },
     name: 'WeeklyReport',

@@ -2,6 +2,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
+
 import { $t } from '#/locales';
 
 import {
@@ -43,15 +46,26 @@ const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
 const currentStep = 5;
 const isAdmin = ref(false);
 
-const QUEUES = computed(() => [
-  { key: 'needs_review', label: $t('gainos.leads.queueReview'), desc: $t('gainos.leads.queueReviewDesc'), tone: 'primary' },
-  { key: 'recommended', label: $t('gainos.leads.queueQualified'), desc: $t('gainos.leads.queueQualifiedDesc'), tone: 'ok' },
-  { key: 'rejected', label: $t('gainos.leads.queueRejected'), desc: $t('gainos.leads.queueRejectedDesc'), tone: 'muted' },
-  { key: 'suppressed', label: $t('gainos.leads.queueSuppressed'), desc: $t('gainos.leads.queueSuppressedDesc'), tone: 'warn' },
-  ...(isAdmin.value
-    ? [{ key: 'sanctions_hold', label: $t('gainos.leads.queueSanctions'), desc: $t('gainos.leads.queueSanctionsDesc'), tone: 'warn' }]
-    : []),
-]);
+// 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
+const QUEUE_META = [
+  { key: 'needs_review', descKey: 'gainos.leads.queueReviewDesc' },
+  { key: 'recommended', descKey: 'gainos.leads.queueQualifiedDesc' },
+  { key: 'rejected', descKey: 'gainos.leads.queueRejectedDesc' },
+  { key: 'suppressed', descKey: 'gainos.leads.queueSuppressedDesc' },
+  { key: 'sanctions_hold', descKey: 'gainos.leads.queueSanctionsDesc', adminOnly: true },
+] as const;
+
+const QUEUES = computed(() =>
+  QUEUE_META.filter((queue) => !('adminOnly' in queue) || isAdmin.value).map((queue) => {
+    const status = glossaryStatus('leadQueue', queue.key, preferences.app.locale);
+    return {
+      key: queue.key,
+      label: status?.label ?? '—',
+      desc: $t(queue.descKey),
+      tone: status?.tone ?? 'neutral',
+    };
+  }),
+);
 
 const REJECT_CODES = [
   'NOT_TARGET_ROLE',
@@ -717,7 +731,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         </header>
         <p class="ld__why">{{ whyText(lead) }}</p>
         <div class="ld__meta">
-          <span class="ld__badge" :class="`ld__badge--${queueMeta(lead.queue).tone}`">{{ queueLabel(lead.queue) }}</span>
+          <span class="gs-badge" :class="statusClass(queueMeta(lead.queue).tone)">{{ queueLabel(lead.queue) }}</span>
           <span v-if="basisLabel(lead.queueBasis)" class="ld__basis">{{ basisLabel(lead.queueBasis) }}</span>
           <span v-if="lead.company?.employeeCount" class="ld__basis">{{ lead.company.employeeCount }} 人</span>
         </div>
@@ -1076,10 +1090,6 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__score.is-scored { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
 .ld__why { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-2); }
 .ld__meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.ld__badge { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--gs-divider); color: var(--gs-fg-2); }
-.ld__badge--primary { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.ld__badge--ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.ld__badge--warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .ld__basis { font-size: 11.5px; color: var(--gs-fg-subtle); }
 .ld__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .ld__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
