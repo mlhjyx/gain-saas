@@ -45,6 +45,8 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
     event: randomUUID(),
   };
   const tenant = { workspaceId: ids.workspace, userId: ids.admin } as never;
+  let campaignIdRef = '';
+  let replySaoId = '';
 
   function planFixture() {
     return {
@@ -133,6 +135,7 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
       objective: '德国泵类分销商',
     });
     const campaignId = (campaign as { id: string }).id;
+    campaignIdRef = campaignId;
     const revision = await campaigns.createRevision(tenant, campaignId, planFixture());
     const submitted = await campaigns.submitRevision(tenant, campaignId, revision.id);
     await campaigns.decideApproval(tenant, campaignId, submitted.approval.id, {
@@ -175,10 +178,11 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
 
     // 3) 商机链路（真实服务）：两条战役商机（会议 positive / 回复+LOST 弱信号+负向）+ 一条 organic 赢单。
     await promoteAndAccept({ campaignId, outcomes: [{ outcome: 'MEETING_BOOKED' }] });
-    await promoteAndAccept({
+    const replyChain = await promoteAndAccept({
       campaignId,
       outcomes: [{ outcome: 'REPLIED' }, { outcome: 'LOST' }],
     });
+    replySaoId = replyChain.saoId;
     await promoteAndAccept({ outcomes: [{ outcome: 'WON' }] });
 
     // 4) 归因：漏斗/明细/对账。
@@ -200,6 +204,47 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
     expect(result.reconciliation.balanced).toBe(true);
     for (const item of result.reconciliation.rows) expect(item.diffMicros).toBe(0);
   }, 120_000);
+
+  it('系统回写 REPLIED（engage.reply_classify 形状）计入弱信号，且按 SAO 去重、不放大 positive/负向分母', async () => {
+    // 11-x 沙箱链路把回复分类结果回写为 outcome（source=SYSTEM + sourceEventId）：
+    // 1) 同一 SAO 再回写一条 SYSTEM REPLIED —— replyCount 不得从 1 变 2；
+    await prisma.opportunityOutcome.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: ids.workspace,
+        saoId: replySaoId,
+        outcome: 'REPLIED',
+        occurredAt: new Date(),
+        source: 'SYSTEM',
+        sourceEventId: randomUUID(),
+        createdBy: ids.admin,
+      },
+    });
+    // 2) 新商机（同战役）只由系统回写 REPLIED —— replyCount 1 → 2。
+    const systemReplyChain = await promoteAndAccept({ campaignId: campaignIdRef, outcomes: [] });
+    await prisma.opportunityOutcome.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: ids.workspace,
+        saoId: systemReplyChain.saoId,
+        outcome: 'REPLIED',
+        occurredAt: new Date(),
+        source: 'SYSTEM',
+        sourceEventId: randomUUID(),
+        createdBy: ids.admin,
+      },
+    });
+
+    const result = await attribution.attribution(ids.workspace);
+    const row = result.campaigns.find((item) => item.campaignId === campaignIdRef);
+    expect(row).toMatchObject({
+      replyCount: 2,
+      positiveCount: 1,
+      negativeCount: 1,
+    });
+    // 对账规则不变：无引擎 plan 成本，全 0 差异。
+    expect(result.reconciliation.balanced).toBe(true);
+  }, 60_000);
 
   it('链视图给出 CAMPAIGN/ORGANIC 归因类型与链成本快照', async () => {
     const rows = await prisma.$queryRaw<
