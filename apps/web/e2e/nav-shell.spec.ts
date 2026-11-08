@@ -1,64 +1,15 @@
 /**
  * M2 步 14-1 验收：六项导航可点、无死链；glossary 词表落地到导航与页面。
  *
- * 不需要 BFF：登录与页面数据用路由 mock（14-3 扩主链路时按设计 §5 打 `mock` 标签）。
+ * 不需要 BFF：登录与页面数据用共享 mock 层（support/mock-backend）。
  * 运行：pnpm exec playwright test（先 pnpm build 生成 apps/web/dist）。
  */
-import type { Page } from '@playwright/test';
-
 import { expect, test } from '@playwright/test';
 
-const SESSION = {
-  user: { email: 'e2e@gainos.local', id: 'user-e2e' },
-  workspace: { id: 'ws-e2e', role: 'admin' },
-  workspaces: [{ id: 'ws-e2e', name: 'E2E 测试公司', role: 'admin' }],
-};
+import { installMockBackend, loginAs } from './support/mock-backend';
 
-async function mockApi(page: Page): Promise<void> {
-  await page.route('**/*', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.origin !== 'http://127.0.0.1:4173') return route.continue();
-    const path = url.pathname;
-    const json = (data: unknown) =>
-      route.fulfill({
-        body: JSON.stringify({ data }),
-        contentType: 'application/json',
-        status: 200,
-      });
-
-    if (path === '/auth/login') return json({});
-    if (path === '/auth/session') return json(SESSION);
-    if (path === '/onboarding/status') return json({ complete: true });
-    if (path === '/notifications') return json({ items: [], unreadCount: 0 });
-    if (path === '/workspaces') return json(SESSION.workspaces);
-    if (path === '/members') return json({ invites: [], members: [] });
-    if (['/campaigns', '/companies', '/discovery-runs', '/icps', '/leads', '/qgos'].includes(path)) return json([]);
-    if (
-      request.method() === 'GET' &&
-      path !== '/' &&
-      !path.startsWith('/assets/') &&
-      !/\.(?:css|ico|js|json|map|png|svg|woff2?)$/.test(path)
-    ) {
-      return json(null);
-    }
-    return route.continue();
-  });
-}
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForURL(/\/auth\/login/);
-  await page.locator('input[type="email"]').fill('e2e@gainos.local');
-  await page.locator('input[type="password"]').fill('e2e-password-123');
-  await page.locator('button.g-submit').click();
-  await page.waitForURL(/\/workspace/);
-  // 等登录成功通知消失、首屏淡入结束，截图与断言才拿到稳定画面
-  await page.waitForTimeout(3800);
-}
-
-/** 路由切换有 120-180ms 淡入过渡；截图前等它结束。 */
-async function settle(page: Page): Promise<void> {
+/** 路由切换有 120-180ms 淡入过渡；断言与截图前等它结束。 */
+async function settle(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
@@ -71,8 +22,8 @@ const TOP_NAV = [
 ] as const;
 
 test('六项导航可点、无死链，周报退出导航但路由保留', async ({ page }, testInfo) => {
-  await mockApi(page);
-  await login(page);
+  await installMockBackend(page);
+  await loginAs(page);
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('nav-workspace.png') });
 
@@ -103,8 +54,8 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
 });
 
 test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', async ({ page }, testInfo) => {
-  await mockApi(page);
-  await login(page);
+  await installMockBackend(page);
+  await loginAs(page);
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
 
   // 枢纽页头与影子期徽标（全站统一的「将执行但不执行」语义）
