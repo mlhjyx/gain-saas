@@ -9,6 +9,9 @@ import { MembersController } from './members.controller.js';
 import { DiscoveryRunsController } from './discovery-runs.controller.js';
 import { NotificationsController } from './notifications.controller.js';
 import { ClaimDraftsController } from './claim-drafts.controller.js';
+import { QgoController } from '../qgo/qgo.controller.js';
+import { SaoController } from '../qgo/sao.controller.js';
+import { QgoService } from '../qgo/qgo.service.js';
 import { WorkspacesController } from './workspaces.controller.js';
 import { WorkspaceContextController } from './workspace-context.controller.js';
 import { AdminGuard } from './admin.guard.js';
@@ -26,8 +29,8 @@ import { ServiceModule } from '../service/service.module.js';
  */
 @Module({
   imports: [ConfigModule, ServiceModule],
-  controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, WorkspacesController, WorkspaceContextController],
-  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp],
+  controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
+  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService],
 })
 export class TenantModule {}

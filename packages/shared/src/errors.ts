@@ -267,6 +267,22 @@ export const ENGINE_ERROR_COPY = {
     why: '服务端遇到未预期的错误，与你的输入无关。',
     next: '请重试；若反复出现，请复制「技术详情」联系运营。',
   },
+  // ── M2 步 10：商机域（QGO/SAO/Outcome）────────────────────────────────────
+  QGO_EVIDENCE_REQUIRED: {
+    title: '提升为商机需要需求或时机证据',
+    why: '商机必须有至少一条支撑证据（客户回复、采购页、招标命中、海关信号等）和明确的下一步，避免把「只是匹配」当成商机。',
+    next: '在提升表单里补充证据链接或说明，并填写下一步动作后重试。',
+  },
+  LEAD_NOT_QUALIFIED: {
+    title: '只有已接受的线索才能提升为商机',
+    why: '机器候选还不是线索——先在「买家线索」里接受它，系统才会留下可追溯的接受记录（LeadQualified）。',
+    next: '到「买家线索」接受这条线索，再回来提升为商机。',
+  },
+  INVALID_OUTCOME: {
+    title: '结果类型不在允许范围',
+    why: '商机结果只接受固定选项：已回复 / 已约会议 / 已报价 / 赢单 / 丢单 / 无响应 / 不合格。',
+    next: '从下拉列表选择一项结果后重试。',
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;
