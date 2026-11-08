@@ -54,6 +54,15 @@ dkim_verify: PASS
 dns_queries: ['test20261108._domainkey.mail.gainos.test.']
 ```
 
+## 路由冒烟（真实 Nest 进程）
+
+以隔离演示库启动真实服务（`PORT=14020`，发送开关关闭）后探测：
+
+- `POST /api/public/outreach/unsubscribe` → `404 OUTREACH_UNSUBSCRIBE_TOKEN_INVALID`（到达 Nest 控制器，未被 BFF 中间件拦截）
+- `GET /api/outreach/batches` → `401 AUTH_REQUIRED`（到达 TenantGuard）
+
+这验证了 11-4 附带的 BFF 前缀放行修复；修复前两个路径都会被 BFF 兜底路由拦截。
+
 ## 能证明什么
 
 - 从批次创建/审批到 SMTP 投递的完整服务链路可按门序执行；未批准直发在连接前被拒。
