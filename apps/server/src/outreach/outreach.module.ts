@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
+import { OutreachBatchController } from './outreach-batch.controller.js';
+import { OutreachBatchService } from './outreach-batch.service.js';
+import { OutreachSendGate } from './outreach-send.gate.js';
 import { EngineOutreachDncChecker } from './outreach-dnc.checker.js';
 import { OutreachController } from './outreach.controller.js';
 import {
@@ -15,12 +18,19 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
  */
 @Module({
   imports: [ConfigModule, TenantModule],
-  controllers: [OutreachController],
+  controllers: [OutreachController, OutreachBatchController],
   providers: [
     OutreachConsentService,
     OutreachUnsubscribeService,
+    OutreachBatchService,
+    OutreachSendGate,
     { provide: OUTREACH_DNC_CHECKER, useClass: EngineOutreachDncChecker },
   ],
-  exports: [OutreachConsentService, OutreachUnsubscribeService],
+  exports: [
+    OutreachConsentService,
+    OutreachUnsubscribeService,
+    OutreachBatchService,
+    OutreachSendGate,
+  ],
 })
 export class OutreachModule {}

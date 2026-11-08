@@ -61,6 +61,10 @@ const schema = z.object({
   // M2.0 Campaign 控制面（docs/technical/campaign-control-plane-m2-0.md §11 D-i3）：
   // 审批 TTL（超时=拒绝）、授权 TTL/单批使用、受众规模上限，env 可调。
   CAMPAIGN_APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
+  // 触达批次审批 TTL（M2 步 11-2）：超时=拒绝，默认 72h。
+  OUTREACH_APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
+  // 触达发送总开关（M2 步 11-2/11-3）：默认 false，代码级 fail-closed；只有显式打开才允许执行器发送。
+  OUTREACH_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   CAMPAIGN_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
   CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: z.coerce.number().int().min(1).max(10000).default(1000),
   // 跨服务 verify 端点的服务令牌；未配置时端点 fail-closed（503）。

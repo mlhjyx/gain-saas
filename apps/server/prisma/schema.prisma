@@ -60,6 +60,10 @@ model Workspace {
   campaigns   Campaign[]
   outreachConsents         OutreachConsent[]
   outreachUnsubscribeTokens OutreachUnsubscribeToken[]
+  outreachBatches          OutreachBatch[]
+  outreachDrafts           OutreachDraft[]
+  outreachBatchApprovals   OutreachBatchApproval[]
+  outreachBatchEvents      OutreachBatchEvent[]
   qgos        Qgo[]
   saos        Sao[]
   opportunityOutcomes OpportunityOutcome[]
@@ -321,6 +325,125 @@ model OutreachUnsubscribeToken {
 
   @@index([workspaceId, contactRef])
   @@map("outreach_unsubscribe_token")
+}
+
+// ─── M2 步 11-2：触达批次与草稿审批 ─────────────────────────────────────────
+
+enum OutreachBatchStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  DECLINED
+  EXPIRED
+  QUEUED
+  CANCELLED
+}
+
+enum OutreachDraftStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SKIPPED
+  SENT
+  FAILED
+}
+
+enum OutreachBatchApprovalState {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+/// 触达批次：草稿集提交审批；批准后进入待发队列（发送开关默认关，11-3 执行器消费）。
+model OutreachBatch {
+  id           String              @id @default(uuid()) @db.Uuid
+  workspaceId  String              @map("workspace_id") @db.Uuid
+  campaignId   String?             @map("campaign_id") @db.Uuid
+  name         String              @db.VarChar(200)
+  status       OutreachBatchStatus @default(DRAFT)
+  contentHash  String?             @map("content_hash") @db.Char(64)
+  createdBy    String              @map("created_by") @db.VarChar(256)
+  submittedAt  DateTime?           @map("submitted_at")
+  decidedAt    DateTime?           @map("decided_at")
+  queuedAt     DateTime?           @map("queued_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  drafts    OutreachDraft[]
+  approvals OutreachBatchApproval[]
+  events    OutreachBatchEvent[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, campaignId])
+  @@map("outreach_batch")
+}
+
+/// 单封草稿：提交后内容冻结；范围变化需重新打开批次并重新审批。
+model OutreachDraft {
+  id              String              @id @default(uuid()) @db.Uuid
+  workspaceId     String              @map("workspace_id") @db.Uuid
+  batchId         String              @map("batch_id") @db.Uuid
+  contactRef      String              @map("contact_ref") @db.Uuid
+  recipientEmail  String              @map("recipient_email") @db.VarChar(320)
+  companyName     String?             @map("company_name") @db.VarChar(200)
+  subject         String              @db.VarChar(300)
+  body            String
+  status          OutreachDraftStatus @default(DRAFT)
+  contentHash     String?             @map("content_hash") @db.Char(64)
+  approvedBy      String?             @map("approved_by") @db.VarChar(256)
+  approvedAt      DateTime?           @map("approved_at")
+  rejectionReason String?             @map("rejection_reason") @db.VarChar(500)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batch     OutreachBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, contactRef])
+  @@index([workspaceId, batchId, status])
+  @@map("outreach_draft")
+}
+
+/// 批次审批（复用 M2.0 语义：超时=拒绝、旧同意不可复用、自审留痕）。
+model OutreachBatchApproval {
+  id             String                    @id @default(uuid()) @db.Uuid
+  workspaceId    String                    @map("workspace_id") @db.Uuid
+  batchId        String                    @map("batch_id") @db.Uuid
+  contentHash    String                    @map("content_hash") @db.Char(64)
+  state          OutreachBatchApprovalState @default(PENDING)
+  requestedBy    String                    @map("requested_by") @db.VarChar(256)
+  decidedBy      String?                   @map("decided_by") @db.VarChar(256)
+  decidedAt      DateTime?                 @map("decided_at")
+  decisionReason String?                   @map("decision_reason") @db.VarChar(500)
+  expiresAt      DateTime                  @map("expires_at")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batch     OutreachBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, state])
+  @@index([batchId])
+  @@map("outreach_batch_approval")
+}
+
+/// 批次审计事件（append-only）：创建/编辑/提交/批准/拒绝/过期/重新打开，供 11-3 审计包使用。
+model OutreachBatchEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  type        String   @db.VarChar(48)
+  actor       String   @db.VarChar(256)
+  detail      Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  batch     OutreachBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, batchId, createdAt])
+  @@map("outreach_batch_event")
 }
 
 /// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。
