@@ -175,6 +175,11 @@ export class OpsController {
   async providerAttribution(@Param('id') id: string) {
     return { providers: await this.ops.providerAttribution(id) };
   }
+  /** M2 步 10：候选批次（qualify 每批一条 CandidateBatchCompleted 的事件投影）。 */
+  @Get('workspaces/:id/candidate-batches')
+  async candidateBatches(@Param('id') id: string, @Query('limit') limit?: string) {
+    return { batches: await this.ops.candidateBatches(id, { limit: Number(limit) || undefined }) };
+  }
 
   @Get('workspaces/:id/traces')
   async traces(@Param('id') id: string, @Query('status') status?: string, @Query('limit') limit?: string) {
