@@ -293,7 +293,7 @@ export class OutreachSendService {
     // 授权 scope 里更紧的 caps 收紧本批次的 env 上限（授权是上界，env 是默认值）。
     const controlState = await this.controls.beginBatch(tenant, now, grant.action.caps);
 
-    // 逐封预检：法域同意 → DNC → 控制面（窗口/限速顺延，上限跳过）。
+    // 逐封预检：法域同意 → DNC（控制面在发送循环内逐封评估，见下方 checkDraft）。
     let preflight!: Map<string, DraftPreflight>;
     try {
       preflight = await this.preflightDrafts(tenant, pending);
