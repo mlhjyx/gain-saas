@@ -28,9 +28,39 @@ pnpm --filter @gain-saas/server exec tsx src/scripts/attribution-12-3-live.ts <w
 输出 JSON：`outreach_*` 分组计数、REPLIED outcome 的 source 分布、归因行、对账明细、
 `passed`。退出码 0 = 结构断言通过；2 = 结构断言失败。
 
-## 3. 结果（待 m1-5 沙箱数据就绪后填）
+## 3. 结果（2026-11-08 执行；沙箱数据为 m1-5 当日 12:34 演示）
 
-> 占位：运行上述命令后贴 `checks`/`funnel`/`reconciliation` 摘要。
+数据现场（dev 部署库只读核对）：workspace `5a725465-507c-460b-87bb-c9619c7e9285`
+
+- `outreach_batch` 5（QUEUED 1 / SENT 1 / COMPLETED 3）；`outreach_draft` 6（APPROVED 1 /
+  SENT 2 / SKIPPED 3）；`outreach_send` 5（SENT 2 / SKIPPED 3）；`outreach_reply` 1
+  （kind=REPLY，classification=NEGATIVE，contactRef 为联系人 UUID）；`outreach_audit_package` 9。
+- **全部 5 个 batch 的 `campaign_id` 为 NULL；该 workspace 没有任何 campaign / qgo / sao 行，
+  也没有任何 opportunity_outcome。**
+
+断言输出（`pnpm exec tsx src/scripts/attribution-12-3-live.ts 5a725465-…`，退出码 2）：
+
+| 断言 | 结果 | 证据 |
+| --- | --- | --- |
+| outreach_batch / draft / send / reply 有料 | ✅ ×4 | 计数同上 |
+| opportunity_outcome REPLIED（回复弱信号回写） | ❌ | 0 行（bySource 空，distinct SAO 0） |
+| campaign 归因行 | ❌ | workspace 无 campaign；漏斗 campaigns=0 |
+| 对账规则 | 未触发 | 无 campaign 行可对，**不是绿灯**（见 §5） |
+
+**结论（真实缺口，不是数据没跑）**：链断在两处，均在 11-x 数据侧；12-x 侧器材（视图、
+归因服务、本脚本、预演 e2e）已就绪（§4）。
+
+1. **回复→outcome 接缝缺失**：11-x 当前实现回复只写 `outreach_reply` + `outreach_consent`，
+   **不回写 `opportunity_outcome`**（m1-5 2026-11-08 交叉确认）。`outreach_reply`/`outreach_draft`
+   只有 contactRef，batch 只带 campaignId，而 QGO 侧只有 leadRef（无 contactRef 列），
+   contactRef→leadRef 无现成映射——不能靠隐式映射补齐。已与 m1-5 对齐推荐方案：reply API
+   携带可选 `saoId`，`engage.reply_classify` 回写
+   `opportunity_outcome(outcome='REPLIED', source='SYSTEM', sourceEventId=reply.id, saoId=…)`；
+   12-3 断言只依赖 outcome 挂对 SAO（其 `qgo.campaignId` = 目标 campaign），不需要 contactRef 映射。
+2. **沙箱演示未挂战役商机**：重跑演示需先具备 campaign→审批→授权→QGO→SAO（12-1 链路），
+   batch 带 campaignId，回复落到该 campaign 下 SAO 的 outcome。
+
+上述两处接通后重跑本命令即应退出 0；对账差异仍按既有口径如实报告（plan v0 占位差异属预期）。
 
 ## 4. 已备好的预演回归（不依赖沙箱）
 
@@ -44,5 +74,6 @@ pnpm --filter @gain-saas/server exec tsx src/scripts/attribution-12-3-live.ts <w
 ## 5. 边界
 
 - `outreach_reply` 与 `opportunity_outcome` 的桥接（分类回写 REPLIED）由 11-x/m1-5 线提供；
-  本线只消费 outcome 并断言归因口径，不改 11-x 代码。
+  本线只消费 outcome 并断言归因口径，不改 11-x 代码。2026-11-08 已确认现状缺失，接缝方案见 §3，
+  归入 11-x/13-1 缺口清单修复后重跑本联调。
 - plan 成本 v0 占位：对账红是**预期**信号，直至 M2.1 计划成本进入视图口径。
