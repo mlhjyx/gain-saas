@@ -62,6 +62,7 @@ class FakeAuthzPrisma {
         (row) =>
           row.batchId === where.batchId &&
           ((where.draftId as { in: string[] }).in.includes(row.draftId as string)) &&
+          (!where.authorizationId || row.authorizationId === where.authorizationId) &&
           row.authorizationUse !== null &&
           row.authorizationUse !== undefined,
       ),
@@ -70,6 +71,7 @@ class FakeAuthzPrisma {
         (row) =>
           row.batchId === where.batchId &&
           row.draftId === where.draftId &&
+          (!where.authorizationId || row.authorizationId === where.authorizationId) &&
           row.authorizationUse !== null &&
           row.authorizationUse !== undefined,
       ) ?? null,
@@ -181,7 +183,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
   it('负向：批次未绑定授权 → CAMPAIGN_AUTHORIZATION_INVALID', async () => {
     const prisma = new FakeAuthzPrisma();
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch({ authorizationId: null }), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch({ authorizationId: null }), drafts(), [DRAFT_1, DRAFT_2]),
       'CAMPAIGN_AUTHORIZATION_INVALID',
     );
   });
@@ -190,7 +192,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { workspaceId: WS_B })];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'CAMPAIGN_AUTHORIZATION_INVALID',
     );
   });
@@ -199,7 +201,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { state: 'REVOKED' })];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'CAMPAIGN_AUTHORIZATION_REVOKED',
     );
   });
@@ -210,7 +212,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       authorization(scopeFor(batch(), drafts()), { expiresAt: new Date(Date.now() - 1000) }),
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'CAMPAIGN_AUTHORIZATION_EXPIRED',
     );
   });
@@ -221,7 +223,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       authorization({ actions: [{ type: 'discovery', icpIds: ['icp-1'] }], sizeCap: 100 }),
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -231,7 +233,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const other = batch({ id: BATCH_B });
     prisma.authorizations = [authorization(scopeFor(other, drafts()))];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -242,7 +244,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const changed = drafts();
     changed[0] = { ...changed[0], contentHash: 'b'.repeat(64) };
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch({ contentHash: 'c'.repeat(64) }), changed, 2),
+      consumer(prisma).authorizeBatch(tenant, batch({ contentHash: 'c'.repeat(64) }), changed, [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -255,7 +257,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       drafts()[1],
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), replaced, 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), replaced, [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -264,7 +266,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()))];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts().slice(0, 1), 1),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts().slice(0, 1), [DRAFT_1]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -282,7 +284,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       ),
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_SCHEDULE_OUT_OF_WINDOW',
     );
   });
@@ -297,7 +299,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       ),
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_SCHEDULE_OUT_OF_WINDOW',
     );
   });
@@ -311,7 +313,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     ];
     // 2 封 × 37,000 µUSD = 74,000 > 37,000。
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_BUDGET_EXCEEDED',
     );
   });
@@ -326,7 +328,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
       ),
     ];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });
@@ -335,7 +337,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 2, uses: 1 })];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
       'CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED',
     );
   });
@@ -343,19 +345,75 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
   it('重试不重复消费：已消费过的草稿沿用首次序号', async () => {
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 2, uses: 1 })];
-    prisma.sends = [{ batchId: BATCH, draftId: DRAFT_1, authorizationUse: 1 }];
+    prisma.sends = [{ batchId: BATCH, draftId: DRAFT_1, authorizationId: AUTHZ, authorizationUse: 1 }];
     const instance = consumer(prisma);
-    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), 1);
+    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), [DRAFT_1]);
     expect(grant.remainingUses).toBe(1);
     expect(await instance.consumeForDraft(tenant, grant, DRAFT_1)).toBe(1);
     expect(prisma.authorizations[0].uses).toBe(1); // 未再次递增
+  });
+
+  it('批次改绑新授权后重试：旧授权的消费记录不抵扣新授权（按 authorizationId 过滤）', async () => {
+    const prisma = new FakeAuthzPrisma();
+    prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 2, uses: 0 })];
+    prisma.sends = [
+      { batchId: BATCH, draftId: DRAFT_1, authorizationId: 'old-authorization', authorizationUse: 1 },
+    ];
+    const instance = consumer(prisma);
+    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), [DRAFT_1]);
+    expect(await instance.consumeForDraft(tenant, grant, DRAFT_1)).toBe(1);
+    // 新授权实际消费了一次，而不是沿用旧授权的序号。
+    expect(prisma.authorizations[0].uses).toBe(1);
+  });
+
+  it('负向：批次中途授权过期 → consumeForDraft 复查拒绝', async () => {
+    const prisma = new FakeAuthzPrisma();
+    prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 2, uses: 0 })];
+    const instance = consumer(prisma);
+    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]);
+    grant.expiresAt = new Date(Date.now() - 1000);
+    await expect(instance.consumeForDraft(tenant, grant, DRAFT_1)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_EXPIRED',
+    );
+  });
+
+  it('负向：批次规模超过授权 caps.batchMax → OUTREACH_AUTHORIZATION_SCOPE_MISMATCH', async () => {
+    const prisma = new FakeAuthzPrisma();
+    prisma.authorizations = [
+      authorization(
+        scopeFor(batch(), drafts(), {
+          caps: {
+            perMailboxDaily: 30,
+            perMailboxWeekly: 120,
+            perDomainHourly: 5,
+            batchMax: 1,
+          },
+        }),
+      ),
+    ];
+    await expectReject(
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]),
+      'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
+    );
+  });
+
+  it('跨切片 uses 前置校验：已消费的前一切片不再抵扣本切片所需次数', async () => {
+    const prisma = new FakeAuthzPrisma();
+    // 全批 2 封、授权 maxUses=1：第一片发 DRAFT_1 后可消费 1 次；
+    // 第二片只剩 pending=[DRAFT_2]，已消费数（1）不得把它折扣成 0 而放行。
+    prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 1, uses: 1 })];
+    prisma.sends = [{ batchId: BATCH, draftId: DRAFT_1, authorizationId: AUTHZ, authorizationUse: 1 }];
+    await expectReject(
+      consumer(prisma).authorizeBatch(tenant, batch(), drafts(), [DRAFT_2]),
+      'CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED',
+    );
   });
 
   it('正例：逐封消费 uses 1..n，消耗完后再发即拒绝', async () => {
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()), { maxUses: 2, uses: 0 })];
     const instance = consumer(prisma);
-    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), 2);
+    const grant = await instance.authorizeBatch(tenant, batch(), drafts(), [DRAFT_1, DRAFT_2]);
     expect(grant).toMatchObject({ authorizationId: AUTHZ, remainingUses: 2, maxUses: 2 });
 
     expect(await instance.consumeForDraft(tenant, grant, DRAFT_1)).toBe(1);
@@ -371,7 +429,7 @@ describe('OutreachAuthorizationConsumer（执行授权 v2 只读消费）', () =
     const prisma = new FakeAuthzPrisma();
     prisma.authorizations = [authorization(scopeFor(batch(), drafts()))];
     await expectReject(
-      consumer(prisma).authorizeBatch(tenant, batch({ campaignId: CAMPAIGN_B }), drafts(), 2),
+      consumer(prisma).authorizeBatch(tenant, batch({ campaignId: CAMPAIGN_B }), drafts(), [DRAFT_1, DRAFT_2]),
       'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
   });

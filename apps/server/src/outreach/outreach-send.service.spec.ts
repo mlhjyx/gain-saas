@@ -829,7 +829,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     expect(prisma.sends).toHaveLength(0);
   });
 
-  it('负向：授权已撤销 → CAMPAIGN_AUTHORIZATION_REVOKED', async () => {
+  it('负向：授权已撤销 → CAMPAIGN_AUTHORIZATION_REVOKED，且审计保留人话原因', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
     prisma.authorizations[0].state = 'REVOKED';
@@ -839,6 +839,10 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
       (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_REVOKED',
     );
     expect(transport.send).not.toHaveBeenCalled();
+    const rejected = prisma.events.find((event) => event.type === 'BATCH_REJECTED')!;
+    expect((rejected.detail as Row).code).toBe('CAMPAIGN_AUTHORIZATION_REVOKED');
+    // 不是 Nest 的泛化 "Conflict Exception"。
+    expect((rejected.detail as Row).message).toContain('撤销');
   });
 
   it('负向：授权已过期 → CAMPAIGN_AUTHORIZATION_EXPIRED', async () => {
@@ -1048,23 +1052,117 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     expect(transport.send).not.toHaveBeenCalled();
   });
 
-  it('负向：批次规模超过单批上限 → OUTREACH_BATCH_SIZE_EXCEEDED', async () => {
+  it('单批内日上限递进：当日第 30 封发出后，同批后续封顺延（不突破日上限）', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
+    for (let index = 0; index < 29; index += 1) {
+      prisma.sends.push({
+        workspaceId: WS_A,
+        batchId: 'other-batch',
+        draftId: `other-draft-${index}`,
+        recipientEmail: `k${index}@other-${index}.de`,
+        mailboxAddress: 'outreach@example.test',
+        status: 'SENT',
+        sentAt: new Date(WEDNESDAY_10_BERLIN.getTime() - 60_000),
+        authorizationUse: 1,
+      });
+    }
     const transport = fakeTransport();
 
-    await expect(
-      service(prisma, transport, true, new Map(), false, {
-        OUTREACH_BATCH_MAX_RECIPIENTS: 1,
-      }).sendBatch(tenantA, BATCH),
-    ).rejects.toSatisfy(
-      (error) => errorCode(error) === 'OUTREACH_BATCH_SIZE_EXCEEDED',
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    const deferred = prisma.events.filter((event) => event.type === 'DRAFT_DEFERRED');
+    expect(deferred).toHaveLength(1);
+    expect((deferred[0].detail as Row).code).toBe('OUTREACH_MAILBOX_DAILY_CAP');
+  });
+
+  it('单批内同域限速递进：同域第 5 封发出后，同批后续封顺延（不突破每小时上限）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    for (let index = 0; index < 4; index += 1) {
+      prisma.sends.push({
+        workspaceId: WS_A,
+        batchId: 'other-batch',
+        draftId: `other-draft-${index}`,
+        recipientEmail: `k${index}@example.de`,
+        mailboxAddress: 'outreach@example.test',
+        status: 'SENT',
+        sentAt: new Date(WEDNESDAY_10_BERLIN.getTime() - 60_000),
+        authorizationUse: 1,
+      });
+    }
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    const deferred = prisma.events.filter((event) => event.type === 'DRAFT_DEFERRED');
+    expect((deferred[0].detail as Row).code).toBe('OUTREACH_DOMAIN_RATE_LIMITED');
+  });
+
+  it('授权 caps 收紧 env 上限：perDomainHourly=1 时同域第 2 封顺延', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const scope = prisma.authorizations[0].scope as {
+      actions: Array<{ caps: Record<string, number> }>;
+    };
+    scope.actions[0].caps = {
+      perMailboxDaily: 30,
+      perMailboxWeekly: 120,
+      perDomainHourly: 1,
+      batchMax: 50,
+    };
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
+    expect((prisma.events.find((event) => event.type === 'DRAFT_DEFERRED')!.detail as Row).code).toBe(
+      'OUTREACH_DOMAIN_RATE_LIMITED',
+    );
+  });
+
+  it('负向：授权 caps.batchMax 小于批次规模 → 整批拒绝 SCOPE_MISMATCH', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const scope = prisma.authorizations[0].scope as {
+      actions: Array<{ caps: Record<string, number> }>;
+    };
+    scope.actions[0].caps = { perMailboxDaily: 30, perMailboxWeekly: 120, perDomainHourly: 5, batchMax: 1 };
+    const transport = fakeTransport();
+
+    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
     expect(transport.send).not.toHaveBeenCalled();
   });
 });
 
 describe('OutreachSendService · 影子模式（CAMPAIGN_EXECUTION_SHADOW，默认 on）', () => {
+  it('影子模式只读：会跳过的草稿不写台账、不改状态，只记录 wouldSkip', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.consents[0].status = 'OPT_OUT';
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport, true, new Map(), false, {
+      CAMPAIGN_EXECUTION_SHADOW: true,
+    }).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ shadowed: 2, skipped: 0 });
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(prisma.sends).toHaveLength(0);
+    expect(prisma.drafts.every((draft) => draft.status === 'APPROVED')).toBe(true);
+    expect(prisma.authorizations[0].uses).toBe(0);
+    const shadowEvents = prisma.events.filter((event) => event.type === 'SEND_SHADOWED');
+    expect(
+      shadowEvents.some((event) => (event.detail as Row).wouldSkip === 'OUTREACH_OPTED_OUT'),
+    ).toBe(true);
+  });
+
   it('影子模式：全部门序通过但只记录不发、不消费授权', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);

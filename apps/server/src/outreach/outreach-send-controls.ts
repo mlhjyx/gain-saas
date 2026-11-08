@@ -35,15 +35,27 @@ export interface RecipientLocalTime {
   minutes: number;
 }
 
+// Intl.DateTimeFormat 构造昂贵；时区集合是闭集，按解析后的 IANA 名缓存。
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timezone: string): Intl.DateTimeFormat {
+  let formatter = formatterCache.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    formatterCache.set(timezone, formatter);
+  }
+  return formatter;
+}
+
 export function recipientLocalTime(countryCode: unknown, now: Date): RecipientLocalTime {
   const timezone = COUNTRY_TIMEZONE[normalizeCountry(countryCode)] ?? DEFAULT_TIMEZONE;
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(now);
+  const parts = formatterFor(timezone).formatToParts(now);
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
   const hour = Number(get('hour')) % 24;
   const minute = Number(get('minute'));
@@ -62,14 +74,23 @@ export type DraftControlVerdict =
 
 /**
  * 单批发送期间的控制面状态：开始前从台账恢复计数，发送成功后递进。
+ * 生效上限 = min(env 配置, 授权 scope caps)——授权可以收紧、不能放宽 env。
  * v1 为进程内状态 + 台账回读（无 outreach_mailbox_counter 表；表驱动版在 P4-02 完整落地）。
  */
 export interface BatchControlState {
-  mailboxAddress: string;
   dailySent: number;
   weeklySent: number;
+  dailyCap: number;
+  weeklyCap: number;
+  domainHourlyCap: number;
   /** 本小时各收件域已发送数（含本批已成功发送）。 */
   hourlyByDomain: Map<string, number>;
+}
+
+export interface BatchCapsOverride {
+  perMailboxDaily?: number;
+  perMailboxWeekly?: number;
+  perDomainHourly?: number;
 }
 
 function parseWindowMinutes(value: string, fallback: number): number {
@@ -173,8 +194,18 @@ export class OutreachSendControls {
   }
 
   /** 从发送台账恢复本批开始时的计数器（日/周按发件信箱，小时按收件域）。 */
-  async beginBatch(tenant: OutreachTenant, now: Date): Promise<BatchControlState> {
+  async beginBatch(
+    tenant: OutreachTenant,
+    now: Date,
+    capsOverride: BatchCapsOverride = {},
+  ): Promise<BatchControlState> {
     const mailboxAddress = this.mailboxAddress();
+    const dailyCap = Math.min(this.dailyCap, capsOverride.perMailboxDaily ?? this.dailyCap);
+    const weeklyCap = Math.min(this.weeklyCap, capsOverride.perMailboxWeekly ?? this.weeklyCap);
+    const domainHourlyCap = Math.min(
+      this.domainHourlyCap,
+      capsOverride.perDomainHourly ?? this.domainHourlyCap,
+    );
     const dayStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
@@ -213,7 +244,7 @@ export class OutreachSendControls {
       if (!domain) continue;
       hourlyByDomain.set(domain, (hourlyByDomain.get(domain) ?? 0) + 1);
     }
-    return { mailboxAddress, dailySent, weeklySent, hourlyByDomain };
+    return { dailySent, weeklySent, dailyCap, weeklyCap, domainHourlyCap, hourlyByDomain };
   }
 
   /**
@@ -222,10 +253,10 @@ export class OutreachSendControls {
    * 永久性拒绝（OPT_OUT/DNC/法域）在发送服务的预检里已先行判定，不经过这里。
    */
   checkDraft(state: BatchControlState, input: DraftControlInput): DraftControlVerdict {
-    if (state.dailySent >= this.dailyCap) {
+    if (state.dailySent >= state.dailyCap) {
       return { action: 'DEFER', code: 'OUTREACH_MAILBOX_DAILY_CAP' };
     }
-    if (state.weeklySent >= this.weeklyCap) {
+    if (state.weeklySent >= state.weeklyCap) {
       return { action: 'DEFER', code: 'OUTREACH_MAILBOX_WEEKLY_CAP' };
     }
     const local = recipientLocalTime(input.countryCode, input.now);
@@ -239,7 +270,7 @@ export class OutreachSendControls {
       return { action: 'DEFER', code: 'OUTREACH_WINDOW_CLOSED' };
     }
     const domain = input.recipientEmail.split('@')[1]?.toLowerCase() ?? '';
-    if (domain && (state.hourlyByDomain.get(domain) ?? 0) >= this.domainHourlyCap) {
+    if (domain && (state.hourlyByDomain.get(domain) ?? 0) >= state.domainHourlyCap) {
       return { action: 'DEFER', code: 'OUTREACH_DOMAIN_RATE_LIMITED' };
     }
     return { action: 'SEND' };

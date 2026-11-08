@@ -19,7 +19,7 @@ function invalid(code: string, message: string): never {
 export interface OutreachReplyInput {
   contactRef: string;
   recipientEmail?: string | null;
-  kind?: 'REPLY' | 'BOUNCE' | 'UNSUBSCRIBE';
+  kind?: 'REPLY' | 'BOUNCE' | 'UNSUBSCRIBE' | 'COMPLAINT';
   classification?: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'OUT_OF_OFFICE' | 'UNKNOWN';
   subject?: string | null;
   snippet?: string | null;

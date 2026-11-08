@@ -43,6 +43,48 @@ export interface EmailJurisdictionDecision {
 }
 
 /**
+ * 法域同意策略的唯一判定梯（发送门与只读 eligibility API 共用，防止两份合规逻辑漂移）：
+ * OPT_OUT 永久压制 → REVIEW_REQUIRED 默认不发 → CONSENT_REQUIRED 必须 OPT_IN。
+ * 页脚要求（US 地址 / FR 来源告知）不在此层，由发送门的 evaluateEmailJurisdiction 追加。
+ */
+export function evaluateConsentPolicy(input: {
+  countryCode: unknown;
+  consentStatus: OutreachConsentState;
+}): {
+  allowed: boolean;
+  policy: OutreachJurisdictionPolicy;
+  code?: string;
+  message?: string;
+} {
+  const policy = outreachJurisdictionPolicy(input.countryCode);
+  if (input.consentStatus === 'OPT_OUT') {
+    return {
+      allowed: false,
+      policy,
+      code: 'OUTREACH_OPTED_OUT',
+      message: '该联系人已退订或回复，任何批次不得再发送',
+    };
+  }
+  if (policy === 'REVIEW_REQUIRED') {
+    return {
+      allowed: false,
+      policy,
+      code: 'JURISDICTION_REVIEW_REQUIRED',
+      message: '该法域默认不发送，需运营逐国启用（或缺少收件人国家）',
+    };
+  }
+  if (policy === 'CONSENT_REQUIRED' && input.consentStatus !== 'OPT_IN') {
+    return {
+      allowed: false,
+      policy,
+      code: 'JURISDICTION_CONSENT_REQUIRED',
+      message: '该法域要求事先显式同意（OPT_IN），当前无有效同意记录',
+    };
+  }
+  return { allowed: true, policy };
+}
+
+/**
  * 发送路径上的法域同意门（逐封判定，纯函数，便于单测与审计复算）。
  * 输入：收件人国家 + 该联系人最新同意状态 + 法域页脚配置；输出：放行/拒绝 + 页脚行。
  * fail-closed：国家无法识别 → REVIEW_REQUIRED；US/FR 缺少必需页脚 → 拒绝（不裸发）。
@@ -53,61 +95,36 @@ export function evaluateEmailJurisdiction(input: {
   usPostalAddress?: string;
   frSourceNotice?: string;
 }): EmailJurisdictionDecision {
+  const decision = evaluateConsentPolicy(input);
+  if (!decision.allowed) {
+    return { ...decision, footerLines: [] };
+  }
   const country = normalizeCountry(input.countryCode);
-  const policy = outreachJurisdictionPolicy(country);
-
-  if (input.consentStatus === 'OPT_OUT') {
-    return {
-      allowed: false,
-      policy,
-      code: 'OUTREACH_OPTED_OUT',
-      message: '该联系人已退订或回复，任何批次不得再发送',
-      footerLines: [],
-    };
-  }
-  if (policy === 'REVIEW_REQUIRED') {
-    return {
-      allowed: false,
-      policy,
-      code: 'JURISDICTION_REVIEW_REQUIRED',
-      message: '该法域默认不发送，需运营逐国启用（或草稿缺少收件人国家）',
-      footerLines: [],
-    };
-  }
-  if (policy === 'CONSENT_REQUIRED' && input.consentStatus !== 'OPT_IN') {
-    return {
-      allowed: false,
-      policy,
-      code: 'JURISDICTION_CONSENT_REQUIRED',
-      message: '该法域要求事先显式同意（OPT_IN），当前无有效同意记录',
-      footerLines: [],
-    };
-  }
   if (country === 'US') {
     const address = input.usPostalAddress?.trim();
     if (!address) {
       return {
         allowed: false,
-        policy,
+        policy: decision.policy,
         code: 'JURISDICTION_US_POSTAL_ADDRESS_REQUIRED',
         message: '美国收件人需要 CAN-SPAM 物理邮政地址页脚（OUTREACH_US_POSTAL_ADDRESS 未配置）',
         footerLines: [],
       };
     }
-    return { allowed: true, policy, footerLines: [address] };
+    return { allowed: true, policy: decision.policy, footerLines: [address] };
   }
   if (country === 'FR') {
     const notice = input.frSourceNotice?.trim();
     if (!notice) {
       return {
         allowed: false,
-        policy,
+        policy: decision.policy,
         code: 'JURISDICTION_FR_SOURCE_NOTICE_REQUIRED',
         message: '法国收件人需要数据来源告知页脚（OUTREACH_FR_SOURCE_NOTICE 未配置）',
         footerLines: [],
       };
     }
-    return { allowed: true, policy, footerLines: [notice] };
+    return { allowed: true, policy: decision.policy, footerLines: [notice] };
   }
-  return { allowed: true, policy, footerLines: [] };
+  return { allowed: true, policy: decision.policy, footerLines: [] };
 }

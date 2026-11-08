@@ -129,8 +129,10 @@ const schema = z.object({
   OUTREACH_US_POSTAL_ADDRESS: z.string().min(1).optional(),
   OUTREACH_FR_SOURCE_NOTICE: z.string().min(1).optional(),
   // 执行影子模式（M2.1 absence spec 交接项）：默认 on。开启时执行器完成门序校验与事件
-  // 记录，但不投递、不消费授权；关闭后才真实发送（与 OUTREACH_SEND_ENABLED 双开关）。
-  CAMPAIGN_EXECUTION_SHADOW: z.string().default('true').transform((v) => v === 'true'),
+  // 记录，但不投递、不消费授权、不改台账；关闭后才真实发送（与 OUTREACH_SEND_ENABLED 双开关）。
+  // fail-safe 解析：只有显式 'false' 关闭影子（空串/'TRUE'/'1' 都保持 on）——与
+  // OUTREACH_SEND_ENABLED 的 fail-closed 方向相反，因为两者的「安全侧」相反。
+  CAMPAIGN_EXECUTION_SHADOW: z.string().default('true').transform((v) => v !== 'false'),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；

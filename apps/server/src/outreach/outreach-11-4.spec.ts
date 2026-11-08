@@ -173,6 +173,17 @@ describe('OutreachReplyService（M2 步 11-4）', () => {
     expect(prisma.consents[0]).toMatchObject({ status: 'OPT_OUT', source: 'reply:bounce' });
   });
 
+  it('投诉（COMPLAINT）可录入并写入 OPT_OUT（投诉率熔断的数据来源）', async () => {
+    const prisma = new FakeReplyPrisma();
+    const reply = await service(prisma).record(tenantA, {
+      contactRef: CONTACT,
+      kind: 'COMPLAINT',
+      classification: 'NEGATIVE',
+    });
+    expect(reply.kind).toBe('COMPLAINT');
+    expect(prisma.consents[0]).toMatchObject({ status: 'OPT_OUT', source: 'reply:complaint' });
+  });
+
   it('负向：非法 kind 被拒绝且不写任何行', async () => {
     const prisma = new FakeReplyPrisma();
     await expect(

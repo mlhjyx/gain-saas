@@ -97,8 +97,11 @@ export interface OutreachAuthorizationGrant {
   maxUses: number;
   usedUses: number;
   remainingUses: number;
+  /** 授权过期时刻；批次中途过期由 consumeForDraft 复查。 */
+  expiresAt: Date;
   action: OutreachAuthorizationAction;
 }
+
 
 /** 收件人集合哈希：sha256(sorted(contactRefs).join('\n'))，与签发方同构。 */
 export function hashOutreachAudience(contactRefs: readonly string[]): string {
@@ -134,14 +137,16 @@ export class OutreachAuthorizationConsumer {
 
   /**
    * 批次级授权校验（在任何投递前执行）。任一不满足即 409，整批拒绝。
-   * `pendingCount` 为本次待投递草稿数（用于剩余 uses 与预算估算）。
+   * `pendingDraftIds` 为本次切片待投递的草稿（用于剩余 uses 前置校验）；
+   * 预算按整批（drafts）估算，避免按切片估算时累计花费突破授权上限。
    */
   async authorizeBatch(
     tenant: OutreachTenant,
     batch: OutreachAuthorizationBatch,
     drafts: ReadonlyArray<OutreachAuthorizationDraft>,
-    pendingCount: number,
+    pendingDraftIds: ReadonlyArray<string>,
   ): Promise<OutreachAuthorizationGrant> {
+    const pendingCount = pendingDraftIds.length;
     if (!batch.authorizationId || !UUID_RE.test(batch.authorizationId)) {
       reject(
         'CAMPAIGN_AUTHORIZATION_INVALID',
@@ -209,6 +214,12 @@ export class OutreachAuthorizationConsumer {
         `批次规模超过授权的单批上限 ${action.audience.sizeCap}`,
       );
     }
+    if (action.caps?.batchMax && drafts.length > action.caps.batchMax) {
+      reject(
+        'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
+        `批次规模超过授权 caps.batchMax ${action.caps.batchMax}`,
+      );
+    }
     if (action.schedule) {
       const notBefore = Date.parse(action.schedule.notBefore);
       const notAfter = Date.parse(action.schedule.notAfter);
@@ -220,7 +231,9 @@ export class OutreachAuthorizationConsumer {
       }
     }
     if (action.budget) {
-      const estimate = pendingCount * this.config.OUTREACH_COST_PER_EMAIL_MICROS;
+      // 按整批估算而不是按本次切片：批次被 OUTREACH_SEND_BATCH_LIMIT 分多次发送时，
+      // 逐次估算会让累计花费突破授权预算。
+      const estimate = drafts.length * this.config.OUTREACH_COST_PER_EMAIL_MICROS;
       if (estimate > action.budget.capMicros) {
         reject(
           'OUTREACH_BUDGET_EXCEEDED',
@@ -252,17 +265,20 @@ export class OutreachAuthorizationConsumer {
       }
     }
 
+    // 只统计「本张授权」已消费的草稿：批次改绑新授权后，旧授权的消费不抵扣新授权。
     const consumedRows = await this.prisma.outreachSend.findMany({
       where: {
         workspaceId: tenant.workspaceId,
         batchId: batch.id,
+        authorizationId: row.id,
         draftId: { in: drafts.map((draft) => draft.id) },
         authorizationUse: { not: null },
       },
       select: { draftId: true },
     });
     const consumedDraftIds = new Set(consumedRows.map((row) => row.draftId as string));
-    const neededUses = Math.max(0, pendingCount - consumedDraftIds.size);
+    // 只为本切片里「尚未消费过」的草稿要 uses（重试沿用旧序号，不重复计数）。
+    const neededUses = pendingDraftIds.filter((id) => !consumedDraftIds.has(id)).length;
     const remainingUses = Math.max(row.maxUses - row.uses, 0);
     if (remainingUses < neededUses) {
       reject(
@@ -278,24 +294,32 @@ export class OutreachAuthorizationConsumer {
       maxUses: row.maxUses,
       usedUses: row.uses,
       remainingUses,
+      expiresAt: row.expiresAt,
       action,
     };
   }
 
   /**
-   * 逐封消费一次授权（与发送台账同事务落 `authorization_use` 由调用方完成）。
-   * 幂等：同一草稿的重试沿用首次消费的序号，不重复计数（maxUses = 收件人数）。
+   * 逐封消费一次授权，返回消费序号，由发送服务写入 `outreach_send.authorization_use`。
+   * 幂等：同一草稿、同一张授权的重试沿用首次消费的序号，不重复计数（maxUses = 收件人数）。
+   * 时序：先自增 uses（updateMany，原子且有 state/uses 守卫）→ 投递 → 写台账；
+   * 若在投递与台账之间进程崩溃，会留下一个无台账的已消费 use（保守方向：宁可少发，
+   * 不出现无授权的发送）；批次中途过期在此复查，防止长批次借用已过期授权。
    */
   async consumeForDraft(
     tenant: OutreachTenant,
     grant: OutreachAuthorizationGrant,
     draftId: string,
   ): Promise<number> {
+    if (grant.expiresAt.getTime() <= Date.now()) {
+      reject('CAMPAIGN_AUTHORIZATION_EXPIRED', '执行授权在发送过程中过期，拒绝继续发送');
+    }
     const existing = await this.prisma.outreachSend.findFirst({
       where: {
         workspaceId: tenant.workspaceId,
         batchId: grant.batchId,
         draftId,
+        authorizationId: grant.authorizationId,
         authorizationUse: { not: null },
       },
       select: { authorizationUse: true },

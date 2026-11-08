@@ -162,6 +162,8 @@ class FakePrisma {
   };
 
   readonly outreachDraft = {
+    count: async ({ where }: { where: Record<string, unknown> }) =>
+      this.drafts.filter((draft) => !where.batchId || draft.batchId === where.batchId).length,
     create: async ({ data }: { data: Omit<DraftRow, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'contentHash' | 'approvedBy' | 'approvedAt' | 'rejectionReason'> }) => {
       if (this.drafts.some((draft) => draft.batchId === data.batchId && draft.contactRef === data.contactRef)) {
         throw new Prisma.PrismaClientKnownRequestError('duplicate', {
@@ -281,9 +283,9 @@ class FakePrisma {
   }
 }
 
-function build(prisma = new FakePrisma()) {
+function build(prisma = new FakePrisma(), configOverrides: Partial<AppConfig> = {}) {
   const audit = { record: vi.fn(async () => undefined) } as never;
-  const config = { OUTREACH_APPROVAL_TTL_HOURS: 72 } as AppConfig;
+  const config = { OUTREACH_APPROVAL_TTL_HOURS: 72, ...configOverrides } as AppConfig;
   return {
     prisma,
     service: new OutreachBatchService(prisma as never, audit, config),
@@ -404,6 +406,40 @@ describe('OutreachBatchService', () => {
       (error) =>
         (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
         'VALIDATION_ERROR',
+    );
+  });
+
+  it('编辑草稿未带 countryCode 时保留原值（PATCH 语义，不被整体替换清空）', async () => {
+    const { service } = build();
+    const batch = await service.createBatch(tenantA, { name: '法国首触' });
+    const draft = await service.addDraft(tenantA, batch.id, {
+      ...draftInput(),
+      countryCode: 'FR',
+    });
+    const updated = await service.updateDraft(tenantA, batch.id, draft.id, {
+      ...draftInput(),
+      subject: '新的主题',
+    });
+    expect(updated.subject).toBe('新的主题');
+    expect(updated.countryCode).toBe('FR');
+
+    const cleared = await service.updateDraft(tenantA, batch.id, draft.id, {
+      ...draftInput(),
+      countryCode: null,
+    });
+    expect(cleared.countryCode).toBeNull();
+  });
+
+  it('负向：单批收件人超过上限时建草稿即拒绝（M2 D-11-d ≤50）', async () => {
+    const { service } = build(new FakePrisma(), { OUTREACH_BATCH_MAX_RECIPIENTS: 1 });
+    const batch = await service.createBatch(tenantA, { name: '小批' });
+    await service.addDraft(tenantA, batch.id, draftInput());
+    await expect(
+      service.addDraft(tenantA, batch.id, draftInput(CONTACT_2)),
+    ).rejects.toSatisfy(
+      (error) =>
+        (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
+        'OUTREACH_BATCH_SIZE_EXCEEDED',
     );
   });
 });

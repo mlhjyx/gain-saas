@@ -209,6 +209,33 @@ describe('OutreachSendControls：信箱上限与收件域限速', () => {
     expect(state.weeklySent).toBe(5);
   });
 
+  it('授权 caps 收紧 env 上限：beginBatch 传入更小值时按收紧值判定', async () => {
+    const instance = controls(new FakeControlsPrisma());
+    const state = await instance.beginBatch(tenant, WEDNESDAY_10_BERLIN, {
+      perMailboxDaily: 1,
+      perDomainHourly: 1,
+    });
+    expect(state.dailyCap).toBe(1);
+    expect(state.domainHourlyCap).toBe(1);
+    state.dailySent = 1;
+    expect(
+      instance.checkDraft(state, {
+        recipientEmail: 'buyer@ziel.de',
+        countryCode: 'DE',
+        now: WEDNESDAY_10_BERLIN,
+      }),
+    ).toEqual({ action: 'DEFER', code: 'OUTREACH_MAILBOX_DAILY_CAP' });
+    state.dailySent = 0;
+    state.hourlyByDomain.set('ziel.de', 1);
+    expect(
+      instance.checkDraft(state, {
+        recipientEmail: 'buyer@ziel.de',
+        countryCode: 'DE',
+        now: WEDNESDAY_10_BERLIN,
+      }),
+    ).toEqual({ action: 'DEFER', code: 'OUTREACH_DOMAIN_RATE_LIMITED' });
+  });
+
   it('beginBatch 从台账恢复计数：当日已发 29 封时只剩 1 个名额', async () => {
     const prisma = new FakeControlsPrisma();
     for (let i = 0; i < 29; i += 1) {

@@ -26,10 +26,7 @@ import {
   outreachJurisdictionPolicy,
 } from './outreach-jurisdiction.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
-import {
-  OutreachSendControls,
-  type BatchControlState,
-} from './outreach-send-controls.js';
+import { OutreachSendControls } from './outreach-send-controls.js';
 import {
   OUTREACH_TRANSPORT,
   type OutreachTransport,
@@ -54,6 +51,14 @@ function conflict(code: string, message: string): never {
 function errorCodeOf(error: unknown, fallback: string): string {
   const code = (error as { response?: { error?: { code?: unknown } } })?.response?.error?.code;
   return typeof code === 'string' ? code : fallback;
+}
+
+function errorMessageOf(error: unknown, fallback: string): string {
+  // Nest HttpException 的 .message 对对象响应恒为 "Conflict Exception"；具体原因在 response.error.message。
+  const message = (error as { response?: { error?: { message?: unknown } } })?.response?.error
+    ?.message;
+  if (typeof message === 'string' && message) return message;
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export interface OutreachSendSummary {
@@ -81,7 +86,6 @@ interface DraftPreflight {
     countryCode: string;
     jurisdictionPolicy: string;
   };
-  defer?: { code: string; message: string };
   /** 该法域要求的页脚行（US 物理地址 / FR 来源告知），发送时拼装。 */
   footerLines: string[];
 }
@@ -99,7 +103,9 @@ interface PreflightDraft {
  * → SMTP 已配置 → 执行授权 v2（batchId/内容哈希/收件人集合/caps/schedule/budget/jurisdiction）
  * → 退信/投诉熔断 → 法域同意门（DE/AT 无 OPT_IN 不发；US/FR 页脚必需）→ DNC（fail-closed）
  * → 控制面（信箱日/周上限、收件人当地窗口、同域限速）。
- * 任一封不满足即整批拒绝（不发送任何一封）；窗口/限速/信箱额度为顺延（草稿保持待发，不写失败台账）。
+ * 批次级门（总开关/批次状态/审批与内容哈希/逐封批准/单批规模/SMTP/执行授权/熔断）
+ * 任一不满足即整批拒绝（不发送任何一封）；逐封门（法域同意/DNC）不满足时该封 SKIPPED、
+ * 其余照发；窗口/限速/信箱额度不满足时该封顺延（草稿保持待发，不写失败台账）。
  * `CAMPAIGN_EXECUTION_SHADOW=true`（默认）时只做全部门序校验与事件记录，不投递、不消费授权。
  */
 @Injectable()
@@ -185,14 +191,6 @@ export class OutreachSendService {
     if (batch.drafts.length === 0) {
       await this.rejectBatch(tenant, batchId, 'OUTREACH_BATCH_EMPTY', '批次内没有草稿');
     }
-    if (batch.drafts.length > this.config.OUTREACH_BATCH_MAX_RECIPIENTS) {
-      await this.rejectBatch(
-        tenant,
-        batchId,
-        'OUTREACH_BATCH_SIZE_EXCEEDED',
-        `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.config.OUTREACH_BATCH_MAX_RECIPIENTS}`,
-      );
-    }
 
     const approval = batch.approvals[0];
     if (!approval || !batch.contentHash || approval.contentHash !== batch.contentHash) {
@@ -266,13 +264,18 @@ export class OutreachSendService {
     // G3：执行授权 v2（只读消费；无有效授权整批拒绝）。
     let grant!: OutreachAuthorizationGrant;
     try {
-      grant = await this.authorization.authorizeBatch(tenant, batch, batch.drafts, pending.length);
+      grant = await this.authorization.authorizeBatch(
+        tenant,
+        batch,
+        batch.drafts,
+        pending.map((draft) => draft.id),
+      );
     } catch (error) {
       await this.rejectBatch(
         tenant,
         batchId,
         errorCodeOf(error, 'CAMPAIGN_AUTHORIZATION_INVALID'),
-        error instanceof Error ? error.message : '执行授权校验失败',
+        errorMessageOf(error, '执行授权校验失败'),
       );
     }
 
@@ -284,21 +287,22 @@ export class OutreachSendService {
         tenant,
         batchId,
         errorCodeOf(error, 'OUTREACH_MAILBOX_PAUSED'),
-        error instanceof Error ? error.message : '发送健康度熔断',
+        errorMessageOf(error, '发送健康度熔断'),
       );
     }
-    const controlState = await this.controls.beginBatch(tenant, now);
+    // 授权 scope 里更紧的 caps 收紧本批次的 env 上限（授权是上界，env 是默认值）。
+    const controlState = await this.controls.beginBatch(tenant, now, grant.action.caps);
 
     // 逐封预检：法域同意 → DNC → 控制面（窗口/限速顺延，上限跳过）。
     let preflight!: Map<string, DraftPreflight>;
     try {
-      preflight = await this.preflightDrafts(tenant, pending, controlState, now);
+      preflight = await this.preflightDrafts(tenant, pending);
     } catch (error) {
       await this.rejectBatch(
         tenant,
         batchId,
         errorCodeOf(error, 'OUTREACH_DNC_UNAVAILABLE'),
-        error instanceof Error ? error.message : '禁联名单检查失败',
+        errorMessageOf(error, '禁联名单检查失败'),
         'unavailable',
       );
     }
@@ -317,6 +321,16 @@ export class OutreachSendService {
         ) + 1;
       const plan = preflight.get(draft.id) ?? { footerLines: [] };
       if (plan.skip) {
+        if (shadow) {
+          // 影子模式只读：判定「真实发送会跳过」但不写 SKIPPED 台账、不改草稿状态。
+          await this.recordDraftEvent(tenant, batchId, draft, 'SEND_SHADOWED', {
+            wouldSkip: plan.skip.code,
+            reason: plan.skip.message,
+          });
+          shadowedCount += 1;
+          results.push({ draftId: draft.id, status: 'SHADOWED', error: plan.skip.code });
+          continue;
+        }
         await this.prisma.$transaction([
           this.prisma.outreachSend.create({
             data: {
@@ -358,13 +372,20 @@ export class OutreachSendService {
         results.push({ draftId: draft.id, status: 'SKIPPED', error: plan.skip.code });
         continue;
       }
-      if (plan.defer) {
+      // 控制面逐封评估（必须在发送循环内）：计数随本批已成功发送递进，
+      // 否则单批可以突破信箱日/周上限与同域每小时限速。
+      const verdict = this.controls.checkDraft(controlState, {
+        recipientEmail: draft.recipientEmail,
+        countryCode: draft.countryCode,
+        now,
+      });
+      if (verdict.action === 'DEFER') {
         await this.recordDraftEvent(tenant, batchId, draft, 'DRAFT_DEFERRED', {
-          code: plan.defer.code,
-          reason: plan.defer.message,
+          code: verdict.code,
+          reason: '信箱额度已满、发送窗口未开或同收件域限速，顺延到下一窗口',
         });
         deferredCount += 1;
-        results.push({ draftId: draft.id, status: 'DEFERRED', error: plan.defer.code });
+        results.push({ draftId: draft.id, status: 'DEFERRED', error: verdict.code });
         continue;
       }
       if (shadow) {
@@ -387,7 +408,7 @@ export class OutreachSendService {
           tenant,
           batchId,
           errorCodeOf(error, 'CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED'),
-          error instanceof Error ? error.message : '执行授权次数不足',
+          errorMessageOf(error, '执行授权次数不足'),
         );
       }
 
@@ -567,23 +588,22 @@ export class OutreachSendService {
     type: string,
     detail: Record<string, unknown>,
   ): Promise<void> {
-    await this.prisma.outreachBatchEvent
-      .create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          type,
-          actor: tenant.userId,
-          detail: {
-            draftId: draft.id,
-            contactRef: draft.contactRef,
-            countryCode: normalizeCountry(draft.countryCode),
-            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
-            ...detail,
-          } as Prisma.InputJsonValue,
-        },
-      })
-      .catch(() => undefined);
+    // 不顺延吞错：影子/顺延事件是这两种运行状态的唯一证据，写失败必须暴露。
+    await this.prisma.outreachBatchEvent.create({
+      data: {
+        workspaceId: tenant.workspaceId,
+        batchId,
+        type,
+        actor: tenant.userId,
+        detail: {
+          draftId: draft.id,
+          contactRef: draft.contactRef,
+          countryCode: normalizeCountry(draft.countryCode),
+          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+          ...detail,
+        } as Prisma.InputJsonValue,
+      },
+    });
   }
 
   /**
@@ -630,16 +650,14 @@ export class OutreachSendService {
   }
 
   /**
-   * 发送前逐封预检（P4-01/P4-02 v1）：
+   * 发送前逐封预检（P4-01）：
    * 1) 法域同意门（DE/AT 无 OPT_IN 不发；US/FR 缺页脚配置不发；其它法域 REVIEW_REQUIRED）；
-   * 2) DNC 命中（租户/平台），查询失败 fail closed（整批不发送）；
-   * 3) 控制面：信箱日/周上限 → 跳过；收件人当地窗口、同收件域限速 → 顺延。
+   * 2) DNC 命中（租户/平台），查询失败 fail closed（整批不发送）。
+   * 控制面（窗口/限速/额度）在发送循环里逐封评估——必须看到本批已发计数才有效。
    */
   private async preflightDrafts(
     tenant: OutreachTenant,
     drafts: ReadonlyArray<PreflightDraft>,
-    controlState: BatchControlState,
-    now: Date,
   ): Promise<Map<string, DraftPreflight>> {
     const result = new Map<string, DraftPreflight>();
     if (drafts.length === 0) return result;
@@ -709,21 +727,6 @@ export class OutreachSendService {
       }
     }
 
-    for (const draft of drafts) {
-      const entry = result.get(draft.id)!;
-      if (entry.skip) continue;
-      const verdict = this.controls.checkDraft(controlState, {
-        recipientEmail: draft.recipientEmail,
-        countryCode: draft.countryCode,
-        now,
-      });
-      if (verdict.action === 'DEFER') {
-        entry.defer = {
-          code: verdict.code,
-          message: '信箱额度已满、发送窗口未开或同收件域限速，顺延到下一窗口',
-        };
-      }
-    }
     return result;
   }
 
