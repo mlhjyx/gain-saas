@@ -1854,9 +1854,9 @@ onMounted(checkSession);
 .ops__brand p { margin: 0; color: #475569; line-height: 1.8; }
 .ops__brand ul { margin: 8px 0 0; padding-left: 18px; color: #64748b; line-height: 2; }
 .ops__mark { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--gs-accent, #00b96b); color: #fff; font-size: 22px; font-weight: 700; }
-.ops__login-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 30px; display: grid; gap: 14px; box-shadow: 0 24px 60px -30px rgba(15,23,42,.35); }
+.ops__login-card { background: var(--gs-surface); border: 1px solid var(--gs-border-strong); border-radius: 20px; padding: 30px; display: grid; gap: 14px; box-shadow: var(--gs-shadow-modal); }
 .ops__login-card h2 { margin: 0; font-size: 22px; }
-.ops__login-card p { margin: 0; color: #64748b; font-size: 13px; }
+.ops__login-card p { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .ops__login-card label, .ops__field { display: grid; gap: 6px; font-size: 13px; color: #334155; }
 .ops__login-card input, .ops__field select, .ops__field input { border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font-size: 14px; background: #fff; color: #0f172a; }
 .ops__login-card button { border: 0; border-radius: 10px; padding: 11px; background: var(--gs-accent, #00b96b); color: #fff; font-weight: 650; font-size: 14px; cursor: pointer; }

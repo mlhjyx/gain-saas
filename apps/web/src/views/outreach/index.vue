@@ -264,7 +264,7 @@ onMounted(loadBatches);
     <p v-if="notice" class="ob__notice">{{ notice }}</p>
     <p v-if="loading" class="ob__muted">{{ $t('gainos.outreach.loading') }}</p>
 
-    <div v-else class="ob__grid">
+    <div v-else-if="!error" class="ob__grid">
       <section class="ob__list" :aria-label="$t('gainos.outreach.listTitle')">
         <p v-if="batches.length === 0" class="ob__muted">{{ $t('gainos.outreach.empty') }}</p>
         <button

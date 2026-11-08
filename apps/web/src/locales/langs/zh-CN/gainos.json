@@ -448,7 +448,7 @@
   "findBuyers": {
     "kicker": "M3 开放",
     "title": "找买家",
-    "subtitle": "设定目标客户画像画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
+    "subtitle": "设定目标客户画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
     "step1Title": "完成公司档案",
     "step1Checking": "正在确认档案状态…",
     "step1Ready": "已就绪 · 共 {count} 份档案",

@@ -48,6 +48,17 @@ const showDot = computed(() =>
 
 const menus = computed(() => []);
 
+// 侧栏/菜单标题在路由模块加载时求值一次，切语言后不会热更新（审计 二-06）。
+// 语言切换后整页重载一次，保证导航、页面与通知全部即时切换（URL 与登录态保留）。
+watch(
+  () => preferences.app.locale,
+  (next, prev) => {
+    if (prev && next !== prev) {
+      window.location.reload();
+    }
+  },
+);
+
 const avatar = computed(() => {
   return userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
 });

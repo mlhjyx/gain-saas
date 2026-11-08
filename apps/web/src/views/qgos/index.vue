@@ -210,7 +210,7 @@ onMounted(load);
     <ErrorNotice v-if="loadError" :title="loadError.title" :why="loadError.why" :next="loadError.next" :code="loadError.code" />
 
     <section v-if="loading" class="qg__state">{{ $t('gainos.common.loading') }}</section>
-    <section v-else-if="rows.length === 0" class="qg__empty">
+    <section v-else-if="!loadError && rows.length === 0" class="qg__empty">
       <p class="qg__empty-title">{{ $t('gainos.qgos.emptyTitle') }}</p>
       <p class="qg__empty-desc">{{ $t('gainos.qgos.emptyDesc') }}</p>
       <router-link class="qg__btn" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</router-link>
