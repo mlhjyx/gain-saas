@@ -5,12 +5,10 @@
  * 触达 tab 在步 11 落地上线前保持如实占位（不提供假交互）。
  * tab 与 URL `?tab=` 同步，可深链；独立路由 /campaigns、/qgos 仍保留给通知与线索页的深链。
  */
-import type { StatusTone } from '@gain-saas/shared';
-
 import { computed, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { APPROVAL_STATE, glossaryTerm, statusClass } from '@gain-saas/shared';
+import { glossaryTerm } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -20,6 +18,7 @@ defineOptions({ name: 'Growth' });
 // 内嵌的真实页面按 tab 懒加载：切换 tab 才拉数据，首屏不付出两份页面的代价。
 const CampaignsList = defineAsyncComponent(() => import('#/views/campaigns/index.vue'));
 const QgosList = defineAsyncComponent(() => import('#/views/qgos/index.vue'));
+const OutreachBatches = defineAsyncComponent(() => import('#/views/outreach/index.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -40,28 +39,6 @@ function select(key: string): void {
   void router.replace({ path: '/growth', query: { ...route.query, tab: key } });
 }
 
-interface LegendItem {
-  key: string;
-  label: string;
-  tone: StatusTone;
-}
-
-function legend(
-  table: Record<string, { en: string; tone: StatusTone; zh: string }>,
-  keys: string[],
-): LegendItem[] {
-  return keys.map((key) => {
-    const entry = table[key]!;
-    return {
-      key,
-      label: preferences.app.locale === 'en-US' ? entry.en : entry.zh,
-      tone: entry.tone,
-    };
-  });
-}
-
-// 触达占位仍展示批次审批的状态色板（步 11 上线后由真实页面取代）。
-const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED', 'EXPIRED']);
 </script>
 
 <template>
@@ -99,37 +76,8 @@ const approvalLegend = legend(APPROVAL_STATE, ['PENDING', 'APPROVED', 'DECLINED'
       <QgosList />
     </section>
 
-    <section v-else class="gr__panel gr__panel--inner" role="tabpanel">
-      <article class="gr__card">
-        <div class="gr__card-head">
-          <h2>{{ $t('gainos.growth.outreachTitle') }}</h2>
-          <div class="gr__legend">
-            <span
-              v-for="item in approvalLegend"
-              :key="item.key"
-              class="gs-badge"
-              :class="statusClass(item.tone)"
-            >
-              {{ item.label }}
-            </span>
-          </div>
-        </div>
-        <p class="gr__desc">{{ $t('gainos.growth.outreachDesc') }}</p>
-        <ul class="gr__points">
-          <li>{{ $t('gainos.growth.outreachPoint1') }}</li>
-          <li>{{ $t('gainos.growth.outreachPoint2') }}</li>
-          <li>{{ $t('gainos.growth.outreachPoint3') }}</li>
-        </ul>
-        <p class="gr__note">{{ $t('gainos.growth.outreachNote') }}</p>
-        <div class="gr__actions">
-          <button class="gr__cta" type="button" @click="router.push('/leads')">
-            {{ $t('gainos.growth.outreachCta') }}
-          </button>
-          <button class="gr__ghost" type="button" disabled>
-            {{ $t('gainos.growth.outreachDisabled') }}
-          </button>
-        </div>
-      </article>
+    <section v-else class="gr__panel" role="tabpanel">
+      <OutreachBatches />
     </section>
   </div>
 </template>

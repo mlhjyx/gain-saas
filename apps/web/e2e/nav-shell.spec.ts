@@ -84,16 +84,16 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-opportunities.png') });
 
-  // tab 3：触达在步 11 落地上线前如实占位（无假交互）
+  // tab 3：触达批次工作台（步 11-2）——空态与新建入口都是真页面自己的
   await tabs.nth(2).click();
   await page.waitForURL(/tab=outreach/);
   await settle(page);
-  await expect(page.getByRole('heading', { level: 2, name: '触达', exact: true })).toBeVisible();
-  await expect(page.getByText('发送通道开放前，系统不会发出任何邮件。')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: '触达批次', exact: true })).toBeVisible();
+  await expect(page.getByText('还没有触达批次。新建一个批次，加入草稿后提交审批。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-outreach.png') });
 
-  // 主行动可点、死链路不存在
-  await page.getByRole('button', { name: '去查看买家线索' }).click();
-  await page.waitForURL((url) => url.pathname === '/leads');
+  // 主行动可点：新建批次展开表单
+  await page.getByRole('button', { name: '新建批次' }).click();
+  await expect(page.getByPlaceholder('例如：德国泵业首触')).toBeVisible();
 });

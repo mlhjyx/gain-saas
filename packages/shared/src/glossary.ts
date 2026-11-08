@@ -235,6 +235,38 @@ export const OUTREACH_SEND_STATUS = {
   COMPLAINED: { zh: '投诉', en: 'Complained', tone: 'danger', engine: ['COMPLAINED'] },
 } as const satisfies Record<string, GlossaryStatus>;
 
+/** 触达批次状态（M2 步 11-2）。 */
+export const OUTREACH_BATCH_STATUS = {
+  DRAFT: { zh: '草稿', en: 'Draft', tone: 'neutral', engine: ['DRAFT'] },
+  PENDING_APPROVAL: {
+    zh: '待审批',
+    en: 'Pending approval',
+    tone: 'warning',
+    engine: ['PENDING_APPROVAL'],
+  },
+  APPROVED: { zh: '已批准', en: 'Approved', tone: 'success', engine: ['APPROVED'] },
+  DECLINED: { zh: '已拒绝', en: 'Declined', tone: 'danger', engine: ['DECLINED'] },
+  EXPIRED: { zh: '已过期', en: 'Expired', tone: 'neutral', engine: ['EXPIRED'] },
+  QUEUED: { zh: '待发送', en: 'Queued', tone: 'processing', engine: ['QUEUED'] },
+  CANCELLED: { zh: '已取消', en: 'Cancelled', tone: 'neutral', engine: ['CANCELLED'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 触达草稿状态（M2 步 11-2/11-3）。 */
+export const OUTREACH_DRAFT_STATUS = {
+  DRAFT: { zh: '草稿', en: 'Draft', tone: 'neutral', engine: ['DRAFT'] },
+  PENDING_APPROVAL: {
+    zh: '待审批',
+    en: 'Pending approval',
+    tone: 'warning',
+    engine: ['PENDING_APPROVAL'],
+  },
+  APPROVED: { zh: '已批准', en: 'Approved', tone: 'success', engine: ['APPROVED'] },
+  REJECTED: { zh: '已拒绝', en: 'Rejected', tone: 'danger', engine: ['REJECTED'] },
+  SKIPPED: { zh: '已跳过', en: 'Skipped', tone: 'neutral', engine: ['SKIPPED'] },
+  SENT: { zh: '已发送', en: 'Sent', tone: 'success', engine: ['SENT'] },
+  FAILED: { zh: '发送失败', en: 'Failed', tone: 'danger', engine: ['FAILED'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
 export const STATUS_TABLES = {
   run: RUN_STATUS,
   icp: ICP_STATUS,
@@ -246,6 +278,8 @@ export const STATUS_TABLES = {
   sao: SAO_STATE,
   outcome: OUTCOME_STATE,
   outreachSend: OUTREACH_SEND_STATUS,
+  outreachBatch: OUTREACH_BATCH_STATUS,
+  outreachDraft: OUTREACH_DRAFT_STATUS,
 } as const;
 
 export type StatusDomain = keyof typeof STATUS_TABLES;

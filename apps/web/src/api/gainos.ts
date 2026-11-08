@@ -1011,7 +1011,109 @@ export const gainosApi = {
   readNotification: (id: string) => requestClient.post<{ ok: boolean }>(`/notifications/${id}/read`, {}),
   readAllNotifications: () => requestClient.post<{ updated: number }>('/notifications/read-all', {}),
   deleteNotification: (id: string) => requestClient.delete<{ ok: boolean }>(`/notifications/${id}`),
+  // ── M2 步 11-2：触达批次与草稿审批 ───────────────────────────────────────
+  outreachBatches: () => requestClient.get<OutreachBatchSummary[]>('/outreach/batches'),
+  outreachBatch: (batchId: string) =>
+    requestClient.get<OutreachBatchDetail>(`/outreach/batches/${batchId}`),
+  createOutreachBatch: (input: { name: string; campaignId?: string }) =>
+    requestClient.post<OutreachBatchSummary>('/outreach/batches', input),
+  addOutreachDraft: (batchId: string, input: OutreachDraftInput) =>
+    requestClient.post<OutreachDraftView>(`/outreach/batches/${batchId}/drafts`, input),
+  updateOutreachDraft: (batchId: string, draftId: string, input: OutreachDraftInput) =>
+    requestClient.patch<OutreachDraftView>(
+      `/outreach/batches/${batchId}/drafts/${draftId}`,
+      input,
+    ),
+  removeOutreachDraft: (batchId: string, draftId: string) =>
+    requestClient.delete<{ removed: boolean }>(
+      `/outreach/batches/${batchId}/drafts/${draftId}`,
+    ),
+  submitOutreachBatch: (batchId: string) =>
+    requestClient.post<OutreachApprovalView>(`/outreach/batches/${batchId}/submit`, {}),
+  decideOutreachBatch: (
+    batchId: string,
+    approvalId: string,
+    input: { decision: 'approve' | 'decline'; reason?: string },
+  ) =>
+    requestClient.post<OutreachBatchDetail>(
+      `/outreach/batches/${batchId}/approvals/${approvalId}/decide`,
+      input,
+    ),
+  reopenOutreachBatch: (batchId: string) =>
+    requestClient.post<OutreachBatchDetail>(`/outreach/batches/${batchId}/reopen`, {}),
 };
+
+export interface OutreachDraftInput {
+  contactRef: string;
+  recipientEmail: string;
+  companyName?: string;
+  subject: string;
+  body: string;
+}
+
+export interface OutreachDraftView {
+  id: string;
+  batchId: string;
+  contactRef: string;
+  recipientEmail: string;
+  companyName?: string | null;
+  subject: string;
+  body: string;
+  status: string;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OutreachApprovalView {
+  id: string;
+  batchId: string;
+  contentHash: string;
+  state: string;
+  requestedBy: string;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  decisionReason?: string | null;
+  expiresAt: string;
+  createdAt?: string;
+}
+
+export interface OutreachBatchEventView {
+  id: string;
+  type: string;
+  actor: string;
+  detail?: unknown;
+  createdAt: string;
+}
+
+export interface OutreachBatchSummary {
+  id: string;
+  name: string;
+  status: string;
+  campaignId?: string | null;
+  draftCount: number;
+  pendingApproval?: { id: string; expiresAt: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OutreachBatchDetail {
+  id: string;
+  name: string;
+  status: string;
+  campaignId?: string | null;
+  contentHash?: string | null;
+  drafts: OutreachDraftView[];
+  approvals: OutreachApprovalView[];
+  events: OutreachBatchEventView[];
+  submittedAt?: string | null;
+  decidedAt?: string | null;
+  queuedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 // ── M2 步 10：商机域（QGO/SAO/Outcome）──────────────────────────────────────
 export interface QgoEvidenceItem {

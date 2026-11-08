@@ -52,6 +52,7 @@ const COLLECTIONS = new Set([
   '/leads',
   '/members',
   '/notifications',
+  '/outreach/batches',
   '/qgos',
   '/runs',
   '/source-channels/available',
