@@ -56,7 +56,7 @@ const formError = ref<string | null>(null);
 const createdNotice = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-// ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标买家设计 ──
+// ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
 const claimsOpen = ref(false);
 const claimsCompany = ref<CompanyProfile | null>(null);
 const claims = ref<CompanyClaim[]>([]);
@@ -1053,7 +1053,7 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
-    <!-- 企业事实审批（KNW-003 人工门）：只有「已通过」的事实进入目标买家设计 -->
+    <!-- 企业事实审批（KNW-003 人工门）：只有「已通过」的事实进入目标客户画像设计 -->
     <Teleport to="body">
       <div
         v-if="claimsOpen"

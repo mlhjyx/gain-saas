@@ -950,6 +950,7 @@ onMounted(checkSession);
 </script>
 
 <template>
+  <!-- terms-lint-disable-file: 运营台是平台运营者的技术工作面（设计 §3.9：零术语红线只约束租户界面），保留 run/枚举原文便于排障 -->
   <div class="ops">
     <div v-if="checking" class="ops__state">检查运营会话…</div>
 

@@ -1,6 +1,9 @@
 <script lang="ts" setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
 
@@ -12,6 +15,7 @@ import {
   type LeadDecisionInput,
   type LeadPackage,
   type LeadQueueCounts,
+  type PromoteQgoInput,
 } from '#/api/gainos';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
@@ -19,7 +23,8 @@ import DecisionMakerCard from './DecisionMakerCard.vue';
 defineOptions({ name: 'Leads' });
 
 const route = useRoute();
-const QUEUE_KEYS = ['needs_review', 'recommended', 'rejected', 'suppressed'] as const;
+const router = useRouter();
+const QUEUE_KEYS = ['needs_review', 'recommended', 'rejected', 'suppressed', 'sanctions_hold'] as const;
 
 function queueFromRoute(): string | null {
   const raw = route.query.queue;
@@ -41,15 +46,26 @@ const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
 const currentStep = 5;
 const isAdmin = ref(false);
 
-const QUEUES = computed(() => [
-  { key: 'needs_review', label: $t('gainos.leads.queueReview'), desc: $t('gainos.leads.queueReviewDesc'), tone: 'primary' },
-  { key: 'recommended', label: $t('gainos.leads.queueQualified'), desc: $t('gainos.leads.queueQualifiedDesc'), tone: 'ok' },
-  { key: 'rejected', label: $t('gainos.leads.queueRejected'), desc: $t('gainos.leads.queueRejectedDesc'), tone: 'muted' },
-  { key: 'suppressed', label: $t('gainos.leads.queueSuppressed'), desc: $t('gainos.leads.queueSuppressedDesc'), tone: 'warn' },
-  ...(isAdmin.value
-    ? [{ key: 'sanctions_hold', label: $t('gainos.leads.queueSanctions'), desc: $t('gainos.leads.queueSanctionsDesc'), tone: 'warn' }]
-    : []),
-]);
+// 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
+const QUEUE_META = [
+  { key: 'needs_review', descKey: 'gainos.leads.queueReviewDesc' },
+  { key: 'recommended', descKey: 'gainos.leads.queueQualifiedDesc' },
+  { key: 'rejected', descKey: 'gainos.leads.queueRejectedDesc' },
+  { key: 'suppressed', descKey: 'gainos.leads.queueSuppressedDesc' },
+  { key: 'sanctions_hold', descKey: 'gainos.leads.queueSanctionsDesc', adminOnly: true },
+] as const;
+
+const QUEUES = computed(() =>
+  QUEUE_META.filter((queue) => !('adminOnly' in queue) || isAdmin.value).map((queue) => {
+    const status = glossaryStatus('leadQueue', queue.key, preferences.app.locale);
+    return {
+      key: queue.key,
+      label: status?.label ?? '—',
+      desc: $t(queue.descKey),
+      tone: status?.tone ?? 'neutral',
+    };
+  }),
+);
 
 const REJECT_CODES = [
   'NOT_TARGET_ROLE',
@@ -108,6 +124,65 @@ const copied = ref(false);
 const sanctionsBusy = ref(false);
 const sanctionsError = ref<{ title: string; next?: string } | null>(null);
 const sanctionsNotice = ref<string | null>(null);
+
+// M2 步 10：从已接受线索提升为商机（QGO）。证据门与下一步在服务端再次校验。
+const promoteOpen = ref(false);
+const promoteTarget = ref<Lead | null>(null);
+const promoteEvidence = ref<Array<{ type: string; url: string; support: string }>>([
+  { type: 'customer_reply', url: '', support: '' },
+]);
+const promoteNextStep = ref('');
+const promoteBusy = ref(false);
+const promoteError = ref<ReturnType<typeof failureText> | null>(null);
+
+function openPromote(lead: Lead): void {
+  promoteTarget.value = lead;
+  promoteOpen.value = true;
+  promoteEvidence.value = [{ type: 'customer_reply', url: '', support: '' }];
+  promoteNextStep.value = '';
+  promoteError.value = null;
+}
+
+function addEvidenceRow(): void {
+  if (promoteEvidence.value.length < 10) {
+    promoteEvidence.value.push({ type: 'other', url: '', support: '' });
+  }
+}
+
+function removeEvidenceRow(index: number): void {
+  if (promoteEvidence.value.length > 1) promoteEvidence.value.splice(index, 1);
+}
+
+async function submitPromote(): Promise<void> {
+  const lead = promoteTarget.value;
+  if (!lead || promoteBusy.value) return;
+  const evidence = promoteEvidence.value
+    .filter((row) => row.type.trim())
+    .map((row) => ({
+      type: row.type.trim(),
+      ...(row.url.trim() ? { url: row.url.trim() } : {}),
+      ...(row.support.trim() ? { support: row.support.trim() } : {}),
+    }));
+  const input: PromoteQgoInput = {
+    leadRef: lead.id,
+    evidence,
+    nextStep: promoteNextStep.value.trim(),
+  };
+  promoteBusy.value = true;
+  promoteError.value = null;
+  try {
+    await gainosApi.promoteQgo(input);
+    promoteOpen.value = false;
+    promoteTarget.value = null;
+    notice.value = $t('gainos.leads.promoteDone');
+    await router.push('/qgos');
+  } catch (error) {
+    promoteError.value = failureText(error);
+  } finally {
+    promoteBusy.value = false;
+  }
+}
+
 
 const modal = ref<'accept' | 'reject' | null>(null);
 const target = ref<Lead | null>(null);
@@ -572,6 +647,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             <option v-for="icp in icps" :key="icp.id" :value="icp.id">{{ icp.name }}</option>
           </select>
         </label>
+        <button class="ld__refresh" type="button" @click="$router.push('/qgos')">{{ $t('gainos.leads.qgoEntry') }}</button>
         <button class="ld__refresh" type="button" :class="{ 'is-loading': loading }" @click="load">
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
         </button>
@@ -655,7 +731,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         </header>
         <p class="ld__why">{{ whyText(lead) }}</p>
         <div class="ld__meta">
-          <span class="ld__badge" :class="`ld__badge--${queueMeta(lead.queue).tone}`">{{ queueLabel(lead.queue) }}</span>
+          <span class="gs-badge" :class="statusClass(queueMeta(lead.queue).tone)">{{ queueLabel(lead.queue) }}</span>
           <span v-if="basisLabel(lead.queueBasis)" class="ld__basis">{{ basisLabel(lead.queueBasis) }}</span>
           <span v-if="lead.company?.employeeCount" class="ld__basis">{{ lead.company.employeeCount }} 人</span>
         </div>
@@ -665,6 +741,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             <button type="button" class="ld__action ld__action--reject" @click="openReject(lead)">{{ $t('gainos.leads.reject') }}</button>
             <button type="button" class="ld__action ld__action--accept" @click="openAccept(lead)">{{ $t('gainos.leads.accept') }}</button>
           </template>
+          <button v-else-if="lead.status === 'QUALIFIED'" type="button" class="ld__action ld__action--accept" @click="openPromote(lead)">
+            {{ $t('gainos.leads.promoteQgo') }}
+          </button>
         </div>
       </article>
     </section>
@@ -881,6 +960,52 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         </div>
       </section>
     </div>
+
+    <!-- M2 步 10：提升为商机（QGO） -->
+    <div v-if="promoteOpen" class="ld__overlay ld__overlay--top" @click.self="promoteOpen = false">
+      <section class="ld__modal ld__modal--narrow" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.promoteTitle')">
+        <header class="ld__modal-head">
+          <div>
+            <h2>{{ $t('gainos.leads.promoteTitle') }}</h2>
+            <p>{{ promoteTarget?.company?.name || $t('gainos.leads.unknownCompany') }}</p>
+          </div>
+          <button type="button" class="ld__close" :aria-label="$t('gainos.common.cancel')" @click="promoteOpen = false">×</button>
+        </header>
+        <div class="ld__modal-body">
+          <div v-if="promoteError" class="ld__modal-error" role="alert">
+            <h3>{{ promoteError.title }}</h3>
+            <p v-if="promoteError.why">{{ promoteError.why }}</p>
+            <p v-if="promoteError.next">{{ promoteError.next }}</p>
+          </div>
+          <div class="ld__field">
+            <span>{{ $t('gainos.leads.promoteEvidence') }}</span>
+            <div v-for="(row, i) in promoteEvidence" :key="i" class="ld__evidence-row">
+              <select v-model="row.type" :aria-label="$t('gainos.leads.promoteEvidenceType')">
+                <option value="customer_reply">{{ $t('gainos.leads.evidenceType.customer_reply') }}</option>
+                <option value="purchase_page">{{ $t('gainos.leads.evidenceType.purchase_page') }}</option>
+                <option value="tender_hit">{{ $t('gainos.leads.evidenceType.tender_hit') }}</option>
+                <option value="customs_signal">{{ $t('gainos.leads.evidenceType.customs_signal') }}</option>
+                <option value="other">{{ $t('gainos.leads.evidenceType.other') }}</option>
+              </select>
+              <input v-model="row.url" type="url" :placeholder="$t('gainos.leads.promoteUrlHint')" />
+              <input v-model="row.support" type="text" maxlength="500" :placeholder="$t('gainos.leads.promoteSupportHint')" />
+              <button type="button" class="ld__action" :disabled="promoteEvidence.length <= 1" @click="removeEvidenceRow(i)">×</button>
+            </div>
+            <button type="button" class="ld__action" @click="addEvidenceRow">{{ $t('gainos.leads.addEvidence') }}</button>
+          </div>
+          <label class="ld__field">
+            <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
+            <textarea v-model="promoteNextStep" rows="2" maxlength="500" :placeholder="$t('gainos.leads.promoteNextStepHint')"></textarea>
+          </label>
+          <div class="ld__modal-actions">
+            <button type="button" class="ld__action" @click="promoteOpen = false">{{ $t('gainos.common.cancel') }}</button>
+            <button type="button" class="ld__action ld__action--accept" :disabled="promoteBusy || !promoteNextStep.trim()" @click="submitPromote">
+              {{ promoteBusy ? $t('gainos.leads.submitting') : $t('gainos.leads.promoteSubmit') }}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -965,10 +1090,6 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__score.is-scored { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
 .ld__why { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-2); }
 .ld__meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.ld__badge { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--gs-divider); color: var(--gs-fg-2); }
-.ld__badge--primary { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.ld__badge--ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.ld__badge--warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .ld__basis { font-size: 11.5px; color: var(--gs-fg-subtle); }
 .ld__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .ld__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
@@ -1051,3 +1172,24 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
   .ld__modal-actions .ld__action { width: 100%; }
 }
 </style>
+
+.ld__evidence-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ld__evidence-row select,
+.ld__evidence-row input {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-bg);
+  color: var(--gs-fg);
+}
+
+@media (max-width: 720px) {
+  .ld__evidence-row { grid-template-columns: 1fr; }
+}

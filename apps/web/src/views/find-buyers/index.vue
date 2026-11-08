@@ -2,6 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+import type { StatusTone } from '@gain-saas/shared';
+
+import { glossaryStatus, glossaryTerm, statusClass } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
+
 import { $t } from '#/locales';
 import ErrorNotice from '#/components/error-notice.vue';
 
@@ -171,10 +176,17 @@ const companiesWithoutIcp = computed(() =>
   companies.value.filter((company) =>
     company.id && !icps.value.some((icp) => icp.companyId === company.id)));
 
+// 目标客户画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
+// 未登记的状态显示占位符，绝不把裸枚举直接渲染进界面。
+function icpStatus(status?: string): { label: string; tone: StatusTone } {
+  const meta = glossaryStatus('icp', status, preferences.app.locale);
+  return meta ?? { label: '—', tone: 'neutral' };
+}
 function statusLabel(status?: string): string {
-  const key = `gainos.findBuyers.icpStatus.${status ?? 'DRAFT'}`;
-  const value = $t(key);
-  return value === key ? (status ?? '') : value;
+  return icpStatus(status).label;
+}
+function statusTone(status?: string): string {
+  return statusClass(icpStatus(status).tone);
 }
 function planStatusLabel(status?: string): string {
   const key = `gainos.findBuyers.planStatus.${status ?? 'DRAFT'}`;
@@ -319,9 +331,11 @@ async function load(): Promise<void> {
 }
 
 function taskRunStatusLabel(status: string): string {
-  const key = `gainos.findBuyers.taskRunStatus.${status}`;
-  const label = $t(key);
-  return label === key ? status : label;
+  return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
+}
+function taskRunStatusTone(status: string): string {
+  const meta = glossaryStatus('run', status, preferences.app.locale);
+  return statusClass(meta?.tone ?? 'neutral');
 }
 
 function formatRunTime(value: string): string {
@@ -350,9 +364,10 @@ async function ensureTask(icpId: string): Promise<AcquisitionTaskView> {
     return reusable;
   }
   const icpName = selected.value?.id === icpId ? selected.value.name : '';
+  const runTerm = glossaryTerm('run', preferences.app.locale);
   const created = await gainosApi.createAcquisitionTask({
     icpId,
-    name: icpName ? `${icpName} · 挖掘任务` : '挖掘任务',
+    name: icpName ? `${icpName} · ${runTerm}` : runTerm,
   });
   taskCache = created;
   return created;
@@ -742,7 +757,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
             <h2>{{ icp.name }}</h2>
             <p>{{ companyName(icp.companyId) }} · v{{ icp.version }}</p>
           </div>
-          <span class="fb__badge" :class="`fb__badge--${icp.status.toLowerCase()}`">{{ statusLabel(icp.status) }}</span>
+          <span class="gs-badge" :class="statusTone(icp.status)">{{ statusLabel(icp.status) }}</span>
         </header>
         <div v-if="icp.targetMarkets.length" class="fb__chips">
           <span v-for="market in icp.targetMarkets" :key="market" class="fb__chip">{{ market }}</span>
@@ -969,7 +984,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
             <ul v-else-if="plans.length" class="fb__plans">
               <li v-for="plan in plans" :key="plan.id">
                 <div class="fb__plan-head">
-                  <span class="fb__badge">{{ planStatusLabel(plan.status) }}</span>
+                  <span class="gs-badge">{{ planStatusLabel(plan.status) }}</span>
                   <span class="fb__muted">
                     {{ $t('gainos.findBuyers.planSearchCount', { count: plan.queries.length }) }}<span v-if="plan.estimatedVolume"> · {{ $t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }) }}</span><span v-if="plan.estimatedCostCents"> · {{ $t('gainos.findBuyers.planEstimatedCost', { cost: planCostLabel(plan.estimatedCostCents) }) }}</span>
                   </span>
@@ -1023,7 +1038,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
             <ul v-if="taskRuns.length" class="fb__plans">
               <li v-for="run in taskRuns" :key="run.id">
                 <div class="fb__plan-head">
-                  <span class="fb__badge">{{ taskRunStatusLabel(run.status) }}</span>
+                  <span class="gs-badge" :class="taskRunStatusTone(run.status)">{{ taskRunStatusLabel(run.status) }}</span>
                   <span class="fb__muted">{{ formatRunTime(run.startedAt) }}</span>
                 </div>
                 <div class="fb__actions">
@@ -1106,9 +1121,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 .fb__card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .fb__card-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
 .fb__card-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
-.fb__badge { flex: none; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--gs-divider); color: var(--gs-fg-2); }
-.fb__badge--active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.fb__badge--draft, .fb__badge--hypothesis { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .fb__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .fb__chip { font-size: 11.5px; background: var(--gs-divider); color: var(--gs-fg-2); border-radius: 999px; padding: 3px 9px; }
 .fb__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

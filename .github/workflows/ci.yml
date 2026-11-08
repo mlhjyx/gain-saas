@@ -21,6 +21,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # P6 零术语红线（设计 §4、计划 v1.5 §3.9）：用户可见面禁 run/ICP/canonical/plan_hash/裸 UUID/裸枚举。
+      # 豁免仅限技术详情与运营台，且必须写明理由；负向用例随 pnpm test 一起跑。
+      - name: Zero-jargon terminology lint
+        run: pnpm lint:terms
+
       # 全新安装没有生成的 Prisma Client;server 的 tsc 依赖它的生成类型,先生成再构建。
       - name: Prisma generate (server client)
         run: pnpm --filter @gain-saas/server db:generate

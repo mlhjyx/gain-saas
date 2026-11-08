@@ -65,6 +65,14 @@ const schema = z.object({
   CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: z.coerce.number().int().min(1).max(10000).default(1000),
   // 跨服务 verify 端点的服务令牌；未配置时端点 fail-closed（503）。
   CAMPAIGN_INTERNAL_SERVICE_TOKEN: z.string().min(1).optional(),
+  // M2.1 受限 Campaign Planner：BFF 触发引擎内部 draft 端点的服务令牌
+  // （须与引擎 CAMPAIGN_PLAN_INTERNAL_SERVICE_TOKEN 一致；未配置时触发端点 503 fail-closed）。
+  CAMPAIGN_PLAN_ENGINE_SERVICE_TOKEN: z.string().min(1).optional(),
+  // 回滚开关：false 时触发端点 503，不影响既有 job 的轮询与内部回调。
+  CAMPAIGN_PLAN_JOB_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
   WORKSPACE_QUOTA_MAX_SPEND_MICROS: z.coerce.number().int().min(1).default(15_000_000),
   // 运营域(SD9):未配置时运营域整体 503,不影响租户域
   OPS_APP_DATABASE_URL: z.string().optional(),

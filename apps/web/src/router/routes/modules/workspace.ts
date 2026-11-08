@@ -1,13 +1,13 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { $t } from '#/locales';
+import { navTitle } from '../nav';
 
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:layout-dashboard',
       order: 1,
-      title: $t('gainos.menu.workspace'),
+      title: navTitle('workspace'),
     },
     name: 'WorkspaceHome',
     path: '/workspace',
