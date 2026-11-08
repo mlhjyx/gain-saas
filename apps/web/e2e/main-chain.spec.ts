@@ -460,7 +460,68 @@ test('主链路 7（展示侧）：禁联队列联动——对象不可裁决', 
   await expect(cardButtons.getByText('暂不跟进')).toHaveCount(0);
 });
 
-// 设计 §5 第 6 条（触达：草稿审批、发送开关关闭文案）与第 8 条增删侧依赖步 11 控制面页面；
-// 步 11（m1-5 会话）上线后把 fixme 转成正式用例。
-test.fixme('主链路（defer）：触达批次草稿审批与发送禁用', async () => {});
+test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发送动作）', async ({ page }) => {
+  const backend = await installMockBackend(page);
+  const batch: Record<string, unknown> = {
+    approvals: [
+      {
+        decidedAt: null,
+        decidedBy: null,
+        expiresAt: '2026-11-11T08:00:00.000Z',
+        id: 'ap-1',
+        state: 'PENDING',
+      },
+    ],
+    createdAt: NOW,
+    drafts: [
+      {
+        body: '您好，我们注意到贵司经营工业泵分销业务……',
+        companyName: 'Muster Metallbau GmbH',
+        contactRef: 'contact-1',
+        id: 'draft-1',
+        recipientEmail: 'einkauf@muster.de',
+        status: 'DRAFT',
+        subject: '关于工业泵供应的合作',
+      },
+    ],
+    events: [{ createdAt: NOW, id: 'ev-1', type: 'BATCH_SUBMITTED' }],
+    id: 'ob-1',
+    name: '德国泵业首触',
+    status: 'PENDING_APPROVAL',
+  };
+  backend.set('GET', '/outreach/batches', json(() => [
+    { draftCount: 1, id: 'ob-1', name: '德国泵业首触', status: batch.status },
+  ]));
+  backend.set('GET', '/outreach/batches/ob-1', json(() => batch));
+  backend.set(
+    'POST',
+    '/outreach/batches/ob-1/approvals/ap-1/decide',
+    json((_: unknown) => {
+      batch.status = 'APPROVED';
+      (batch.approvals as Array<Record<string, unknown>>)[0]!.state = 'APPROVED';
+      return batch;
+    }),
+  );
+
+  await loginAs(page);
+  await page.goto('/growth?tab=outreach');
+  await settle(page);
+  await expect(page.getByRole('heading', { name: '触达批次', exact: true })).toBeVisible();
+  await expect(page.getByText('草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。')).toBeVisible();
+  await expect(page.getByText('einkauf@muster.de')).toBeVisible();
+  await expect(page.getByText('关于工业泵供应的合作')).toBeVisible();
+
+  // 批准：只入待发队列；页面上没有任何“发送”动作
+  await expect(page.getByRole('button', { name: /发送/ })).toHaveCount(0);
+  await page.getByRole('button', { name: '批准', exact: true }).click();
+  await expect(page.getByText('已批准，批次进入待发队列。')).toBeVisible();
+  await expect(page.locator('.gs-badge', { hasText: '已批准' }).first()).toBeVisible();
+  const decide = backend.take('POST', '/outreach/batches/ob-1/approvals/ap-1/decide');
+  expect(decide, '应提交批准').toBeTruthy();
+  expect((decide!.body as { decision?: string }).decision).toBe('approve');
+  // 批准后也不出现发送入口（发送通道由服务端开关控制，v0 无发送代码）
+  await expect(page.getByRole('button', { name: /发送/ })).toHaveCount(0);
+});
+
+// 设计 §5 第 8 条的增删侧依赖设置页的禁联名单（C2）页面；页面建成后转正。
 test.fixme('主链路（defer）：禁联名单增删（设置 → C2）', async () => {});
