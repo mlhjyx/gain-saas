@@ -122,6 +122,7 @@ test('商机与触达：三 tab 空壳、影子语义与词表', async ({ page }
   await page.waitForURL((url) => url.pathname === '/campaigns');
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
   await page.waitForURL((url) => url.pathname === '/growth');
+  await settle(page);
 
   await tabs.nth(1).click();
   await page.waitForURL(/tab=opportunities/);
@@ -134,7 +135,8 @@ test('商机与触达：三 tab 空壳、影子语义与词表', async ({ page }
   await page.waitForURL((url) => url.pathname === '/qgos');
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
   await page.waitForURL((url) => url.pathname === '/growth');
-  await page.getByRole('tab', { name: '商机' }).click();
+  await settle(page);
+  await page.getByRole('tab', { name: '商机' }).first().click();
   await page.waitForURL(/tab=opportunities/);
 
   await tabs.nth(2).click();
