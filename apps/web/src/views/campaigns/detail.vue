@@ -462,36 +462,36 @@ onUnmounted(stopPolling);
 .cd { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); display: grid; gap: 16px; }
 .cd__head { display: flex; gap: 16px; align-items: flex-start; }
 .cd__head h1 { margin: 0; font-size: 24px; }
-.cd__head p { margin: 4px 0 0; color: #6b6257; }
+.cd__head p { margin: 4px 0 0; color: var(--gs-fg-muted); }
 .cd__back { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; width: 34px; height: 34px; cursor: pointer; color: var(--gs-fg-2); }
 .cd__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
 .cd__danger { background: var(--gs-surface); color: var(--gs-danger); border: 1px solid var(--gs-danger-border); border-radius: 10px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
 .cd__ghost { background: var(--gs-surface-2); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
-.cd__banner { margin: 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
-.cd__notice { margin: 0; color: #166534; }
-.cd__hint { color: #6b6257; }
-.cd__muted { color: #8a7f70; font-size: 13px; }
+.cd__banner { margin: 0; padding: 10px 14px; border-radius: 8px; background: var(--gs-warn-bg); color: var(--gs-warn); }
+.cd__notice { margin: 0; color: var(--gs-accent-strong); }
+.cd__hint { color: var(--gs-fg-muted); }
+.cd__muted { color: var(--gs-fg-muted); font-size: 13px; }
 .cd__card { border: 1px solid var(--gs-border); border-radius: 12px; padding: 16px 20px; background: var(--gs-surface); }
-.cd__card--gate { border-color: #f3c78a; background: #fff7ea; }
-.cd__card--ok { border-color: #bbe5c8; background: #f2fbf5; }
+.cd__card--gate { border-color: var(--gs-warn); background: var(--gs-warn-bg); }
+.cd__card--ok { border-color: var(--gs-accent-soft-border); background: var(--gs-accent-soft); }
 .cd__card h2 { margin: 0 0 10px; font-size: 18px; }
 .cd__facts { display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; margin: 0; }
-.cd__facts dt { color: #8a7f70; }
+.cd__facts dt { color: var(--gs-fg-muted); }
 .cd__facts dd { margin: 0; }
 .cd__actions { display: flex; gap: 10px; margin-top: 10px; }
 .cd__why-1 { font-size: 16px; margin: 0 0 10px; }
 .cd__why-2 summary, .cd__why-3 summary { cursor: pointer; color: var(--gs-accent-strong); }
 .cd__why-2 ul { margin: 8px 0 0; }
-.cd__why-3 pre { background: #f6f1e7; padding: 10px; border-radius: 8px; overflow: auto; max-height: 320px; font-size: 12px; }
-.cd__why-3 code { display: block; margin-top: 6px; font-size: 12px; color: #6b6257; }
+.cd__why-3 pre { background: var(--gs-surface-2); padding: 10px; border-radius: 8px; overflow: auto; max-height: 320px; font-size: 12px; }
+.cd__why-3 code { display: block; margin-top: 6px; font-size: 12px; color: var(--gs-fg-muted); }
 .cd__timeline { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
 .cd__timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .cd__state { margin: 0 8px; color: var(--gs-warn); }
-.cd__error { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; }
+.cd__error { background: var(--gs-danger-bg); color: var(--gs-danger); padding: 12px 16px; border-radius: 8px; }
 .cd__error details { margin-top: 6px; }
-.cd__error-inline { color: #991b1b; margin: 0; }
+.cd__error-inline { color: var(--gs-danger); margin: 0; }
 .cd__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
-.cd__dialog { background: #fff; border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
+.cd__dialog { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
 .cd__dialog label { display: grid; gap: 6px; font-size: 14px; }
-.cd__dialog input, .cd__dialog select, .cd__dialog textarea { border: 1px solid #d8cbb8; border-radius: 8px; padding: 8px 10px; font: inherit; }
+.cd__dialog input, .cd__dialog select, .cd__dialog textarea { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }
 </style>

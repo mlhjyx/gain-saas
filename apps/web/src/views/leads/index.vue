@@ -1127,7 +1127,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .ld__action:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .ld__action--accept { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
-.ld__action--accept:hover { color: #fff; }
+.ld__action--accept:hover { color: var(--gs-accent-cta-fg); }
 .ld__action--reject { color: var(--gs-danger); border-color: var(--gs-danger-border); }
 .ld__action--danger { color: var(--gs-danger); border-color: var(--gs-danger-border); }
 .ld__action.is-loading { opacity: .6; cursor: progress; }

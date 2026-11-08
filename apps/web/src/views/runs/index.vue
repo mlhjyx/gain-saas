@@ -1259,18 +1259,18 @@ onUnmounted(() => {
 .run__summary article { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
 .run__summary article span { font-size: 12px; color: var(--gs-fg-muted); }
 .run__summary article strong { font-size: 24px; font-weight: 680; color: var(--gs-fg); }
-.run__summary article.is-bad strong { color: #b91c1c; }
+.run__summary article.is-bad strong { color: var(--gs-danger); }
 .run__status-card { gap: 6px !important; }
 .run__badge { justify-self: start; border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; }
-.run__badge.is-ok { background: #e8f9f0; color: #008f52; }
-.run__badge.is-warn { background: #fef3c7; color: #b45309; }
-.run__badge.is-bad { background: #fee2e2; color: #b91c1c; }
-.run__badge.is-running { background: #e0f2fe; color: #0369a1; }
+.run__badge.is-ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.run__badge.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
+.run__badge.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger); }
+.run__badge.is-running { background: var(--gs-indigo-soft); color: var(--gs-indigo); }
 .run__user-stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .run__user-stage { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 12px 14px; display: grid; gap: 5px; }
-.run__user-stage.is-done { border-color: #bbf7d0; background: linear-gradient(180deg, #f0fdf4, #fff); }
+.run__user-stage.is-done { border-color: var(--gs-accent-soft-border); background: linear-gradient(180deg, var(--gs-accent-soft), var(--gs-surface)); }
 .run__user-stage.is-current { border-color: var(--gs-accent); box-shadow: 0 0 0 1px var(--gs-accent) inset; }
-.run__user-stage.is-failed { border-color: #fecaca; background: #fff7f7; }
+.run__user-stage.is-failed { border-color: var(--gs-danger-border); background: var(--gs-danger-bg); }
 .run__user-stage.is-pending, .run__user-stage.is-skipped { opacity: .62; }
 .run__user-stage strong { font-size: 13.5px; color: var(--gs-fg); }
 .run__user-stage-value { font-size: 20px; font-weight: 700; color: var(--gs-fg); line-height: 1.2; }
@@ -1279,24 +1279,24 @@ onUnmounted(() => {
 .run__tech[open] > summary { margin-bottom: 12px; }
 .run__stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .run__stage { position: relative; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 12px 14px; display: grid; gap: 4px; }
-.run__stage.is-done { border-color: #bbf7d0; background: linear-gradient(180deg, #f0fdf4, #fff); }
+.run__stage.is-done { border-color: var(--gs-accent-soft-border); background: linear-gradient(180deg, var(--gs-accent-soft), var(--gs-surface)); }
 .run__stage.is-current { border-color: var(--gs-accent); box-shadow: 0 0 0 1px var(--gs-accent) inset; }
-.run__stage.is-failed { border-color: #fecaca; background: #fff7f7; }
+.run__stage.is-failed { border-color: var(--gs-danger-border); background: var(--gs-danger-bg); }
 .run__stage.is-pending, .run__stage.is-skipped { opacity: .62; }
 .run__stage-top { display: flex; justify-content: space-between; align-items: center; }
-.run__stage-index { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #f1f5f9; color: var(--gs-fg-muted); font-size: 11px; font-weight: 700; }
+.run__stage-index { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--gs-surface-2); color: var(--gs-fg-muted); font-size: 11px; font-weight: 700; }
 .run__stage.is-done .run__stage-index { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .run__stage-state { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--gs-fg-muted); text-transform: uppercase; }
-.run__stage.is-done .run__stage-state { color: #008f52; }
-.run__stage.is-failed .run__stage-state { color: #b91c1c; }
+.run__stage.is-done .run__stage-state { color: var(--gs-accent-strong); }
+.run__stage.is-failed .run__stage-state { color: var(--gs-danger); }
 .run__stage strong { font-size: 13px; color: var(--gs-fg); }
 .run__stage-value { font-size: 20px; font-weight: 700; color: var(--gs-fg); }
 .run__stage-hint { font-size: 11px; color: var(--gs-fg-muted); min-height: 28px; }
-.run__failure { border-radius: 14px; border: 1px solid #fecaca; background: #fef2f2; padding: 16px 18px; display: grid; gap: 10px; }
-.run__failure h2 { margin: 0; font-size: 15px; color: #991b1b; }
+.run__failure { border-radius: 14px; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); padding: 16px 18px; display: grid; gap: 10px; }
+.run__failure h2 { margin: 0; font-size: 15px; color: var(--gs-danger); }
 .run__failure dl { margin: 0; display: flex; gap: 24px; flex-wrap: wrap; }
-.run__failure dt { font-size: 11px; color: #b91c1c; text-transform: uppercase; letter-spacing: .08em; }
-.run__failure dd { margin: 2px 0 0; font-size: 13px; color: #7f1d1d; }
+.run__failure dt { font-size: 11px; color: var(--gs-danger); text-transform: uppercase; letter-spacing: .08em; }
+.run__failure dd { margin: 2px 0 0; font-size: 13px; color: var(--gs-danger); }
 .run__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
 .run__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
 .run__card--wide { grid-column: 1 / -1; }
@@ -1306,19 +1306,19 @@ onUnmounted(() => {
 .run__table th { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-bg-soft, #f8fafc); }
 .run__table tr:last-child td { border-bottom: 0; }
 .run__chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.run__chip { border-radius: 999px; padding: 2px 9px; background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 600; }
-.run__chip.is-warn { background: #fef3c7; color: #b45309; }
+.run__chip { border-radius: 999px; padding: 2px 9px; background: var(--gs-surface-2); color: var(--gs-fg-muted); font-size: 11.5px; font-weight: 600; }
+.run__chip.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .run__facts { margin: 0; display: grid; gap: 6px; }
 .run__facts div { display: grid; grid-template-columns: 130px 1fr; gap: 8px; font-size: 12.5px; }
 .run__facts dt { color: var(--gs-fg-muted); }
 .run__facts dd { margin: 0; color: var(--gs-fg); word-break: break-word; }
-.run__error-text { color: #b45309; max-width: 420px; word-break: break-word; }
+.run__error-text { color: var(--gs-warn); max-width: 420px; word-break: break-word; }
 /* M2 步 9b-4：「过程」时间线（只读）。 */
 .run__trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .run__trace-item { border-left: 3px solid var(--gs-border); padding: 2px 0 2px 12px; display: grid; gap: 4px; }
 .run__trace-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; }
 .run__trace-line { margin: 0; font-size: 12.5px; line-height: 1.5; }
-.run__trace-line--warn { color: #b45309; }
+.run__trace-line--warn { color: var(--gs-warn); }
 .run__trace-meta { display: inline-flex; align-items: baseline; gap: 8px; }
 .run__trace-evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
 .run__trace-evidence a { color: var(--gs-accent-strong); text-decoration: none; }
@@ -1328,7 +1328,7 @@ onUnmounted(() => {
 .run__trace-tech dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
 .run__trace-tech dt { color: var(--gs-fg-subtle); }
 .run__trace-tech dd { margin: 0; overflow-wrap: anywhere; }
-.run__action--danger { border-color: #b45309; color: #b45309; }
+.run__action--danger { border-color: var(--gs-warn); color: var(--gs-warn); }
 .run__details { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); padding: 14px 18px; }
 .run__details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gs-fg); }
 .run__details pre { margin: 12px 0 0; font-size: 11.5px; line-height: 1.6; max-height: 420px; overflow: auto; background: var(--gs-bg-soft, #f8fafc); padding: 14px; border-radius: 10px; }

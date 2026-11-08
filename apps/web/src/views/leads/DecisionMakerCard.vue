@@ -453,7 +453,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
 .dm__action:hover:not(:disabled) { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .dm__action:disabled { opacity: .55; cursor: not-allowed; }
 .dm__action--primary { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
-.dm__action--primary:hover:not(:disabled) { color: #fff; }
+.dm__action--primary:hover:not(:disabled) { color: var(--gs-accent-cta-fg); }
 .dm__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
 .dm__notice { margin: 0; padding: 8px 12px; border-radius: 9px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 12.5px; font-weight: 600; }
 .dm__error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; justify-items: start; }

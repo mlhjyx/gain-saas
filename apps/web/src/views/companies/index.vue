@@ -1367,10 +1367,10 @@ onUnmounted(() => {
 .cp__badge { flex: none; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 4px 12px; }
 .cp__badge--draft { background: var(--gs-divider); color: var(--gs-fg-muted); }
 .cp__badge--enriching { background: var(--gs-indigo-soft); color: var(--gs-indigo); }
-.cp__badge--review { background: #fef3c7; color: #b45309; }
+.cp__badge--review { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .cp__badge--active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.cp__badge--failed { background: #fee2e2; color: #b91c1c; }
-.cp__item-error { margin-top: 2px; font-size: 12px; color: #b91c1c; font-family: var(--gs-mono, monospace); }
+.cp__badge--failed { background: var(--gs-danger-bg); color: var(--gs-danger); }
+.cp__item-error { margin-top: 2px; font-size: 12px; color: var(--gs-danger); font-family: var(--gs-mono, monospace); }
 .cp__item-side { display: flex; align-items: center; gap: 10px; flex: none; }
 .cp__confirm { border: 0; border-radius: 9px; padding: 7px 12px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .cp__confirm--ghost { background: var(--gs-surface); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); }
@@ -1435,7 +1435,7 @@ onUnmounted(() => {
 .cp__btn--primary:hover { filter: brightness(1.04); }
 .cp__btn--primary:disabled { opacity: .7; cursor: default; }
 .cp__btn--danger { color: var(--gs-danger); }
-.cp__btn--danger:not(:disabled):hover { color: #fff; background: var(--gs-danger); }
+.cp__btn--danger:not(:disabled):hover { color: var(--gs-accent-cta-fg); background: var(--gs-danger); }
 .cp__btn:disabled { cursor: default; }
 
 /* ── 企业列表：事实入口 ── */
