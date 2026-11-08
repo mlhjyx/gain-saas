@@ -1061,15 +1061,19 @@
     "jobError": "失败码",
     "jobsEmpty": "暂无公司级记录（快扫开始后出现）。",
     "jobStageColumn": "状态",
-    "traceTitle": "过程",
+    "traceTitle": "寻源过程",
     "traceSubtitle": "这一轮是怎么判断的：选了哪些数据源、哪些被跳过、每批判定结果与未通过的候选。",
     "traceEmpty": "这一轮还没有过程记录（过程轨迹从接入新版本后的挖掘任务开始积累）。",
     "traceLoading": "正在加载过程…",
     "traceLoadError": "过程加载失败，稍后自动重试。",
     "traceLoadMore": "加载更多",
     "traceStep": {
-      "source.route": "选择数据源",
-      "fit.judge": "批量判定"
+      "source": {
+        "route": "选择数据源"
+      },
+      "fit": {
+        "judge": "批量判定"
+      }
     },
     "traceChosenSources": "采用的源",
     "traceNoSource": "本轮查询没有可用的数据源",
@@ -1092,8 +1096,35 @@
     },
     "traceReason": "原因：{reason}",
     "traceAgent": {
-      "discovery.source_scout": "源侦察员",
-      "discovery.qualifier": "资格判定员"
+      "discovery": {
+        "source_scout": "源侦察员",
+        "qualifier": "资格判定员"
+      }
+    },
+    "traceAgentFallback": "智能体",
+    "traceStepFallback": "决策",
+    "traceReasonUnknown": "其它原因",
+    "traceAttemptBadge": "第 {n} 次尝试",
+    "traceEvidenceLink": "依据 {n}",
+    "traceTech": "技术详情",
+    "traceTechDecision": "决策类型",
+    "traceTechAgent": "智能体标识",
+    "traceTechAttempt": "尝试次数",
+    "traceTechReason": "原因码",
+    "traceTechScore": "评分",
+    "traceTechCost": "成本（微美元，估算 / 实际）",
+    "traceTechRejected": "未通过候选数",
+    "traceTechTraceId": "轨迹记录",
+    "traceSourceOther": "其它数据源",
+    "traceSource": {
+      "wikidata": "维基数据",
+      "openstreetmap": "OpenStreetMap 地图",
+      "ted": "TED 招标公告",
+      "openfda": "openFDA 医疗数据",
+      "public_web": "公开网络搜索",
+      "directory": "行业名录",
+      "trade_fair": "展会名录",
+      "samgov": "SAM.gov 联邦机会"
     }
   },
   "audit": {
