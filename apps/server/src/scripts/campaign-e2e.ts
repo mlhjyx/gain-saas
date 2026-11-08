@@ -254,8 +254,10 @@ async function main(): Promise<void> {
   const trace = await session.call('GET', `/api/campaigns/${campaignId}/trace`);
   if (trace.status !== 200) fail(`trace HTTP ${trace.status}`);
 
-  // 影子期断言：授权已签发，但本仓没有任何执行器接线（campaign 事件管道不存在）；
-  // 这里以「授权存在 + 无执行记录端点」作为结构证明，执行接通只能在 M2.2 出现。
+  // 影子期口径：**结构证明**——授权已签发，但本仓不存在任何消费授权去执行动作的接线
+  // （无执行器/无调用方；由 campaign-execution-wiring.absence.spec.ts 钉住源码层面
+  // 「无调用路径」）。脚本只断言授权已签发，不输出任何自证的 shadow 字段；
+  // 执行接通与 CAMPAIGN_EXECUTION_SHADOW 闸门只能在 M2.2 出现（设计 D-M2.1-c）。
   const traceItems = ((trace.body.data as Json)?.items as unknown[]) ?? [];
   const evidence = {
     campaignId,
@@ -266,7 +268,6 @@ async function main(): Promise<void> {
     approvalId,
     authorizationId: String(authorization.id),
     authorizationState: String(authorization.state),
-    shadow: true,
     traceEntries: traceItems.length,
   };
   process.stdout.write(`E2E_RESULT ${JSON.stringify(evidence)}\n`);
