@@ -103,6 +103,9 @@ const schema = z.object({
   OUTREACH_SEND_BATCH_LIMIT: z.coerce.number().int().min(1).max(500).default(50),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
+  // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；
+  // 未配置时退订仍生效，但跨租户抑制写入被跳过并记 warning。
+  OUTREACH_ENGINE_SERVICE_TOKEN: z.string().min(16).optional(),
   CAMPAIGN_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
   CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: z.coerce.number().int().min(1).max(10000).default(1000),
   // 跨服务 verify 端点的服务令牌；未配置时端点 fail-closed（503）。

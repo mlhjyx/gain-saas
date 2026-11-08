@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { EngineHttp } from '../bff/engine-http.js';
+import type { AppConfig } from '../config/configuration.js';
+import { APP_CONFIG } from '../shared/config.module.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 
 export const OUTREACH_DNC_SUPPRESSOR = Symbol('OUTREACH_DNC_SUPPRESSOR');
@@ -28,7 +30,10 @@ export interface OutreachDncSuppressor {
  */
 @Injectable()
 export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDncSuppressor {
-  constructor(private readonly engine: EngineHttp) {}
+  constructor(
+    private readonly engine: EngineHttp,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
 
   async check(
     tenant: OutreachTenant,
@@ -65,8 +70,15 @@ export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDnc
     tenant: OutreachTenant,
     input: { email: string; reason: 'unsubscribe' | 'bounce' | 'complaint'; source: string },
   ): Promise<void> {
+    const serviceToken = this.config.OUTREACH_ENGINE_SERVICE_TOKEN;
+    if (!serviceToken) {
+      throw new Error(
+        'OUTREACH_ENGINE_SERVICE_TOKEN 未配置，平台级抑制未写入（租户内退订已生效）',
+      );
+    }
     const result = await this.engine.call(tenant, 'POST', '/outreach/dnc/suppress', {
       body: input,
+      headers: { 'x-service-token': serviceToken },
       timeoutMs: 10_000,
     });
     if (result.status >= 400) {
