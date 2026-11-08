@@ -70,7 +70,7 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
       CAMPAIGN_AUTHZ_TTL_MINUTES: 30,
       CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: 1000,
     } as never;
-    campaigns = new CampaignService(prisma as never, audit, signer, config);
+    campaigns = new CampaignService(prisma as never, audit, signer, { onApprovalDeclined: async () => undefined } as never, config);
     qgos = new QgoService(prisma as never, audit);
 
     const database = {
