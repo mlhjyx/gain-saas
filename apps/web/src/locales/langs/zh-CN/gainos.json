@@ -1445,6 +1445,11 @@
     }
   },
   "outreach": {
+    "pickContact": "从线索中选择联系人",
+    "pickLead": "选择线索",
+    "pickLeadPlaceholder": "— 选择一条线索 —",
+    "pickEmpty": "该线索暂无具名联系人",
+    "pickUse": "使用",
     "title": "触达批次",
     "subtitle": "草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。",
     "newBatch": "新建批次",

@@ -1445,6 +1445,11 @@
     }
   },
   "outreach": {
+    "pickContact": "Pick contact from leads",
+    "pickLead": "Lead",
+    "pickLeadPlaceholder": "— choose a lead —",
+    "pickEmpty": "No named contacts on this lead",
+    "pickUse": "Use",
     "title": "Outreach batches",
     "subtitle": "Drafts are reviewed before sending; approval only queues the batch, and nothing is sent until the channel is enabled.",
     "newBatch": "New batch",

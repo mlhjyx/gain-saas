@@ -3,7 +3,7 @@
  * 触达批次（M2 步 11-2）：批次列表、草稿预览/编辑、提交审批与批准/拒绝。
  * 批准只入待发队列；发送通道默认关，本页不触发任何外发。
  */
-import type { OutreachBatchDetail, OutreachBatchSummary, OutreachDraftView } from '#/api/gainos';
+import type { CanonicalContact, Lead, OutreachBatchDetail, OutreachBatchSummary, OutreachDraftView } from '#/api/gainos';
 
 import { computed, onMounted, ref } from 'vue';
 
@@ -117,6 +117,51 @@ function openCreateDraft(): void {
   draftForm.value = emptyDraft();
   draftError.value = null;
   draftDialog.value = { mode: 'create' };
+}
+
+// 从线索选择联系人（审计：触达草稿此前要求手输 contactRef UUID，全站无处可见）。
+const pickerOpen = ref(false);
+const pickerLeads = ref<Lead[]>([]);
+const pickerLeadId = ref('');
+const pickerLeadName = ref('');
+const pickerContacts = ref<CanonicalContact[]>([]);
+const pickerBusy = ref(false);
+const pickerError = ref<string | null>(null);
+
+async function togglePicker(): Promise<void> {
+  pickerOpen.value = !pickerOpen.value;
+  pickerError.value = null;
+  if (!pickerOpen.value || pickerLeads.value.length > 0) return;
+  try {
+    const data = await gainosApi.leads({ queue: 'recommended', limit: 50 });
+    pickerLeads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
+  } catch (err) {
+    pickerError.value = failureText(err).title;
+  }
+}
+
+async function loadPickerContacts(): Promise<void> {
+  if (!pickerLeadId.value) return;
+  pickerBusy.value = true;
+  pickerError.value = null;
+  try {
+    const pkg = await gainosApi.leadPackage(pickerLeadId.value);
+    pickerContacts.value = pkg.contacts ?? [];
+    pickerLeadName.value = pkg.company?.name ?? '';
+  } catch (err) {
+    pickerError.value = failureText(err).title;
+    pickerContacts.value = [];
+  } finally {
+    pickerBusy.value = false;
+  }
+}
+
+function pickContact(contact: CanonicalContact): void {
+  const email = (contact.contactPoints ?? []).find((point) => String(point.type ?? '').toLowerCase() === 'email');
+  draftForm.value.contactRef = contact.id;
+  if (email?.value) draftForm.value.recipientEmail = email.value;
+  if (pickerLeadName.value) draftForm.value.companyName = pickerLeadName.value;
+  pickerOpen.value = false;
 }
 function openEditDraft(draft: OutreachDraftView): void {
   draftForm.value = {
@@ -384,6 +429,33 @@ onMounted(loadBatches);
         <label>
           {{ $t('gainos.outreach.contactRef') }}
           <input v-model="draftForm.contactRef" :placeholder="$t('gainos.outreach.contactRefHint')" />
+          <button class="ob__ghost ob__pick-toggle" type="button" @click="togglePicker">
+            {{ $t('gainos.outreach.pickContact') }}
+          </button>
+          <div v-if="pickerOpen" class="ob__pick">
+            <label>
+              {{ $t('gainos.outreach.pickLead') }}
+              <select v-model="pickerLeadId" @change="loadPickerContacts">
+                <option value="">{{ $t('gainos.outreach.pickLeadPlaceholder') }}</option>
+                <option v-for="lead in pickerLeads" :key="lead.id" :value="lead.id">
+                  {{ lead.company?.name ?? lead.id.slice(0, 8) }}
+                </option>
+              </select>
+            </label>
+            <p v-if="pickerBusy" class="ob__muted">{{ $t('gainos.common.loading') }}</p>
+            <p v-else-if="pickerError" class="ob__error">{{ pickerError }}</p>
+            <p v-else-if="pickerLeadId && pickerContacts.length === 0" class="ob__muted">
+              {{ $t('gainos.outreach.pickEmpty') }}
+            </p>
+            <ul v-else class="ob__pick-list">
+              <li v-for="contact in pickerContacts" :key="contact.id">
+                <span>{{ contact.fullName }}<small v-if="contact.title"> · {{ contact.title }}</small></span>
+                <button class="ob__link" type="button" @click="pickContact(contact)">
+                  {{ $t('gainos.outreach.pickUse') }}
+                </button>
+              </li>
+            </ul>
+          </div>
         </label>
         <label>
           {{ $t('gainos.outreach.recipient') }}
@@ -437,6 +509,11 @@ onMounted(loadBatches);
 .ob__primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .ob__ghost { background: var(--gs-surface); border-color: var(--gs-border-strong); color: var(--gs-fg-2); }
 .ob__danger { background: #d92d20; color: #fff; }
+.ob__pick-toggle { margin-top: 6px; justify-self: start; }
+.ob__pick { margin-top: 8px; display: grid; gap: 8px; border: 1px dashed var(--gs-border-dashed); border-radius: 10px; padding: 10px 12px; }
+.ob__pick-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.ob__pick-list li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.ob__pick-list small { color: var(--gs-fg-subtle); }
 .ob__link { border: 0; background: none; color: var(--gs-accent-strong); cursor: pointer; padding: 0 6px 0 0; }
 .ob__link--danger { color: var(--gs-danger); }
 .ob__table { width: 100%; border-collapse: collapse; }
