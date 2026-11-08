@@ -112,7 +112,7 @@ async function main(): Promise<void> {
       typeof asset.brief?.budgetCapMicros === 'number' ? asset.brief.budgetCapMicros : undefined;
 
     const created = await session.call('POST', '/api/campaigns', {
-      name: `golden:${briefId}:${runTag}`,
+      name: `E2E-M2.2-${runTag}:${briefId}`,
       objective,
     });
     const campaignId =
