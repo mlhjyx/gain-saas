@@ -68,3 +68,47 @@ cd apps/server && BASE_URL=http://127.0.0.1:14020 E2E_EMAIL=owner@demo.cn E2E_PA
   CAMPAIGN_INTERNAL_SERVICE_TOKEN=e2e-token CAMPAIGN_PLAN_ENGINE_SERVICE_TOKEN=e2e-engine-token \
   pnpm exec tsx src/scripts/campaign-e2e.ts --stub-engine
 ```
+
+## 4. live 模式终验（2026-11-08 17:22 CST，发车后）
+
+发车（引擎镜像 `e6e579d4`，含 M2.1-1 与 DB purpose 迁移修复 #885）后以真实引擎重跑
+`campaign-e2e.ts --live`（去掉 stub，脚本同一份）：
+
+```
+E2E_RESULT {"campaignId":"f2dcb175-6ab0-4921-9a20-28857d21841d",
+ "jobId":"acd6c3a3-eef3-436d-817f-8f389d1e2a9a","jobState":"SUCCEEDED",
+ "revisionId":"cbe8e295-5ab1-4aee-8b10-e72e3ddf3529",
+ "planHash":"64690352c6297223c7456bdb65b4623921e763676dd8fc5ad5d33edc1fa59a2f",
+ "approvalId":"30da0e97-f013-4e81-aedf-d780769c710e",
+ "authorizationId":"d3276b1f-0673-46d1-8c79-972da8af2767","authorizationState":"ISSUED",
+ "shadow":true,"traceEntries":4}
+```
+
+真实引擎工作流（`campaign-plan-acd6c3a3-…`，customer worker @ 原生 Temporal 17233）完成：
+触发（quote → 一次性 Grant → 服务身份调引擎 draft）→ 装配输入 → `campaign.plan` 模型调用
+（ai_trace：`deepseek-flash` OK，7.5s）→ 回调落 DRAFT revision → 提交 → 批准 → 授权签发。
+
+两侧落表核对（同一 campaign）：
+
+- gain-saas `campaign_decision_trace`：4 行（revision.created[service] / approval.submitted[user] /
+  approval.decided[user] / authorization.issued[service]）；
+- `audit_log`：campaign.created / plan_job.created / revision.created / revision.submitted /
+  approval.decided 各 1；
+- `campaign_plan_job`：SUCCEEDED，plan_hash/revision_id 已回填，与 revision 行一致（APPROVED）；
+- `campaign_execution_authorization`：ISSUED，TTL 30 分钟，uses 0/1；
+- 引擎 `ai_trace`：`task='campaign.plan'` OK 行 1 条（deepseek-flash）；此前 `gpt-5.6-sol` 的
+  ERROR 行对应下述外部故障期。
+
+负向/幂等（同一实例实测）：重复交付 `(jobId, plan_hash)` → `idempotent:true` 不新增 revision；
+缺 `x-service-token` → 401。
+
+### 终验过程中修复/绕过的问题（均为环境层，代码未变）
+
+1. **引擎 DB 契约缺迁移**：首轮 live 在消费 Grant 时报 `EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE`
+   ——`execution_budget_purpose` 是 Postgres ENUM，且 kind-shape CHECK 与
+   `consume_workspace_execution_authority` 各有白名单；M2.1-1 只改了 TS 枚举。修复
+   mlhjyx/global-backend#885（两段式 forward-only 迁移），随镜像 `e6e579d4` 应用。
+2. **推理档上游故障**：`gpt-5.6-sol`（中转 tbtk.cc:9933）自 08:19 UTC 整站不可达，
+   new-api channel #3 持续 500；影响所有推理档任务（同期 `discovery.query_plan` 同挂）。
+   故障期经 `MODEL_ACQUISITION_TASK_MODELS` 降档 `campaign.plan → deepseek-flash` 完成终验
+   （上游恢复后删除覆盖、恢复推理档）。
