@@ -107,7 +107,8 @@ async function main(): Promise<void> {
     const objectiveRaw =
       typeof asset.brief?.objective === 'string' ? asset.brief.objective : `golden ${briefId}`;
     const icpSummary = typeof asset.brief?.icpSummary === 'string' ? asset.brief.icpSummary : '';
-    const objective = `${objectiveRaw}${icpSummary ? `\nICP：${icpSummary}` : ''}`.slice(0, 500);
+    // 引擎入口拒绝控制字符：用空格拼接而非换行。
+    const objective = `${objectiveRaw}${icpSummary ? `（ICP：${icpSummary}）` : ''}`.slice(0, 500);
     const budgetCapMicros =
       typeof asset.brief?.budgetCapMicros === 'number' ? asset.brief.budgetCapMicros : undefined;
 
