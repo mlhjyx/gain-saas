@@ -22,6 +22,15 @@ tsc -p tsconfig.json --noEmit 绿
 packages/shared：5 files / 39 tests 绿
 ```
 
+## 发车门槛（imapflow，强制）
+
+**打开 `OUTREACH_IMAP_ENABLED=true` 之前必须完成以下三项，否则轮询不可用（配置默认 false，不会静默假装工作）：**
+
+1. 安装依赖 `imapflow`（本环境 registry 经代理超时，本轮安装失败并已回滚 lockfile）；
+2. 配置 `OUTREACH_IMAP_HOST/PORT/USER/PASSWORD` 并用真实信箱做一次「取未读 → ingest → 标记已读」验收，
+   把验收用的 Message-ID 与 ingest 结果记录在本目录；
+3. 多信箱投产前把凭据从进程级 env 改为按 `outreach_mailbox.secret_ref` 引用。
+
 ## 不能证明什么
 
 - **没有真实 IMAP 连接**：环境无法安装 `imapflow`（registry 经代理超时，本轮已如实降级为惰性适配器）。
