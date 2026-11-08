@@ -101,6 +101,36 @@ const schema = z.object({
   OUTREACH_SMTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
   // 单次发送调用的草稿上限（防止一次请求无限期占用连接）；超出部分留待下次。
   OUTREACH_SEND_BATCH_LIMIT: z.coerce.number().int().min(1).max(500).default(50),
+  // 发送控制面 v1（第 5 章 P4-02 的服务层子集）：全部保守默认值，env 可覆盖。
+  OUTREACH_MAILBOX_DAILY_CAP: z.coerce.number().int().min(1).max(500).default(30),
+  OUTREACH_MAILBOX_WEEKLY_CAP: z.coerce.number().int().min(1).max(2000).default(120),
+  OUTREACH_DOMAIN_HOURLY_CAP: z.coerce.number().int().min(1).max(100).default(5),
+  OUTREACH_BATCH_MAX_RECIPIENTS: z.coerce.number().int().min(1).max(500).default(50),
+  OUTREACH_SEND_WINDOW_START: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, '发送窗口起点必须是 HH:MM')
+    .default('09:00'),
+  OUTREACH_SEND_WINDOW_END: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, '发送窗口终点必须是 HH:MM')
+    .default('17:00'),
+  OUTREACH_SEND_WEEKDAYS: z
+    .string()
+    .regex(/^[1-7](,[1-7])*$/, '发送星期必须是 1-7 的逗号分隔列表')
+    .default('1,2,3,4,5'),
+  OUTREACH_BOUNCE_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+  OUTREACH_BOUNCE_MIN_SAMPLE: z.coerce.number().int().min(1).default(20),
+  OUTREACH_BOUNCE_RATE_HALT: z.coerce.number().min(0).max(1).default(0.05),
+  OUTREACH_COMPLAINT_MIN_SAMPLE: z.coerce.number().int().min(1).default(100),
+  OUTREACH_COMPLAINT_RATE_HALT: z.coerce.number().min(0).max(1).default(0.003),
+  // 发送成本估算（µUSD/封，全载摊销口径 §5.3.5.5），用于授权预算上限校验。
+  OUTREACH_COST_PER_EMAIL_MICROS: z.coerce.number().int().min(0).default(37000),
+  // CAN-SPAM 物理邮政地址（US 收件人必需）与 CNIL 来源告知（FR 收件人必需）：缺省时对应国家拒发。
+  OUTREACH_US_POSTAL_ADDRESS: z.string().min(1).optional(),
+  OUTREACH_FR_SOURCE_NOTICE: z.string().min(1).optional(),
+  // 执行影子模式（M2.1 absence spec 交接项）：默认 on。开启时执行器完成门序校验与事件
+  // 记录，但不投递、不消费授权；关闭后才真实发送（与 OUTREACH_SEND_ENABLED 双开关）。
+  CAMPAIGN_EXECUTION_SHADOW: z.string().default('true').transform((v) => v === 'true'),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；

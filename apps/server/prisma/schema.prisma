@@ -369,6 +369,8 @@ model OutreachBatch {
   id           String              @id @default(uuid()) @db.Uuid
   workspaceId  String              @map("workspace_id") @db.Uuid
   campaignId   String?             @map("campaign_id") @db.Uuid
+  /// 绑定的 Campaign ExecutionAuthorization（P4-03：无有效授权不发；由签发方写入，执行器只读消费）。
+  authorizationId String?          @map("authorization_id") @db.Uuid
   name         String              @db.VarChar(200)
   status       OutreachBatchStatus @default(DRAFT)
   contentHash  String?             @map("content_hash") @db.Char(64)
@@ -398,6 +400,8 @@ model OutreachDraft {
   batchId         String              @map("batch_id") @db.Uuid
   contactRef      String              @map("contact_ref") @db.Uuid
   recipientEmail  String              @map("recipient_email") @db.VarChar(320)
+  /// 收件人国家（ISO 3166-1 alpha-2，P4-01）；缺失/未知按 REVIEW_REQUIRED fail-closed。
+  countryCode     String?             @map("country_code") @db.Char(2)
   companyName     String?             @map("company_name") @db.VarChar(200)
   subject         String              @db.VarChar(300)
   body            String
@@ -476,6 +480,9 @@ model OutreachSend {
   subjectHash     String             @map("subject_hash") @db.Char(64)
   bodyHash        String             @map("body_hash") @db.Char(64)
   mailboxAddress  String             @map("mailbox_address") @db.VarChar(320)
+  /// P4-03：本封消耗的授权与序号（SKIPPED 为 null；重试沿用首次消费的序号，不重复计数）。
+  authorizationId  String?           @map("authorization_id") @db.Uuid
+  authorizationUse Int?              @map("authorization_use")
   messageId       String?            @map("message_id") @db.VarChar(256)
   status          OutreachSendStatus @default(SENT)
   error           String?            @db.VarChar(1000)
@@ -515,6 +522,8 @@ enum OutreachReplyKind {
   REPLY
   BOUNCE
   UNSUBSCRIBE
+  /// 投诉（ARF feedback-report 或人工录入），进投诉率熔断。
+  COMPLAINT
 }
 
 enum OutreachReplyClassification {
