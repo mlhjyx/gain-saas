@@ -1009,7 +1009,7 @@ onUnmounted(() => {
           </p>
         </div>
         <div class="run__outcome-actions">
-          <button v-if="canRetry" class="run__action run__action--primary" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
+          <button v-if="canRetry" class="run__action" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
           <button v-if="run.status === 'PARTIAL'" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
           <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.adjustIcp') }}</button>
         </div>

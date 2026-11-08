@@ -55,17 +55,26 @@ function protectionLabel(protection: string): string {
   return protection === 'LEGAL' ? $t('gainos.suppressions.protectionLegal') : $t('gainos.suppressions.protectionPreference');
 }
 
+const limit = ref(50);
+const hasMore = ref(false);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const page = await gainosApi.suppressions({ limit: 50 });
+    const page = await gainosApi.suppressions({ limit: limit.value });
     rows.value = page.data ?? [];
+    hasMore.value = Boolean((page as unknown as { page?: { has_more?: boolean } }).page?.has_more);
   } catch (err) {
     error.value = failureText(err).title;
   } finally {
     loading.value = false;
   }
+}
+
+function loadMore(): void {
+  limit.value += 50;
+  void load();
 }
 
 async function add(): Promise<void> {
@@ -197,6 +206,9 @@ onMounted(load);
           </tr>
         </tbody>
       </table>
+        <p v-if="hasMore" class="sp__hint sp__more">
+          <button type="button" class="sp__link" @click="loadMore">{{ $t('gainos.suppressions.loadMore') }}</button>
+        </p>
       <p class="sp__hint">{{ $t('gainos.suppressions.releaseHint') }}</p>
     </section>
   </div>
@@ -220,6 +232,7 @@ onMounted(load);
 .sp__err { margin: 0; font-size: 12.5px; color: var(--gs-danger); }
 .sp__state { color: var(--gs-fg-muted); font-size: 13px; }
 .sp__state--err { color: var(--gs-danger); display: flex; gap: 8px; align-items: center; }
+.sp__more { text-align: center; }
 .sp__empty { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .sp__table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .sp__table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--gs-fg-subtle); padding: 6px 10px; border-bottom: 1px solid var(--gs-border); }

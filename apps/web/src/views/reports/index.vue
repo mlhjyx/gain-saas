@@ -372,7 +372,8 @@ onMounted(load);
 
 <style scoped>
 .rp { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
-.rp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.rp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.rp__head .rp__refresh { flex: none; }
 .rp__stage { font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
 .rp__head h1 { margin: 6px 0 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
 .rp__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 620px; line-height: 1.7; }

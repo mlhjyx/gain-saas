@@ -1471,6 +1471,7 @@
     "eventOther": "Other activity"
   },
   "suppressions": {
+    "loadMore": "Load more",
     "title": "Do-not-contact list",
     "subtitle": "Listed e-mails, domains or companies are blocked before any outbound action. Legal entries are never physically deleted — removal goes through a recorded release request.",
     "addTitle": "Add to the do-not-contact list",
