@@ -24,7 +24,29 @@
     "never": "Never",
     "taskActive": "Active",
     "taskPaused": "Paused",
-    "taskArchived": "Archived"
+    "taskArchived": "Archived",
+    "detailTitle": "Task details",
+    "detailSubtitle": "Who this task prospects, how each run went, and how to retry.",
+    "backToList": "Back to tasks",
+    "notFoundTitle": "Task not found or not yours",
+    "notFoundNext": "Go back to the task list and pick another one.",
+    "retryLast": "Retry last run",
+    "retrying": "Starting…",
+    "retryRequested": "Retry started; opening the new run.",
+    "icp": "Target customer profile",
+    "createdAt": "Created",
+    "runsCount": "Runs",
+    "runHistory": "Run history",
+    "colAttempt": "Attempt",
+    "colRunStatus": "Result",
+    "colTrigger": "Trigger",
+    "colStarted": "Started",
+    "colFinished": "Finished",
+    "noRunYet": "No runs yet. Start prospecting from Find buyers.",
+    "trigger": {
+      "manual": "Manual",
+      "schedule": "Scheduled"
+    }
   },
   "replies": {
     "tab": "Replies",
@@ -945,6 +967,7 @@
     "plan": "Plan",
     "icp": "Target customer profile",
     "started": "Started",
+    "taskLabel": "Task",
     "completed": "Completed",
     "duration": "Elapsed",
     "subtitle": "See which companies this task found, how many matched, and what to do next.",

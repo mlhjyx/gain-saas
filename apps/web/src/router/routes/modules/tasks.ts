@@ -17,6 +17,15 @@ const routes: RouteRecordRaw[] = [
     path: '/tasks',
     component: () => import('#/views/tasks/index.vue'),
   },
+  {
+    meta: {
+      hideInMenu: true,
+      title: $t('gainos.tasks.detailTitle'),
+    },
+    name: 'TaskDetail',
+    path: '/tasks/:taskId',
+    component: () => import('#/views/tasks/detail.vue'),
+  },
 ];
 
 export default routes;
