@@ -3,6 +3,8 @@ import { ConfigModule } from '../shared/config.module.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuthThrottleService } from '../shared/auth-throttle.service.js';
+import { OpsAttributionController } from './ops-attribution.controller.js';
+import { OpsAttributionService } from './ops-attribution.service.js';
 import { OpsAuthController } from './ops-auth.controller.js';
 import { OpsController } from './ops.controller.js';
 import { APP_CONFIG } from '../shared/config.module.js';
@@ -26,10 +28,16 @@ import { OpsEngineClient } from './ops-engine.client.js';
  */
 @Module({
   imports: [ConfigModule, R4Module, ServiceModule],
-  controllers: [OpsAuthController, OpsController, OpsRevocationController],
+  controllers: [
+    OpsAuthController,
+    OpsController,
+    OpsRevocationController,
+    OpsAttributionController,
+  ],
   providers: [
     OpsDatabase,
     OpsService,
+    OpsAttributionService,
     OpsSessionService,
     OpsGuard,
     OpsTemporalService,
