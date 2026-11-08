@@ -248,6 +248,7 @@ export const OUTREACH_BATCH_STATUS = {
   DECLINED: { zh: '已拒绝', en: 'Declined', tone: 'danger', engine: ['DECLINED'] },
   EXPIRED: { zh: '已过期', en: 'Expired', tone: 'neutral', engine: ['EXPIRED'] },
   QUEUED: { zh: '待发送', en: 'Queued', tone: 'processing', engine: ['QUEUED'] },
+  SENT: { zh: '已发送', en: 'Sent', tone: 'success', engine: ['SENT'] },
   CANCELLED: { zh: '已取消', en: 'Cancelled', tone: 'neutral', engine: ['CANCELLED'] },
 } as const satisfies Record<string, GlossaryStatus>;
 

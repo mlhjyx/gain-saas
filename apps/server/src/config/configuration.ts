@@ -65,6 +65,42 @@ const schema = z.object({
   OUTREACH_APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
   // 触达发送总开关（M2 步 11-2/11-3）：默认 false，代码级 fail-closed；只有显式打开才允许执行器发送。
   OUTREACH_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // 触达 SMTP 出口（M2 步 11-3）：未配置 host/from 时执行器拒绝发送；默认端口/STARTTLS 只是建议值。
+  OUTREACH_SMTP_HOST: z.string().min(1).optional(),
+  OUTREACH_SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  // 发送出口白名单（M2 步 11-3 硬约束）：默认只有回环地址；指向真实域名前必须显式加入。
+  OUTREACH_SMTP_ALLOWED_HOSTS: z
+    .string()
+    .default('127.0.0.1,localhost,::1'),
+  // DKIM（M2 步 11-3）：本地测试域用 test selector；私钥可用 PEM 环境变量或文件路径。
+  OUTREACH_DKIM_DOMAIN: z.string().min(1).optional(),
+  OUTREACH_DKIM_SELECTOR: z.string().min(1).optional(),
+  OUTREACH_DKIM_PRIVATE_KEY: z.string().min(1).optional(),
+  OUTREACH_DKIM_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+  // 默认要求 DKIM：真实发送不得裸奔；本地无密钥的临时实验可显式置 false。
+  OUTREACH_DKIM_REQUIRED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  OUTREACH_SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  OUTREACH_SMTP_STARTTLS: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  OUTREACH_SMTP_USER: z.string().min(1).optional(),
+  OUTREACH_SMTP_PASSWORD: z.string().min(1).optional(),
+  OUTREACH_SMTP_FROM_ADDRESS: z.string().email().optional(),
+  OUTREACH_SMTP_FROM_NAME: z.string().default('GainOS'),
+  OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  OUTREACH_SMTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
+  // 单次发送调用的草稿上限（防止一次请求无限期占用连接）；超出部分留待下次。
+  OUTREACH_SEND_BATCH_LIMIT: z.coerce.number().int().min(1).max(500).default(50),
   CAMPAIGN_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
   CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: z.coerce.number().int().min(1).max(10000).default(1000),
   // 跨服务 verify 端点的服务令牌；未配置时端点 fail-closed（503）。
