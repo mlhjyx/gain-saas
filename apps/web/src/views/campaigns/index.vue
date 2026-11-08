@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
+
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type CampaignSummary } from '#/api/gainos';
@@ -34,6 +36,11 @@ const revisionStateLabel = (state: string | null | undefined): string => {
     default: return $t('gainos.campaigns.noRevision');
   }
 };
+
+function campaignBadgeClass(state?: string | null): string {
+  const meta = glossaryStatus('campaign', state);
+  return statusClass(meta?.tone ?? 'neutral');
+}
 
 const campaignStatusLabel = (status: string): string => {
   switch (status) {
@@ -135,7 +142,7 @@ onMounted(load);
             <strong>{{ campaign.name }}</strong>
             <p class="cp__objective">{{ campaign.objective }}</p>
           </td>
-          <td>{{ campaignStatusLabel(campaign.status) }}</td>
+          <td><span class="gs-badge" :class="campaignBadgeClass(campaign.status)">{{ campaignStatusLabel(campaign.status) }}</span></td>
           <td>
             <template v-if="campaign.latestRevision">
               {{ $t('gainos.campaigns.revision', { no: campaign.latestRevision.revisionNo }) }}

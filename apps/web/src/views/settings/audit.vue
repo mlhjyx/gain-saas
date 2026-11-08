@@ -25,6 +25,7 @@ import { failureText, gainosApi, type AuditEntry } from '#/api/gainos';
 defineOptions({ name: 'SettingsAudit' });
 
 const entries = ref<AuditEntry[]>([]);
+const limit = ref(200);
 const loading = ref(true);
 const error = ref<{ title: string; next?: string } | null>(null);
 
@@ -46,7 +47,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const data = await gainosApi.audit(200);
+    const data = await gainosApi.audit(limit.value);
     entries.value = data.entries ?? [];
   } catch (err) {
     error.value = failureText(err);
@@ -74,6 +75,9 @@ onMounted(load);
       <p v-if="error.next">{{ error.next }}</p>
     </div>
     <section v-else class="au__card">
+      <p v-if="entries.length >= limit" class="au__more">
+        <button type="button" @click="limit += 200; load()">{{ $t('gainos.audit.loadMore') }}</button>
+      </p>
       <table class="au__table">
         <thead>
           <tr><th>{{ $t('gainos.audit.time') }}</th><th>{{ $t('gainos.audit.action') }}</th><th>{{ $t('gainos.audit.target') }}</th><th>{{ $t('gainos.audit.detail') }}</th></tr>
@@ -97,6 +101,8 @@ onMounted(load);
   padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
   max-width: 1280px; margin: 0 auto; display: grid; gap: 16px;
 }
+.au__more { margin: 0 0 8px; text-align: right; }
+.au__more button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-fg-2); }
 .au__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .au__head h1 { margin: 0; font-size: 22px; color: var(--gs-fg); }
 .au__head p { margin: 6px 0 0; font-size: 13px; color: var(--gs-fg-muted); line-height: 1.7; max-width: 640px; }

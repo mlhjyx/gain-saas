@@ -292,12 +292,12 @@ onMounted(loadBatches);
             </span>
           </div>
           <div class="ob__actions">
-            <button v-if="canEdit" class="ob__primary" type="button" @click="openCreateDraft">
+            <button v-if="canEdit" class="ob__ghost" type="button" @click="openCreateDraft">
               {{ $t('gainos.outreach.addDraft') }}
             </button>
             <button
               v-if="canSubmit"
-              class="ob__primary"
+              class="ob__ghost"
               type="button"
               :disabled="busy === 'submit'"
               @click="submitBatch"
@@ -403,7 +403,7 @@ onMounted(loadBatches);
         </label>
         <p v-if="draftError" class="ob__error">{{ draftError }}</p>
         <div class="ob__actions">
-          <button class="ob__primary" type="submit" :disabled="busy === 'draft'">
+          <button class="ob__ghost" type="submit" :disabled="busy === 'draft'">
             {{ $t('gainos.outreach.save') }}
           </button>
           <button class="ob__ghost" type="button" @click="draftDialog = null">
@@ -435,10 +435,10 @@ onMounted(loadBatches);
 .ob__primary, .ob__ghost, .ob__danger { padding: 8px 14px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
 .ob__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .ob__primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.ob__ghost { background: #fff; border-color: #d0d5dd; }
+.ob__ghost { background: var(--gs-surface); border-color: var(--gs-border-strong); color: var(--gs-fg-2); }
 .ob__danger { background: #d92d20; color: #fff; }
 .ob__link { border: 0; background: none; color: var(--gs-accent-strong); cursor: pointer; padding: 0 6px 0 0; }
-.ob__link--danger { color: #d92d20; }
+.ob__link--danger { color: var(--gs-danger); }
 .ob__table { width: 100%; border-collapse: collapse; }
 .ob__table th, .ob__table td { text-align: left; padding: 8px; border-bottom: 1px solid #f2f4f7; vertical-align: top; }
 .ob__row-actions { white-space: nowrap; }

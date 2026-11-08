@@ -464,8 +464,8 @@ onUnmounted(stopPolling);
 .cd__head p { margin: 4px 0 0; color: #6b6257; }
 .cd__back { border: 1px solid #d8cbb8; background: #fff; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; }
 .cd__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
-.cd__danger { background: #b91c1c; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
-.cd__ghost { background: #f3ece1; color: #6b6257; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+.cd__danger { background: var(--gs-surface); color: var(--gs-danger); border: 1px solid var(--gs-danger-border); border-radius: 10px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
+.cd__ghost { background: var(--gs-surface-2); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
 .cd__banner { margin: 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
 .cd__notice { margin: 0; color: #166534; }
 .cd__hint { color: #6b6257; }

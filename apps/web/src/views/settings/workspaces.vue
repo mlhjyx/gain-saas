@@ -162,7 +162,7 @@ onMounted(load);
       <p class="ws__muted">{{ $t('gainos.workspaces.createDesc') }}</p>
       <form class="ws__row" @submit.prevent="create">
         <input v-model="createName" maxlength="128" :placeholder="$t('gainos.workspaces.namePlaceholder')" :aria-label="$t('gainos.workspaces.name')" />
-        <button type="submit" class="ws__primary" :disabled="creating || !createName.trim()">
+        <button type="submit" class="ws__primary ws__ghost" :disabled="creating || !createName.trim()">
           {{ creating ? $t('gainos.common.loading') : $t('gainos.workspaces.create') }}
         </button>
       </form>
@@ -188,6 +188,7 @@ onMounted(load);
 .ws__row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ws__row input { flex: 1; min-width: 220px; border: 1px solid var(--gs-border-strong); border-radius: 9px; padding: 9px 11px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
 .ws__primary { border: 0; border-radius: 9px; padding: 9px 16px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ws__ghost { background: var(--gs-surface); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); }
 .ws__primary:disabled { opacity: .5; cursor: default; }
 .ws__secondary { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--gs-fg-2); margin-right: 8px; }
 .ws__danger { border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--gs-danger); }
