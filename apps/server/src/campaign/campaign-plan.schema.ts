@@ -44,7 +44,11 @@ export const campaignPlanV0Schema = z
       })
       .optional(),
     approvalPolicy: z.object({ required: z.literal(true) }),
-    decisionPolicy: z.object({ maxReplans: z.literal(0) }),
+    // M2.2：有界重规划把 maxReplans 从恒 0 扩为 {0,1,2}（向后兼容——旧计划 0 仍合法，
+    // canonical JSON / plan_hash 语义不变；重规划循环与 job 成本上限在引擎侧 M2.2-1）。
+    decisionPolicy: z.object({
+      maxReplans: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    }),
   })
   .superRefine((plan, ctx) => {
     const audience = new Set(plan.audience.icpIds);
