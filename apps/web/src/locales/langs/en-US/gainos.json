@@ -1079,6 +1079,10 @@
       "mismatch": "Mismatch"
     },
     "jobVerdictLabel": "Verdict",
+    "quickSummary": "{total} companies · {hidden} mismatches hidden",
+    "quickToggleAll": "Show all",
+    "quickToggleCollapse": "Collapse",
+    "quickFilterEmpty": "Nothing to review in this filter; use Show all to view the full list.",
     "jobErrorPipeline": "Company pipeline failed",
     "jobErrorCancelled": "Cancelled",
     "metaJudged": "Judged this time",
@@ -1156,6 +1160,12 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "Sign in",
+      "bffRequest": "Business request",
+      "memberInvite": "Invite member",
+      "roleChange": "Role change"
+    },
     "title": "Audit log",
     "subtitle": "Your own login, membership, and workspace actions in this workspace. To prevent cross-tenant leakage only your records are shown; platform operations are audited in the ops console.",
     "time": "Time",

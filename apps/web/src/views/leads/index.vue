@@ -97,6 +97,20 @@ const pageLimit = ref(50);
 
 const selected = ref<Lead | null>(null);
 const pkg = ref<LeadPackage | null>(null);
+// 证据去重：同一 URL/同一文本只展示一行（审计 二-34：同一 impressum 重复 7 行）。
+const pkgEvidence = computed(() => {
+  const list = pkg.value?.evidence ?? [];
+  const seen = new Set<string>();
+  const out: Array<Record<string, unknown>> = [];
+  for (const item of list) {
+    const key = `${evidenceUrl(item)}|${textOf(item)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+});
+
 const pkgLoading = ref(false);
 const pkgError = ref<{ title: string; next?: string } | null>(null);
 const draft = ref<Record<string, unknown> | null>(null);
@@ -854,8 +868,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 
           <div class="ld__block">
             <h3>{{ $t('gainos.leads.evidenceTitle') }}</h3>
-            <ul v-if="pkg.evidence && pkg.evidence.length" class="ld__bullets">
-              <li v-for="(item, i) in pkg.evidence" :key="i">
+            <ul v-if="pkgEvidence.length" class="ld__bullets">
+              <li v-for="(item, i) in pkgEvidence" :key="i">
                 <a v-if="evidenceUrl(item)" :href="evidenceUrl(item)" target="_blank" rel="noreferrer">{{ textOf(item) || evidenceUrl(item) }}</a>
                 <span v-else>{{ textOf(item) || '—' }}</span>
               </li>

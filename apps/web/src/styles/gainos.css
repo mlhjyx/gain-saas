@@ -179,3 +179,13 @@ body {
   background: var(--gs-danger-bg);
   color: var(--gs-danger);
 }
+
+/* F0 组件一致性：主按钮统一规格（高度 38 / 圆角 10 / 13.5px·600）。
+   各视图的 scoped 样式保留自身颜色语义，这里只收敛尺寸与字重。 */
+.cp__primary, .ob__primary, .qg__btn--primary, .cd__primary,
+.mb__cta, .sp__cta, .pv__cta, .ws__primary, .tk__refresh {
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}

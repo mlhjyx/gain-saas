@@ -1,4 +1,21 @@
 <script lang="ts" setup>
+function actionLabel(action?: string | null): string {
+  const known: Record<string, string> = {
+    'auth.login': $t('gainos.audit.actionName.login'),
+    'bff.request': $t('gainos.audit.actionName.bffRequest'),
+    'member.invite': $t('gainos.audit.actionName.memberInvite'),
+    'role.change': $t('gainos.audit.actionName.roleChange'),
+  };
+  return (action && known[action]) || action || '—';
+}
+
+function shortTarget(target?: string | null): string {
+  if (!target) return '—';
+  const uuid = target.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  if (uuid) return `${target.replace(uuid[0], `#${uuid[0].slice(0, 8)}`)}`;
+  return target;
+}
+
 import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
@@ -64,8 +81,8 @@ onMounted(load);
         <tbody>
           <tr v-for="entry in entries" :key="entry.id">
             <td>{{ fmtTime(entry.at) }}</td>
-            <td><code>{{ entry.action }}</code></td>
-            <td>{{ entry.target || '—' }}</td>
+            <td><code>{{ actionLabel(entry.action) }}</code></td>
+            <td :title="entry.target || ''">{{ shortTarget(entry.target) }}</td>
             <td class="au__detail">{{ fmtDetail(entry.detail) }}</td>
           </tr>
           <tr v-if="entries.length === 0"><td colspan="4" class="au__muted">{{ $t('gainos.audit.empty') }}</td></tr>

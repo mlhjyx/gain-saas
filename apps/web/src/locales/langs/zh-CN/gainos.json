@@ -1079,6 +1079,10 @@
       "mismatch": "不匹配"
     },
     "jobVerdictLabel": "判定",
+    "quickSummary": "共 {total} 家 · 已隐藏不匹配 {hidden} 家",
+    "quickToggleAll": "显示全部",
+    "quickToggleCollapse": "收起",
+    "quickFilterEmpty": "当前没有需要查看的公司；可点「显示全部」查看完整名单。",
     "jobErrorPipeline": "公司处理失败",
     "jobErrorCancelled": "已取消",
     "metaJudged": "本轮判定",
@@ -1156,6 +1160,12 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "登录",
+      "bffRequest": "业务请求",
+      "memberInvite": "邀请成员",
+      "roleChange": "角色变更"
+    },
     "title": "操作审计",
     "subtitle": "展示你在本工作空间的登录、成员与工作空间操作留痕。为避免跨租户泄露，只显示你本人的记录；平台运营审计在运营台。",
     "time": "时间",

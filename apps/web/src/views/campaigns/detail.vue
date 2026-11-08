@@ -61,6 +61,15 @@ const icpName = (id: string): string => {
 const money = (micros: number | undefined): string =>
   typeof micros === 'number' ? `$${(micros / 1_000_000).toFixed(2)}` : '';
 
+function traceStepLabel(stepType?: string | null): string {
+  const known: Record<string, string> = {
+    'authorization.issued': $t('gainos.campaigns.traceStep.authorizationIssued'),
+    'approval.decided': $t('gainos.campaigns.traceStep.approvalDecided'),
+    superseded: $t('gainos.campaigns.traceStep.superseded'),
+  };
+  return (stepType && known[stepType]) || stepType || '—';
+}
+
 function approvalBadgeClass(state?: string | null): string {
   const meta = glossaryStatus('approval', state);
   return statusClass(meta?.tone ?? 'neutral');
@@ -376,7 +385,7 @@ onUnmounted(stopPolling);
         <ol class="cd__timeline">
           <li v-for="entry in detail.recentTrace" :key="entry.traceId">
             <span class="cd__muted">{{ new Date(entry.createdAt).toLocaleString() }}</span>
-            <span>{{ entry.stepType }} · {{ entry.actorType }}</span>
+            <span>{{ traceStepLabel(entry.stepType) }} · {{ entry.actorType }}</span>
           </li>
         </ol>
       </section>

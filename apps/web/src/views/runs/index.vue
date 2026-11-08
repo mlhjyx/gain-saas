@@ -32,6 +32,14 @@ const stopNotice = ref<string | null>(null);
 
 const QUICK_STAGES = new Set(['queued', 'prefiltered_out', 'quick_judged']);
 const quickJobs = computed(() => jobs.value.filter((job) => QUICK_STAGES.has(job.stage)));
+// 快扫名单默认只展示「匹配/待复核」，其余折叠——避免 200 行把结论区埋到十几屏外（审计 一-01）。
+const showAllQuick = ref(false);
+const quickJobsShown = computed(() =>
+  showAllQuick.value
+    ? quickJobs.value
+    : quickJobs.value.filter((job) => String(job.verdictQuick ?? '') !== 'mismatch'),
+);
+const quickHiddenCount = computed(() => quickJobs.value.length - quickJobsShown.value.length);
 const deepJobs = computed(() => jobs.value.filter((job) => !QUICK_STAGES.has(job.stage)));
 
 function jobStageLabel(stage: string): string {
@@ -898,17 +906,26 @@ onUnmounted(() => {
       <section class="run__grid">
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.quickListTitle') }}</h2>
+          <p class="run__quick-toggle run__muted">
+            <span>{{ $t('gainos.runs.quickSummary', { total: quickJobs.length, hidden: quickHiddenCount }) }}</span>
+            <button type="button" @click="showAllQuick = !showAllQuick">
+              {{ showAllQuick ? $t('gainos.runs.quickToggleCollapse') : $t('gainos.runs.quickToggleAll') }}
+            </button>
+          </p>
+          <div class="run__table-scroll">
           <table class="run__table">
             <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdictLabel') }}</th></tr></thead>
             <tbody>
-              <tr v-for="job in quickJobs" :key="job.id">
+              <tr v-for="job in quickJobsShown" :key="job.id">
                 <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
                 <td>{{ jobStageLabel(job.stage) }}</td>
                 <td>{{ jobVerdictLabel(job.verdictQuick) }}</td>
               </tr>
               <tr v-if="quickJobs.length === 0"><td colspan="3" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
+              <tr v-else-if="quickJobsShown.length === 0"><td colspan="3" class="run__muted">{{ $t('gainos.runs.quickFilterEmpty') }}</td></tr>
             </tbody>
           </table>
+          </div>
         </article>
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.deepQueueTitle') }}</h2>
@@ -1219,9 +1236,14 @@ onUnmounted(() => {
 .run__outcome-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .run__muted { color: var(--gs-fg-muted); font-size: 12.5px; margin: 0; }
 .run__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
-.run__error { border-radius: 14px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; padding: 16px 18px; display: grid; gap: 8px; }
+.run__error { border-radius: 14px; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); color: var(--gs-danger); padding: 16px 18px; display: grid; gap: 8px; }
+.run__error button { justify-self: start; border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger); }
 .run__error h2 { margin: 0; font-size: 16px; }
 .run__error p { margin: 0; font-size: 13px; }
+.run__table-scroll { max-height: 480px; overflow: auto; border-radius: 10px; }
+.run__table-scroll .run__table thead th { position: sticky; top: 0; background: var(--gs-surface-2); z-index: 1; }
+.run__quick-toggle { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+.run__quick-toggle button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 4px 10px; cursor: pointer; color: var(--gs-fg-2); }
 .run__summary { display: grid; grid-template-columns: minmax(260px, 1.6fr) repeat(5, minmax(110px, 1fr)); gap: 12px; }
 .run__summary article { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
 .run__summary article span { font-size: 12px; color: var(--gs-fg-muted); }
