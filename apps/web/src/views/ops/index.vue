@@ -19,6 +19,7 @@ const TABS = [
   { key: 'workspaces', label: '工作空间' },
   { key: 'providers', label: '数据源' },
   { key: 'campaign-attribution', label: '战役归因' },
+  { key: 'campaign-metrics', label: '战役指标' },
   { key: 'channels', label: '渠道数据源' },
   { key: 'sources', label: '监控源' },
   { key: 'budget', label: '预算' },
@@ -46,6 +47,16 @@ const campaignAttribution = ref<{
   funnel: Row;
   campaigns: Row[];
   reconciliation: { balanced: boolean; rows: Row[] };
+} | null>(null);
+const metricsWorkspaceId = ref('');
+const campaignMetrics = ref<{
+  approvals: { approved: number; declined: number; expired: number; pending: number; approvalRate: number | null };
+  weekly: Row[];
+  modification: { approvedPlans: number; meanDistance: number | null; zeroDistanceCount: number; perCampaign: Row[] };
+  replans: { distribution: { rounds0: number; rounds1: number; rounds2: number; rounds3plus: number }; perCampaign: Row[] };
+  cost: { status: string; source: string | null; costPerApprovedPlanMicros: number | null; reason?: string };
+  replyMeetingRate: { status: string };
+  window: { from: string; to: string };
 } | null>(null);
 const batchRows = ref<Row[]>([]);
 const runs = ref<Row[]>([]);
@@ -225,6 +236,33 @@ function reconciliationFor(campaignId: unknown): Row | undefined {
   return campaignAttribution.value?.reconciliation.rows.find(
     (row) => String(row.campaignId) === String(campaignId),
   );
+}
+
+async function loadCampaignMetrics(): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const query = metricsWorkspaceId.value ? `?workspaceId=${encodeURIComponent(metricsWorkspaceId.value)}` : '';
+    campaignMetrics.value = await api(`/api/ops/campaign-metrics${query}`);
+  } catch (err) {
+    campaignMetrics.value = null;
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function pctLabel(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function costPerApprovedLabel(cost: { status: string; costPerApprovedPlanMicros: number | null; reason?: string } | null): string {
+  if (!cost) return '—';
+  if (cost.status !== 'ok' || cost.costPerApprovedPlanMicros === null) {
+    return cost.reason ? `待接线（${cost.reason}）` : '待接线';
+  }
+  return fmtUsd(cost.costPerApprovedPlanMicros);
 }
 
 async function loadBatches(): Promise<void> {
@@ -755,6 +793,7 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'workspaces') await loadWorkspaceAdmin();
   if (tab === 'providers') await loadProviders();
   if (tab === 'campaign-attribution') await loadCampaignAttribution();
+  if (tab === 'campaign-metrics') await loadCampaignMetrics();
   if (tab === 'channels') await loadChannels();
   if (tab === 'sources') await loadSources();
   if (tab === 'budget') await loadBudget();
@@ -1273,6 +1312,86 @@ onMounted(checkSession);
                   </tr>
                   <tr v-if="(campaignAttribution?.campaigns ?? []).length === 0">
                     <td colspan="11" class="ops__muted">该空间还没有战役；先在「任务」里创建并获批一个战役，产生执行与商机后这里出数。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section v-else-if="active === 'campaign-metrics'" class="ops__stack">
+            <div class="ops__toolbar">
+              <h3>战役指标</h3>
+              <select v-model="metricsWorkspaceId" @change="loadCampaignMetrics">
+                <option value="">全部空间</option>
+                <option v-for="workspace in workspaces" :key="workspace.id" :value="String(workspace.id)">
+                  {{ workspace.name || workspace.id }}
+                </option>
+              </select>
+            </div>
+            <p class="ops__muted">
+              M2.2 指标口径（设计 §5）：审批通过率 = APPROVED /（APPROVED+DECLINED+EXPIRED，周桶=UTC 周一）；
+              每通过计划成本 = 规划轮次成本合计 / 通过数（含重规划成本；无归属数据时如实显示待接线，不显示 0）；
+              人工修改距离 = 批准版本与首稿的叶子字段 diff 数（0 = 零修改通过）；重规划轮次按 campaign 分桶 0/1/2/3+。
+              回复 / 会议率在步 12 归因接齐后并入。只读视图，租户不可见。
+            </p>
+            <div v-if="campaignMetrics" class="ops__grid">
+              <article class="ops__card">
+                <h3>审批通过率</h3>
+                <p>{{ pctLabel(campaignMetrics.approvals.approvalRate) }}</p>
+                <span class="ops__muted">
+                  通过 {{ campaignMetrics.approvals.approved }} · 拒绝 {{ campaignMetrics.approvals.declined }} ·
+                  过期 {{ campaignMetrics.approvals.expired }} · 待决 {{ campaignMetrics.approvals.pending }}
+                </span>
+              </article>
+              <article class="ops__card">
+                <h3>每通过计划成本</h3>
+                <p>{{ costPerApprovedLabel(campaignMetrics.cost) }}</p>
+                <span class="ops__muted">来源：{{ campaignMetrics.cost.source || '尚无归属数据' }}</span>
+              </article>
+              <article class="ops__card">
+                <h3>人工修改距离（均值）</h3>
+                <p>{{ campaignMetrics.modification.meanDistance ?? '—' }}</p>
+                <span class="ops__muted">
+                  批准 {{ campaignMetrics.modification.approvedPlans }} · 零修改 {{ campaignMetrics.modification.zeroDistanceCount }}
+                </span>
+              </article>
+              <article class="ops__card">
+                <h3>重规划轮次分布</h3>
+                <p>
+                  0 轮 {{ campaignMetrics.replans.distribution.rounds0 }} · 1 轮 {{ campaignMetrics.replans.distribution.rounds1 }} ·
+                  2 轮 {{ campaignMetrics.replans.distribution.rounds2 }} · 3+ {{ campaignMetrics.replans.distribution.rounds3plus }}
+                </p>
+                <span class="ops__muted">回复 / 会议率：{{ campaignMetrics.replyMeetingRate.status === 'reserved' ? '预留（步 12）' : campaignMetrics.replyMeetingRate.status }}</span>
+              </article>
+            </div>
+            <div v-if="campaignMetrics" class="ops__table-wrap">
+              <table class="ops__table">
+                <thead>
+                  <tr><th>周（UTC 周一）</th><th>通过</th><th>拒绝</th><th>过期</th><th>待决</th><th>通过率</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="week in campaignMetrics.weekly" :key="String(week.weekStart)">
+                    <td>{{ String(week.weekStart).slice(0, 10) }}</td>
+                    <td>{{ week.approved }}</td>
+                    <td>{{ week.declined }}</td>
+                    <td>{{ week.expired }}</td>
+                    <td>{{ week.pending }}</td>
+                    <td>{{ pctLabel(week.approvalRate as number | null) }}</td>
+                  </tr>
+                  <tr v-if="campaignMetrics.weekly.length === 0"><td colspan="6" class="ops__muted">窗口内暂无审批</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="campaignMetrics && campaignMetrics.replans.perCampaign.length > 0" class="ops__table-wrap">
+              <table class="ops__table">
+                <thead>
+                  <tr><th>战役</th><th>重规划轮次</th><th>修改距离</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in campaignMetrics.replans.perCampaign" :key="String(row.campaignId)">
+                    <td>{{ row.campaignId }}</td>
+                    <td>{{ row.rounds }}</td>
+                    <td>{{ campaignMetrics.modification.perCampaign.find((m: Row) => String(m.campaignId) === String(row.campaignId))?.distance ?? '—' }}</td>
                   </tr>
                 </tbody>
               </table>
