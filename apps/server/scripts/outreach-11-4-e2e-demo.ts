@@ -96,10 +96,41 @@ async function main(): Promise<void> {
     data: { id: workspaceId, name: 'M2 11-4 E2E Demo' },
   });
   const tenant: OutreachTenant = {
-    userId: 'demo-operator@example.test',
+    userId: randomUUID(),
     workspaceId,
     role: 'admin',
   };
+  // 12-3 语境：批次挂 campaign，回复回写同一 campaign 下 SAO 的 REPLIED outcome。
+  const campaign = await prisma.campaign.create({
+    data: {
+      workspaceId,
+      name: 'M2 11-4 Demo Campaign',
+      objective: 'local sink TEST',
+      createdBy: tenant.userId,
+      updatedBy: tenant.userId,
+    },
+  });
+  const qgo = await prisma.qgo.create({
+    data: {
+      workspaceId,
+      leadRef: randomUUID(),
+      canonicalCompanyRef: randomUUID(),
+      campaignId: campaign.id,
+      title: 'Demo QGO',
+      evidence: [{ source: 'm2-step11-e2e' }],
+      nextStep: 'demo',
+      createdBy: tenant.userId,
+    },
+  });
+  const sao = await prisma.sao.create({
+    data: {
+      workspaceId,
+      qgoId: qgo.id,
+      state: 'ACCEPTED',
+      decidedBy: tenant.userId,
+      decidedAt: new Date(),
+    },
+  });
 
   const batchService = new OutreachBatchService(prisma, audit, appConfig);
   const unsubscribe = new OutreachUnsubscribeService(prisma, audit);
@@ -147,7 +178,7 @@ async function main(): Promise<void> {
     name: string,
     drafts: Array<{ contactRef: string; recipientEmail: string; subject: string }>,
   ): Promise<string> {
-    const batch = await batchService.createBatch(tenant, { name });
+    const batch = await batchService.createBatch(tenant, { name, campaignId: campaign.id });
     for (const [index, draft] of drafts.entries()) {
       await batchService.addDraft(tenant, batch.id, {
         contactRef: draft.contactRef,
@@ -269,6 +300,7 @@ async function main(): Promise<void> {
     subject: 'Re: TEST',
     snippet: 'Kein Interesse',
     externalId: 'demo-reply-1',
+    saoId: sao.id,
   });
   const replies = await replyService.list(tenant);
   record(
@@ -276,6 +308,17 @@ async function main(): Promise<void> {
     'NEGATIVE 1 条',
     { count: replies.length, classification: replies[0]?.classification },
     replies.length === 1 && replies[0]?.classification === 'NEGATIVE',
+  );
+  const outcomes = await prisma.opportunityOutcome.findMany({
+    where: { workspaceId, saoId: sao.id, outcome: 'REPLIED' },
+  });
+  record(
+    '回复 → opportunity_outcome.REPLIED',
+    'SYSTEM + sourceEventId=reply.id',
+    outcomes.map((row) => ({ source: row.source, sourceEventId: row.sourceEventId })),
+    outcomes.length === 1 &&
+      outcomes[0]?.source === 'SYSTEM' &&
+      outcomes[0]?.sourceEventId === replies[0]?.id,
   );
   const batchC = await approvedBatch('Demo C 回复后', [
     { contactRef: contacts.c1, recipientEmail: emails.c1, subject: 'TEST C1' },
@@ -358,14 +401,18 @@ async function main(): Promise<void> {
       draftCount: pkg.drafts.length,
       eventTypes: pkg.events.map((event) => event.type),
       packageHash: auditPackage.packageHash,
+      persistedAt: auditPackage.persistedAt,
     },
     pkg.schemaVersion === 'outreach-audit-package/v1' &&
       Boolean(pkg.approval?.decidedBy) &&
       pkg.drafts.length === 2 &&
-      pkg.events.some((event) => event.type === 'BATCH_SENT'),
+      pkg.events.some((event) => event.type === 'BATCH_SENT') &&
+      auditPackage.persistedAt !== null,
   );
 
-  const outDir = join(process.cwd(), '..', '..', 'docs', 'evidence', 'outreach-11-4');
+  const outDir =
+    process.env.DEMO_OUT_DIR ??
+    join(process.cwd(), '..', '..', 'docs', 'evidence', 'outreach-11-4');
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'mailpit-raw.eml'), raw);
   writeFileSync(
@@ -374,6 +421,9 @@ async function main(): Promise<void> {
       {
         generatedAt: new Date().toISOString(),
         workspaceId,
+        campaignId: campaign.id,
+        saoId: sao.id,
+        qgoId: qgo.id,
         batchIds: { A: batchA, B: batchB, C: batchC, D: batchD, E: batchE },
         steps,
         auditPackage,
@@ -384,7 +434,20 @@ async function main(): Promise<void> {
   );
 
   const failed = steps.filter((step) => !step.pass);
-  console.log(JSON.stringify({ pass: failed.length === 0, steps, failed }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        pass: failed.length === 0,
+        workspaceId,
+        campaignId: campaign.id,
+        saoId: sao.id,
+        steps,
+        failed,
+      },
+      null,
+      2,
+    ),
+  );
   if (failed.length > 0) process.exitCode = 1;
 }
 
