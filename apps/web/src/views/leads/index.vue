@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { formatDate as formatDateValue, glossaryStatus, statusClass } from '@gain-saas/shared';
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -13,12 +13,9 @@ import {
   type Icp,
   type Lead,
   type LeadDecisionInput,
-  type LeadPackage,
   type LeadQueueCounts,
   type PromoteQgoInput,
 } from '#/api/gainos';
-
-import DecisionMakerCard from './DecisionMakerCard.vue';
 
 defineOptions({ name: 'Leads' });
 
@@ -80,8 +77,6 @@ const REJECT_CODES = [
   'OTHER',
 ] as const;
 const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
-// 引擎 LeadPackage 契约是 snake_case 七维(lead.scores 直查是 camelCase,包构造器做了键名转换);
-// 之前用 dataQuality 读包数据永远是 undefined,demand_proof 从未展示。
 const SCORE_DIMS = ['fit', 'role', 'intent', 'demand_proof', 'reachability', 'data_quality', 'engagement'] as const;
 
 const activeQueue = ref<string>(queueFromRoute() ?? 'needs_review');
@@ -95,50 +90,6 @@ const queueCounts = ref<LeadQueueCounts | null>(null);
 // 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
 const pageLimit = ref(50);
 
-const selected = ref<Lead | null>(null);
-const pkg = ref<LeadPackage | null>(null);
-// 证据去重：同一 URL/同一文本只展示一行（审计 二-34：同一 impressum 重复 7 行）。
-const pkgEvidence = computed(() => {
-  const list = pkg.value?.evidence ?? [];
-  const seen = new Set<string>();
-  const out: Array<Record<string, unknown>> = [];
-  for (const item of list) {
-    const key = `${evidenceUrl(item)}|${textOf(item)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-  }
-  return out;
-});
-
-const pkgLoading = ref(false);
-const pkgError = ref<{ title: string; next?: string } | null>(null);
-const draft = ref<Record<string, unknown> | null>(null);
-const DRAFT_CACHE_KEY = 'gainos.outreachDrafts.v1';
-
-function readDraftCache(leadId: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DRAFT_CACHE_KEY) ?? '{}') as Record<string, Record<string, unknown>>;
-    return parsed?.[leadId] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function writeDraftCache(leadId: string, row: Record<string, unknown>): void {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DRAFT_CACHE_KEY) ?? '{}') as Record<string, Record<string, unknown>>;
-    const entries = Object.entries({ ...parsed, [leadId]: row }).slice(-50);
-    localStorage.setItem(DRAFT_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
-  } catch {
-    // 本地缓存不可写不影响本次展示。
-  }
-}
-const draftError = ref<{ title: string; next?: string } | null>(null);
-const draftLoading = ref(false);
-const copied = ref(false);
-const sanctionsBusy = ref(false);
-const sanctionsError = ref<{ title: string; next?: string } | null>(null);
 const sanctionsNotice = ref<string | null>(null);
 
 // M2 步 10：从已接受线索提升为商机（QGO）。证据门与下一步在服务端再次校验。
@@ -255,12 +206,6 @@ function loadMore(): void {
   pageLimit.value += 50;
   void load();
 }
-function statusLabel(status?: string): string {
-  if (!status) return $t('gainos.leads.status.DISCOVERED');
-  const key = `gainos.leads.status.${status}`;
-  const translated = $t(key);
-  return translated === key ? status : translated;
-}
 function basisLabel(basis?: string): string {
   const map: Record<string, string> = {
     fit_gate_preset: $t('gainos.leads.basis.preset'),
@@ -276,73 +221,6 @@ function fitLabel(verdict?: string | null): string {
   const translated = $t(key);
   return translated === key ? $t('gainos.leads.fit.unknown') : translated;
 }
-interface FactRow { label: string; value: string }
-
-const companyProfileRows = computed<FactRow[]>(() => {
-  const profile = pkg.value?.company_profile;
-  if (!profile || typeof profile !== 'object') return [];
-  const rows: FactRow[] = [];
-  const record = profile as Record<string, unknown>;
-  if (typeof record.trade_role === 'string' && record.trade_role) {
-    const confidence = typeof record.trade_role_confidence === 'number'
-      ? $t('gainos.leads.profileConfidence', { percent: Math.round(record.trade_role_confidence * 100) })
-      : '';
-    rows.push({ label: $t('gainos.leads.profileTradeRole'), value: `${record.trade_role}${confidence ? ` · ${confidence}` : ''}` });
-  }
-  if (typeof record.own_manufacturing === 'boolean') {
-    rows.push({ label: $t('gainos.leads.profileOwnManufacturing'), value: record.own_manufacturing ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
-  }
-  if (typeof record.carries_chinese_brand === 'boolean') {
-    rows.push({ label: $t('gainos.leads.profileChineseBrand'), value: record.carries_chinese_brand ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
-  }
-  if (typeof record.carries_foreign_brand === 'boolean') {
-    rows.push({ label: $t('gainos.leads.profileForeignBrand'), value: record.carries_foreign_brand ? $t('gainos.leads.yes') : $t('gainos.leads.no') });
-  }
-  if (Array.isArray(record.carried_brands) && record.carried_brands.length > 0) {
-    const names = record.carried_brands
-      .map((brand) => (brand && typeof brand === 'object' && typeof (brand as { name?: unknown }).name === 'string' ? (brand as { name: string }).name : ''))
-      .filter(Boolean);
-    if (names.length) rows.push({ label: $t('gainos.leads.profileCarriedBrands'), value: names.join(' · ') });
-  }
-  return rows;
-});
-
-const IDENTIFIER_LABELS: Array<{ key: string; label: string }> = [
-  { key: 'vat_id', label: 'VAT' },
-  { key: 'lei', label: 'LEI' },
-  { key: 'fda_reg', label: 'FDA' },
-  { key: 'register_key', label: $t('gainos.leads.identifierRegister') },
-];
-const identifierRows = computed<Array<{ label: string; value: string }>>(() => {
-  const identifiers = pkg.value?.identifiers;
-  if (!identifiers || typeof identifiers !== 'object') return [];
-  const record = identifiers as Record<string, unknown>;
-  return IDENTIFIER_LABELS
-    .map(({ key, label }) => ({ label, value: typeof record[key] === 'string' ? (record[key] as string) : '' }))
-    .filter((row) => row.value);
-});
-
-const CONTACT_KIND_LABELS: Record<string, string> = {
-  website: '官网',
-  linkedin: 'LinkedIn',
-  phone: '电话',
-  email: '邮箱',
-};
-function contactKindLabel(kind: string): string {
-  return CONTACT_KIND_LABELS[kind] ?? kind;
-}
-const companyContactRows = computed<Array<{ kind: string; url: string; status: string; href: string }>>(() => {
-  const points = pkg.value?.contact_points;
-  if (!Array.isArray(points)) return [];
-  return points
-    .filter((point) => point && typeof point.url === 'string' && point.url)
-    .map((point) => ({
-      kind: contactKindLabel(point.kind),
-      url: point.url,
-      status: point.status ?? '',
-      href: /^https?:\/\//i.test(point.url) ? point.url : '',
-    }));
-});
 
 function reasonsOf(lead: Lead): string[] {
   const raw = lead.fitReasons;
@@ -370,55 +248,6 @@ function canAct(lead: Lead): boolean {
   return !['rejected', 'suppressed', 'sanctions_hold'].includes(lead.queue ?? '') &&
     !['QUALIFIED', 'REJECTED', 'SUPPRESSED'].includes(lead.status ?? '');
 }
-function textOf(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    for (const field of ['label', 'summary', 'title', 'name', 'reason', 'excerpt', 'value']) {
-      const text = record[field];
-      if (typeof text === 'string' && text.trim()) return text;
-    }
-  }
-  return '';
-}
-function evidenceUrl(item: Record<string, unknown>): string {
-  for (const field of ['url', 'source_url', 'sourceUrl', 'link']) {
-    const value = item[field];
-    if (typeof value === 'string' && /^https?:\/\//i.test(value)) return value;
-  }
-  return '';
-}
-function scoreValue(value: unknown): string {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(Math.round(value));
-  if (typeof value === 'string' && value.trim()) return value;
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (typeof record.score === 'number') return String(Math.round(record.score));
-    if (typeof record.value === 'number') return String(Math.round(record.value));
-  }
-  return '—';
-}
-function sanctionLabel(status?: string): string {
-  if (!status) return $t('gainos.leads.sanction.not_screened');
-  const key = `gainos.leads.sanction.${status}`;
-  const translated = $t(key);
-  return translated === key ? status : translated;
-}
-function sanctionBlocked(status?: string): boolean {
-  return status === 'potential_match' || status === 'confirmed_true_hit';
-}
-function formatDate(value?: string | null): string {
-  return formatDateValue(value);
-}
-const draftText = computed(() => {
-  if (!draft.value) return '';
-  const record = draft.value;
-  // 引擎合同字段是 bodyZh(中文译文);其余键保留给旧缓存/旧引擎的兼容读取。
-  const parts = [record.subject, record.body, record.bodyZh, record.translation, record.body_zh, record.text]
-    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
-  return parts.length > 0 ? parts.join('\n\n') : JSON.stringify(record, null, 2);
-});
 
 async function loadIcps(): Promise<void> {
   try {
@@ -468,50 +297,6 @@ async function load(): Promise<void> {
   }
 }
 
-async function openPackage(lead: Lead): Promise<void> {
-  selected.value = lead;
-  pkg.value = null;
-  pkgError.value = null;
-  draft.value = readDraftCache(lead.id);
-  draftError.value = null;
-  copied.value = false;
-  pkgLoading.value = true;
-  try {
-    pkg.value = await gainosApi.leadPackage(lead.id);
-    // 已有草稿时直接展示；旧引擎没有这个只读端点时静默忽略，本地缓存仍可用。
-    const existingDraft = await gainosApi.outreachDrafts(lead.id).catch(() => null);
-    if (existingDraft && typeof existingDraft === 'object') {
-      draft.value = existingDraft as Record<string, unknown>;
-      writeDraftCache(lead.id, draft.value);
-    }
-  } catch (error) {
-    pkgError.value = failureText(error);
-  } finally {
-    pkgLoading.value = false;
-  }
-}
-
-function closePackage(): void {
-  selected.value = null;
-  pkg.value = null;
-  pkgError.value = null;
-  draft.value = null;
-  draftError.value = null;
-}
-
-function downloadPackage(): void {
-  if (!pkg.value || !selected.value) return;
-  const blob = new Blob([JSON.stringify(pkg.value, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `lead-package-${selected.value.id}.json`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function openAccept(lead: Lead): void {
   target.value = lead;
   modal.value = 'accept';
@@ -556,66 +341,12 @@ async function submitDecision(): Promise<void> {
       notice.value = $t('gainos.leads.rejectedNotice');
     }
     closeModal();
-    closePackage();
     await load();
     setTimeout(() => { notice.value = null; }, 5000);
   } catch (error) {
     actionError.value = failureText(error);
   } finally {
     submitting.value = false;
-  }
-}
-
-async function generateDraft(): Promise<void> {
-  if (!selected.value) return;
-  draftLoading.value = true;
-  draftError.value = null;
-  draft.value = null;
-  copied.value = false;
-  try {
-    const row = await gainosApi.outreachDraft(selected.value.id);
-    draft.value = row;
-    writeDraftCache(selected.value.id, row);
-  } catch (error) {
-    draftError.value = failureText(error);
-  } finally {
-    draftLoading.value = false;
-  }
-}
-
-async function copyDraft(): Promise<void> {
-  if (!draftText.value) return;
-  try {
-    await navigator.clipboard.writeText(draftText.value);
-    copied.value = true;
-    setTimeout(() => { copied.value = false; }, 2000);
-  } catch {
-    copied.value = false;
-  }
-}
-
-async function reviewSanctions(decision: 'cleared_false_positive' | 'confirmed_true_hit'): Promise<void> {
-  if (!selected.value || sanctionsBusy.value) return;
-  const confirmed = window.confirm(
-    decision === 'cleared_false_positive'
-      ? $t('gainos.leads.sanctionsClearConfirm')
-      : $t('gainos.leads.sanctionsConfirmConfirm'),
-  );
-  if (!confirmed) return;
-  sanctionsBusy.value = true;
-  sanctionsError.value = null;
-  sanctionsNotice.value = null;
-  try {
-    await gainosApi.sanctionsReview(selected.value.id, decision);
-    sanctionsNotice.value = decision === 'cleared_false_positive'
-      ? $t('gainos.leads.sanctionsCleared')
-      : $t('gainos.leads.sanctionsConfirmed');
-    pkg.value = await gainosApi.leadPackage(selected.value.id);
-    await load();
-  } catch (error) {
-    sanctionsError.value = failureText(error);
-  } finally {
-    sanctionsBusy.value = false;
   }
 }
 
@@ -635,8 +366,6 @@ function onEscape(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return;
   if (modal.value) {
     closeModal();
-  } else if (selected.value) {
-    closePackage();
   }
 }
 onMounted(async () => {
@@ -761,7 +490,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           <span v-if="lead.company?.employeeCount" class="ld__basis">{{ lead.company.employeeCount }} 人</span>
         </div>
         <div class="ld__actions">
-          <button type="button" class="ld__action" @click="openPackage(lead)">{{ $t('gainos.leads.viewPackage') }}</button>
+          <button type="button" class="ld__action" @click="router.push({ name: 'LeadDetail', params: { leadId: lead.id } })">{{ $t('gainos.leads.viewPackage') }}</button>
           <template v-if="canAct(lead)">
             <button type="button" class="ld__action ld__action--reject" @click="openReject(lead)">{{ $t('gainos.leads.reject') }}</button>
             <button type="button" class="ld__action ld__action--accept" @click="openAccept(lead)">{{ $t('gainos.leads.accept') }}</button>
@@ -776,183 +505,6 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         <button type="button" class="ld__action" @click="loadMore">{{ $t('gainos.leads.loadMore') }}</button>
       </div>
     </section>
-
-    <!-- 线索档案包 -->
-    <div v-if="selected" class="ld__overlay" @click.self="closePackage">
-      <section class="ld__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.packageTitle')">
-        <header class="ld__modal-head">
-          <div>
-            <span class="ld__modal-kicker">{{ $t('gainos.leads.packageTitle') }}</span>
-            <h2>{{ pkg?.company.name || selected.company?.name || $t('gainos.leads.unknownCompany') }}</h2>
-            <p v-if="pkg?.company.domain">{{ pkg.company.domain }}</p>
-          </div>
-          <div class="ld__modal-head-actions">
-            <button v-if="pkg" type="button" class="ld__action" @click="downloadPackage">{{ $t('gainos.leads.downloadPackage') }}</button>
-            <button type="button" class="ld__close" :aria-label="$t('gainos.common.cancel')" @click="closePackage">×</button>
-          </div>
-        </header>
-
-        <div class="ld__modal-body">
-        <p v-if="pkgLoading" class="ld__modal-state">{{ $t('gainos.common.loading') }}</p>
-        <div v-else-if="pkgError" class="ld__modal-error" role="alert">
-          <h3>{{ pkgError.title }}</h3>
-          <p v-if="pkgError.next">{{ pkgError.next }}</p>
-        </div>
-        <template v-else-if="pkg">
-          <div class="ld__modal-grid">
-            <div class="ld__block">
-              <h3>{{ $t('gainos.leads.companyFacts') }}</h3>
-              <dl class="ld__facts">
-                <div v-if="pkg.company.domain"><dt>{{ $t('gainos.leads.domain') }}</dt><dd>{{ pkg.company.domain }}</dd></div>
-                <div v-if="pkg.company.country"><dt>{{ $t('gainos.leads.country') }}</dt><dd>{{ pkg.company.country }}</dd></div>
-                <div v-if="pkg.company.city"><dt>{{ $t('gainos.leads.city') }}</dt><dd>{{ pkg.company.city }}</dd></div>
-                <div v-if="pkg.registered_address"><dt>{{ $t('gainos.leads.address') }}</dt><dd>{{ pkg.registered_address }}</dd></div>
-                <div><dt>{{ $t('gainos.leads.statusLabel') }}</dt><dd>{{ statusLabel(pkg.status) }}</dd></div>
-              </dl>
-            </div>
-            <div class="ld__block">
-              <h3>{{ $t('gainos.leads.fitTitle') }}</h3>
-              <p class="ld__fit">{{ fitLabel(typeof pkg.fit?.verdict === 'string' ? pkg.fit.verdict : selected.fitVerdict) }}</p>
-              <p v-if="pkg.fit && Array.isArray(pkg.fit.reasons)" class="ld__muted">{{ pkg.fit.reasons.join(' · ') }}</p>
-            </div>
-          </div>
-
-          <div v-if="companyProfileRows.length || identifierRows.length" class="ld__block">
-            <h3>{{ $t('gainos.leads.profileTitle') }}</h3>
-            <dl class="ld__facts">
-              <div v-for="row in companyProfileRows" :key="row.label">
-                <dt>{{ row.label }}</dt><dd>{{ row.value }}</dd>
-              </div>
-            </dl>
-            <div v-if="identifierRows.length" class="ld__profile-ids">
-              <span v-for="item in identifierRows" :key="item.label" class="ld__profile-id" :title="item.label">
-                <small>{{ item.label }}</small>{{ item.value }}
-              </span>
-            </div>
-          </div>
-
-          <div v-if="companyContactRows.length" class="ld__block">
-            <h3>{{ $t('gainos.leads.companyContactsTitle') }}</h3>
-            <ul class="ld__bullets">
-              <li v-for="point in companyContactRows" :key="`${point.kind}-${point.url}`">
-                <a v-if="point.href" :href="point.href" target="_blank" rel="noreferrer">{{ point.kind }} · {{ point.url }}</a>
-                <template v-else>{{ point.kind }} · {{ point.url }}</template>
-                <span v-if="point.status" class="ld__muted">（{{ point.status }}）</span>
-              </li>
-            </ul>
-          </div>
-
-          <div class="ld__block">
-            <h3>{{ $t('gainos.leads.scoresTitle') }}</h3>
-            <dl class="ld__scores">
-              <div v-for="dim in SCORE_DIMS" :key="dim">
-                <dt>{{ $t(`gainos.leads.dim.${dim}`) }}</dt>
-                <dd>{{ scoreValue(pkg.scores?.[dim]) }}</dd>
-              </div>
-              <div>
-                <dt>{{ $t('gainos.leads.dim.total') }}</dt>
-                <dd>{{ typeof pkg.scores?.total === 'number' ? $t('gainos.leads.score', { score: Math.round(pkg.scores.total) }) : $t('gainos.leads.notScored') }}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div class="ld__block">
-            <h3>{{ $t('gainos.leads.signalsTitle') }}</h3>
-            <ul v-if="pkg.signals && pkg.signals.length" class="ld__bullets">
-              <li v-for="(signal, i) in pkg.signals" :key="i">{{ textOf(signal) || '—' }}</li>
-            </ul>
-            <p v-else class="ld__muted">{{ $t('gainos.leads.noSignals') }}</p>
-          </div>
-
-          <div class="ld__block">
-            <h3>{{ $t('gainos.leads.evidenceTitle') }}</h3>
-            <ul v-if="pkgEvidence.length" class="ld__bullets">
-              <li v-for="(item, i) in pkgEvidence" :key="i">
-                <a v-if="evidenceUrl(item)" :href="evidenceUrl(item)" target="_blank" rel="noreferrer">{{ textOf(item) || evidenceUrl(item) }}</a>
-                <span v-else>{{ textOf(item) || '—' }}</span>
-              </li>
-            </ul>
-            <p v-else class="ld__muted">{{ $t('gainos.leads.noEvidence') }}</p>
-          </div>
-
-          <div class="ld__block">
-            <h3>{{ $t('gainos.leads.contactPathTitle') }}</h3>
-            <template v-if="pkg.suggested_contact_path">
-              <p class="ld__contact"><a :href="pkg.suggested_contact_path.url" target="_blank" rel="noreferrer">{{ pkg.suggested_contact_path.url }}</a></p>
-              <p class="ld__muted">{{ pkg.suggested_contact_path.legal_note }}</p>
-            </template>
-            <p v-else class="ld__muted">{{ $t('gainos.leads.noContactPath') }}</p>
-            <p class="ld__muted">{{ $t('gainos.leads.contactPathNote') }}</p>
-          </div>
-
-          <!-- 决策人（联系人挖掘 M4）：具名联系人 + 联系方式状态 + 证据；仅管理员身份可读。 -->
-          <DecisionMakerCard
-            v-if="isAdmin && pkg.company.canonical_company_id"
-            :company-id="pkg.company.canonical_company_id"
-          />
-
-          <div class="ld__block" :class="{ 'is-warn': sanctionBlocked(pkg.sanctions?.status) }">
-            <h3>{{ $t('gainos.leads.sanctionsTitle') }}</h3>
-            <p :class="{ 'ld__warn-text': sanctionBlocked(pkg.sanctions?.status) }">{{ sanctionLabel(pkg.sanctions?.status) }}</p>
-            <div v-if="isAdmin && sanctionBlocked(pkg.sanctions?.status)" class="ld__sanctions-actions">
-              <p class="ld__muted">{{ $t('gainos.leads.sanctionsAdminHint') }}</p>
-              <div>
-                <button
-                  v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                  type="button"
-                  class="ld__action"
-                  :disabled="sanctionsBusy"
-                  @click="reviewSanctions('cleared_false_positive')"
-                >
-                  {{ $t('gainos.leads.sanctionsClear') }}
-                </button>
-                <button
-                  v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                  type="button"
-                  class="ld__action ld__action--danger"
-                  :disabled="sanctionsBusy"
-                  @click="reviewSanctions('confirmed_true_hit')"
-                >
-                  {{ $t('gainos.leads.sanctionsConfirm') }}
-                </button>
-              </div>
-            </div>
-            <p v-if="sanctionsError" class="ld__modal-error" role="alert">{{ sanctionsError.title }}</p>
-            <p v-if="sanctionsNotice" class="ld__muted" role="status">{{ sanctionsNotice }}</p>
-          </div>
-
-          <p v-if="pkg.valid_until" class="ld__muted">{{ $t('gainos.leads.validUntil', { date: formatDate(pkg.valid_until) }) }}</p>
-
-          <div class="ld__draft">
-            <div class="ld__draft-head">
-              <div>
-                <h3>{{ $t('gainos.leads.outreachDraft') }}</h3>
-                <p class="ld__muted">{{ $t('gainos.leads.outreachDraftDesc') }}</p>
-              </div>
-              <button v-if="selected.status === 'QUALIFIED' && !draft" type="button" class="ld__action" :class="{ 'is-loading': draftLoading }" :disabled="draftLoading" @click="generateDraft">
-                {{ draftLoading ? $t('gainos.common.loading') : $t('gainos.leads.outreachDraft') }}
-              </button>
-              <span v-else-if="draft" class="ld__muted">{{ $t('gainos.leads.outreachReady') }}</span>
-              <span v-else class="ld__muted">{{ $t('gainos.leads.outreachNeedsQualified') }}</span>
-            </div>
-            <div v-if="draftError" class="ld__modal-error" role="alert">
-              <h3>{{ draftError.title }}</h3>
-              <p v-if="draftError.next">{{ draftError.next }}</p>
-            </div>
-            <template v-else-if="draftText">
-              <pre class="ld__draft-body">{{ draftText }}</pre>
-              <button type="button" class="ld__action" @click="copyDraft">{{ copied ? $t('gainos.leads.copied') : $t('gainos.leads.copy') }}</button>
-            </template>
-          </div>
-
-          <div v-if="selected && canAct(selected)" class="ld__modal-actions">
-            <button type="button" class="ld__action ld__action--reject" @click="openReject(selected)">{{ $t('gainos.leads.reject') }}</button>
-            <button type="button" class="ld__action ld__action--accept" @click="openAccept(selected)">{{ $t('gainos.leads.accept') }}</button>
-          </div>
-        </template>
-        </div>
-      </section>
-    </div>
 
     <!-- 裁决弹层 -->
     <div v-if="modal" class="ld__overlay ld__overlay--top" @click.self="closeModal">
