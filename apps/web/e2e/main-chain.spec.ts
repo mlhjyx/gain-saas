@@ -507,7 +507,7 @@ test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发
   await loginAs(page);
   await page.goto('/growth?tab=outreach');
   await settle(page);
-  await expect(page.getByRole('heading', { name: '触达批次', exact: true })).toBeVisible();
+  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与影子语义仍需可见
   await expect(page.getByText('草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。')).toBeVisible();
   await expect(page.getByText('einkauf@muster.de')).toBeVisible();
   await expect(page.getByText('关于工业泵供应的合作')).toBeVisible();
