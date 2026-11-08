@@ -17,6 +17,7 @@ import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 import { ComplianceDeclarationService } from '../service/compliance-declaration.service.js';
+import { copyForError } from '@gain-saas/shared';
 
 /**
  * 动态 BFF 控制器:按路由表逐条注册到 Express。
@@ -240,10 +241,19 @@ export function registerBffMiddleware(
       );
       if (!canActivate) return;
     } catch (err) {
+      // 守卫抛出的 HttpException 必须和全局过滤器同形：{error:{code,userCopy{三层}},meta}。
+      // 直接 json(body) 会把 {error:{code,message}} 裸送前端，用户只看到技术码
+      //（P5 验收实测 ONBOARDING_INCOMPLETE/AUTH_REQUIRED/WORKSPACE_DISABLED 均无三层文案）。
       const e = err as { getStatus?: () => number; getResponse?: () => unknown };
       const status = typeof e?.getStatus === 'function' ? e.getStatus() : 401;
-      const body = typeof e?.getResponse === 'function' ? e.getResponse() : { error: { code: 'AUTH_REQUIRED', message: '请先登录' } };
-      res.status(status).json(body);
+      const raw = typeof e?.getResponse === 'function' ? e.getResponse() : undefined;
+      const error = (raw as { error?: { code?: unknown; message?: unknown } } | undefined)?.error;
+      const code = typeof error?.code === 'string' ? error.code : 'AUTH_REQUIRED';
+      const copy = copyForError(code);
+      res.status(status).json({
+        error: { code, userCopy: { title: copy.title, why: copy.why, next: copy.next } },
+        meta: { engineCode: code, engineMessage: typeof error?.message === 'string' ? error.message : '' },
+      });
       return;
     }
     await handler.handle(req, res);
