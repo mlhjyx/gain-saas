@@ -170,10 +170,7 @@ async function handleMakeAll() {
 }
 
 const viewAll = () => {
-  void router.push({
-    path: '/workspace',
-    query: { panel: 'notifications', t: String(Date.now()) },
-  });
+  void router.push('/notifications');
 };
 
 const handleClick = async (item: NotificationItem) => {

@@ -51,9 +51,11 @@ const campaignStatusLabel = (status: string): string => {
   }
 };
 
-function budgetOf(c: CampaignSummary): string {
-  // 列表不展开 plan，预算上限在详情页展示；这里按有无草稿给出提示。
-  return c.latestRevision ? $t('gainos.campaigns.open') : '—';
+function ctaOf(status: string): string {
+  // QW17：末列按状态给出明确动作，不再只显示「查看/—」。
+  if (status === 'DRAFT') return $t('gainos.campaigns.ctaDraft');
+  if (status === 'ACTIVE') return $t('gainos.campaigns.ctaActive');
+  return $t('gainos.campaigns.ctaView');
 }
 
 async function load(): Promise<void> {
@@ -137,7 +139,7 @@ onMounted(load);
         </tr>
       </thead>
       <tbody>
-        <tr v-for="campaign in campaigns" :key="campaign.id">
+        <tr v-for="campaign in campaigns" :key="campaign.id" class="cp__row" @click="open(campaign)">
           <td>
             <strong>{{ campaign.name }}</strong>
             <p class="cp__objective">{{ campaign.objective }}</p>
@@ -152,8 +154,8 @@ onMounted(load);
           </td>
           <td>{{ formatDateTime(campaign.updatedAt) }}</td>
           <td>
-            <button class="cp__link" type="button" @click="open(campaign)">
-              {{ budgetOf(campaign) }}
+            <button class="cp__link" type="button" @click.stop="open(campaign)">
+              {{ ctaOf(campaign.status) }}
             </button>
           </td>
         </tr>
@@ -200,6 +202,8 @@ onMounted(load);
 .cp__error { background: var(--gs-danger-bg); color: var(--gs-danger); padding: 12px 16px; border-radius: 8px; }
 .cp__table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 .cp__table th, .cp__table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--gs-divider); vertical-align: top; }
+.cp__row { cursor: pointer; }
+.cp__row:hover td { background: var(--gs-surface-2); }
 .cp__objective { margin: 4px 0 0; color: var(--gs-fg-muted); font-size: 13px; }
 .cp__link { border: none; background: none; color: var(--gs-accent-strong); cursor: pointer; text-decoration: underline; }
 .cp__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
