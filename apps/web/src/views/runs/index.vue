@@ -5,6 +5,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import { deriveRunActions } from '@gain-saas/shared';
+
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob, type DiscoveryRunTrace } from '#/api/gainos';
@@ -321,6 +323,14 @@ const canRetry = computed(() => {
     Boolean(run.value?.taskRef?.taskId) &&
     Boolean(run.value?.planId);
 });
+const hasLeadOutput = computed(
+  () => run.value?.status === 'PARTIAL' || Number(stats.value.leads ?? quickScan.value.leads ?? 0) > 0,
+);
+const runActions = computed(() =>
+  deriveRunActions({ status: run.value?.status, retriable: canRetry.value, hasLeads: hasLeadOutput.value }),
+);
+
+
 
 const retryOutcomeText = computed(() => {
   const status = statusLabel(run.value?.status);
@@ -1009,8 +1019,8 @@ onUnmounted(() => {
           </p>
         </div>
         <div class="run__outcome-actions">
-          <button v-if="canRetry" class="run__action" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
-          <button v-if="run.status === 'PARTIAL'" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
+          <button v-if="runActions.canRetry" class="run__action" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
+          <button v-if="runActions.canViewLeads" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
           <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.adjustIcp') }}</button>
         </div>
       </section>

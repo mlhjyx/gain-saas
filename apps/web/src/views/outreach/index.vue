@@ -7,7 +7,7 @@ import type { CanonicalContact, Lead, OutreachBatchDetail, OutreachBatchSummary,
 
 import { computed, onMounted, ref } from 'vue';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { deriveOutreachActions, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -61,11 +61,13 @@ function when(value: string | null | undefined): string {
 }
 
 const latestApproval = computed(() => detail.value?.approvals[0] ?? null);
-const canEdit = computed(() => detail.value?.status === 'DRAFT');
-const canSubmit = computed(() => canEdit.value && (detail.value?.drafts.length ?? 0) > 0);
-const canDecide = computed(
-  () => detail.value?.status === 'PENDING_APPROVAL' && latestApproval.value?.state === 'PENDING',
+// 按钮可用性统一由共享状态机派生（v3.0 ch07），页面不再自己判断状态。
+const flowActions = computed(() =>
+  deriveOutreachActions({ status: detail.value?.status, draftCount: detail.value?.drafts.length ?? 0 }),
 );
+const canEdit = computed(() => flowActions.value.canAddDraft);
+const canSubmit = computed(() => flowActions.value.canSubmit);
+const canDecide = computed(() => flowActions.value.canApprove && latestApproval.value?.state === 'PENDING');
 const canReopen = computed(
   () => detail.value?.status === 'DECLINED' || detail.value?.status === 'EXPIRED',
 );

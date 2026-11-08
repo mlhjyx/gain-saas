@@ -189,3 +189,9 @@ body {
   font-size: 13.5px;
   font-weight: 600;
 }
+
+/* 可访问性基线（审计 二-2x）：键盘焦点可见；禁止缩放已在 index.html 移除 */
+:focus-visible {
+  outline: 2px solid var(--gs-accent-strong);
+  outline-offset: 2px;
+}
