@@ -979,7 +979,9 @@ export const gainosApi = {
       } | null;
     }>(`/campaigns/${campaignId}/approvals/${approvalId}/decide`, input),
   campaignTrace: (campaignId: string) =>
-    requestClient.get<CampaignTraceEntry[]>(`/campaigns/${campaignId}/trace`),
+    requestClient.get<{ items: CampaignTraceEntry[]; nextCursor: string | null }>(
+      `/campaigns/${campaignId}/trace`,
+    ),
   notifications: () => requestClient.get<NotificationPage>('/notifications'),
   readNotification: (id: string) => requestClient.post<{ ok: boolean }>(`/notifications/${id}/read`, {}),
   readAllNotifications: () => requestClient.post<{ updated: number }>('/notifications/read-all', {}),
