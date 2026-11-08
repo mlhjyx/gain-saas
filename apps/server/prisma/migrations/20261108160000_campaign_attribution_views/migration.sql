@@ -12,8 +12,15 @@
 --   本视图不回读引擎库（D-12-b）。
 -- 归因类型：qgo.campaign_id 为空 → ORGANIC；campaign 行不存在（跨库引用失效）→ UNKNOWN；
 --   否则 CAMPAIGN。ORGANIC/UNKNOWN 不计入 campaign 北极星分母（D-12-a）。
+--
+-- 口径边界（v0 已知）：同一 plan 同时被两个 campaign 的授权覆盖时，成本会按 campaign
+--   各计一次（直归因口径）；跨 campaign 的汇总会重复，归因页按 campaign 行读即可，
+--   引擎事件补 runId 后收敛为 run 级唯一归因。
 
-CREATE OR REPLACE VIEW "v_campaign_attribution" AS
+-- 内部辅助视图：授权 ICP → run 链接 → plan 集合（两个对外视图共用唯一口径，防双份 CTE 漂移）。
+-- 防御：scope.actions / action.icpIds 非数组时按空集处理；icpIds 非 UUID 值跳过（历史脏数据
+-- 不得让整个视图查询报错）。
+CREATE OR REPLACE VIEW "v_campaign_authorized_plans" AS
 WITH "auth_icps" AS (
   SELECT
     a."workspace_id",
@@ -25,28 +32,39 @@ WITH "auth_icps" AS (
     END AS "icp_id",
     a."issued_at"
   FROM "campaign_execution_authorization" AS a
-  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a."scope" -> 'actions', '[]'::jsonb)) AS action
-  CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(action -> 'icpIds', '[]'::jsonb)) AS icp
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE
+      WHEN jsonb_typeof(a."scope" -> 'actions') = 'array' THEN a."scope" -> 'actions'
+      ELSE '[]'::jsonb
+    END
+  ) AS action
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE
+      WHEN jsonb_typeof(action -> 'icpIds') = 'array' THEN action -> 'icpIds'
+      ELSE '[]'::jsonb
+    END
+  ) AS icp
 ),
 "campaign_icps" AS (
   SELECT "workspace_id", "campaign_id", "icp_id", min("issued_at") AS "first_issued_at"
   FROM "auth_icps"
+  WHERE "icp_id" IS NOT NULL
   GROUP BY 1, 2, 3
-),
-"campaign_plans" AS (
-  SELECT DISTINCT ci."workspace_id", ci."campaign_id", l."plan_id"
-  FROM "campaign_icps" AS ci
-  JOIN "discovery_run_link" AS l
-    ON l."workspace_id" = ci."workspace_id"
-   AND l."icp_id" = ci."icp_id"
-   AND l."created_at" >= ci."first_issued_at"
-),
-"plan_costs" AS (
+)
+SELECT DISTINCT ci."workspace_id", ci."campaign_id", l."plan_id"
+FROM "campaign_icps" AS ci
+JOIN "discovery_run_link" AS l
+  ON l."workspace_id" = ci."workspace_id"
+ AND l."icp_id" = ci."icp_id"
+ AND l."created_at" >= ci."first_issued_at";
+
+CREATE OR REPLACE VIEW "v_campaign_attribution" AS
+WITH "plan_costs" AS (
   SELECT
     cp."workspace_id",
     cp."campaign_id",
     COALESCE(sum(cl."amount_micros"), 0)::bigint AS "exec_cost_micros"
-  FROM "campaign_plans" AS cp
+  FROM "v_campaign_authorized_plans" AS cp
   JOIN "event_inbox" AS e
     ON e."workspace_id" = cp."workspace_id"
    AND (e."payload" ->> 'planId') = cp."plan_id"::text
@@ -113,39 +131,12 @@ LEFT JOIN "sao_stats" AS ss
 -- 链视图：outcome 一行，带完整链 id 集、归因类型与「链成本快照」（查询时刻该 campaign
 -- 的 exec/plan 成本；v0 不做历史化——成本随账本实时变化，快照即当前值）。
 CREATE OR REPLACE VIEW "v_outcome_chain" AS
-WITH "auth_icps" AS (
-  SELECT
-    a."workspace_id",
-    a."campaign_id",
-    CASE
-      WHEN icp.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-        THEN (icp.value)::uuid
-      ELSE NULL
-    END AS "icp_id",
-    a."issued_at"
-  FROM "campaign_execution_authorization" AS a
-  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a."scope" -> 'actions', '[]'::jsonb)) AS action
-  CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(action -> 'icpIds', '[]'::jsonb)) AS icp
-),
-"campaign_icps" AS (
-  SELECT "workspace_id", "campaign_id", "icp_id", min("issued_at") AS "first_issued_at"
-  FROM "auth_icps"
-  GROUP BY 1, 2, 3
-),
-"campaign_plans" AS (
-  SELECT DISTINCT ci."workspace_id", ci."campaign_id", l."plan_id"
-  FROM "campaign_icps" AS ci
-  JOIN "discovery_run_link" AS l
-    ON l."workspace_id" = ci."workspace_id"
-   AND l."icp_id" = ci."icp_id"
-   AND l."created_at" >= ci."first_issued_at"
-),
-"plan_costs" AS (
+WITH "plan_costs" AS (
   SELECT
     cp."workspace_id",
     cp."campaign_id",
     COALESCE(sum(cl."amount_micros"), 0)::bigint AS "exec_cost_micros"
-  FROM "campaign_plans" AS cp
+  FROM "v_campaign_authorized_plans" AS cp
   JOIN "event_inbox" AS e
     ON e."workspace_id" = cp."workspace_id"
    AND (e."payload" ->> 'planId') = cp."plan_id"::text

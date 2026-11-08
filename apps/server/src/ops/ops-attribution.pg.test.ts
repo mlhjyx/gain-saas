@@ -18,7 +18,8 @@ const dockerEnv = { ...process.env, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT ?
 
 function dockerAvailable(): boolean {
   try {
-    execFileSync('docker', ['info'], { env: dockerEnv, stdio: 'ignore', timeout: 10_000 });
+    // 高负载主机上 docker info 可能超过 10s（本机 load 40+ 实测），放宽到 60s。
+    execFileSync('docker', ['info'], { env: dockerEnv, stdio: 'ignore', timeout: 60_000 });
     return true;
   } catch {
     return false;
@@ -27,6 +28,10 @@ function dockerAvailable(): boolean {
 
 const available = dockerAvailable();
 if (!available) {
+  // CI 必须真跑这条验收（真库一致性 + 造差变红）；docker 缺失视为失败而不是静默通过。
+  if (process.env.CI === 'true') {
+    throw new Error('[ops-attribution.pg] CI 需要 docker 运行真库一致性测试，但 docker 不可用');
+  }
   console.warn('[ops-attribution.pg] docker 不可用，跳过真库一致性测试');
 }
 
@@ -68,7 +73,8 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
         'run', '-d', '--name', containerName,
         '-e', 'POSTGRES_PASSWORD=attribution-test',
         '-p', '127.0.0.1::5432',
-        'postgres:16-alpine',
+        // 按 digest 钉住（/global/CLAUDE.md「镜像一律按 digest 钉住」）。
+        'postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139',
       ],
       { env: dockerEnv, stdio: 'ignore' },
     );

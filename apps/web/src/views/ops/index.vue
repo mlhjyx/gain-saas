@@ -1191,7 +1191,7 @@ onMounted(checkSession);
               <article class="ops__card">
                 <h3>回复（弱信号）</h3>
                 <p>{{ campaignAttribution.funnel.replyCount }}</p>
-                <span class="ops__muted">不计入 positive；接步 11 后为真实回复数</span>
+                <span class="ops__muted">不计入 positive；步 11 前仅计人工登记的 REPLIED</span>
               </article>
               <article class="ops__card">
                 <h3>负向（分母）</h3>
@@ -1204,7 +1204,7 @@ onMounted(checkSession);
                 <thead>
                   <tr>
                     <th>战役</th><th>状态</th><th>执行成本</th><th>计划成本</th>
-                    <th>QGO</th><th>SAO(接受)</th><th>positive</th><th>回复(弱)</th><th>负向</th>
+                    <th>QGO</th><th>SAO(接受)</th><th>positive</th><th>回复(弱·人工)</th><th>负向</th>
                     <th>每 positive 成本</th><th>对账</th>
                   </tr>
                 </thead>
