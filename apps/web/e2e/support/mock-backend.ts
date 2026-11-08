@@ -172,7 +172,7 @@ export async function installMockBackend(
         });
       }
       if (path === '/notifications') return fulfill(route, { items: [], unreadCount: 0 });
-      if (path === '/members') return fulfill(route, { invites: [], members: [] });
+      if (path === '/members') return fulfill(route, { invitations: [], members: [] });
       if (path === '/workspaces') return fulfill(route, session.workspaces);
       if (COLLECTIONS.has(path)) return fulfill(route, []);
       return fulfill(route, null);
