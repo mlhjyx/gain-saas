@@ -755,7 +755,13 @@ export interface AuditEntry {
 
 export const gainosApi = {
   session: () => requestClient.get<SessionInfo>('/auth/session'),
-  audit: (limit = 100) => requestClient.get<{ entries: AuditEntry[] }>('/audit', { params: { limit } }),
+  audit: (
+    params: { action?: string; cursor?: string; from?: string; limit?: number; to?: string } = {},
+  ) =>
+    requestClient.get<{ entries: AuditEntry[]; nextCursor?: null | string; total?: number }>(
+      '/audit',
+      { params },
+    ),
   createDeletionRequest: (input: { subjectType: 'company' | 'contact'; subjectId: string; reason?: string; requestRef?: string }) =>
     requestClient.post<DeletionRequestView>('/deletion-requests', input),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),

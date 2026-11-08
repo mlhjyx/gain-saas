@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import SettingsShell from '#/components/gainos/settings-shell.vue';
+
 import { formatDateTime } from '@gain-saas/shared';
 
 import { failureText, gainosApi, type DeletionRequestView } from '#/api/gainos';
@@ -29,6 +31,22 @@ const formError = ref<{ title: string; next?: string } | null>(null);
 const notice = ref<string | null>(null);
 
 const tracked = ref<TrackedRequest[]>([]);
+const companyOptions = ref<Array<{ id: string; name: string }>>([]);
+
+/** P5b-13：公司对象用选择器，不再要求用户手抄 UUID；联系人仍允许手填。 */
+async function loadCompanies(): Promise<void> {
+  try {
+    const data = await gainosApi.companies();
+    const rows = Array.isArray(data) ? data : (data.data ?? []);
+    companyOptions.value = rows.flatMap((row) =>
+      row.id
+        ? [{ id: row.id, name: row.name?.trim() || row.domain || row.id.slice(0, 8) }]
+        : [],
+    );
+  } catch {
+    companyOptions.value = [];
+  }
+}
 const details = ref<Record<string, DeletionRequestView>>({});
 const refreshing = ref(false);
 
@@ -122,6 +140,7 @@ async function lookup(): Promise<void> {
 }
 
 onMounted(() => {
+  void loadCompanies();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) tracked.value = JSON.parse(raw) as TrackedRequest[];
@@ -133,16 +152,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="pv">
-    <header class="pv__head">
-      <div>
-        <h1>{{ $t('gainos.privacy.title') }}</h1>
-        <p>{{ $t('gainos.privacy.subtitle') }}</p>
-      </div>
+  <SettingsShell :subtitle="$t('gainos.privacy.subtitle')" :title="$t('gainos.privacy.title')">
+    <template #actions>
       <button class="pv__refresh" type="button" :disabled="refreshing" @click="refresh">
         {{ refreshing ? $t('gainos.privacy.refreshing') : $t('gainos.common.refresh') }}
       </button>
-    </header>
+    </template>
 
     <p v-if="notice" class="pv__notice" role="status">{{ notice }}</p>
 
@@ -169,7 +184,16 @@ onMounted(() => {
             </select>
           </label>
           <label class="pv__field"><span>{{ $t('gainos.privacy.subjectId') }}</span>
-            <input v-model="form.subjectId" :placeholder="$t('gainos.privacy.subjectIdHint')" />
+            <input
+              v-model="form.subjectId"
+              :list="form.subjectType === 'company' ? 'privacy-companies' : undefined"
+              :placeholder="$t('gainos.privacy.subjectIdHint')"
+            />
+            <datalist v-if="form.subjectType === 'company'" id="privacy-companies">
+              <option v-for="company in companyOptions" :key="company.id" :value="company.id">
+                {{ company.name }}
+              </option>
+            </datalist>
           </label>
           <label class="pv__field"><span>{{ $t('gainos.privacy.reason') }}</span>
             <select v-model="form.reason">
@@ -229,7 +253,7 @@ onMounted(() => {
       </table>
       <p class="pv__muted">{{ $t('gainos.privacy.trackedNote') }}</p>
     </section>
-  </div>
+  </SettingsShell>
 </template>
 
 <style scoped>

@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import SettingsShell from '#/components/gainos/settings-shell.vue';
+
 import {
   failureText,
   gainosApi,
@@ -186,14 +188,10 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="src">
-    <header class="src__head">
-      <div>
-        <h1>{{ $t('gainos.sources.title') }}</h1>
-        <p class="src__muted">{{ $t('gainos.sources.subtitle') }}</p>
-      </div>
+  <SettingsShell :subtitle="$t('gainos.sources.subtitle')" :title="$t('gainos.sources.title')">
+    <template #actions>
       <button class="src__action" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
-    </header>
+    </template>
 
     <p v-if="notice" class="src__notice" :class="`is-${notice.tone}`">{{ notice.text }}</p>
     <p v-if="loading" class="src__muted">{{ $t('gainos.common.loading') }}</p>
@@ -318,7 +316,7 @@ onMounted(load);
       </section>
 
     </template>
-  </div>
+  </SettingsShell>
 </template>
 
 <style scoped>
