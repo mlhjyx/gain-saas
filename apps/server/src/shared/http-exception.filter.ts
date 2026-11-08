@@ -1,5 +1,5 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { copyForError } from '@gain-saas/shared';
 
 /**
@@ -7,13 +7,23 @@ import { copyForError } from '@gain-saas/shared';
  * HttpException 原样透出;若响应带 error.code 却没有 userCopy(SaaS 自抛错的常态),
  * 按 packages/shared 词表补三层文案——一处覆盖 guard/控制器/引导等全部自抛错。
  */
-function withUserCopy(body: unknown): unknown {
+function requestLanguage(host: ArgumentsHost): string | undefined {
+  try {
+    const req = host.switchToHttp().getRequest<Request>();
+    const header = req.headers['accept-language'];
+    return typeof header === 'string' ? header : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function withUserCopy(body: unknown, lang?: string): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
   const record = body as { error?: { code?: unknown; userCopy?: unknown } };
   const error = record.error;
   if (!error || typeof error !== 'object' || Array.isArray(error)) return body;
   if (typeof error.code !== 'string' || error.userCopy !== undefined) return body;
-  const copy = copyForError(error.code);
+  const copy = copyForError(error.code, lang);
   return {
     ...record,
     error: { ...error, userCopy: { title: copy.title, why: copy.why, next: copy.next } },
@@ -24,12 +34,13 @@ function withUserCopy(body: unknown): unknown {
 export class GlobalHttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
+    const lang = requestLanguage(host);
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      res.status(status).json(withUserCopy(exception.getResponse()));
+      res.status(status).json(withUserCopy(exception.getResponse(), lang));
       return;
     }
-    const copy = copyForError('INTERNAL');
+    const copy = copyForError('INTERNAL', lang);
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: {
         code: 'INTERNAL',

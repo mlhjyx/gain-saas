@@ -6,7 +6,8 @@
     "privacy": "Data & privacy",
     "audit": "Audit",
     "sources": "Data sources",
-    "campaigns": "Campaign plans"
+    "campaigns": "Campaign plans",
+    "suppressions": "Do-not-contact list"
   },
   "growth": {
     "title": "Opportunities & outreach",
@@ -1431,5 +1432,49 @@
     "eventBATCH_EXPIRED": "Approval expired",
     "eventBATCH_REOPENED": "Reopened",
     "eventOther": "Other activity"
+  },
+  "suppressions": {
+    "title": "Do-not-contact list",
+    "subtitle": "Listed e-mails, domains or companies are blocked before any outbound action. Legal entries are never physically deleted — removal goes through a recorded release request.",
+    "addTitle": "Add to the do-not-contact list",
+    "typeLabel": "Type",
+    "valueLabel": "Value",
+    "reasonLabel": "Reason",
+    "add": "Add",
+    "valuePlaceholder": {
+      "email": "e.g. noreply{'@'}example.com",
+      "domain": "e.g. example.com",
+      "company_name": "e.g. Muster Metallbau GmbH"
+    },
+    "addHint": "Takes effect immediately: new leads matching the entry land in the do-not-contact queue and every outbound action re-checks the list.",
+    "listTitle": "Entries ({count})",
+    "empty": "The list is empty. Unsubscribes, complaints and manual entries appear here.",
+    "colValue": "Value",
+    "colType": "Type",
+    "colReason": "Reason",
+    "colProtection": "Protection",
+    "colCreated": "Added",
+    "protectionLegal": "Legal",
+    "protectionPreference": "Preference",
+    "type": {
+      "email": "E-mail",
+      "domain": "Domain",
+      "company_name": "Company name"
+    },
+    "reason": {
+      "manual": "Manual",
+      "unsubscribe": "Unsubscribe",
+      "bounce": "Bounce",
+      "complaint": "Complaint",
+      "legal": "Legal requirement"
+    },
+    "release": "Request release",
+    "releaseConfirm": "Request release for “{value}”? Legal entries are never deleted — this action leaves an audit record.",
+    "releaseRequested": "Release requested: the record is kept and enters review (it is not lifted immediately).",
+    "released": "Release requested.",
+    "releaseHint": "Note: release requests are append-only records; legal entries need review before release, and unsubscribe/complaint entries are not recommended for release.",
+    "errValueRequired": "Enter the value to block.",
+    "errEmail": "That e-mail address is not valid.",
+    "added": "Added to the list — effective immediately."
   }
 }

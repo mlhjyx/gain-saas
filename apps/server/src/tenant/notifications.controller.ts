@@ -39,6 +39,7 @@ export class NotificationsController {
           type: row.type,
           refId: row.refId,
           title: row.title,
+          titleEn: row.titleEn,
           readAt: row.readAt?.toISOString() ?? null,
           createdAt: row.createdAt.toISOString(),
           link: linkFor(row.type, row.refId),

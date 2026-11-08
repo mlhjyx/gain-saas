@@ -92,3 +92,23 @@ describe('商机域错误码（M2 步 10）', () => {
     expect(copyForError('INVALID_OUTCOME').title).toContain('结果');
   });
 });
+
+describe('copyForError 英文词表', () => {
+  it('en 请求返回英文三层文案，缺省回落中文', async () => {
+    const { copyForError } = await import('./errors.js');
+    const en = copyForError('WORKSPACE_DISABLED', 'en-US');
+    expect(en.title).toContain('disabled');
+    expect(en.why.length).toBeGreaterThan(10);
+    const zh = copyForError('WORKSPACE_DISABLED');
+    expect(zh.title).toBe('当前工作空间已停用');
+    // Accept-Language 形如 "en-US,en;q=0.9"
+    expect(copyForError('WORKSPACE_DISABLED', 'en-US,en;q=0.9').title).toContain('disabled');
+  });
+
+  it('全部词条都有英文（en 界面不再回落中文）', async () => {
+    const mod = await import('./errors.js');
+    const codes = Object.keys(mod.ENGINE_ERROR_COPY) as Array<keyof typeof mod.ENGINE_ERROR_COPY>;
+    const missing = codes.filter((code) => !mod.ENGINE_ERROR_COPY[code].en);
+    expect(missing).toEqual([]);
+  });
+});

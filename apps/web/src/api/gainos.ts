@@ -609,6 +609,8 @@ export interface AppNotification {
   type: string;
   refId?: string | null;
   title?: string | null;
+  /** 英文标题（en 界面优先；历史通知为空时回落中文 title）。 */
+  titleEn?: string | null;
   readAt?: string | null;
   createdAt: string;
   link?: string;
@@ -617,6 +619,18 @@ export interface AppNotification {
 export interface NotificationPage {
   unreadCount: number;
   items: AppNotification[];
+}
+
+export type SuppressionType = 'company_name' | 'domain' | 'email';
+export type SuppressionReason = 'bounce' | 'complaint' | 'legal' | 'manual' | 'unsubscribe';
+
+export interface SuppressionRecordView {
+  createdAt: string;
+  id: string;
+  protectionClass: 'LEGAL' | 'PREFERENCE' | string;
+  reason: SuppressionReason | string | null;
+  type: SuppressionType | string;
+  value: string;
 }
 
 export interface WorkspaceSummary {
@@ -940,6 +954,19 @@ export const gainosApi = {
     requestClient.post<{ left: boolean; currentWorkspace: boolean }>(`/workspaces/${workspaceId}/leave`, {}),
   switchWorkspace: (workspaceId: string) =>
     requestClient.post<{ workspace: { id: string }; role: string }>('/auth/switch-workspace', { workspaceId }),
+  // ── 设置 · 禁联名单（C2，M2 P6）：经 BFF 代理引擎 suppressions（admin）──
+  suppressions: (params: { limit?: number; cursor?: string } = {}) =>
+    requestClient.get<{ data: SuppressionRecordView[]; page?: { has_more?: boolean; next_cursor?: string } }>(
+      '/suppressions',
+      { params },
+    ),
+  createSuppression: (input: { type: SuppressionType; value: string; reason?: SuppressionReason }) =>
+    requestClient.post<SuppressionRecordView>('/suppressions', input),
+  /** 解除申请：引擎语义为 append-only release request（不物理删除），响应 deleted 恒为 false。 */
+  requestSuppressionRelease: (id: string) =>
+    requestClient.delete<{ deleted: boolean; releaseRequested: boolean; decisionId?: string }>(
+      `/suppressions/${id}`,
+    ),
   /** 注册策略（公开）：邀请码是否由部署侧启用。 */
   registrationPolicy: () =>
     requestClient.get<{ inviteCodeRequired: boolean }>('/auth/registration-policy'),

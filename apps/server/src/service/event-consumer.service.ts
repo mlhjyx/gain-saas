@@ -266,7 +266,14 @@ export class EventConsumerService implements OnModuleInit {
           snapshot: payload as Prisma.InputJsonValue,
         },
       });
-      await this.notify(tx, workspaceId, type, leadId, '有一条新的「值得跟进」买家线索，待你查看');
+      await this.notify(
+        tx,
+        workspaceId,
+        type,
+        leadId,
+        '有一条新的「值得跟进」买家线索，待你查看',
+        "A new 'worth following up' buyer lead is waiting for your review",
+      );
       return;
     }
 
@@ -287,6 +294,7 @@ export class EventConsumerService implements OnModuleInit {
           'SanctionsHoldDetected',
           icpId,
           `有 ${hold} 家线索命中制裁名单，已进入隔离队列，需管理员复核`,
+          `${hold} lead(s) hit the sanctions list and are quarantined for admin review`,
         );
       }
       return;
@@ -335,7 +343,15 @@ export class EventConsumerService implements OnModuleInit {
             : status === 'CANCELLED'
               ? '寻源任务已停止，已完成部分的线索保留'
               : '寻源任务已完成，线索已就绪';
-      await this.notify(tx, workspaceId, notificationType, runId, title);
+      const titleEn =
+        status === 'PARTIAL'
+          ? 'The discovery task partially finished — judge the leads produced so far'
+          : status === 'FAILED'
+            ? 'The discovery task did not finish — check the reason and adjust the target customer profiles'
+            : status === 'CANCELLED'
+              ? 'The discovery task was stopped — leads from the finished part are kept'
+              : 'The discovery task finished — leads are ready';
+      await this.notify(tx, workspaceId, notificationType, runId, title, titleEn);
       return;
     }
 
@@ -355,8 +371,11 @@ export class EventConsumerService implements OnModuleInit {
     type: string,
     refId: string,
     title: string,
+    titleEn: string,
   ): Promise<void> {
-    await tx.notification.create({ data: { workspaceId, type, refId: refId || null, title } });
+    await tx.notification.create({
+      data: { workspaceId, type, refId: refId || null, title, titleEn },
+    });
   }
 
   private eventsUrl(query: Record<string, string>): string {

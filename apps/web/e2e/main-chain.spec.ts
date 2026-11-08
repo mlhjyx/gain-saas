@@ -453,7 +453,8 @@ test('主链路 7（展示侧）：禁联队列联动——对象不可裁决', 
 
   await loginAs(page);
   await page.goto('/leads?queue=suppressed');
-  await expect(page.getByText('禁联').first()).toBeVisible();
+  await settle(page);
+  await expect(page.getByText('禁联', { exact: true }).first()).toBeVisible();
   // 合规红线：禁联对象没有“值得跟进 / 暂不跟进”的可裁决按钮（队列页签不算）
   const cardButtons = page.locator('.ld__lead button');
   await expect(cardButtons.getByText('值得跟进')).toHaveCount(0);
@@ -523,5 +524,76 @@ test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发
   await expect(page.getByRole('button', { name: /发送/ })).toHaveCount(0);
 });
 
-// 设计 §5 第 8 条的增删侧依赖设置页的禁联名单（C2）页面；页面建成后转正。
-test.fixme('主链路（defer）：禁联名单增删（设置 → C2）', async () => {});
+test('主链路 9：设置 → 禁联名单增删与线索联动文案', async ({ page }) => {
+  const backend = await installMockBackend(page);
+  const rows: Array<Record<string, unknown>> = [];
+  backend.set('GET', '/suppressions', json(() => ({ data: rows, page: { has_more: false } })));
+  backend.set('POST', '/suppressions', (async ({ body, route }) => {
+    const input = body as { reason?: string; type?: string; value?: string };
+    const row = {
+      createdAt: NOW,
+      id: 'sup-1',
+      protectionClass: 'LEGAL',
+      reason: input.reason ?? null,
+      type: input.type ?? 'email',
+      value: input.value ?? '',
+    };
+    rows.unshift(row);
+    await route.fulfill({ body: JSON.stringify({ data: row }), contentType: 'application/json', status: 200 });
+    return true;
+  }) as MockHandler);
+  backend.set('DELETE', '/suppressions/sup-1', { decisionId: 'dec-1', deleted: false, releaseRequested: true });
+  backend.set('GET', '/icps', [ICP]);
+  backend.set('GET', '/icps/icp-1/lead-queues', {
+    needs_review: 0,
+    queueBasis: { fit_gate_preset: 0, human_accept: 0, human_reject: 0, score: 0 },
+    recommended: 0,
+    rejected: 0,
+    sanctions_hold: 0,
+    scored: true,
+    suppressed: 1,
+  });
+  backend.set('GET', '/leads', [
+    {
+      canonicalCompanyId: 'c2',
+      company: { country: 'DE', name: 'Beispiel Handel AG' },
+      createdAt: NOW,
+      icpId: 'icp-1',
+      id: 'lead-s1',
+      queue: 'suppressed',
+      scored: false,
+      status: 'SUPPRESSED',
+      updatedAt: NOW,
+    },
+  ]);
+
+  await loginAs(page);
+  // 设置 → 禁联名单
+  await page.locator('.vben-menu').getByText('设置', { exact: true }).click();
+  await page.getByRole('menuitem', { name: '禁联名单' }).click();
+  await page.waitForURL(/\/settings\/suppressions/);
+  await expect(page.getByRole('heading', { name: '禁联名单', exact: true })).toBeVisible();
+  await expect(page.getByText('名单还是空的')).toBeVisible();
+
+  // 新增：邮箱 + 手动原因
+  await page.locator('.sp__form input').fill('noreply@example.com');
+  await page.locator('.sp__form button').click();
+  await expect(page.getByText('已加入禁联名单，立即生效。')).toBeVisible();
+  await expect(page.getByText('noreply@example.com')).toBeVisible();
+  const create = backend.take('POST', '/suppressions');
+  expect(create, '应提交禁联登记').toBeTruthy();
+  expect(create!.body).toMatchObject({ reason: 'manual', type: 'email', value: 'noreply@example.com' });
+
+  // 解除申请：append-only，记录保留（不给“删除成功”假象）
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: '解除申请' }).click();
+  await expect(page.getByText('已提交解除申请：记录保留并进入复核流程（不会立即解除）。')).toBeVisible();
+  await expect(page.getByText('noreply@example.com')).toBeVisible();
+  await expect(page.locator('.gs-badge', { hasText: '法定' })).toBeVisible();
+
+  // 联动文案：禁联对象出现在买家线索的「禁联」队列，且不可裁决
+  await page.goto('/leads?queue=suppressed');
+  await settle(page);
+  await expect(page.getByText('禁联', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.ld__lead button').getByText('值得跟进')).toHaveCount(0);
+});

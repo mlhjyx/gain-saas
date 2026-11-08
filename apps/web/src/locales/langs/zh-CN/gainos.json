@@ -6,7 +6,8 @@
     "privacy": "数据与隐私",
     "audit": "审计",
     "sources": "数据源",
-    "campaigns": "战役计划"
+    "campaigns": "战役计划",
+    "suppressions": "禁联名单"
   },
   "growth": {
     "title": "商机与触达",
@@ -1431,5 +1432,49 @@
     "eventBATCH_EXPIRED": "审批过期",
     "eventBATCH_REOPENED": "重新打开",
     "eventOther": "其他操作"
+  },
+  "suppressions": {
+    "title": "禁联名单",
+    "subtitle": "加入名单的邮箱、域名或公司在任何对外动作前都会被拦下；法定禁联不会物理删除，解除需提交申请留痕。",
+    "addTitle": "加入禁联名单",
+    "typeLabel": "类型",
+    "valueLabel": "内容",
+    "reasonLabel": "原因",
+    "add": "加入",
+    "valuePlaceholder": {
+      "email": "例如：noreply{'@'}example.com",
+      "domain": "例如：example.com",
+      "company_name": "例如：Muster Metallbau GmbH"
+    },
+    "addHint": "加入后立即生效：命中该对象的新线索会进入「禁联」队列，任何外发动作前都会再次校验。",
+    "listTitle": "名单（{count} 条）",
+    "empty": "名单还是空的。被退订、投诉或你手动加入的对象会出现在这里。",
+    "colValue": "内容",
+    "colType": "类型",
+    "colReason": "原因",
+    "colProtection": "保护级别",
+    "colCreated": "加入时间",
+    "protectionLegal": "法定",
+    "protectionPreference": "偏好",
+    "type": {
+      "email": "邮箱",
+      "domain": "域名",
+      "company_name": "公司名称"
+    },
+    "reason": {
+      "manual": "手动添加",
+      "unsubscribe": "退订",
+      "bounce": "退信",
+      "complaint": "投诉",
+      "legal": "法律要求"
+    },
+    "release": "解除申请",
+    "releaseConfirm": "对「{value}」提交解除申请？法定禁联不会物理删除，本次操作会留下审计记录。",
+    "releaseRequested": "已提交解除申请：记录保留并进入复核流程（不会立即解除）。",
+    "released": "已提交解除申请。",
+    "releaseHint": "说明：解除申请是只追加的留痕请求，法定禁联需经复核后才能解除；退订与投诉记录不建议解除。",
+    "errValueRequired": "请填写要禁联的内容。",
+    "errEmail": "邮箱格式不正确。",
+    "added": "已加入禁联名单，立即生效。"
   }
 }

@@ -52,6 +52,11 @@ const avatar = computed(() => {
   return userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
 });
 
+/** 服务端标题按界面语言选择（en 优先 titleEn，历史行回落中文）。 */
+function serverTitle(row: AppNotification): string | undefined {
+  return preferences.app.locale === 'en-US' ? (row.titleEn ?? row.title ?? undefined) : (row.title ?? undefined);
+}
+
 function notificationTitle(row: AppNotification): string {
   switch (row.type) {
     case 'DiscoveryRunCompleted': return $t('gainos.notifications.runCompleted');
@@ -64,7 +69,7 @@ function notificationTitle(row: AppNotification): string {
     case 'SanctionsHoldDetected': return $t('gainos.notifications.sanctionsHold');
     case 'WorkspaceQuotaWarning': return $t('gainos.notifications.quotaWarning');
     case 'WorkspaceQuotaExceeded': return $t('gainos.notifications.quotaExceeded');
-    default: return row.title ?? $t('gainos.notifications.default');
+    default: return serverTitle(row) ?? $t('gainos.notifications.default');
   }
 }
 
@@ -77,12 +82,12 @@ function notificationMessage(row: AppNotification): string {
     case 'LeadQualified': return $t('gainos.notifications.leadQualifiedMessage');
     case 'ClaimApproved': return $t('gainos.notifications.claimApprovedMessage');
     case 'ClaimRejected': return $t('gainos.notifications.claimRejectedMessage');
-    // 服务端标题带计数/额度明细（无 PII），优先原样展示。
+    // 服务端标题带计数/额度明细（无 PII），优先按界面语言展示。
     case 'SanctionsHoldDetected':
     case 'WorkspaceQuotaWarning':
     case 'WorkspaceQuotaExceeded':
-      return row.title ?? $t('gainos.notifications.default');
-    default: return row.title ?? '';
+      return serverTitle(row) ?? $t('gainos.notifications.default');
+    default: return serverTitle(row) ?? '';
   }
 }
 

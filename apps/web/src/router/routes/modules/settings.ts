@@ -34,6 +34,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'SettingsSuppressions',
+        path: 'suppressions',
+        component: () => import('#/views/settings/suppressions.vue'),
+        meta: {
+          authority: ['admin'],
+          icon: 'lucide:ban',
+          title: $t('gainos.menu.suppressions'),
+        },
+      },
+      {
         name: 'SettingsSources',
         path: 'sources',
         component: () => import('#/views/settings/sources.vue'),
