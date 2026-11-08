@@ -119,6 +119,18 @@ describe('CampaignPlanJobService.createPlanDraft', () => {
     );
   });
 
+  it('forwards the requested replan budget to the engine trigger (M2.2)', async () => {
+    const { service, engine } = buildService();
+    await service.createPlanDraft(tenant, CAMPAIGN, { maxReplans: 2 });
+    expect(engine.trigger).toHaveBeenCalledWith(
+      tenant,
+      expect.objectContaining({ maxReplans: 2 }),
+    );
+    await expect(service.createPlanDraft(tenant, CAMPAIGN, { maxReplans: 3 })).rejects.toMatchObject({
+      response: { error: { code: 'VALIDATION_ERROR' } },
+    });
+  });
+
   it('maps the active-job partial unique violation to 409 CAMPAIGN_PLAN_JOB_ACTIVE', async () => {
     const { service, tx } = buildService();
     tx.campaignPlanJob.create.mockRejectedValue(
