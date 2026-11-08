@@ -1,6 +1,8 @@
-import { BadRequestException, Body, Controller, Header, HttpCode, Post, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Header, HttpCode, Post, Req, ServiceUnavailableException } from '@nestjs/common';
+import type { Request } from 'express';
 import { CapabilityIssuer } from './capability-issuer.service.js';
 import { PlatformFactsService, PlatformFactsUnavailable } from './platform-facts.service.js';
+import { assertInternalTls } from './internal-tls-only.js';
 
 /**
  * 引擎的 capability 端点（P3b）。
@@ -20,7 +22,9 @@ export class CapabilityController {
   @Post('capabilities')
   @HttpCode(200)
   @Header('content-type', 'application/jose')
-  async issue(@Body() body: { nonce?: unknown }): Promise<string> {
+  async issue(@Body() body: { nonce?: unknown }, @Req() req: Request): Promise<string> {
+    // 平台权威凭据只能经 TLS 监听口签发；明文入口（4020/公网隧道）一律拒绝。
+    assertInternalTls(req);
     if (typeof body?.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(body.nonce)) {
       throw new BadRequestException({
         error: { code: 'CAPABILITY_REQUEST_INVALID', message: '需要 { nonce }（32 位小写 hex）' },

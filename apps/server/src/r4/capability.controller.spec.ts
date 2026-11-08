@@ -3,6 +3,7 @@ import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ServiceUnavailableException } from '@nestjs/common';
+import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import { CapabilityController } from './capability.controller.js';
@@ -15,6 +16,8 @@ import {
   type TemporalScheduleProbe,
 } from './platform-facts.service.js';
 import { R4Keyring } from './r4-keyring.service.js';
+
+const TLS_REQUEST = { socket: { encrypted: true } } as unknown as Request;
 
 const SCHEDULES: TemporalScheduleFact[] = [
   { scheduleId: 'acq-sweep', workflowType: 'acquisitionSweepWorkflow', taskQueue: 'understanding', mode: 'ENABLED' },
@@ -83,7 +86,7 @@ describe('capability 端点', () => {
     });
     await keyring.init();
     const controller = new CapabilityController(facts, new CapabilityIssuer(config, keyring));
-    const jws = await controller.issue({ nonce: 'd'.repeat(32) });
+    const jws = await controller.issue({ nonce: 'd'.repeat(32) }, TLS_REQUEST);
     expect(jws.split('.')).toHaveLength(3);
   });
 
@@ -96,7 +99,7 @@ describe('capability 端点', () => {
     for (const { keyring, facts, config } of cases) {
       await keyring.init();
       const controller = new CapabilityController(facts, new CapabilityIssuer(config, keyring));
-      await expect(controller.issue({ nonce: 'd'.repeat(32) })).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(controller.issue({ nonce: 'd'.repeat(32) }, TLS_REQUEST)).rejects.toBeInstanceOf(ServiceUnavailableException);
     }
   });
 
@@ -104,6 +107,22 @@ describe('capability 端点', () => {
     const { keyring, facts, config } = build({ binding: bindingFile(3600_000) });
     await keyring.init();
     const controller = new CapabilityController(facts, new CapabilityIssuer(config, keyring));
-    await expect(controller.issue({ nonce: 'nope' })).rejects.toThrow();
+    await expect(controller.issue({ nonce: 'nope' }, TLS_REQUEST)).rejects.toThrow();
+  });
+
+  it('未加密入口（公网 4020/隧道）一律 503 INTERNAL_ENDPOINT_TLS_ONLY', async () => {
+    const { keyring, facts, config } = build({ binding: bindingFile(3600_000) });
+    await keyring.init();
+    const controller = new CapabilityController(facts, new CapabilityIssuer(config, keyring));
+    const plain = { socket: { encrypted: false } } as unknown as Request;
+    try {
+      await controller.issue({ nonce: 'd'.repeat(32) }, plain);
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ServiceUnavailableException);
+      expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+        error: { code: 'INTERNAL_ENDPOINT_TLS_ONLY' },
+      });
+    }
   });
 });
