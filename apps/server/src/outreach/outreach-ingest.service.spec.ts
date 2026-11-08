@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import type { AuditService } from '../shared/audit.service.js';
 import type { PrismaService } from '../shared/prisma.service.js';
 import { OutreachIngestService } from './outreach-ingest.service.js';
@@ -32,6 +33,19 @@ class FakeIngestPrisma {
           row.workspaceId === where.workspaceId && row.externalId === where.externalId,
       ) ?? null,
     create: async ({ data }: { data: Row }) => {
+      // 模拟迁移里的部分唯一索引 (workspace_id, external_id) WHERE external_id IS NOT NULL。
+      if (
+        data.externalId &&
+        this.replies.some(
+          (row) =>
+            row.workspaceId === data.workspaceId && row.externalId === data.externalId,
+        )
+      ) {
+        throw new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+        });
+      }
       const row = { id: this.id(), receivedAt: new Date(), createdAt: new Date(), ...data };
       this.replies.push(row);
       return { ...row };
@@ -150,6 +164,18 @@ describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
     const { prisma, ingest } = build();
     await ingest.ingest(tenant, replyRaw());
     const second = await ingest.ingest(tenant, replyRaw());
+    expect(second.outcome).toBe('DUPLICATE');
+    expect(prisma.replies).toHaveLength(1);
+    expect(prisma.consents).toHaveLength(1);
+  });
+
+  it('并发竞态：查重未命中但插入撞唯一索引（P2002）同样按 DUPLICATE 处理', async () => {
+    const { prisma, ingest } = build();
+    await ingest.ingest(tenant, replyRaw());
+    // 模拟两个 ingest 同时通过查重：第二次的查重被绕过，插入时被部分唯一索引拦下。
+    const spy = vi.spyOn(prisma.outreachReply, 'findFirst').mockResolvedValue(null);
+    const second = await ingest.ingest(tenant, replyRaw());
+    spy.mockRestore();
     expect(second.outcome).toBe('DUPLICATE');
     expect(prisma.replies).toHaveLength(1);
     expect(prisma.consents).toHaveLength(1);

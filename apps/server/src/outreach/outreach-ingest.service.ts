@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
@@ -112,17 +113,27 @@ export class OutreachIngestService {
       arf?.recipient ??
       fromAddress(email.from) ??
       send.recipientEmail;
-    const reply = await this.replies.record(tenant, {
-      contactRef: draft.contactRef,
-      recipientEmail,
-      kind,
-      classification: 'UNKNOWN',
-      subject: email.subject,
-      snippet: email.textBody.slice(0, 500) || null,
-      externalId,
-      // 软退信只计数：不写 OPT_OUT，重试仍可能送达。
-      suppress: kind === 'BOUNCE' && !hardBounce ? false : true,
-    });
+    let reply: { id: string };
+    try {
+      reply = await this.replies.record(tenant, {
+        contactRef: draft.contactRef,
+        recipientEmail,
+        kind,
+        classification: 'UNKNOWN',
+        subject: email.subject,
+        snippet: email.textBody.slice(0, 500) || null,
+        externalId,
+        // 软退信只计数：不写 OPT_OUT，重试仍可能送达。
+        suppress: kind === 'BOUNCE' && !hardBounce ? false : true,
+      });
+    } catch (error) {
+      // 并发 ingest（HTTP 端点 + IMAP 轮询/双 poller）在查重与插入之间竞态：
+      // 数据库的部分唯一索引兜底，输家按 DUPLICATE 处理，与查重路径一致。
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return { outcome: 'DUPLICATE', externalId };
+      }
+      throw error;
+    }
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
