@@ -133,6 +133,19 @@ const schema = z.object({
   // fail-safe 解析：只有显式 'false' 关闭影子（空串/'TRUE'/'1' 都保持 on）——与
   // OUTREACH_SEND_ENABLED 的 fail-closed 方向相反，因为两者的「安全侧」相反。
   CAMPAIGN_EXECUTION_SHADOW: z.string().default('true').transform((v) => v !== 'false'),
+  // IMAP 入站轮询（P4-06）：默认关闭。v1 为进程级单信箱凭据（多信箱 secret_ref 卡片后再扩展）；
+  // imapflow 客户端按需惰性加载，未安装时轮询器记录错误但绝不影响其他功能。
+  OUTREACH_IMAP_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_IMAP_HOST: z.string().min(1).optional(),
+  OUTREACH_IMAP_PORT: z.coerce.number().int().min(1).max(65535).default(993),
+  OUTREACH_IMAP_USER: z.string().min(1).optional(),
+  OUTREACH_IMAP_PASSWORD: z.string().min(1).optional(),
+  OUTREACH_IMAP_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(30_000)
+    .max(3_600_000)
+    .default(300_000),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；

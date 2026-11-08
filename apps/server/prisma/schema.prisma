@@ -635,6 +635,8 @@ enum OutreachReplyClassification {
 }
 
 /// 入站回复/退信/退订事件（append-only）。任何回复都写入 OPT_OUT 同意，后续批次即停。
+/// 幂等：(workspace_id, external_id) 的部分唯一索引（external_id 非空）由迁移
+/// 20261109220000_outreach_reply_external_id_unique 管理；Prisma 不支持部分索引，勿加 @@unique。
 model OutreachReply {
   id             String                     @id @default(uuid()) @db.Uuid
   workspaceId    String                     @map("workspace_id") @db.Uuid

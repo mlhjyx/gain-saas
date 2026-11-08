@@ -7,8 +7,16 @@ import { OutreachPublicController } from './outreach-public.controller.js';
 import { OutreachReplyController } from './outreach-reply.controller.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
 import { OutreachAuthorizationConsumer } from './outreach-authorization.consumer.js';
+import { OutreachIngestService } from './outreach-ingest.service.js';
+import {
+  ImapFlowClient,
+  OUTREACH_IMAP_CLIENT,
+  OutreachImapPoller,
+} from './outreach-imap.poller.js';
 import { OutreachMailboxController } from './outreach-mailbox.controller.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import { OutreachWarmupController } from './outreach-warmup.controller.js';
+import { OutreachWarmupService } from './outreach-warmup.service.js';
 import { OutreachSeedTestController } from './outreach-seed-test.controller.js';
 import { OutreachSeedTestService } from './outreach-seed-test.service.js';
 import { OutreachSendController } from './outreach-send.controller.js';
@@ -44,6 +52,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachPublicController,
     OutreachMailboxController,
     OutreachSeedTestController,
+    OutreachWarmupController,
   ],
   providers: [
     OutreachConsentService,
@@ -54,6 +63,11 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachAuthorizationConsumer,
     OutreachMailboxService,
     OutreachSeedTestService,
+    OutreachWarmupService,
+    OutreachIngestService,
+    ImapFlowClient,
+    { provide: OUTREACH_IMAP_CLIENT, useExisting: ImapFlowClient },
+    OutreachImapPoller,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,
