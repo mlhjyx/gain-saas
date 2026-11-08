@@ -190,8 +190,14 @@ export class CampaignService {
     };
   }
 
-  async createRevision(tenant: CampaignTenant, campaignId: string, planInput: unknown) {
-    if (!UUID_RE.test(campaignId)) campaignNotFound();
+  /**
+   * M2.1：规划回调与人工提交共用同一套平面校验（zod CampaignPlan v0 + sizeCap 上限 +
+   * workspace 预算政策）。失败抛 400 `CAMPAIGN_PLAN_INVALID`（details.issues 可直接落 job）。
+   */
+  async validateRevisionPlan(
+    workspaceId: string,
+    planInput: unknown,
+  ): Promise<{ plan: CampaignPlanV0; planHash: string }> {
     const validation = validateCampaignPlan(planInput);
     if (!validation.ok) {
       throw new BadRequestException({
@@ -210,7 +216,7 @@ export class CampaignService {
     }
     if (plan.budget.capMicros != null) {
       const policy = await this.prisma.workspaceBudgetPolicy.findUnique({
-        where: { workspaceId: tenant.workspaceId },
+        where: { workspaceId },
       });
       if (policy?.enabled && BigInt(plan.budget.capMicros) > policy.maxSpendMicros) {
         throw new BadRequestException({
@@ -222,62 +228,94 @@ export class CampaignService {
         });
       }
     }
-    const planHash = planHashOf(plan);
-    const revision = await this.prisma.$transaction(async (tx) => {
-      const campaign = await tx.campaign.findFirst({
-        where: { id: campaignId, workspaceId: tenant.workspaceId },
-      });
-      if (!campaign) campaignNotFound();
-      const last = await tx.campaignRevision.findFirst({
-        where: { campaignId, workspaceId: tenant.workspaceId },
-        orderBy: { revisionNo: 'desc' },
-        select: { revisionNo: true },
-      });
-      const revisionNo = (last?.revisionNo ?? 0) + 1;
-      const created = await tx.campaignRevision.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          campaignId,
-          revisionNo,
-          plan: plan as unknown as Prisma.InputJsonValue,
-          planHash,
-          state: 'DRAFT',
-          createdBy: tenant.userId,
-        },
-      });
-      await tx.campaignAudience.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          revisionId: created.id,
-          icpIds: plan.audience.icpIds as unknown as Prisma.InputJsonValue,
-          ...(plan.audience.includeFilters !== undefined
-            ? { includeFilters: plan.audience.includeFilters as Prisma.InputJsonValue }
-            : {}),
-          ...(plan.audience.excludeFilters !== undefined
-            ? { excludeFilters: plan.audience.excludeFilters as Prisma.InputJsonValue }
-            : {}),
-          sizeCap: plan.audience.sizeCap,
-        },
-      });
-      await tx.campaign.update({
-        where: { id: campaignId },
-        data: { currentRevisionId: created.id, updatedBy: tenant.userId },
-      });
-      await this.writeTrace(tx, {
+    return { plan, planHash: planHashOf(plan) };
+  }
+
+  /**
+   * M2.1：在调用方事务内创建 DRAFT revision（含 audience / currentRevisionId / trace）。
+   * 人工提交用 actorType=user；规划回调落库用 actorId='service:campaign-plan'、actorType=service。
+   */
+  async createRevisionRecord(
+    tx: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      campaignId: string;
+      actorId: string;
+      actorType?: 'user' | 'service';
+      plan: CampaignPlanV0;
+      planHash: string;
+      reasonCode?: string;
+    },
+  ) {
+    const plan = input.plan;
+    const campaign = await tx.campaign.findFirst({
+      where: { id: input.campaignId, workspaceId: input.workspaceId },
+    });
+    if (!campaign) campaignNotFound();
+    const last = await tx.campaignRevision.findFirst({
+      where: { campaignId: input.campaignId, workspaceId: input.workspaceId },
+      orderBy: { revisionNo: 'desc' },
+      select: { revisionNo: true },
+    });
+    const revisionNo = (last?.revisionNo ?? 0) + 1;
+    const created = await tx.campaignRevision.create({
+      data: {
+        workspaceId: input.workspaceId,
+        campaignId: input.campaignId,
+        revisionNo,
+        plan: plan as unknown as Prisma.InputJsonValue,
+        planHash: input.planHash,
+        state: 'DRAFT',
+        createdBy: input.actorId,
+      },
+    });
+    await tx.campaignAudience.create({
+      data: {
+        workspaceId: input.workspaceId,
+        revisionId: created.id,
+        icpIds: plan.audience.icpIds as unknown as Prisma.InputJsonValue,
+        ...(plan.audience.includeFilters !== undefined
+          ? { includeFilters: plan.audience.includeFilters as Prisma.InputJsonValue }
+          : {}),
+        ...(plan.audience.excludeFilters !== undefined
+          ? { excludeFilters: plan.audience.excludeFilters as Prisma.InputJsonValue }
+          : {}),
+        sizeCap: plan.audience.sizeCap,
+      },
+    });
+    await tx.campaign.update({
+      where: { id: input.campaignId },
+      data: { currentRevisionId: created.id, updatedBy: input.actorId },
+    });
+    await this.writeTrace(tx, {
+      workspaceId: input.workspaceId,
+      campaignId: input.campaignId,
+      revisionId: created.id,
+      stepType: 'revision.created',
+      actor: input.actorId,
+      ...(input.actorType !== undefined ? { actorType: input.actorType } : {}),
+      decisionType: 'create',
+      chosenOption: `revision_no:${revisionNo}`,
+      reasonCode: input.reasonCode ?? 'PLAN_VALIDATED',
+      evidence: [
+        { url: 'campaign-plan/v0', retrievedAt: new Date().toISOString(), support: 'schema-validated' },
+      ],
+    });
+    return created;
+  }
+
+  async createRevision(tenant: CampaignTenant, campaignId: string, planInput: unknown) {
+    if (!UUID_RE.test(campaignId)) campaignNotFound();
+    const { plan, planHash } = await this.validateRevisionPlan(tenant.workspaceId, planInput);
+    const revision = await this.prisma.$transaction((tx) =>
+      this.createRevisionRecord(tx, {
         workspaceId: tenant.workspaceId,
         campaignId,
-        revisionId: created.id,
-        stepType: 'revision.created',
-        actor: tenant.userId,
-        decisionType: 'create',
-        chosenOption: `revision_no:${revisionNo}`,
-        reasonCode: 'PLAN_VALIDATED',
-        evidence: [
-          { url: 'campaign-plan/v0', retrievedAt: new Date().toISOString(), support: 'schema-validated' },
-        ],
-      });
-      return created;
-    });
+        actorId: tenant.userId,
+        plan,
+        planHash,
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
