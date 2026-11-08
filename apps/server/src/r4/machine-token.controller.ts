@@ -4,6 +4,7 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { R4Keyring } from './r4-keyring.service.js';
 import { MachineTokenService, type MachineTokenProfile } from './machine-token.service.js';
+import { assertInternalTls } from './internal-tls-only.js';
 
 /**
  * 引擎的机器 token 入口（P2）。
@@ -30,11 +31,9 @@ export class MachineTokenController {
         error: { code: 'MACHINE_TOKEN_REQUEST_INVALID', message: '需要 { profile, nonce }' },
       });
     }
-    if (this.config.NODE_ENV === 'production' && !this.tlsPeerPresent(req)) {
-      throw new ServiceUnavailableException({
-        error: { code: 'MACHINE_TOKEN_MTLS_REQUIRED', message: '需要客户端证书（P5 前未启用）' },
-      });
-    }
+    // 平台权威凭据只能经 TLS 监听口铸造；明文入口（4020/公网隧道）一律拒绝。
+    // 客户端证书的身份对齐仍属 P5（R4_TLS_CLIENT_AUTH=required 之前不索证）。
+    assertInternalTls(req);
     // 引擎有三个机器身份，token 的 sub 必须与调用方证书一致（引擎会逐字比对 trust.subject）。
     const subject = this.subjectFromPeer(req) ?? this.config.R4_MACHINE_SUBJECT;
     const revision = this.config.R4_MACHINE_CONFIGURATION_REVISION;
@@ -60,17 +59,10 @@ export class MachineTokenController {
     }
   }
 
-  /** 从 mTLS 客户端证书的 CN 推导 subject；无证书时返回 null。 */
+  /** 从 TLS 客户端证书的 CN 推导 subject；无证书时返回 null。 */
   private subjectFromPeer(req: Request): string | null {
     const socket = req.socket as { getPeerCertificate?: () => { subject?: { CN?: string } } };
     const cn = socket.getPeerCertificate?.()?.subject?.CN;
     return typeof cn === 'string' && cn.length > 0 ? cn : null;
-  }
-
-  private tlsPeerPresent(req: Request): boolean {
-    const socket = req.socket as { encrypted?: boolean; getPeerCertificate?: () => { subject?: unknown } };
-    if (socket.encrypted !== true) return false;
-    const cert = socket.getPeerCertificate?.();
-    return Boolean(cert && cert.subject && Object.keys(cert.subject).length > 0);
   }
 }
