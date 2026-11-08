@@ -18,6 +18,7 @@ const TABS = [
   { key: 'users', label: '用户' },
   { key: 'workspaces', label: '工作空间' },
   { key: 'providers', label: '数据源' },
+  { key: 'campaign-attribution', label: '战役归因' },
   { key: 'channels', label: '渠道数据源' },
   { key: 'sources', label: '监控源' },
   { key: 'budget', label: '预算' },
@@ -41,6 +42,11 @@ const userQuery = ref('');
 const userBusy = ref('');
 const workspaceId = ref('');
 const attributionRows = ref<Row[]>([]);
+const campaignAttribution = ref<{
+  funnel: Row;
+  campaigns: Row[];
+  reconciliation: { balanced: boolean; rows: Row[] };
+} | null>(null);
 const batchRows = ref<Row[]>([]);
 const runs = ref<Row[]>([]);
 const leads = ref<Row[]>([]);
@@ -183,6 +189,44 @@ async function loadAttribution(): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
   }
 }
+async function loadCampaignAttribution(): Promise<void> {
+  if (workspaces.value.length === 0) {
+    workspaces.value = (await api<{ workspaces: Row[] }>('/api/ops/workspaces')).workspaces ?? [];
+  }
+  if (!workspaceId.value && workspaces.value[0]) {
+    workspaceId.value = String(workspaces.value[0].id);
+  }
+  if (!workspaceId.value) {
+    campaignAttribution.value = null;
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    campaignAttribution.value = await api(
+      `/api/ops/workspaces/${workspaceId.value}/attribution`,
+    );
+  } catch (err) {
+    campaignAttribution.value = null;
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 对账差异（µUSD，逐 campaign 求和绝对值后取美元）。 */
+function reconciliationDiffLabel(balanced: boolean | undefined, rows: Row[] | undefined): string {
+  if (balanced) return '台账对账 ✓';
+  const diff = (rows ?? []).reduce((sum, row) => sum + Math.abs(Number(row.diffMicros ?? 0)), 0);
+  return `台账差异 ${fmtUsd(diff)}`;
+}
+
+function reconciliationFor(campaignId: unknown): Row | undefined {
+  return campaignAttribution.value?.reconciliation.rows.find(
+    (row) => String(row.campaignId) === String(campaignId),
+  );
+}
+
 async function loadBatches(): Promise<void> {
   if (!workspaceId.value) {
     batchRows.value = [];
@@ -710,6 +754,7 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'users') await loadUsers();
   if (tab === 'workspaces') await loadWorkspaceAdmin();
   if (tab === 'providers') await loadProviders();
+  if (tab === 'campaign-attribution') await loadCampaignAttribution();
   if (tab === 'channels') await loadChannels();
   if (tab === 'sources') await loadSources();
   if (tab === 'budget') await loadBudget();
@@ -1144,6 +1189,93 @@ onMounted(checkSession);
                 <tr v-if="providers.length === 0"><td colspan="6" class="ops__muted">没有数据源</td></tr>
               </tbody>
             </table>
+            </div>
+          </section>
+
+          <section v-else-if="active === 'campaign-attribution'" class="ops__stack">
+            <div class="ops__toolbar">
+              <h3>战役归因</h3>
+              <select v-model="workspaceId" @change="loadCampaignAttribution">
+                <option v-for="workspace in workspaces" :key="workspace.id" :value="String(workspace.id)">
+                  {{ workspace.name || workspace.id }}
+                </option>
+              </select>
+              <span
+                v-if="campaignAttribution"
+                class="ops__badge"
+                :class="campaignAttribution.reconciliation.balanced ? 'is-ok' : 'is-bad'"
+              >
+                {{ reconciliationDiffLabel(campaignAttribution.reconciliation.balanced, campaignAttribution.reconciliation.rows) }}
+              </span>
+            </div>
+            <p class="ops__muted">
+              直归因 v0（D-12-a）：outcome → 商机接受 → 战役；无战役的 outcome 记 ORGANIC，不进战役分母。
+              positive = 会议 / 报价 / 赢单；回复为弱信号单列；丢单 / 无响应 / 不合格计入分母。
+              成本与账本逐分对账（执行成本对花费账本，计划成本对引擎用量账本）。
+            </p>
+            <div v-if="campaignAttribution" class="ops__grid">
+              <article class="ops__card">
+                <h3>花费（战役合计）</h3>
+                <p>{{ fmtUsd(campaignAttribution.funnel.spendTotalMicros) }}</p>
+                <span class="ops__muted">执行 {{ fmtUsd(campaignAttribution.funnel.execCostMicros) }} · 计划 {{ fmtUsd(campaignAttribution.funnel.planCostMicros) }}</span>
+              </article>
+              <article class="ops__card">
+                <h3>商机（QGO / SAO 接受）</h3>
+                <p>{{ campaignAttribution.funnel.qgoCount }} / {{ campaignAttribution.funnel.saoCount }}</p>
+              </article>
+              <article class="ops__card">
+                <h3>positive outcome</h3>
+                <p>{{ campaignAttribution.funnel.positiveCount }}</p>
+                <span class="ops__muted">会议 / 报价 / 赢单</span>
+              </article>
+              <article class="ops__card">
+                <h3>回复（弱信号）</h3>
+                <p>{{ campaignAttribution.funnel.replyCount }}</p>
+                <span class="ops__muted">不计入 positive；步 11 前仅计人工登记的 REPLIED</span>
+              </article>
+              <article class="ops__card">
+                <h3>负向（分母）</h3>
+                <p>{{ campaignAttribution.funnel.negativeCount }}</p>
+                <span class="ops__muted">丢单 / 无响应 / 不合格</span>
+              </article>
+            </div>
+            <div class="ops__table-wrap">
+              <table class="ops__table">
+                <thead>
+                  <tr>
+                    <th>战役</th><th>状态</th><th>执行成本</th><th>计划成本</th>
+                    <th>QGO</th><th>SAO(接受)</th><th>positive</th><th>回复(弱·人工)</th><th>负向</th>
+                    <th>每 positive 成本</th><th>对账</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in campaignAttribution?.campaigns ?? []" :key="row.campaignId">
+                    <td>{{ row.campaignName }}</td>
+                    <td><span class="ops__badge" :class="badgeClass(row.campaignStatus)">{{ row.campaignStatus }}</span></td>
+                    <td>{{ fmtUsd(row.execCostMicros) }}</td>
+                    <td>{{ fmtUsd(row.planCostMicros) }}</td>
+                    <td>{{ row.qgoCount }}</td>
+                    <td>{{ row.saoCount }}</td>
+                    <td>{{ row.positiveCount }}</td>
+                    <td>{{ row.replyCount }}</td>
+                    <td>{{ row.negativeCount }}</td>
+                    <td>{{ row.costPerPositiveMicros === null ? '—' : fmtUsd(row.costPerPositiveMicros) }}</td>
+                    <td>
+                      <span
+                        class="ops__badge"
+                        :class="(reconciliationFor(row.campaignId)?.diffMicros ?? 0) === 0 ? 'is-ok' : 'is-bad'"
+                      >
+                        {{ (reconciliationFor(row.campaignId)?.diffMicros ?? 0) === 0
+                          ? '✓'
+                          : `差异 ${fmtUsd(Math.abs(Number(reconciliationFor(row.campaignId)?.diffMicros ?? 0)))}` }}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr v-if="(campaignAttribution?.campaigns ?? []).length === 0">
+                    <td colspan="11" class="ops__muted">该空间还没有战役；先在「任务」里创建并获批一个战役，产生执行与商机后这里出数。</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
 
