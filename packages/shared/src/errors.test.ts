@@ -75,3 +75,11 @@ describe('copyForError', () => {
     }
   });
 });
+
+describe('商机域错误码（M2 步 10）', () => {
+  it('QGO 证据门 / 线索未接受 / 结果枚举 都有三层文案', () => {
+    expect(copyForError('QGO_EVIDENCE_REQUIRED').title).toContain('证据');
+    expect(copyForError('LEAD_NOT_QUALIFIED').title).toContain('已接受');
+    expect(copyForError('INVALID_OUTCOME').title).toContain('结果');
+  });
+});

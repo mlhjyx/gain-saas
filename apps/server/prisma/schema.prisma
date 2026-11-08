@@ -58,6 +58,9 @@ model Workspace {
   tasks       AcquisitionTask[]
   taskRuns    TaskRun[]
   campaigns   Campaign[]
+  qgos        Qgo[]
+  saos        Sao[]
+  opportunityOutcomes OpportunityOutcome[]
 
   @@map("workspace")
 }
@@ -818,4 +821,82 @@ model AuthThrottle {
 
   @@index([resetAt], map: "auth_throttle_reset_at_idx")
   @@map("auth_throttle")
+}
+
+// ─── M2 步 10：QGO / SAO / Opportunity Outcome（docs/superpowers/plans/2026-11-08-qgo-domain-m2-step10.md）───
+// SoR 在本仓（Growth Core）；lead_ref/canonical_company_ref/icp_ref 是引擎对象引用（不做跨库外键）。
+// 与引擎的关系：候选/线索=引擎（CandidateBatchCompleted/LeadQualified 事件），提升证据来自引擎快照。
+
+/// 商机（Qualified Growth Opportunity）：合格的线索 + 需求/时机证据 + 合法下一步。
+/// 同一 lead 重复提升幂等（workspace_id, lead_ref 唯一）。证据只存 URL/时间/摘要，不存联系人 PII。
+model Qgo {
+  id                  String   @id @default(uuid()) @db.Uuid
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  leadRef             String   @map("lead_ref") @db.Uuid
+  canonicalCompanyRef String   @map("canonical_company_ref") @db.Uuid
+  icpRef              String?  @map("icp_ref") @db.Uuid
+  campaignId          String?  @map("campaign_id") @db.Uuid
+  title               String
+  score               Float?
+  evidence            Json
+  nextStep            String   @map("next_step")
+  /// OPEN → CONVERTED（SAO 接受）/ DROPPED（拒绝）。
+  state               String   @default("OPEN")
+  createdBy           String   @map("created_by") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sao       Sao?
+
+  @@unique([workspaceId, leadRef], map: "qgo_workspace_id_lead_ref_key")
+  @@index([workspaceId, state], map: "qgo_workspace_id_state_idx")
+  @@map("qgo")
+}
+
+/// 销售接受（Sales Accepted Opportunity）：对 QGO 的人工决定（接受/拒绝），一 QGO 一行。
+model Sao {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  /// 一 QGO 一 SAO：qgo_id 全局唯一（uuid），Prisma 1:1 关系的定义侧要求单列唯一。
+  qgoId       String   @unique @map("qgo_id") @db.Uuid
+  /// ACCEPTED | DECLINED。
+  state       String
+  decidedBy   String   @map("decided_by") @db.Uuid
+  decidedAt   DateTime @map("decided_at")
+  reason      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  qgo       Qgo       @relation(fields: [qgoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  outcomes  OpportunityOutcome[]
+
+  @@unique([workspaceId, qgoId], map: "sao_workspace_id_qgo_id_key")
+  @@index([workspaceId, state], map: "sao_workspace_id_state_idx")
+  @@map("sao")
+}
+
+/// 商机结果（append-only 事件序列）：回复/会议/报价/赢单/丢单/无响应/不合格。
+/// 人工登记（MANUAL）可重复；未来系统回写（SYSTEM）按 (sao_id, source_event_id) 幂等。
+model OpportunityOutcome {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  saoId         String   @map("sao_id") @db.Uuid
+  /// REPLIED | MEETING_BOOKED | QUOTE_SENT | WON | LOST | NO_RESPONSE | DISQUALIFIED。
+  outcome       String
+  occurredAt    DateTime @map("occurred_at")
+  /// SYSTEM | MANUAL。
+  source        String
+  evidenceRef   String?  @map("evidence_ref")
+  note          String?
+  sourceEventId String?  @map("source_event_id")
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sao       Sao       @relation(fields: [saoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([saoId, sourceEventId], map: "opportunity_outcome_sao_id_source_event_id_key")
+  @@index([workspaceId, occurredAt], map: "opportunity_outcome_workspace_id_occurred_at_idx")
+  @@map("opportunity_outcome")
 }
