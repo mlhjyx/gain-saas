@@ -1,0 +1,216 @@
+{
+  "pass": true,
+  "workspaceId": "5c47d7fd-f5ee-4c1f-969b-a7a4c744b591",
+  "campaignId": "9a67796e-92ae-4836-bb89-8bf8826ab32c",
+  "saoId": "7920ddd6-8235-47cc-be13-3485ea1750f4",
+  "steps": [
+    {
+      "step": "负向：未批准直发",
+      "expected": "OUTREACH_DRAFT_NOT_APPROVED",
+      "actual": "OUTREACH_DRAFT_NOT_APPROVED",
+      "pass": true
+    },
+    {
+      "step": "批次 A 发送",
+      "expected": "SENT 2",
+      "actual": {
+        "batchId": "56f3eaf3-264e-41d4-8906-0920fa606967",
+        "status": "SENT",
+        "sent": 2,
+        "failed": 0,
+        "skipped": 0,
+        "results": [
+          {
+            "draftId": "3825ead5-e8a1-4754-a1e5-98e385845d75",
+            "status": "SENT",
+            "messageId": "ce8593af-5efa-4bb1-85b5-4d29e50c9f43"
+          },
+          {
+            "draftId": "bcd65b4b-e7c3-4749-bb50-609195245008",
+            "status": "SENT",
+            "messageId": "51e7a0f7-91e4-440a-84d3-a4e9d3bedd5b"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "step": "Mailpit 收到",
+      "expected": "2 封",
+      "actual": 2,
+      "pass": true
+    },
+    {
+      "step": "DKIM 签名存在",
+      "expected": "DKIM-Signature v=1",
+      "actual": true,
+      "pass": true
+    },
+    {
+      "step": "List-Unsubscribe 头",
+      "expected": "unsubscribe?token=",
+      "actual": true,
+      "pass": true
+    },
+    {
+      "step": "退订 token 在邮件中",
+      "expected": "存在",
+      "actual": "present",
+      "pass": true
+    },
+    {
+      "step": "退订消费",
+      "expected": "unsubscribed true",
+      "actual": {
+        "data": {
+          "unsubscribed": true,
+          "alreadyUsed": false
+        }
+      },
+      "pass": true
+    },
+    {
+      "step": "退订写入 OPT_OUT",
+      "expected": "OPT_OUT",
+      "actual": "OPT_OUT",
+      "pass": true
+    },
+    {
+      "step": "平台抑制同步调用",
+      "expected": "1 次",
+      "actual": [
+        {
+          "email": "buyer@example.test",
+          "reason": "unsubscribe",
+          "source": "gain-saas:unsubscribe"
+        }
+      ],
+      "pass": true
+    },
+    {
+      "step": "退订后发送跳过",
+      "expected": "COMPLETED skipped 1, 无新增邮件",
+      "actual": {
+        "sendB": {
+          "batchId": "9490becc-74d1-4ea6-adb5-b85626e24749",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "638b4dc2-c089-474d-a29b-8594d6c6cf55",
+              "status": "SKIPPED",
+              "error": "OUTREACH_OPTED_OUT"
+            }
+          ]
+        },
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "回复分类回写",
+      "expected": "NEGATIVE 1 条",
+      "actual": {
+        "count": 1,
+        "classification": "NEGATIVE"
+      },
+      "pass": true
+    },
+    {
+      "step": "回复 → opportunity_outcome.REPLIED",
+      "expected": "SYSTEM + sourceEventId=reply.id",
+      "actual": [
+        {
+          "source": "SYSTEM",
+          "sourceEventId": "478469f6-dbdf-4d8d-be6b-8eb87dfd2002"
+        }
+      ],
+      "pass": true
+    },
+    {
+      "step": "回复后发送跳过",
+      "expected": "COMPLETED skipped 1, 无新增邮件",
+      "actual": {
+        "sendC": {
+          "batchId": "ed1a5678-9be1-4a5b-8f79-c3684836f35d",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "0f0b36d6-9b7c-4ea8-a68c-a0d726ee720b",
+              "status": "SKIPPED",
+              "error": "OUTREACH_OPTED_OUT"
+            }
+          ]
+        },
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "DNC 命中跳过并记录原因",
+      "expected": "SKIPPED + OUTREACH_DNC_BLOCKED",
+      "actual": {
+        "sendD": {
+          "batchId": "34372f45-8413-41fa-8491-e513ef2cd6c8",
+          "status": "COMPLETED",
+          "sent": 0,
+          "failed": 0,
+          "skipped": 1,
+          "results": [
+            {
+              "draftId": "6b768a9f-aa10-48fb-b4e8-ea445d5582c6",
+              "status": "SKIPPED",
+              "error": "OUTREACH_DNC_BLOCKED: global:unsubscribe"
+            }
+          ]
+        },
+        "newMessages": 0,
+        "reason": "OUTREACH_DNC_BLOCKED: global:unsubscribe"
+      },
+      "pass": true
+    },
+    {
+      "step": "DNC 查询失败 fail closed",
+      "expected": "OUTREACH_DNC_UNAVAILABLE, 无新增邮件",
+      "actual": {
+        "code": "OUTREACH_DNC_UNAVAILABLE",
+        "newMessages": 0
+      },
+      "pass": true
+    },
+    {
+      "step": "负向：重放已发送批次",
+      "expected": "OUTREACH_BATCH_ALREADY_SENT",
+      "actual": "OUTREACH_BATCH_ALREADY_SENT",
+      "pass": true
+    },
+    {
+      "step": "审计包结构",
+      "expected": "schema + approval + drafts + events",
+      "actual": {
+        "schemaVersion": "outreach-audit-package/v1",
+        "decidedBy": "eec41b78-1a8c-443f-88e4-70acfb058800",
+        "draftCount": 2,
+        "eventTypes": [
+          "BATCH_CREATED",
+          "DRAFT_ADDED",
+          "DRAFT_ADDED",
+          "BATCH_SUBMITTED",
+          "BATCH_APPROVED",
+          "BATCH_REJECTED",
+          "BATCH_SENT",
+          "BATCH_REJECTED"
+        ],
+        "packageHash": "9c9201184afae2c4154e2a340f0b9c3a0ccc98a0224f0c8d33b1c6772ba10da6",
+        "persistedAt": "2026-11-08T12:41:30.292Z"
+      },
+      "pass": true
+    }
+  ],
+  "failed": []
+}

@@ -38,6 +38,11 @@ function conflict(code: string, message: string): never {
   throw new ConflictException({ error: { code, message } });
 }
 
+function errorCodeOf(error: unknown, fallback: string): string {
+  const code = (error as { response?: { error?: { code?: unknown } } })?.response?.error?.code;
+  return typeof code === 'string' ? code : fallback;
+}
+
 export interface OutreachSendSummary {
   batchId: string;
   status: string;
@@ -72,7 +77,6 @@ export class OutreachSendService {
   ) {}
 
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
-    this.gate.assertEnabled();
     if (!UUID_RE.test(batchId)) notFound();
 
     const lockKey = `${tenant.workspaceId}:${batchId}`;
@@ -105,28 +109,65 @@ export class OutreachSendService {
     });
     if (!batch) notFound();
 
+    try {
+      this.gate.assertEnabled();
+    } catch (error) {
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_SEND_DISABLED',
+        error instanceof Error ? error.message : '发送通道未开启',
+        'conflict',
+      );
+    }
+
     if (batch.status === 'SENT') {
-      conflict('OUTREACH_BATCH_ALREADY_SENT', '该批次已发送，不能重复发送');
+      await this.rejectBatch(tenant, batchId, 'OUTREACH_BATCH_ALREADY_SENT', '该批次已发送，不能重复发送');
     }
     if (batch.status === 'COMPLETED') {
-      conflict('OUTREACH_BATCH_ALREADY_COMPLETED', '该批次已处理完毕，不能重复发送');
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_BATCH_ALREADY_COMPLETED',
+        '该批次已处理完毕，不能重复发送',
+      );
     }
     if (batch.status !== 'QUEUED') {
-      conflict('OUTREACH_BATCH_NOT_QUEUED', '只有已批准进入待发队列的批次可以发送');
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_BATCH_NOT_QUEUED',
+        '只有已批准进入待发队列的批次可以发送',
+      );
     }
     if (batch.drafts.length === 0) {
-      conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
+      await this.rejectBatch(tenant, batchId, 'OUTREACH_BATCH_EMPTY', '批次内没有草稿');
     }
 
     const approval = batch.approvals[0];
     if (!approval || !batch.contentHash || approval.contentHash !== batch.contentHash) {
-      conflict('OUTREACH_APPROVAL_MISSING', '批次缺少与当前内容匹配的批准，拒绝发送');
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_APPROVAL_MISSING',
+        '批次缺少与当前内容匹配的批准，拒绝发送',
+      );
     }
     if (approval.expiresAt.getTime() <= Date.now()) {
-      conflict('OUTREACH_APPROVAL_EXPIRED', '批准已过期，需重新提交审批后才能发送');
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_APPROVAL_EXPIRED',
+        '批准已过期，需重新提交审批后才能发送',
+      );
     }
     if (hashOutreachDrafts(batch.drafts) !== batch.contentHash) {
-      conflict('OUTREACH_CONTENT_CHANGED', '批次内容与批准时不一致，拒绝发送');
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_CONTENT_CHANGED',
+        '批次内容与批准时不一致，拒绝发送',
+      );
     }
 
     for (const draft of batch.drafts) {
@@ -138,7 +179,9 @@ export class OutreachSendService {
         !draft.approvedAt ||
         draft.contentHash !== batch.contentHash
       ) {
-        conflict(
+        await this.rejectBatch(
+          tenant,
+          batchId,
           'OUTREACH_DRAFT_NOT_APPROVED',
           `草稿 ${draft.id} 未获批准或批准已失效，整批拒绝发送`,
         );
@@ -148,13 +191,13 @@ export class OutreachSendService {
     try {
       this.transport.ensureConfigured();
     } catch (error) {
-      throw new ServiceUnavailableException({
-        error: {
-          code: 'OUTREACH_SMTP_NOT_CONFIGURED',
-          message:
-            error instanceof Error ? error.message : 'SMTP 出口未配置，拒绝发送',
-        },
-      });
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_SMTP_NOT_CONFIGURED',
+        error instanceof Error ? error.message : 'SMTP 出口未配置，拒绝发送',
+        'unavailable',
+      );
     }
 
     await this.persistAuditPackage(tenant, batchId, tenant.userId);
@@ -168,7 +211,18 @@ export class OutreachSendService {
     const pending = batch.drafts
       .filter((draft) => !sentDraftIds.has(draft.id) && !skippedDraftIds.has(draft.id))
       .slice(0, this.config.OUTREACH_SEND_BATCH_LIMIT);
-    const skipReasons = await this.computeSkipReasons(tenant, pending);
+    let skipReasons = new Map<string, string>();
+    try {
+      skipReasons = await this.computeSkipReasons(tenant, pending);
+    } catch (error) {
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        errorCodeOf(error, 'OUTREACH_DNC_UNAVAILABLE'),
+        error instanceof Error ? error.message : '禁联名单检查失败',
+        'unavailable',
+      );
+    }
 
     const results: OutreachSendSummary['results'] = [];
     for (const draft of pending) {
@@ -361,6 +415,44 @@ export class OutreachSendService {
       skipped,
       results,
     };
+  }
+
+  /**
+   * 门拒绝也留审计工件（13-1 G4）：批次事件 + 审计包 + audit.record，然后抛 409/503。
+   * 不写 outreach_send：没有发生任何发送尝试。
+   */
+  private async rejectBatch(
+    tenant: OutreachTenant,
+    batchId: string,
+    code: string,
+    message: string,
+    status: 'conflict' | 'unavailable' = 'conflict',
+  ): Promise<never> {
+    await this.prisma.outreachBatchEvent
+      .create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          type: 'BATCH_REJECTED',
+          actor: tenant.userId,
+          detail: { code, message } as Prisma.InputJsonValue,
+        },
+      })
+      .catch(() => undefined);
+    await this.persistAuditPackage(tenant, batchId, tenant.userId).catch(() => undefined);
+    await this.audit
+      .record({
+        realm: 'tenant',
+        actorId: tenant.userId,
+        action: 'outreach.batch.rejected',
+        target: batchId,
+        detail: { code, message },
+      })
+      .catch(() => undefined);
+    if (status === 'unavailable') {
+      throw new ServiceUnavailableException({ error: { code, message } });
+    }
+    throw new ConflictException({ error: { code, message } });
   }
 
   private unsubscribeUrl(token: string): string {
@@ -575,10 +667,14 @@ export class OutreachSendService {
         createdAt: event.createdAt.toISOString(),
       })),
     };
+    // 内容寻址只覆盖事实：generatedAt 每次组装都不同，若计入哈希则 persistedAt 永远匹配不到。
+    const hashablePackage = Object.fromEntries(
+      Object.entries(packageData).filter(([key]) => key !== 'generatedAt'),
+    );
     return {
       package: packageData,
-      packageHash: hashJson(packageData),
-      contentHash: batch.contentHash ?? hashJson(packageData),
+      packageHash: hashJson(hashablePackage),
+      contentHash: batch.contentHash ?? hashJson(hashablePackage),
     };
   }
 }

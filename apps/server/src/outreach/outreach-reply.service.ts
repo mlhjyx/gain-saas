@@ -25,6 +25,8 @@ export interface OutreachReplyInput {
   snippet?: string | null;
   externalId?: string | null;
   receivedAt?: string;
+  /** 可选：把 REPLY 回写为该 SAO 的 REPLIED outcome（12-3 归因接缝）。 */
+  saoId?: string | null;
 }
 
 /**
@@ -62,8 +64,19 @@ export class OutreachReplyService {
     if (Number.isNaN(receivedAt.getTime())) {
       invalid('VALIDATION_ERROR', 'receivedAt 不是合法时间');
     }
+    const saoId = input.saoId ?? null;
+    if (saoId !== null && !UUID_RE.test(saoId)) {
+      invalid('VALIDATION_ERROR', 'saoId must be a UUID');
+    }
 
     const row = await this.prisma.$transaction(async (tx) => {
+      if (saoId) {
+        const sao = await tx.sao.findFirst({
+          where: { id: saoId, workspaceId: tenant.workspaceId },
+          select: { id: true },
+        });
+        if (!sao) invalid('VALIDATION_ERROR', 'saoId 不属于当前工作空间');
+      }
       const reply = await tx.outreachReply.create({
         data: {
           workspaceId: tenant.workspaceId,
@@ -92,6 +105,27 @@ export class OutreachReplyService {
           } as Prisma.InputJsonValue,
         },
       });
+      // 12-3 接缝：只有 REPLY 且显式给了 SAO 时回写弱信号，sourceEventId=reply.id 保证幂等。
+      if (saoId && kind === 'REPLY') {
+        const existing = await tx.opportunityOutcome.findUnique({
+          where: { saoId_sourceEventId: { saoId, sourceEventId: reply.id } },
+          select: { id: true },
+        });
+        if (!existing) {
+          await tx.opportunityOutcome.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              saoId,
+              outcome: 'REPLIED',
+              occurredAt: receivedAt,
+              source: 'SYSTEM',
+              evidenceRef: reply.id,
+              sourceEventId: reply.id,
+              createdBy: tenant.userId,
+            },
+          });
+        }
+      }
       return reply;
     });
 

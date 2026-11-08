@@ -1,0 +1,144 @@
+◇ injected env (68) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+{
+  "workspaceId": "5c47d7fd-f5ee-4c1f-969b-a7a4c744b591",
+  "campaignId": "9a67796e-92ae-4836-bb89-8bf8826ab32c",
+  "funnel": {
+    "campaigns": 1,
+    "spendTotalMicros": 0,
+    "execCostMicros": 0,
+    "planCostMicros": 0,
+    "qgoCount": 1,
+    "saoCount": 1,
+    "positiveCount": 0,
+    "replyCount": 1,
+    "negativeCount": 0
+  },
+  "checks": [
+    {
+      "name": "outreach_batch",
+      "ok": true,
+      "detail": [
+        {
+          "_count": {
+            "_all": 1
+          },
+          "status": "QUEUED"
+        },
+        {
+          "_count": {
+            "_all": 1
+          },
+          "status": "SENT"
+        },
+        {
+          "_count": {
+            "_all": 3
+          },
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "name": "outreach_draft",
+      "ok": true,
+      "detail": [
+        {
+          "_count": {
+            "_all": 1
+          },
+          "status": "APPROVED"
+        },
+        {
+          "_count": {
+            "_all": 3
+          },
+          "status": "SKIPPED"
+        },
+        {
+          "_count": {
+            "_all": 2
+          },
+          "status": "SENT"
+        }
+      ]
+    },
+    {
+      "name": "outreach_send",
+      "ok": true,
+      "detail": [
+        {
+          "_count": {
+            "_all": 2
+          },
+          "status": "SENT"
+        },
+        {
+          "_count": {
+            "_all": 3
+          },
+          "status": "SKIPPED"
+        }
+      ]
+    },
+    {
+      "name": "outreach_reply",
+      "ok": true,
+      "detail": [
+        {
+          "_count": {
+            "_all": 1
+          },
+          "kind": "REPLY",
+          "classification": "NEGATIVE"
+        }
+      ]
+    },
+    {
+      "name": "opportunity_outcome.REPLIED（回复弱信号回写）",
+      "ok": true,
+      "detail": {
+        "bySource": {
+          "SYSTEM": 1
+        },
+        "distinctSao": 1
+      }
+    },
+    {
+      "name": "归因行（campaign）",
+      "ok": true,
+      "detail": {
+        "campaignId": "9a67796e-92ae-4836-bb89-8bf8826ab32c",
+        "campaignName": "M2 11-4 Demo Campaign",
+        "campaignStatus": "DRAFT",
+        "execCostMicros": 0,
+        "planCostMicros": 0,
+        "spendTotalMicros": 0,
+        "qgoCount": 1,
+        "saoCount": 1,
+        "positiveCount": 0,
+        "replyCount": 1,
+        "negativeCount": 0,
+        "costPerPositiveMicros": null,
+        "pipelinePerDollar": null
+      }
+    },
+    {
+      "name": "归因 replyCount == distinct SAO(REPLIED)",
+      "ok": true,
+      "detail": {
+        "campaignId": "9a67796e-92ae-4836-bb89-8bf8826ab32c",
+        "replyCount": 1,
+        "distinctRepliedSao": 1
+      }
+    },
+    {
+      "name": "对账规则（diff≠0 → balanced=false，如实报告）",
+      "ok": true,
+      "detail": {
+        "balanced": true,
+        "nonZeroRows": []
+      }
+    }
+  ],
+  "passed": true
+}
