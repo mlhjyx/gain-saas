@@ -212,8 +212,7 @@ describe('OutreachSendControls：信箱上限与收件域限速', () => {
   it('授权 caps 收紧 env 上限：beginBatch 传入更小值时按收紧值判定', async () => {
     const instance = controls(new FakeControlsPrisma());
     const state = await instance.beginBatch(tenant, WEDNESDAY_10_BERLIN, {
-      perMailboxDaily: 1,
-      perDomainHourly: 1,
+      capsOverride: { perMailboxDaily: 1, perDomainHourly: 1 },
     });
     expect(state.dailyCap).toBe(1);
     expect(state.domainHourlyCap).toBe(1);
@@ -277,6 +276,31 @@ describe('OutreachSendControls：退信/投诉熔断（滚动 7 天）', () => {
         workspaceId: WS,
         kind: 'BOUNCE',
         receivedAt: new Date(now.getTime() - 3_600_000),
+      });
+    }
+    await expect(controls(prisma).assertHealthy(tenant, now)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
+    );
+  });
+
+  it('SMTP 5xx 硬拒回灌：硬拒计入退信分子与分母，6/106 ≥5% 触发熔断', async () => {
+    const prisma = new FakeControlsPrisma();
+    const now = WEDNESDAY_10_BERLIN;
+    for (let i = 0; i < 100; i += 1) {
+      prisma.sends.push({
+        workspaceId: WS,
+        status: 'SENT',
+        recipientEmail: `k${i}@ziel.de`,
+        sentAt: new Date(now.getTime() - 86_400_000),
+      });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      prisma.sends.push({
+        workspaceId: WS,
+        status: 'FAILED',
+        bounceType: 'HARD',
+        recipientEmail: `bad${i}@ziel.de`,
+        createdAt: new Date(now.getTime() - 3_600_000),
       });
     }
     await expect(controls(prisma).assertHealthy(tenant, now)).rejects.toSatisfy(

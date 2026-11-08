@@ -59,6 +59,9 @@ describe('copyForError', () => {
       'CAMPAIGN_AUTHORIZATION_REVOKED',
       'CAMPAIGN_AUTHORIZATION_EXPIRED',
       'OUTREACH_BATCH_SIZE_EXCEEDED',
+      'OUTREACH_MAILBOX_NOT_FOUND',
+      'OUTREACH_MAILBOX_DUPLICATE',
+      'OUTREACH_DOMAIN_NOT_FOUND',
     ] as const;
     for (const code of sendGateCodes) {
       expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import type { AppConfig } from '../config/configuration.js';
 import type { PrismaService } from '../shared/prisma.service.js';
 import type { AuditService } from '../shared/audit.service.js';
+import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import { SmtpProtocolError } from './outreach-smtp.transport.js';
 import {
   OutreachAuthorizationConsumer,
   hashOutreachAudience,
@@ -210,6 +213,150 @@ class FakeSendPrisma {
 
   readonly outreachUnsubscribeToken = {
     create: async ({ data }: { data: Row }) => ({ id: this.id(), ...data }),
+  };
+
+  domains: Row[] = [];
+  mailboxes: Row[] = [];
+  mailboxCounters: Row[] = [];
+  domainCounters: Row[] = [];
+
+  readonly outreachDomain = {
+    upsert: async ({
+      where,
+      create,
+    }: {
+      where: { workspaceId_domain: { workspaceId: string; domain: string } };
+      create: Row;
+      update: Row;
+    }) => {
+      const { workspaceId, domain } = where.workspaceId_domain;
+      const existing = this.domains.find(
+        (row) => row.workspaceId === workspaceId && row.domain === domain,
+      );
+      if (existing) return { ...existing };
+      const row = { id: this.id(), createdAt: new Date(), ...create };
+      this.domains.push(row);
+      return { ...row };
+    },
+  };
+
+  readonly outreachMailbox = {
+    findUnique: async ({
+      where,
+    }: {
+      where: { workspaceId_address: { workspaceId: string; address: string } };
+    }) => {
+      const { workspaceId, address } = where.workspaceId_address;
+      return (
+        this.mailboxes.find(
+          (row) => row.workspaceId === workspaceId && row.address === address,
+        ) ?? null
+      );
+    },
+    findFirst: async ({ where }: { where: Row }) =>
+      this.mailboxes.find(
+        (row) =>
+          (!where.id || row.id === where.id) &&
+          (!where.workspaceId || row.workspaceId === where.workspaceId),
+      ) ?? null,
+    findMany: async ({ where }: { where: Row }) =>
+      this.mailboxes.filter((row) => row.workspaceId === where.workspaceId),
+    create: async ({ data }: { data: Row }) => {
+      const row = { id: this.id(), createdAt: new Date(), lastSendAt: null, ...data };
+      this.mailboxes.push(row);
+      return { ...row };
+    },
+    update: async ({ where, data }: { where: { id: string }; data: Row }) => {
+      const row = this.mailboxes.find((candidate) => candidate.id === where.id)!;
+      Object.assign(row, data);
+      return { ...row };
+    },
+  };
+
+  readonly outreachMailboxCounter = {
+    upsert: async ({
+      where,
+      create,
+      update,
+    }: {
+      where: { mailboxId_day: { mailboxId: string; day: Date } };
+      create: Row;
+      update: Row;
+    }) => {
+      const { mailboxId, day } = where.mailboxId_day;
+      const existing = this.mailboxCounters.find(
+        (row) => row.mailboxId === mailboxId && (row.day as Date).getTime() === day.getTime(),
+      );
+      if (existing) {
+        for (const [key, value] of Object.entries(update)) {
+          if (value && typeof value === 'object' && 'increment' in (value as Row)) {
+            existing[key] =
+              ((existing[key] as number) ?? 0) + (value as { increment: number }).increment;
+          }
+        }
+        return { ...existing };
+      }
+      const row = { sent: 0, hardBounces: 0, complaints: 0, ...create };
+      this.mailboxCounters.push(row);
+      return { ...row };
+    },
+    findUnique: async ({
+      where,
+    }: {
+      where: { mailboxId_day: { mailboxId: string; day: Date } };
+    }) => {
+      const { mailboxId, day } = where.mailboxId_day;
+      return (
+        this.mailboxCounters.find(
+          (row) => row.mailboxId === mailboxId && (row.day as Date).getTime() === day.getTime(),
+        ) ?? null
+      );
+    },
+    aggregate: async ({
+      where,
+    }: {
+      where: { mailboxId: string; day: { gte: Date } };
+      _sum: { sent: boolean };
+    }) => {
+      const rows = this.mailboxCounters.filter(
+        (row) =>
+          row.mailboxId === where.mailboxId &&
+          (row.day as Date).getTime() >= where.day.gte.getTime(),
+      );
+      return { _sum: { sent: rows.reduce((sum, row) => sum + ((row.sent as number) ?? 0), 0) } };
+    },
+  };
+
+  readonly outreachDomainCounter = {
+    upsert: async ({
+      where,
+      create,
+    }: {
+      where: {
+        domainId_hour_recipientDomain: {
+          domainId: string;
+          hour: Date;
+          recipientDomain: string;
+        };
+      };
+      create: Row;
+      update: Row;
+    }) => {
+      const { domainId, hour, recipientDomain } = where.domainId_hour_recipientDomain;
+      const existing = this.domainCounters.find(
+        (row) =>
+          row.domainId === domainId &&
+          (row.hour as Date).getTime() === hour.getTime() &&
+          row.recipientDomain === recipientDomain,
+      );
+      if (existing) {
+        existing.sent = ((existing.sent as number) ?? 0) + 1;
+        return { ...existing };
+      }
+      const row = { sent: 0, ...create };
+      this.domainCounters.push(row);
+      return { ...row };
+    },
   };
 
   readonly $transaction = async (
@@ -430,6 +577,11 @@ function service(
     prisma as unknown as PrismaService,
     config,
   );
+  const mailboxes = new OutreachMailboxService(
+    prisma as unknown as PrismaService,
+    audit,
+    config,
+  );
   return new OutreachSendService(
     prisma as unknown as PrismaService,
     audit,
@@ -440,6 +592,7 @@ function service(
     config,
     controls,
     authorization,
+    mailboxes,
   );
 }
 
@@ -1136,6 +1289,78 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
 
     await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
+    );
+    expect(transport.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('OutreachSendService · 发送遥测与信箱资产（P4-02/P4-04）', () => {
+  it('SMTP 5xx 硬拒：台账记 HARD 遥测、写硬拒事件、信箱硬退计数 +1', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport(async (message) => {
+      if (message.to === 'buyer@example.de') {
+        throw new SmtpProtocolError('RCPT TO', ['550 5.1.1 user unknown']);
+      }
+      return { messageId: 'sink-ok' };
+    });
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'QUEUED', sent: 1, failed: 1 });
+    const failed = prisma.sends.find((send) => send.status === 'FAILED')!;
+    expect(failed).toMatchObject({
+      bounceType: 'HARD',
+      smtpStatusCode: 550,
+      error: '550 5.1.1 user unknown',
+    });
+    expect(typeof failed.latencyMs).toBe('number');
+    expect(
+      prisma.events.some((event) => event.type === 'SEND_HARD_REJECTED'),
+    ).toBe(true);
+    expect(prisma.mailboxCounters[0]).toMatchObject({ sent: 1, hardBounces: 1 });
+    expect(prisma.domainCounters[0]).toMatchObject({ recipientDomain: 'example.de', sent: 1 });
+  });
+
+  it('网络/超时失败记 SOFT 遥测，不触发硬退计数与硬拒事件', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport(async () => {
+      throw new Error('SMTP 响应超时');
+    });
+
+    await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    const failed = prisma.sends.filter((send) => send.status === 'FAILED');
+    expect(failed).toHaveLength(2);
+    expect(failed[0]).toMatchObject({ bounceType: 'SOFT', smtpStatusCode: null });
+    expect(prisma.mailboxCounters[0]?.hardBounces ?? 0).toBe(0);
+    expect(prisma.events.some((event) => event.type === 'SEND_HARD_REJECTED')).toBe(false);
+  });
+
+  it('负向：发件信箱处于 PAUSED → 整批停发 OUTREACH_MAILBOX_PAUSED', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.mailboxes.push({
+      id: 'mailbox-paused',
+      workspaceId: WS_A,
+      domainId: 'domain-1',
+      address: 'outreach@example.test',
+      displayName: 'outreach',
+      provider: 'smtp',
+      dailyCap: 30,
+      weeklyCap: 120,
+      warmupStage: 'MATURE',
+      state: 'PAUSED',
+      timezone: 'Europe/Berlin',
+      healthState: 'CLOSED',
+      lastSendAt: null,
+      createdAt: new Date(),
+    });
+    const transport = fakeTransport();
+
+    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
   });

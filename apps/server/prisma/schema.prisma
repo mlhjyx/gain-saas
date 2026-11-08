@@ -486,6 +486,11 @@ model OutreachSend {
   messageId       String?            @map("message_id") @db.VarChar(256)
   status          OutreachSendStatus @default(SENT)
   error           String?            @db.VarChar(1000)
+  /// P4-04 发送遥测：SMTP 协议层结果与耗时；HARD（5xx 永久拒绝）/ SOFT（4xx、超时、网络）。
+  smtpStatusCode  Int?               @map("smtp_status_code")
+  smtpResponse    String?            @map("smtp_response") @db.VarChar(500)
+  bounceType      String?            @map("bounce_type") @db.VarChar(8)
+  latencyMs       Int?               @map("latency_ms")
   sentAt          DateTime?          @map("sent_at")
   createdAt       DateTime           @default(now()) @map("created_at")
 
@@ -495,6 +500,101 @@ model OutreachSend {
   @@unique([batchId, draftId, attempt])
   @@index([workspaceId, batchId, status])
   @@map("outreach_send")
+}
+
+// ─── P4-02/P4-04：发信资产（域名/信箱/配额计数）与 warmup/seed 记录 ─────────────
+
+/// 发信域资产（P4-02）：kind=cold_outbound|catchall_test|transactional；state=WARMING|ACTIVE|PAUSED|RETIRED。
+model OutreachDomain {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  domain      String   @db.VarChar(253)
+  kind        String   @default("cold_outbound") @db.VarChar(16)
+  state       String   @default("WARMING") @db.VarChar(16)
+  healthState String   @default("CLOSED") @map("health_state") @db.VarChar(16)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  mailboxes       OutreachMailbox[]
+  domainCounters  OutreachDomainCounter[]
+  seedTests       OutreachSeedTest[]
+
+  @@unique([workspaceId, domain])
+  @@map("outreach_domain")
+}
+
+/// 发件信箱资产（P4-02）：warmupStage=W1|W2|W3|MATURE 决定默认日/周上限；state=ACTIVE|PAUSED|RETIRED。
+model OutreachMailbox {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  domainId    String    @map("domain_id") @db.Uuid
+  address     String    @db.VarChar(320)
+  displayName String    @map("display_name") @db.VarChar(200)
+  provider    String    @default("smtp") @db.VarChar(32)
+  dailyCap    Int       @default(10) @map("daily_cap")
+  weeklyCap   Int       @default(50) @map("weekly_cap")
+  warmupStage String    @default("W1") @map("warmup_stage") @db.VarChar(16)
+  state       String    @default("ACTIVE") @db.VarChar(16)
+  timezone    String    @default("Europe/Berlin") @db.VarChar(64)
+  healthState String    @default("CLOSED") @map("health_state") @db.VarChar(16)
+  lastSendAt  DateTime? @map("last_send_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  domain   OutreachDomain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  counters OutreachMailboxCounter[]
+
+  @@unique([workspaceId, address])
+  @@map("outreach_mailbox")
+}
+
+/// 信箱日配额计数（P4-02 落库版；发送成功后原子递增，供日/周上限读取）。
+model OutreachMailboxCounter {
+  mailboxId   String   @map("mailbox_id") @db.Uuid
+  day         DateTime @db.Date
+  sent        Int      @default(0)
+  hardBounces Int      @default(0) @map("hard_bounces")
+  complaints  Int      @default(0)
+
+  mailbox OutreachMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  @@id([mailboxId, day])
+  @@map("outreach_mailbox_counter")
+}
+
+/// 发件域 × 收件域的小时计数（P4-02 限速落库版）。
+model OutreachDomainCounter {
+  domainId        String   @map("domain_id") @db.Uuid
+  hour            DateTime
+  recipientDomain String   @map("recipient_domain") @db.VarChar(253)
+  sent            Int      @default(0)
+
+  domain OutreachDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@id([domainId, hour, recipientDomain])
+  @@map("outreach_domain_counter")
+}
+
+/// 种子放置测试记录（P4-12 warmup/seed 清单的后端支撑）。
+model OutreachSeedTest {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  domainId          String   @map("domain_id") @db.Uuid
+  provider          String   @db.VarChar(24)
+  testedAt          DateTime @map("tested_at")
+  inboxPct          Float?   @map("inbox_pct")
+  spamPct           Float?   @map("spam_pct")
+  missingPct        Float?   @map("missing_pct")
+  gmailInboxPct     Float?   @map("gmail_inbox_pct")
+  outlookInboxPct   Float?   @map("outlook_inbox_pct")
+  reportRef         String   @map("report_ref") @db.VarChar(256)
+  contentHash       String   @map("content_hash") @db.Char(64)
+  raw               Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  domain OutreachDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId, testedAt])
+  @@index([workspaceId, testedAt])
+  @@map("outreach_seed_test")
 }
 
 /// 审计包（不可变）：谁批/何时/发什么/合规依据，packageHash 内容寻址。

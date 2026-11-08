@@ -751,6 +751,36 @@ export const ENGINE_ERROR_COPY = {
       next: "Split into several batches and re-submit for approval.",
     },
   },
+  OUTREACH_MAILBOX_NOT_FOUND: {
+    title: '发件信箱不存在',
+    why: '该信箱可能已被删除，或不属于当前工作空间。',
+    next: '刷新信箱列表后重试。',
+    en: {
+      title: "The sending mailbox does not exist",
+      why: "It may have been deleted or belong to another workspace.",
+      next: "Refresh the mailbox list and retry.",
+    },
+  },
+  OUTREACH_MAILBOX_DUPLICATE: {
+    title: '该发件信箱已存在',
+    why: '同一工作空间内，一个发件地址只能登记一次。',
+    next: '在现有信箱上修改配置，而不是重复创建。',
+    en: {
+      title: "This sending mailbox already exists",
+      why: "A sending address can be registered only once per workspace.",
+      next: "Edit the existing mailbox instead of creating a duplicate.",
+    },
+  },
+  OUTREACH_DOMAIN_NOT_FOUND: {
+    title: '发件域不存在',
+    why: '该域名还没有任何信箱或种子测试记录。',
+    next: '先创建该域下的发件信箱，或核对域名拼写。',
+    en: {
+      title: "The sending domain does not exist",
+      why: "No mailbox or seed test has been recorded for this domain yet.",
+      next: "Create a mailbox on this domain first, or check the spelling.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;
