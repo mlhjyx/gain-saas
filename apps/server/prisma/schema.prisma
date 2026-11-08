@@ -96,6 +96,14 @@ enum CampaignAuthorizationState {
   REVOKED
 }
 
+/// M2.1：受限 Campaign 规划 job 的状态机（PENDING → RUNNING → SUCCEEDED | FAILED）。
+enum CampaignPlanJobState {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
 model Campaign {
   id                String         @id @default(uuid()) @db.Uuid
   workspaceId       String         @map("workspace_id") @db.Uuid
@@ -111,9 +119,37 @@ model Campaign {
 
   workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   revisions CampaignRevision[]
+  planJobs  CampaignPlanJob[]
 
   @@index([workspaceId, status])
   @@map("campaign")
+}
+
+/// M2.1：一次受限 Campaign 规划 job（异步：BFF 触发 → 引擎工作流 → 内部回调落 DRAFT revision）。
+/// 同一 campaign 同时只允许一个活跃 job（部分唯一索引，见迁移）。
+model CampaignPlanJob {
+  id           String               @id @default(uuid()) @db.Uuid
+  workspaceId  String               @map("workspace_id") @db.Uuid
+  campaignId   String               @map("campaign_id") @db.Uuid
+  state        CampaignPlanJobState @default(PENDING)
+  objective    String
+  icpId        String?              @map("icp_id") @db.Uuid
+  /// 引擎工作流标识（campaign-plan-<jobId>），仅供诊断。
+  engineRunRef String?              @map("engine_run_ref")
+  /// 成功回调落下 revision 后回填；幂等键 (jobId, planHash)。
+  planHash     String?              @map("plan_hash")
+  revisionId   String?              @map("revision_id") @db.Uuid
+  error        String?
+  issues       Json?
+  createdBy    String               @map("created_by")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, campaignId])
+  @@index([workspaceId, state])
+  @@map("campaign_plan_job")
 }
 
 /// 不可变计划版本：任何修改 = 新 revision；审批与授权都绑定 planHash。
