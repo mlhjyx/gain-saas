@@ -16,7 +16,11 @@ import {
 import type { Response } from 'express';
 import { OpsGuard, type OpsRequest } from './ops.guard.js';
 import { OpsChannelsService } from './ops-channels.service.js';
+import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsService } from './ops.service.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Controller('api/ops')
 @UseGuards(OpsGuard)
@@ -24,11 +28,39 @@ export class OpsController {
   constructor(
     private readonly ops: OpsService,
     private readonly opsChannels: OpsChannelsService,
+    private readonly campaignMetrics: OpsCampaignMetricsService,
   ) {}
 
   @Get('overview')
   overview() {
     return this.ops.overview();
+  }
+
+  /**
+   * M2.2 Campaign 指标（设计 §5）：审批通过率 / 每通过计划成本 / 人工修改距离 / 重规划轮次分布。
+   * 只读、ops 专属（OpsGuard 之后），租户接口不可达。窗口缺省近 28 天，最长 365 天。
+   */
+  @Get('campaign-metrics')
+  async campaignMetricsQuery(@Query() query: Record<string, unknown>) {
+    const to = typeof query.to === 'string' ? new Date(query.to) : new Date();
+    const from = typeof query.from === 'string' ? new Date(query.from) : new Date(to.getTime() - 28 * DAY_MS);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+      throw new BadRequestException('from/to 必须是 ISO 时间且 from < to');
+    }
+    if (to.getTime() - from.getTime() > 365 * DAY_MS) {
+      throw new BadRequestException('窗口最长 365 天');
+    }
+    const workspaceId = typeof query.workspaceId === 'string' ? query.workspaceId : undefined;
+    if (workspaceId !== undefined && !UUID_RE.test(workspaceId)) {
+      throw new BadRequestException('workspaceId 必须是 UUID');
+    }
+    return {
+      metrics: await this.campaignMetrics.campaignMetrics({
+        from,
+        to,
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+      }),
+    };
   }
 
   // GET /probe 已移除:概览内部直接调用 service.probe(),无页面/脚本使用该 HTTP 路由(2026-11-03 清理)。

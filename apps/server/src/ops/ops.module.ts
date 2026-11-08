@@ -16,6 +16,7 @@ import { OpsTemporalService } from './ops-temporal.service.js';
 import { OpsRevocationController } from './ops-revocation.controller.js';
 import { R4Module } from '../r4/r4.module.js';
 import { ServiceModule } from '../service/service.module.js';
+import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsChannelsService } from './ops-channels.service.js';
 import { OpsEngineClient } from './ops-engine.client.js';
 
@@ -35,6 +36,7 @@ import { OpsEngineClient } from './ops-engine.client.js';
     OpsTemporalService,
     OpsEngineClient,
     OpsChannelsService,
+    OpsCampaignMetricsService,
     AuditService,
     PrismaService,
     AuthThrottleService,
