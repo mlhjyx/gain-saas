@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
+import { formatDate } from '@gain-saas/shared';
 import { newAttemptId } from '#/utils/attempt-id';
 import ErrorNotice from '#/components/error-notice.vue';
 
@@ -47,6 +48,23 @@ type ClaimTab = 'NEEDS_REVIEW' | 'APPROVED' | 'REVOKED';
 const loading = ref(true);
 const error = ref<string | null>(null);
 const companies = ref<CompanyProfile[]>([]);
+
+// P5b-09：列表筛选（客户端）。公司 API 一次返回全部，量级 <200 时客户端过滤足够。
+const searchQuery = ref('');
+const statusFilter = ref('ALL');
+const STATUS_FILTERS = ['ALL', 'DRAFT', 'ENRICHING', 'REVIEW', 'ACTIVE', 'FAILED'] as const;
+const filteredCompanies = computed(() =>
+  companies.value.filter((company) => {
+    const q = searchQuery.value.trim().toLowerCase();
+    const haystack = [company.name, company.domain, company.website, company.industry]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .map((value) => value.toLowerCase());
+    const matchQuery = !q || haystack.some((value) => value.includes(q));
+    const effectiveStatus = understandingFailed(company) ? 'FAILED' : (company.status ?? 'DRAFT');
+    const matchStatus = statusFilter.value === 'ALL' || effectiveStatus === statusFilter.value;
+    return matchQuery && matchStatus;
+  }),
+);
 const wizardOpen = ref(false);
 const creating = ref(false);
 const confirmingId = ref<string | null>(null);
@@ -556,6 +574,8 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
 const docsOpen = ref(false);
 const docsCompany = ref<CompanyProfile | null>(null);
 const docs = ref<SellerDocument[]>([]);
+const docsCursor = ref<string | undefined>(undefined);
+const docsHasMore = ref(false);
 const docsLoading = ref(false);
 const docsError = ref<string | null>(null);
 const docsUploading = ref(false);
@@ -607,14 +627,22 @@ async function openDocuments(company: CompanyProfile): Promise<void> {
   docsNotice.value = null;
   docsQuery.value = '';
   docsHits.value = [];
-  await loadDocuments();
+  docsCursor.value = undefined;
+  docsHasMore.value = false;
+  await loadDocuments(true, true);
+  // P5b-09：轮询降频 4s→10s；列表稳定（无处理中）后停止轮询，避免弹层开着就一直打接口。
   docsTimer = setInterval(() => {
+    if (!docsOpen.value) return;
     const busy = docs.value.some((row) => ['pending_upload', 'committing', 'queued', 'processing'].includes(row.status));
-    if (docsOpen.value) void loadDocuments(true);
-    if (!busy && docsTimer && !docsSearching.value) {
-      // 列表稳定后降到 10 秒一跳，仍可捕捉后续重试
+    if (busy) {
+      void loadDocuments(true);
+      return;
     }
-  }, 4000);
+    if (docsTimer) {
+      clearInterval(docsTimer);
+      docsTimer = null;
+    }
+  }, 10_000);
 }
 
 function closeDocuments(): void {
@@ -625,13 +653,17 @@ function closeDocuments(): void {
   }
 }
 
-async function loadDocuments(silent = false): Promise<void> {
+async function loadDocuments(silent = false, reset = true): Promise<void> {
   const companyId = docsCompany.value?.id;
   if (!companyId) return;
   if (!silent) docsLoading.value = true;
   try {
-    const page = await gainosApi.sellerDocuments(companyId);
-    docs.value = page?.data ?? [];
+    // P5b-09：资料库改游标分页；reset 拉第一页，否则按 docsCursor 追加。
+    const page = await gainosApi.sellerDocuments(companyId, reset ? undefined : docsCursor.value);
+    const rows = page?.data ?? [];
+    docs.value = reset ? rows : [...docs.value, ...rows];
+    docsCursor.value = page?.page?.next_cursor ?? undefined;
+    docsHasMore.value = Boolean(page?.page?.has_more && page?.page?.next_cursor);
     docsError.value = null;
   } catch (err) {
     if (!silent) docsError.value = failureText(err).title;
@@ -832,71 +864,97 @@ onUnmounted(() => {
       <button type="button" class="cp__cta" @click="openWizard">{{ $t('gainos.companies.emptyCta') }}</button>
     </div>
 
-    <ul v-else class="cp__list">
-      <li v-for="c in companies" :key="c.id" class="cp__item">
-        <div class="cp__item-main">
-          <strong class="cp__item-name">{{ c.name ?? c.domain ?? c.website ?? $t('gainos.companies.unnamed') }}</strong>
-          <span class="cp__item-site">{{ c.website ?? c.domain ?? $t('gainos.companies.noWebsite') }}</span>
-          <span v-if="understandingFailed(c)" class="cp__item-error">
-            {{ c.understandingLastError ?? $t('gainos.companies.statusFailed') }}
-          </span>
-        </div>
-        <div class="cp__item-side">
-          <button
-            v-if="c.status === 'REVIEW' || c.status === 'ACTIVE'"
-            type="button"
-            class="cp__facts"
-            @click="openClaims(c)"
-          >
-            {{ $t('gainos.companies.facts') }}
-          </button>
-          <span
-            class="cp__badge"
-            :class="understandingFailed(c) ? 'cp__badge--failed' : `cp__badge--${(c.status ?? 'DRAFT').toLowerCase()}`"
-          >
-            {{ understandingFailed(c) ? $t('gainos.companies.statusFailed') : statusLabel(c.status) }}
-          </span>
-          <button
-            v-if="understandingFailed(c)"
-            type="button"
-            class="cp__confirm"
-            :disabled="retryingId === c.id"
-            @click="retryUnderstanding(c)"
-          >
-            {{ retryingId === c.id ? $t('gainos.companies.retrying') : $t('gainos.companies.retryUnderstanding') }}
-          </button>
-          <button type="button" class="cp__confirm cp__confirm--ghost" @click="openDocuments(c)">
-            {{ $t('gainos.companies.documents') }}
-          </button>
-          <button
-            v-if="c.status === 'DRAFT'"
-            type="button"
-            class="cp__confirm cp__confirm--ghost"
-            @click="openEdit(c)"
-          >
-            {{ $t('gainos.companies.edit') }}
-          </button>
-          <button
-            v-if="c.status === 'DRAFT'"
-            type="button"
-            class="cp__confirm cp__confirm--ghost cp__confirm--danger"
-            :disabled="deletingId === c.id"
-            @click="removeCompany(c)"
-          >
-            {{ $t('gainos.companies.delete') }}
-          </button>
-          <button
-            v-if="c.status === 'REVIEW'"
-            type="button"
-            class="cp__confirm"
-            :disabled="confirmingId === c.id"
-            @click="confirmCompany(c)"
-          >
-            {{ confirmingId === c.id ? $t('gainos.companies.confirming') : $t('gainos.companies.confirm') }}
-          </button>
-        </div>
-      </li>
-    </ul>
+    <template v-else>
+      <div class="cp__filters">
+        <input
+          v-model="searchQuery"
+          class="cp__search"
+          type="search"
+          :placeholder="$t('gainos.companies.searchPlaceholder')"
+        />
+        <select v-model="statusFilter" class="cp__status-filter">
+          <option v-for="status in STATUS_FILTERS" :key="status" :value="status">
+            {{ status === 'ALL' ? $t('gainos.companies.filterAll') : status === 'FAILED' ? $t('gainos.companies.statusFailed') : statusLabel(status) }}
+          </option>
+        </select>
+        <span class="cp__muted">
+          {{ $t('gainos.companies.showing', { shown: filteredCompanies.length, total: companies.length }) }}
+        </span>
+      </div>
+      <div class="cp__table-wrap">
+        <table class="cp__table">
+          <thead>
+            <tr>
+              <th>{{ $t('gainos.companies.colCompany') }}</th>
+              <th>{{ $t('gainos.companies.colStatus') }}</th>
+              <th>{{ $t('gainos.companies.colDomain') }}</th>
+              <th>{{ $t('gainos.companies.colIndustry') }}</th>
+              <th>{{ $t('gainos.companies.colCreated') }}</th>
+              <th>{{ $t('gainos.companies.colActions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in filteredCompanies" :key="c.id">
+              <td>
+                <strong>{{ c.name ?? c.domain ?? c.website ?? $t('gainos.companies.unnamed') }}</strong>
+                <span v-if="understandingFailed(c)" class="cp__item-error">
+                  {{ c.understandingLastError ?? $t('gainos.companies.statusFailed') }}
+                </span>
+              </td>
+              <td>
+                <span
+                  class="cp__badge"
+                  :class="understandingFailed(c) ? 'cp__badge--failed' : `cp__badge--${(c.status ?? 'DRAFT').toLowerCase()}`"
+                >
+                  {{ understandingFailed(c) ? $t('gainos.companies.statusFailed') : statusLabel(c.status) }}
+                </span>
+              </td>
+              <td class="cp__mono">{{ c.website ?? c.domain ?? '—' }}</td>
+              <td>{{ c.industry ?? '—' }}</td>
+              <td>{{ formatDate(c.created_at) || '—' }}</td>
+              <td class="cp__actions-cell">
+                <button
+                  v-if="c.status === 'REVIEW' || c.status === 'ACTIVE'"
+                  type="button"
+                  class="cp__primary-sm"
+                  @click="openClaims(c)"
+                >
+                  {{ $t('gainos.companies.facts') }}
+                </button>
+                <button
+                  v-else-if="c.status === 'DRAFT'"
+                  type="button"
+                  class="cp__primary-sm"
+                  @click="openEdit(c)"
+                >
+                  {{ $t('gainos.companies.complete') }}
+                </button>
+                <span v-else class="cp__muted">—</span>
+                <details class="cp__more">
+                  <summary>{{ $t('gainos.companies.more') }}</summary>
+                  <div class="cp__menu">
+                    <button type="button" @click="openDocuments(c)">{{ $t('gainos.companies.documents') }}</button>
+                    <button v-if="understandingFailed(c)" type="button" :disabled="retryingId === c.id" @click="retryUnderstanding(c)">
+                      {{ $t('gainos.companies.retryUnderstanding') }}
+                    </button>
+                    <button v-if="c.status === 'REVIEW'" type="button" :disabled="confirmingId === c.id" @click="confirmCompany(c)">
+                      {{ $t('gainos.companies.confirm') }}
+                    </button>
+                    <button v-if="c.status === 'DRAFT'" type="button" @click="openEdit(c)">{{ $t('gainos.companies.edit') }}</button>
+                    <button v-if="c.status === 'DRAFT'" type="button" class="is-danger" :disabled="deletingId === c.id" @click="removeCompany(c)">
+                      {{ $t('gainos.companies.delete') }}
+                    </button>
+                  </div>
+                </details>
+              </td>
+            </tr>
+            <tr v-if="filteredCompanies.length === 0">
+              <td colspan="6" class="cp__muted">{{ $t('gainos.companies.noMatch') }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
@@ -1032,7 +1090,12 @@ onUnmounted(() => {
               </div>
             </li>
           </ul>
-          <p v-else-if="!docsLoading" class="cp__modal-hint">{{ $t('gainos.companies.documentsEmpty') }}</p>
+          <p v-if="docsHasMore" class="cp__docs-more">
+            <button type="button" class="cp__confirm" :disabled="docsLoading" @click="loadDocuments(true, false)">
+              {{ $t('gainos.companies.loadMoreDocuments') }}
+            </button>
+          </p>
+          <p v-else-if="!docsLoading && docs.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentsEmpty') }}</p>
           <form class="cp__docs-search" @submit.prevent="searchDocuments">
             <input v-model="docsQuery" type="search" minlength="2" maxlength="200" :placeholder="$t('gainos.companies.documentSearchPlaceholder')" />
             <button type="submit" class="cp__btn cp__btn--ghost" :disabled="docsSearching">
@@ -1604,4 +1667,46 @@ onUnmounted(() => {
   .cp__facts-ready { display: none; }
   .cp__facts-foot .cp__btn { width: 100%; }
 }
+
+/* P5b-09：公司档案表格化 */
+.cp__filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cp__search {
+  flex: 1; min-width: 220px; max-width: 420px; border: 1px solid var(--gs-border-strong);
+  border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px;
+  background: var(--gs-surface); color: var(--gs-fg);
+}
+.cp__status-filter {
+  border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 8px 10px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px;
+}
+.cp__table-wrap { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); overflow: auto; }
+.cp__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cp__table th, .cp__table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--gs-divider); vertical-align: middle; }
+.cp__table th { font-size: 12px; font-weight: 600; color: var(--gs-fg-muted); background: var(--gs-surface-2); white-space: nowrap; }
+.cp__table tbody tr { height: 60px; }
+.cp__table tbody tr:hover { background: var(--gs-surface-2); }
+.cp__table tr:last-child td { border-bottom: none; }
+.cp__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--gs-fg-muted); }
+.cp__actions-cell { display: flex; gap: 8px; align-items: center; }
+.cp__primary-sm {
+  border: none; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; font-weight: 600;
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; white-space: nowrap;
+}
+.cp__more { position: relative; }
+.cp__more summary {
+  list-style: none; cursor: pointer; font-size: 12.5px; color: var(--gs-fg-muted);
+  border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 7px 10px; white-space: nowrap;
+}
+.cp__more summary::-webkit-details-marker { display: none; }
+.cp__menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 160px;
+  background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 10px;
+  box-shadow: var(--gs-shadow-card); padding: 6px; display: grid; gap: 2px;
+}
+.cp__menu button {
+  border: none; background: none; text-align: left; padding: 8px 10px; border-radius: 8px;
+  font-size: 12.5px; color: var(--gs-fg-2); cursor: pointer;
+}
+.cp__menu button:hover { background: var(--gs-surface-2); }
+.cp__menu button.is-danger { color: var(--gs-danger); }
 </style>
