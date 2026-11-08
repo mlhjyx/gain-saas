@@ -1,0 +1,21 @@
+Return-Path: <outreach@mail.gainos.test>
+Received: from gain-saas.local (unknown [172.17.0.1])
+        by 32d913c50c14 (Mailpit) with SMTP
+        for <buyer@example.test>; Sun, 8 Nov 2026 12:05:24 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=mail.gainos.test; s=test20261108; t=1794139524; h=from:to:subject:date:message-id:mime-version:content-type:content-transfer-encoding:list-unsubscribe:list-unsubscribe-post; bh=/0aVLwaYJ5LqC0ADJ2m91ytpDdF0XffzFkegyUZ6tic=; b=FcYMBrduReFXCN/BDqY/rc+e9H7yljryBv/KT22nSzya0P1GayBKf9WPdoJjPaajcVB3pwMM5Qw8ZsY/KYXcw2UP/Fj3YykZfESxdRpvFScN+dmvHazoNYdAVsQalbO7WtxDqlQ59q5luuJeMPlhL08SfxQLKY1rG21XtJQAjal8aZ2OyawJI81JBBmUfc4QZFkTPjNvHeSaCjTF5hMVfJlqYVwwfhlnlLAvsb8mO3u4AAdtjcZwSCc31B+s3Pg0saLm/FM8DpABqgN0YYTXV8Jqh4YNK7Itqd3812oZ9zGKq9KSjoZWYTY+zGTHqxq+YPwrClHhessrITNAqKanaw==
+From: GainOS TEST <outreach@mail.gainos.test>
+To: <buyer@example.test>
+Subject: TEST A1
+Date: Sun, 08 Nov 2026 12:05:24 GMT
+Message-ID: <4c8e7a43-b07e-41cc-9fc3-63263c7cdbec@mail.gainos.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+List-Unsubscribe: <http://127.0.0.1:4020/api/public/outreach/unsubscribe?token=ZALxK8EMW5Ng4h9bdxbyZVxuVNLE-LLiFURBEq719OY>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+
+R3V0ZW4gVGFnLA0KDQpURVNULU5hY2hyaWNodCAxLiBLZWluZSBlY2h0ZSBadXN0ZWxsdW5nLg0K
+DQpHYWluT1MgRGVtbyBEZW1vIEEg5q2j5bi45Y+R6YCBLg0KDQotLS0NCkFibWVsZGVuIC8gVW5z
+dWJzY3JpYmU6IGh0dHA6Ly8xMjcuMC4wLjE6NDAyMC9hcGkvcHVibGljL291dHJlYWNoL3Vuc3Vi
+c2NyaWJlP3Rva2VuPVpBTHhLOEVNVzVOZzRoOWJkeGJ5WlZ4dVZOTEUtTExpRlVSQkVxNzE5T1k=
+
