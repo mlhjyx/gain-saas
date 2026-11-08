@@ -6,10 +6,15 @@ import { OpsDatabase } from './ops-database.service.js';
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** M2 步 12-1：campaign.plan 任务在引擎 usage_ledger 的归属约定（M2.1 起写入）。 */
-const PLAN_JOB_META_KEY = 'job';
-const PLAN_JOB_META_VALUE = 'campaign.plan';
-const PLAN_CAMPAIGN_META_KEY = 'campaignId';
+/**
+ * M2 步 12-1：campaign.plan 任务在引擎 usage_ledger 的真实元数据形状（2026-11-08 实测，
+ * global_dev）：{"task":"campaign.plan","model":…,"runId":"campaign.plan:campaign:<campaignId>:<hash>",…}。
+ * 不是 job/campaignId 键——旧假设会让 plan 侧引擎成本静默归零（假绿）。
+ */
+const PLAN_TASK_META_KEY = 'task';
+const PLAN_RUN_ID_META_KEY = 'runId';
+const PLAN_TASK_VALUE = 'campaign.plan';
+const PLAN_RUN_ID_KIND_SEGMENT = 'campaign';
 
 export interface AttributionCampaignRow {
   campaignId: string;
@@ -36,7 +41,7 @@ export interface AttributionReconciliationRow {
   execLedgerMicros: number;
   /** 视图值（v0 为 0 占位）。 */
   planViewMicros: number;
-  /** 引擎 usage_ledger 归集（meta.job='campaign.plan' + meta.campaignId）。 */
+  /** 引擎 usage_ledger 归集（meta.task='campaign.plan'，campaignId 取自 meta.runId 的第三段）。 */
   planEngineMicros: number;
   diffMicros: number;
 }
@@ -206,13 +211,17 @@ export class OpsAttributionService {
     );
 
     const engineRows = await this.database.db.withWorkspace(workspaceId, async (client) => {
+      // campaignId 从 runId 解析：campaign.plan:campaign:<campaignId>:<hash>（split_part 1/2/3）。
       const result = await client.query<RawEnginePlanRow>(
-        `SELECT (meta ->> $2) AS campaign_id,
+        `SELECT NULLIF(split_part(meta ->> $2, ':', 3), '') AS campaign_id,
                 COALESCE(sum(round(cost_usd * 1000000)), 0)::bigint AS plan_engine_micros
          FROM usage_ledger
-         WHERE (meta ->> $1) = $3 AND (meta ->> $2) IS NOT NULL
+         WHERE (meta ->> $1) = $3
+           AND split_part(meta ->> $2, ':', 1) = $3
+           AND split_part(meta ->> $2, ':', 2) = $4
+           AND NULLIF(split_part(meta ->> $2, ':', 3), '') IS NOT NULL
          GROUP BY 1`,
-        [PLAN_JOB_META_KEY, PLAN_CAMPAIGN_META_KEY, PLAN_JOB_META_VALUE],
+        [PLAN_TASK_META_KEY, PLAN_RUN_ID_META_KEY, PLAN_TASK_VALUE, PLAN_RUN_ID_KIND_SEGMENT],
       );
       return result.rows;
     });

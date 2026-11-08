@@ -87,6 +87,16 @@ describe('OpsAttributionService（M2 步 12-1 归因闭环）', () => {
     ]);
   });
 
+  it('引擎 plan 归集按真实 meta 形状读取（task + runId 第三段 = campaignId）', async () => {
+    const { service, clientQuery } = makeService({ engineRows: [] });
+
+    await service.attribution(WORKSPACE);
+
+    const call = clientQuery.mock.calls[0] as unknown as [string, unknown[]];
+    expect(call[0]).toContain("split_part(meta ->> $2, ':', 3)");
+    expect(call[1]).toEqual(['task', 'runId', 'campaign.plan', 'campaign']);
+  });
+
   it('引擎 usage_ledger 出现 campaign.plan 成本而视图未计入 → 红（差异为负）', async () => {
     const { service } = makeService({
       engineRows: [{ campaign_id: CAMPAIGN, plan_engine_micros: 500_000n }],
