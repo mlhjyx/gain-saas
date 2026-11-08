@@ -27,6 +27,11 @@ export interface OutreachReplyInput {
   receivedAt?: string;
   /** 可选：把 REPLY 回写为该 SAO 的 REPLIED outcome（12-3 归因接缝）。 */
   saoId?: string | null;
+  /**
+   * 是否写 OPT_OUT 同意（默认 true=回复即停）。软退信（4.x.x）传 false：
+   * 只计数不永久压制，重试仍可能送达（ch05 §5.3.5.8）。
+   */
+  suppress?: boolean;
 }
 
 /**
@@ -90,21 +95,23 @@ export class OutreachReplyService {
           receivedAt,
         },
       });
-      await tx.outreachConsent.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          contactRef: input.contactRef,
-          channel: 'email',
-          status: 'OPT_OUT',
-          source: `reply:${kind.toLowerCase()}`,
-          lawfulBasis: 'consent_withdrawal',
-          evidence: {
-            replyId: reply.id,
-            kind,
-            classification,
-          } as Prisma.InputJsonValue,
-        },
-      });
+      if (input.suppress !== false) {
+        await tx.outreachConsent.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            contactRef: input.contactRef,
+            channel: 'email',
+            status: 'OPT_OUT',
+            source: `reply:${kind.toLowerCase()}`,
+            lawfulBasis: 'consent_withdrawal',
+            evidence: {
+              replyId: reply.id,
+              kind,
+              classification,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
       // 12-3 接缝：只有 REPLY 且显式给了 SAO 时回写弱信号，sourceEventId=reply.id 保证幂等。
       if (saoId && kind === 'REPLY') {
         const existing = await tx.opportunityOutcome.findUnique({
