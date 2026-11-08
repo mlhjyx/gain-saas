@@ -148,6 +148,8 @@ model CampaignPlanJob {
   revisionId   String?              @map("revision_id") @db.Uuid
   /// M2.2：逐轮重规划历史（[{round, reasonCode, issues?}]，交付/终态时由引擎回传）。
   replanHistory Json?               @map("replan_history")
+  /// M2.2：本 job 由哪个人工拒绝后的自动重生成创建（为空 = 原始规划或人工触发）。
+  replanOfJobId String?             @map("replan_of_job_id") @db.Uuid
   error        String?
   issues       Json?
   createdBy    String               @map("created_by")

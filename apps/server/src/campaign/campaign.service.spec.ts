@@ -82,8 +82,9 @@ function buildService() {
     CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: 1000,
     SESSION_SECRET: 'x'.repeat(32),
   } as AppConfig;
-  const service = new CampaignService(prisma, audit, signer, config);
-  return { service, tx, signer, audit };
+  const replan = { onApprovalDeclined: vi.fn(async () => undefined) };
+  const service = new CampaignService(prisma, audit, signer, replan as never, config);
+  return { service, tx, signer, audit, replan };
 }
 
 function pendingApproval(overrides: Record<string, unknown> = {}) {
@@ -191,13 +192,22 @@ describe('CampaignService', () => {
     expect(decidedTrace[0].data.reasonCode).toBe('SELF_APPROVAL');
   });
 
-  it('decideApproval(decline)：拒绝不签发授权', async () => {
-    const { service, tx, signer } = buildService();
+  it('decideApproval(decline)：拒绝不签发授权，并触发 M2.2 自动重生成钩子', async () => {
+    const { service, tx, signer, replan } = buildService();
     tx.campaignApproval.findFirst.mockResolvedValue(pendingApproval());
-    const result = await service.decideApproval(tenant, CAMPAIGN, APPROVAL, { decision: 'decline' });
+    const result = await service.decideApproval(tenant, CAMPAIGN, APPROVAL, {
+      decision: 'decline',
+      reason: '预算过高',
+    });
     expect(result.approval.state).toBe('DECLINED');
     expect(result.authorization).toBeNull();
     expect(signer.sign).not.toHaveBeenCalled();
+    expect(replan.onApprovalDeclined).toHaveBeenCalledWith({
+      tenant,
+      campaignId: CAMPAIGN,
+      revisionId: REVISION,
+      reason: '预算过高',
+    });
   });
 
   it('decideApproval：超时 → 落 EXPIRED 并拒绝（超时=拒绝）', async () => {

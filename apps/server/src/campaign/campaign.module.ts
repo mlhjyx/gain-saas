@@ -8,6 +8,7 @@ import { CampaignPlanController } from './campaign-plan.controller.js';
 import { CampaignPlanInternalController } from './campaign-plan-internal.controller.js';
 import { CampaignPlanEngineClient } from './campaign-plan-engine.client.js';
 import { CampaignPlanJobService } from './campaign-plan-job.service.js';
+import { CampaignReplanService } from './campaign-replan.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignTokenSigner } from './campaign-token.signer.js';
 
@@ -31,6 +32,7 @@ import { CampaignTokenSigner } from './campaign-token.signer.js';
     CampaignServiceTokenGuard,
     CampaignPlanEngineClient,
     CampaignPlanJobService,
+    CampaignReplanService,
   ],
   exports: [CampaignService],
 })
