@@ -21,6 +21,8 @@
   --gs-surface: #ffffff;
   --gs-surface-2: #f3f4f6;
   --gs-surface-3: #fbfcfd;
+  /* 深色表格表头等的柔和底色（此前被引用但未定义，深色下回退成浅灰） */
+  --gs-bg-soft: #f8fafc;
 
   /* 边框与分隔 */
   --gs-border: #eceef2;
@@ -79,6 +81,7 @@
   --gs-surface: #141922;
   --gs-surface-2: #1c222d;
   --gs-surface-3: #10151d;
+  --gs-bg-soft: #1c222d;
 
   --gs-border: #232b37;
   --gs-border-strong: #2c3543;

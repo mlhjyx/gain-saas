@@ -182,20 +182,20 @@ onMounted(load);
 .cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: #7a6a52; text-transform: uppercase; }
 .cp h1 { margin: 6px 0; font-size: 26px; }
 .cp__head p { margin: 0; color: #6b6257; max-width: 640px; }
-.cp__primary { background: #b45309; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+.cp__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
 .cp__banner { margin: 18px 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
 .cp__hint { color: #6b6257; }
 .cp__error { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; }
 .cp__table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 .cp__table th, .cp__table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #eee5d8; vertical-align: top; }
 .cp__objective { margin: 4px 0 0; color: #6b6257; font-size: 13px; }
-.cp__link { border: none; background: none; color: #b45309; cursor: pointer; text-decoration: underline; }
+.cp__link { border: none; background: none; color: var(--gs-accent-strong); cursor: pointer; text-decoration: underline; }
 .cp__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
 .cp__card { background: #fff; border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
 .cp__card label { display: grid; gap: 6px; font-size: 14px; }
 .cp__card input, .cp__card textarea { border: 1px solid #d8cbb8; border-radius: 8px; padding: 8px 10px; font: inherit; }
 .cp__actions { display: flex; gap: 8px; justify-content: flex-end; }
-.cp__actions button { border-radius: 8px; padding: 8px 14px; border: none; background: #b45309; color: #fff; cursor: pointer; }
+.cp__actions button { border-radius: 8px; padding: 8px 14px; border: none; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; }
 .cp__ghost { background: #f3ece1 !important; color: #6b6257 !important; }
 .cp__error-inline { color: #991b1b; margin: 0; }
 </style>

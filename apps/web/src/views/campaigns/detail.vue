@@ -447,14 +447,14 @@ onUnmounted(stopPolling);
 .cd__head h1 { margin: 0; font-size: 24px; }
 .cd__head p { margin: 4px 0 0; color: #6b6257; }
 .cd__back { border: 1px solid #d8cbb8; background: #fff; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; }
-.cd__primary { background: #b45309; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
+.cd__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
 .cd__danger { background: #b91c1c; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
 .cd__ghost { background: #f3ece1; color: #6b6257; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
 .cd__banner { margin: 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
 .cd__notice { margin: 0; color: #166534; }
 .cd__hint { color: #6b6257; }
 .cd__muted { color: #8a7f70; font-size: 13px; }
-.cd__card { border: 1px solid #ede3d3; border-radius: 12px; padding: 16px 20px; background: #fffdf8; }
+.cd__card { border: 1px solid var(--gs-border); border-radius: 12px; padding: 16px 20px; background: var(--gs-surface); }
 .cd__card--gate { border-color: #f3c78a; background: #fff7ea; }
 .cd__card--ok { border-color: #bbe5c8; background: #f2fbf5; }
 .cd__card h2 { margin: 0 0 10px; font-size: 18px; }
@@ -463,12 +463,12 @@ onUnmounted(stopPolling);
 .cd__facts dd { margin: 0; }
 .cd__actions { display: flex; gap: 10px; margin-top: 10px; }
 .cd__why-1 { font-size: 16px; margin: 0 0 10px; }
-.cd__why-2 summary, .cd__why-3 summary { cursor: pointer; color: #b45309; }
+.cd__why-2 summary, .cd__why-3 summary { cursor: pointer; color: var(--gs-accent-strong); }
 .cd__why-2 ul { margin: 8px 0 0; }
 .cd__why-3 pre { background: #f6f1e7; padding: 10px; border-radius: 8px; overflow: auto; max-height: 320px; font-size: 12px; }
 .cd__why-3 code { display: block; margin-top: 6px; font-size: 12px; color: #6b6257; }
 .cd__timeline { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
-.cd__state { margin: 0 8px; color: #b45309; }
+.cd__state { margin: 0 8px; color: var(--gs-warn); }
 .cd__error { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; }
 .cd__error details { margin-top: 6px; }
 .cd__error-inline { color: #991b1b; margin: 0; }

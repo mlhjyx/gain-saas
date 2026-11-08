@@ -504,7 +504,7 @@ const kpis = computed(() => {
       label: $t('gainos.workspace.kpiRun'),
       value: loaded ? runValue : '—',
       hint: runHint,
-      to: link ? `/runs/${link.runId}` : '/find-buyers',
+      to: '/tasks',
       valueClass: runTone,
       text: true,
     },

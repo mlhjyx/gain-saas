@@ -1,5 +1,6 @@
 {
   "menu": {
+    "tasks": "挖掘任务",
     "reports": "周报",
     "members": "成员与角色",
     "workspaces": "工作空间",
@@ -8,6 +9,22 @@
     "sources": "数据源",
     "campaigns": "战役计划",
     "suppressions": "禁联名单"
+  },
+  "tasks": {
+    "title": "挖掘任务",
+    "subtitle": "每个任务按计划挖一类客户；这里是任务列表与最近一次运行的结果。",
+    "empty": "还没有挖掘任务。先到「找买家」设定目标客户画像并发起寻源。",
+    "emptyCta": "去设定目标客户画像",
+    "colTask": "任务",
+    "colStatus": "最近运行",
+    "colLastRun": "最近运行时间",
+    "colActions": "操作",
+    "viewRun": "查看运行",
+    "noRun": "还没有运行",
+    "never": "从未",
+    "taskActive": "进行中",
+    "taskPaused": "已暂停",
+    "taskArchived": "已归档"
   },
   "growth": {
     "title": "商机与触达",
@@ -617,6 +634,8 @@
       "mismatch": "不匹配",
       "unknown": "待评估"
     },
+    "loadMore": "加载更多",
+    "showingCount": "已显示 {shown} / 共 {total} 条",
     "viewPackage": "查看档案包",
     "accept": "值得跟进",
     "reject": "暂不跟进",

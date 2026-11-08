@@ -92,6 +92,8 @@ const notice = ref<string | null>(null);
 const icps = ref<Icp[]>([]);
 const activeIcpId = ref('');
 const queueCounts = ref<LeadQueueCounts | null>(null);
+// 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
+const pageLimit = ref(50);
 
 const selected = ref<Lead | null>(null);
 const pkg = ref<LeadPackage | null>(null);
@@ -228,6 +230,16 @@ function queueCount(key: string): number | undefined {
   if (key === 'suppressed') return counts.suppressed;
   if (key === 'sanctions_hold') return counts.sanctions_hold;
   return undefined;
+}
+
+// 总数与「加载更多」：队列计数是权威总数，列表按 pageLimit 递增拉取。
+const totalForQueue = computed(() => queueCount(activeQueue.value));
+const hasMoreLeads = computed(
+  () => typeof totalForQueue.value === 'number' && leads.value.length < totalForQueue.value,
+);
+function loadMore(): void {
+  pageLimit.value += 50;
+  void load();
 }
 function statusLabel(status?: string): string {
   if (!status) return $t('gainos.leads.status.DISCOVERED');
@@ -433,7 +445,7 @@ async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    const data = await gainosApi.leads({ icpId: activeIcpId.value, queue: activeQueue.value, limit: 50 });
+    const data = await gainosApi.leads({ icpId: activeIcpId.value, queue: activeQueue.value, limit: pageLimit.value });
     leads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
     await loadQueueCounts();
   } catch (error) {
@@ -597,6 +609,7 @@ async function reviewSanctions(decision: 'cleared_false_positive' | 'confirmed_t
 
 watch(activeQueue, () => {
   notice.value = null;
+  pageLimit.value = 50;
   void load();
 });
 watch(
@@ -746,6 +759,10 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           </button>
         </div>
       </article>
+      <div v-if="hasMoreLeads" class="ld__more">
+        <span class="ld__basis">{{ $t('gainos.leads.showingCount', { shown: leads.length, total: totalForQueue }) }}</span>
+        <button type="button" class="ld__action" @click="loadMore">{{ $t('gainos.leads.loadMore') }}</button>
+      </div>
     </section>
 
     <!-- 线索档案包 -->
@@ -1079,6 +1096,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__empty-desc { margin: 0 0 14px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 520px; line-height: 1.75; }
 .ld__cta { border-radius: 11px; padding: 10px 20px; font-size: 13.5px; font-weight: 600; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none; }
 .ld__list { display: grid; gap: 12px; }
+.ld__more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 8px 0 4px; }
 .ld__lead { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }
 .ld__lead-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .ld__lead-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }

@@ -1,5 +1,6 @@
 {
   "menu": {
+    "tasks": "Tasks",
     "reports": "Weekly Report",
     "members": "Members & Roles",
     "workspaces": "Workspaces",
@@ -8,6 +9,22 @@
     "sources": "Data sources",
     "campaigns": "Campaign plans",
     "suppressions": "Do-not-contact list"
+  },
+  "tasks": {
+    "title": "Prospecting tasks",
+    "subtitle": "Each task prospects one customer segment; this is the task list with the latest run result.",
+    "empty": "No prospecting tasks yet. Set your target customer profile in Find buyers and start a run.",
+    "emptyCta": "Set target customer profile",
+    "colTask": "Task",
+    "colStatus": "Latest run",
+    "colLastRun": "Last run at",
+    "colActions": "Actions",
+    "viewRun": "View run",
+    "noRun": "No runs yet",
+    "never": "Never",
+    "taskActive": "Active",
+    "taskPaused": "Paused",
+    "taskArchived": "Archived"
   },
   "growth": {
     "title": "Opportunities & outreach",
@@ -617,6 +634,8 @@
       "mismatch": "Mismatch",
       "unknown": "Not assessed"
     },
+    "loadMore": "Load more",
+    "showingCount": "Showing {shown} of {total}",
     "viewPackage": "View lead package",
     "accept": "Worth pursuing",
     "reject": "Not a fit",
