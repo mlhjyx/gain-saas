@@ -48,6 +48,21 @@ describe('CampaignPlan v0 validator', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('接受 M2.2 有界重规划的 maxReplans {0,1,2}（旧计划 0 向后兼容）', () => {
+    for (const maxReplans of [0, 1, 2]) {
+      const result = validateCampaignPlan(validPlan({ decisionPolicy: { maxReplans } }));
+      expect(result.ok, `maxReplans=${String(maxReplans)}`).toBe(true);
+    }
+  });
+
+  it('拒绝越界或非整数的 maxReplans', () => {
+    for (const maxReplans of [3, -1, 0.5, '0', true, null]) {
+      const result = validateCampaignPlan(validPlan({ decisionPolicy: { maxReplans } }));
+      expect(result.ok, `maxReplans=${String(maxReplans)}`).toBe(false);
+    }
+    expect(validateCampaignPlan(validPlan({ decisionPolicy: {} })).ok).toBe(false);
+  });
+
   it('JSON Schema 导出可用', () => {
     const schema = campaignPlanV0JsonSchema();
     expect(schema).toBeTypeOf('object');

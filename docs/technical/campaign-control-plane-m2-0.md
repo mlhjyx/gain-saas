@@ -136,7 +136,7 @@ CampaignPlanV0 {
   budget: { capMicros?: int>=0, currency: 'USD' }               // 与 workspace 配额上限做 service 层校验
   schedule: { notBefore?: ISO8601, notAfter?: ISO8601 }
   approvalPolicy: { required: true }                            // v0 恒 true
-  decisionPolicy: { maxReplans: 0 }                             // v0 恒 0；M2.2 放开
+  decisionPolicy: { maxReplans: 0 }                             // M2.2 起允许 {0,1,2}；旧 0 仍合法
 }
 ```
 

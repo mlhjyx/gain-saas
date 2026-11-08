@@ -2,9 +2,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { glossaryStatus } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
+
 import { $t } from '#/locales';
 
-import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob } from '#/api/gainos';
+import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob, type DiscoveryRunTrace } from '#/api/gainos';
 
 defineOptions({ name: 'DiscoveryRunView' });
 
@@ -53,13 +56,178 @@ async function loadJobs(): Promise<void> {
   }
 }
 
+// M2 步 9b-4：「过程」时间线（源侦察员选源/跳过原因 + 资格判定员批量判定/被否候选），只读。
+const traceRows = ref<DiscoveryRunTrace[]>([]);
+const traceCursor = ref<string | null>(null);
+const traceHasMore = ref(false);
+const traceLoading = ref(false);
+const traceError = ref<string | null>(null);
+
+async function loadTrace(): Promise<void> {
+  if (!runId) return;
+  traceLoading.value = true;
+  try {
+    const page = await gainosApi.runTrace(runId, { limit: 50 });
+    traceRows.value = page.data ?? [];
+    traceCursor.value = page.page?.next_cursor ?? null;
+    traceHasMore.value = page.page?.has_more ?? false;
+    traceError.value = null;
+  } catch (err) {
+    traceError.value = failureText(err).title;
+  } finally {
+    traceLoading.value = false;
+  }
+}
+
+async function loadMoreTrace(): Promise<void> {
+  if (!traceCursor.value) return;
+  traceLoading.value = true;
+  try {
+    const page = await gainosApi.runTrace(runId, { limit: 50, cursor: traceCursor.value });
+    traceRows.value = [...traceRows.value, ...(page.data ?? [])];
+    traceCursor.value = page.page?.next_cursor ?? null;
+    traceHasMore.value = page.page?.has_more ?? false;
+  } catch (err) {
+    traceError.value = failureText(err).title;
+  } finally {
+    traceLoading.value = false;
+  }
+}
+
+function traceAgentLabel(agentKey: string): string {
+  const key = `gainos.runs.traceAgent.${agentKey}`;
+  const value = $t(key);
+  return value === key ? agentKey : value;
+}
+
+function traceStepLabel(decisionType: string): string {
+  const key = `gainos.runs.traceStep.${decisionType}`;
+  const value = $t(key);
+  return value === key ? decisionType : value;
+}
+
+function traceReasonLabel(code: unknown): string {
+  if (typeof code !== 'string' || !code) return '—';
+  const key = `gainos.runs.traceRejectReason.${code}`;
+  const value = $t(key);
+  return value === key ? code : value;
+}
+
+function traceRejectReasonLabel(code: unknown): string {
+  if (typeof code !== 'string' || !code) return '—';
+  const key = `gainos.runs.traceVerdictReason.${code}`;
+  const value = $t(key);
+  return value === key ? code : value;
+}
+
+interface TraceEntry {
+  id: string;
+  agentLabel: string;
+  stepLabel: string;
+  time: string;
+  headline: string;
+  detail: string | null;
+  rejected: string | null;
+}
+
+function traceStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function traceObjectList(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> => item !== null && typeof item === 'object',
+      )
+    : [];
+}
+
+function traceNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+const traceEntries = computed<TraceEntry[]>(() =>
+  traceRows.value.map((row) => {
+    const chosen = (row.chosenOption ?? {}) as Record<string, unknown>;
+    const time = new Date(row.createdAt).toLocaleString();
+    if (row.decisionType === 'source.route') {
+      const sources = traceStringList(chosen['sources']);
+      const rejected = traceObjectList(row.rejectedCandidates);
+      const skipped = rejected
+        .map((item) => {
+          const ref = typeof item['candidateRef'] === 'string' ? item['candidateRef'] : '—';
+          return `${ref}（${traceReasonLabel(item['rejectReason'])}）`;
+        })
+        .join('、');
+      const headline =
+        sources.length > 0
+          ? `${$t('gainos.runs.traceChosenSources')}：${sources.join('、')}`
+          : $t('gainos.runs.traceNoSource');
+      const reason =
+        typeof row.reasonCode === 'string' && row.reasonCode
+          ? $t('gainos.runs.traceReason', { reason: traceReasonLabel(row.reasonCode) })
+          : null;
+      return {
+        id: row.id,
+        agentLabel: traceAgentLabel(row.agentKey),
+        stepLabel: traceStepLabel(row.decisionType),
+        time,
+        headline,
+        detail: reason,
+        rejected: skipped ? `${$t('gainos.runs.traceSkipped')}：${skipped}` : null,
+      };
+    }
+    if (row.decisionType === 'fit.judge') {
+      const verdicts = (chosen['verdicts'] ?? {}) as Record<string, unknown>;
+      const judged = traceNumber(chosen['judged']);
+      const total = traceNumber(chosen['batchSize']);
+      const rejected = traceObjectList(row.rejectedCandidates);
+      const counts = new Map<string, number>();
+      for (const item of rejected) {
+        const code = typeof item['rejectReason'] === 'string' ? item['rejectReason'] : '—';
+        counts.set(code, (counts.get(code) ?? 0) + 1);
+      }
+      const rejectedText = [...counts]
+        .map(([code, count]) => `${traceRejectReasonLabel(code)} ${count} 家`)
+        .join('、');
+      const headline =
+        judged !== null && total !== null
+          ? $t('gainos.runs.traceJudged', { judged, total })
+          : $t('gainos.runs.traceJudged', { judged: '—', total: '—' });
+      const verdictText = $t('gainos.runs.traceVerdicts', {
+        match: traceNumber(verdicts['match']) ?? 0,
+        weak: traceNumber(verdicts['weak']) ?? 0,
+        mismatch: traceNumber(verdicts['mismatch']) ?? 0,
+      });
+      return {
+        id: row.id,
+        agentLabel: traceAgentLabel(row.agentKey),
+        stepLabel: traceStepLabel(row.decisionType),
+        time,
+        headline,
+        detail: verdictText,
+        rejected: rejectedText ? `${$t('gainos.runs.traceRejected')}：${rejectedText}` : null,
+      };
+    }
+    return {
+      id: row.id,
+      agentLabel: traceAgentLabel(row.agentKey),
+      stepLabel: traceStepLabel(row.decisionType),
+      time,
+      headline: row.reasonCode ? `${$t('gainos.runs.traceReason', { reason: row.reasonCode })}` : '—',
+      detail: null,
+      rejected: null,
+    };
+  }),
+);
+
 /** 按 seq 增量拉事件；有新事件才刷新逐家状态（3 秒轮询的判据）。 */
 async function pollEvents(): Promise<void> {
   try {
     const page = await gainosApi.runEvents(runId, lastSeq.value);
     if (page.events.length > 0) {
       lastSeq.value = page.nextAfter;
-      await loadJobs();
+      await Promise.all([loadJobs(), loadTrace()]);
     }
   } catch {
     /* 事件轮询失败不打断 run 视图；下一轮重试 */
@@ -533,10 +701,9 @@ const statusTone = computed(() => {
   return 'is-running';
 });
 
+// 状态文案取自 @gain-saas/shared 的 glossary（P6 §4），未登记值不裸奔。
 function statusLabel(status?: string): string {
-  const key = `gainos.runs.status.${status ?? 'RUNNING'}`;
-  const value = $t(key);
-  return value === key ? (status ?? '') : value;
+  return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
 
 function toneLabel(tone: Tone): string {
@@ -551,6 +718,7 @@ async function load(): Promise<void> {
     await Promise.all([
       pollEvents(),
       jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
+      traceRows.value.length === 0 ? loadTrace() : Promise.resolve(),
       loadTaskAttempts(),
     ]);
   } catch (err) {
@@ -665,6 +833,26 @@ onUnmounted(() => {
             </tbody>
           </table>
         </article>
+      </section>
+
+      <section class="run__card run__card--wide">
+        <h2>{{ $t('gainos.runs.traceTitle') }}</h2>
+        <p class="run__muted">{{ $t('gainos.runs.traceSubtitle') }}</p>
+        <p v-if="traceError" class="run__error-text">{{ $t('gainos.runs.traceLoadError') }}</p>
+        <p v-else-if="traceLoading && traceRows.length === 0" class="run__muted">{{ $t('gainos.runs.traceLoading') }}</p>
+        <p v-else-if="traceRows.length === 0" class="run__muted">{{ $t('gainos.runs.traceEmpty') }}</p>
+        <ol v-else class="run__trace">
+          <li v-for="entry in traceEntries" :key="entry.id" class="run__trace-item">
+            <div class="run__trace-head">
+              <strong>{{ entry.agentLabel }} · {{ entry.stepLabel }}</strong>
+              <small class="run__muted">{{ entry.time }}</small>
+            </div>
+            <p class="run__trace-line">{{ entry.headline }}</p>
+            <p v-if="entry.detail" class="run__trace-line run__muted">{{ entry.detail }}</p>
+            <p v-if="entry.rejected" class="run__trace-line run__trace-line--warn">{{ entry.rejected }}</p>
+          </li>
+        </ol>
+        <button v-if="traceHasMore" class="run__action" type="button" :disabled="traceLoading" @click="loadMoreTrace">{{ $t('gainos.runs.traceLoadMore') }}</button>
       </section>
 
       <section class="run__user-stages" :aria-label="$t('gainos.runs.userProgress')">
@@ -978,6 +1166,12 @@ onUnmounted(() => {
 .run__facts dt { color: var(--gs-fg-muted); }
 .run__facts dd { margin: 0; color: var(--gs-fg); word-break: break-word; }
 .run__error-text { color: #b45309; max-width: 420px; word-break: break-word; }
+/* M2 步 9b-4：「过程」时间线（只读）。 */
+.run__trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.run__trace-item { border-left: 3px solid var(--gs-border); padding: 2px 0 2px 12px; display: grid; gap: 4px; }
+.run__trace-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; }
+.run__trace-line { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.run__trace-line--warn { color: #b45309; }
 .run__action--danger { border-color: #b45309; color: #b45309; }
 .run__details { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); padding: 14px 18px; }
 .run__details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gs-fg); }

@@ -4,6 +4,8 @@ import type { SessionInfo } from '#/api/gainos';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { glossaryStatus } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
@@ -584,29 +586,19 @@ function formatTime(value?: string | null): string {
 }
 
 function icpStatusLabel(status?: string): string {
-  const key = `gainos.findBuyers.icpStatus.${status ?? 'DRAFT'}`;
-  const translated = $t(key);
-  return translated === key ? (status ?? '') : translated;
+  return glossaryStatus('icp', status, preferences.app.locale)?.label ?? '—';
 }
 function planStatusLabel(status?: string): string {
   const key = `gainos.findBuyers.planStatus.${status ?? 'DRAFT'}`;
   const translated = $t(key);
-  return translated === key ? (status ?? '') : translated;
+  return translated === key ? '—' : translated;
 }
+// 状态/队列文案取自 @gain-saas/shared 的 glossary（P6 §4），未登记值不裸奔。
 function runStatusLabel(status?: string): string {
-  const key = `gainos.runs.status.${status ?? 'RUNNING'}`;
-  const translated = $t(key);
-  return translated === key ? (status ?? '') : translated;
+  return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
 function queueLabel(queue?: string): string {
-  const map: Record<string, string> = {
-    recommended: $t('gainos.leads.queueQualified'),
-    needs_review: $t('gainos.leads.queueReview'),
-    rejected: $t('gainos.leads.queueRejected'),
-    suppressed: $t('gainos.leads.queueSuppressed'),
-    sanctions_hold: $t('gainos.leads.queueSanctions'),
-  };
-  return (queue && map[queue]) || $t('gainos.leads.queueReview');
+  return glossaryStatus('leadQueue', queue, preferences.app.locale)?.label ?? '—';
 }
 function leadCompanyName(lead: Lead): string {
   return (
@@ -743,7 +735,7 @@ async function load(): Promise<void> {
         : 0;
     }
 
-    // 同一工作空间可能有多份生效中的目标买家；优先展示最近真实发起过寻源的那份，
+    // 同一工作空间可能有多份生效中的目标客户画像；优先展示最近真实发起过寻源的那份，
     // 其次才是最近创建的，避免看板停留在尚未使用的示例档案上。
     const activeCandidates = icps.value.filter(
       (icp) => icp.status === 'ACTIVE',

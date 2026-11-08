@@ -12,6 +12,15 @@ describe('copyForError', () => {
     expect(copy.next).toContain('运营');
   });
 
+  it('401 家族有登记且引导重新登录,不落兜底「重试」', () => {
+    for (const code of ['AUTH_REQUIRED', 'SESSION_EXPIRED']) {
+      const copy = copyForError(code);
+      expect(copy.title).toContain('登录已过期');
+      expect(copy.next).toContain('重新登录');
+    }
+    expect(copyForError('NOT_A_MEMBER').next).toContain('工作空间');
+  });
+
   it('PRD D6 的 409 阻断族全部有登记', () => {
     const blockers = [
       'SUPPRESSED',
@@ -73,5 +82,13 @@ describe('copyForError', () => {
       expect(copy.why.trim(), `${code}.why`).not.toBe('');
       expect(copy.next.trim(), `${code}.next`).not.toBe('');
     }
+  });
+});
+
+describe('商机域错误码（M2 步 10）', () => {
+  it('QGO 证据门 / 线索未接受 / 结果枚举 都有三层文案', () => {
+    expect(copyForError('QGO_EVIDENCE_REQUIRED').title).toContain('证据');
+    expect(copyForError('LEAD_NOT_QUALIFIED').title).toContain('已接受');
+    expect(copyForError('INVALID_OUTCOME').title).toContain('结果');
   });
 });
