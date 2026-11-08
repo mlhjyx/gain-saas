@@ -58,6 +58,8 @@ model Workspace {
   tasks       AcquisitionTask[]
   taskRuns    TaskRun[]
   campaigns   Campaign[]
+  outreachConsents         OutreachConsent[]
+  outreachUnsubscribeTokens OutreachUnsubscribeToken[]
 
   @@map("workspace")
 }
@@ -232,6 +234,48 @@ model CampaignDecisionTrace {
   @@index([workspaceId, campaignId])
   @@index([traceId])
   @@map("campaign_decision_trace")
+}
+
+// ─── M2 步 11 受控邮件触达：11-1 合规底座 ───────────────────────────────────
+
+enum OutreachConsentStatus {
+  OPT_IN
+  OPT_OUT
+  UNKNOWN
+}
+
+/// 外联同意台账（append-only）：每次声明/撤回追加一行；检索取最新，OPT_OUT 永久压制。
+model OutreachConsent {
+  id          String                @id @default(uuid()) @db.Uuid
+  workspaceId String                @map("workspace_id") @db.Uuid
+  contactRef  String                @map("contact_ref") @db.Uuid
+  channel     String                @default("email") @db.VarChar(16)
+  status      OutreachConsentStatus
+  source      String                @db.VarChar(64)
+  lawfulBasis String                @map("lawful_basis") @db.VarChar(64)
+  evidence    Json?
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, contactRef, channel, createdAt])
+  @@map("outreach_consent")
+}
+
+/// 退订 token（公共端点一次性使用；只存 SHA-256，复用按幂等成功处理）。
+model OutreachUnsubscribeToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  contactRef  String    @map("contact_ref") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, contactRef])
+  @@map("outreach_unsubscribe_token")
 }
 
 /// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。

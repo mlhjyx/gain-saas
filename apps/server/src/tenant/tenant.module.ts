@@ -28,6 +28,6 @@ import { ServiceModule } from '../service/service.module.js';
   imports: [ConfigModule, ServiceModule],
   controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, WorkspacesController, WorkspaceContextController],
   providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp],
-  exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService],
+  exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService, EngineHttp],
 })
 export class TenantModule {}
