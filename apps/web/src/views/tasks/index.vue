@@ -7,6 +7,9 @@ import { glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
+import AsyncSection from '#/components/gainos/async-section.vue';
+import PageHeader from '#/components/gainos/page-header.vue';
+
 import { failureText, gainosApi } from '#/api/gainos';
 
 /**
@@ -60,29 +63,27 @@ function fmtTime(ts?: string | null): string {
 
 <template>
   <div class="tk">
-    <header class="tk__head">
-      <div>
-        <h1>{{ $t('gainos.tasks.title') }}</h1>
-        <p class="tk__sub">{{ $t('gainos.tasks.subtitle') }}</p>
-      </div>
-      <button class="tk__refresh" type="button" @click="load">
-        {{ $t('gainos.common.refresh') }}
-      </button>
-    </header>
+    <PageHeader :title="$t('gainos.tasks.title')" :subtitle="$t('gainos.tasks.subtitle')">
+      <template #actions>
+        <button class="tk__refresh" type="button" @click="load">
+          {{ $t('gainos.common.refresh') }}
+        </button>
+      </template>
+    </PageHeader>
 
-    <p v-if="loading" class="tk__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="tk__error" role="alert">
-      <strong>{{ error.title }}</strong>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </div>
-
-    <section v-else-if="tasks.length === 0" class="tk__empty">
-      <p>{{ $t('gainos.tasks.empty') }}</p>
-      <router-link class="tk__cta" to="/find-buyers">{{ $t('gainos.tasks.emptyCta') }}</router-link>
-    </section>
-
-    <table v-else class="tk__table">
+    <AsyncSection
+      :loading="loading"
+      :error="error"
+      :empty="!loading && !error && tasks.length === 0"
+      :loading-text="$t('gainos.common.loading')"
+      :retry-text="$t('gainos.common.retry')"
+      @retry="load"
+    >
+      <template #empty>
+        <p>{{ $t('gainos.tasks.empty') }}</p>
+        <router-link class="tk__cta" to="/find-buyers">{{ $t('gainos.tasks.emptyCta') }}</router-link>
+      </template>
+    <table class="tk__table">
       <thead>
         <tr>
           <th>{{ $t('gainos.tasks.colTask') }}</th>
@@ -120,6 +121,7 @@ function fmtTime(ts?: string | null): string {
         </tr>
       </tbody>
     </table>
+    </AsyncSection>
   </div>
 </template>
 
