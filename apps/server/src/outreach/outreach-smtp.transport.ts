@@ -23,7 +23,7 @@ export interface OutreachTransport {
 
 export const OUTREACH_TRANSPORT = Symbol('OUTREACH_TRANSPORT');
 
-class SmtpProtocolError extends Error {
+export class SmtpProtocolError extends Error {
   constructor(
     readonly step: string,
     readonly response: string[],
@@ -31,6 +31,35 @@ class SmtpProtocolError extends Error {
     super(`SMTP ${step} 被拒绝：${response.join(' | ')}`);
     this.name = 'SmtpProtocolError';
   }
+}
+
+export interface SmtpFailureTelemetry {
+  smtpStatusCode: number | null;
+  smtpResponse: string | null;
+  /** HARD=5xx 永久拒绝（地址不存在/被拒收）；SOFT=4xx、超时、网络（可重试）。 */
+  bounceType: 'HARD' | 'SOFT' | null;
+}
+
+/**
+ * 把发送失败归类为可落库的遥测（P4-04）：协议层 5xx 记 HARD，4xx 与网络/超时记 SOFT；
+ * 非协议错误（配置/签名等）记 SOFT 但多半会在更早的门被拦下。
+ */
+export function smtpFailureTelemetry(error: unknown): SmtpFailureTelemetry {
+  if (error instanceof SmtpProtocolError) {
+    const lastLine = error.response[error.response.length - 1] ?? '';
+    const code = Number(lastLine.slice(0, 3));
+    const valid = Number.isInteger(code) && code >= 100 && code <= 599;
+    return {
+      smtpStatusCode: valid ? code : null,
+      smtpResponse: error.response.join(' | ').slice(0, 500),
+      bounceType: valid ? (code >= 500 ? 'HARD' : code >= 400 ? 'SOFT' : null) : null,
+    };
+  }
+  return {
+    smtpStatusCode: null,
+    smtpResponse: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+    bounceType: 'SOFT',
+  };
 }
 
 /**

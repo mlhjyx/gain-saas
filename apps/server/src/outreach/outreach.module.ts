@@ -7,6 +7,10 @@ import { OutreachPublicController } from './outreach-public.controller.js';
 import { OutreachReplyController } from './outreach-reply.controller.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
 import { OutreachAuthorizationConsumer } from './outreach-authorization.consumer.js';
+import { OutreachMailboxController } from './outreach-mailbox.controller.js';
+import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import { OutreachSeedTestController } from './outreach-seed-test.controller.js';
+import { OutreachSeedTestService } from './outreach-seed-test.service.js';
 import { OutreachSendController } from './outreach-send.controller.js';
 import { OutreachSendControls } from './outreach-send-controls.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
@@ -38,6 +42,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachSendController,
     OutreachReplyController,
     OutreachPublicController,
+    OutreachMailboxController,
+    OutreachSeedTestController,
   ],
   providers: [
     OutreachConsentService,
@@ -46,6 +52,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachSendGate,
     OutreachSendControls,
     OutreachAuthorizationConsumer,
+    OutreachMailboxService,
+    OutreachSeedTestService,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,

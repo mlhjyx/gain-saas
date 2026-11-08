@@ -93,6 +93,15 @@ export interface BatchCapsOverride {
   perDomainHourly?: number;
 }
 
+export interface BeginBatchOptions {
+  /** 授权 scope caps（上界收紧）。 */
+  capsOverride?: BatchCapsOverride;
+  /** 发件信箱资产的上限（P4-02；只收紧不放宽）。 */
+  mailbox?: { dailyCap?: number; weeklyCap?: number };
+  /** 资产计数表里的当前用量（P4-02 落库版）；缺省时回退台账计数。 */
+  usage?: { dailySent: number; weeklySent: number };
+}
+
 function parseWindowMinutes(value: string, fallback: number): number {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
   if (!match) return fallback;
@@ -148,11 +157,13 @@ export class OutreachSendControls {
 
   /**
    * 批次级熔断检查：滚动窗口内退信率/投诉率超阈值即整批停发（fail-closed）。
+   * 退信口径（P4-04 回灌）：DSN 退信（outreach_reply BOUNCE）+ SMTP 5xx 硬拒（bounceType=HARD），
+   * 分母 = 已发送 + 硬拒。SMTP 遥测在发送时即落台账，不等 DSN 回灌就能触发熔断。
    * 恢复不是自动的：阈值按时间窗口自然滚动消解，人工解除见 P4-08 完整熔断器。
    */
   async assertHealthy(tenant: OutreachTenant, now: Date = new Date()): Promise<void> {
     const since = new Date(now.getTime() - this.bounceWindowDays * 86_400_000);
-    const [sends, bounces, complaints] = await Promise.all([
+    const [sends, dsnBounces, hardRejects, complaints] = await Promise.all([
       this.prisma.outreachSend.count({
         where: {
           workspaceId: tenant.workspaceId,
@@ -167,6 +178,14 @@ export class OutreachSendControls {
           receivedAt: { gte: since },
         },
       }),
+      this.prisma.outreachSend.count({
+        where: {
+          workspaceId: tenant.workspaceId,
+          status: 'FAILED',
+          bounceType: 'HARD',
+          createdAt: { gte: since },
+        },
+      }),
       this.prisma.outreachReply.count({
         where: {
           workspaceId: tenant.workspaceId,
@@ -175,11 +194,13 @@ export class OutreachSendControls {
         },
       }),
     ]);
-    if (sends >= this.bounceMinSample && bounces / sends >= this.bounceRateHalt) {
+    const attempts = sends + hardRejects;
+    const bounces = dsnBounces + hardRejects;
+    if (attempts >= this.bounceMinSample && bounces / attempts >= this.bounceRateHalt) {
       throw new ConflictException({
         error: {
           code: 'OUTREACH_MAILBOX_PAUSED',
-          message: `滚动 ${this.bounceWindowDays} 天退信率 ${(bounces / sends * 100).toFixed(1)}% 超过 ${(this.bounceRateHalt * 100).toFixed(1)}% 熔断线，整批停发`,
+          message: `滚动 ${this.bounceWindowDays} 天退信率 ${(bounces / attempts * 100).toFixed(1)}% 超过 ${(this.bounceRateHalt * 100).toFixed(1)}% 熔断线，整批停发`,
         },
       });
     }
@@ -193,25 +214,39 @@ export class OutreachSendControls {
     }
   }
 
-  /** 从发送台账恢复本批开始时的计数器（日/周按发件信箱，小时按收件域）。 */
+  /**
+   * 恢复本批开始时的计数器（日/周按发件信箱，小时按收件域）。
+   * 上限取 min(env, 信箱资产, 授权 caps)；用量优先读资产计数表（P4-02），
+   * 无资产/无计数时回退台账计数（单信箱降级模式）。
+   */
   async beginBatch(
     tenant: OutreachTenant,
     now: Date,
-    capsOverride: BatchCapsOverride = {},
+    options: BeginBatchOptions = {},
   ): Promise<BatchControlState> {
-    const mailboxAddress = this.mailboxAddress();
-    const dailyCap = Math.min(this.dailyCap, capsOverride.perMailboxDaily ?? this.dailyCap);
-    const weeklyCap = Math.min(this.weeklyCap, capsOverride.perMailboxWeekly ?? this.weeklyCap);
+    const capsOverride = options.capsOverride ?? {};
+    const mailboxCaps = options.mailbox ?? {};
+    const dailyCap = Math.min(
+      this.dailyCap,
+      capsOverride.perMailboxDaily ?? this.dailyCap,
+      mailboxCaps.dailyCap ?? this.dailyCap,
+    );
+    const weeklyCap = Math.min(
+      this.weeklyCap,
+      capsOverride.perMailboxWeekly ?? this.weeklyCap,
+      mailboxCaps.weeklyCap ?? this.weeklyCap,
+    );
     const domainHourlyCap = Math.min(
       this.domainHourlyCap,
       capsOverride.perDomainHourly ?? this.domainHourlyCap,
     );
+    const mailboxAddress = this.mailboxAddress();
     const dayStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
     const weekStart = new Date(now.getTime() - 7 * 86_400_000);
     const hourStart = new Date(now.getTime() - 3_600_000);
-    const [dailySent, weeklySent, hourlyRows] = await Promise.all([
+    const [ledgerDaily, ledgerWeekly, hourlyRows] = await Promise.all([
       this.prisma.outreachSend.count({
         where: {
           workspaceId: tenant.workspaceId,
@@ -238,6 +273,9 @@ export class OutreachSendControls {
         select: { recipientEmail: true },
       }),
     ]);
+    // 计数表与台账取较大值：计数表跨进程一致，台账覆盖计数表上线前的存量历史。
+    const dailySent = Math.max(options.usage?.dailySent ?? 0, ledgerDaily);
+    const weeklySent = Math.max(options.usage?.weeklySent ?? 0, ledgerWeekly);
     const hourlyByDomain = new Map<string, number>();
     for (const row of hourlyRows as Array<{ recipientEmail: string }>) {
       const domain = row.recipientEmail.split('@')[1]?.toLowerCase();

@@ -25,10 +25,12 @@ import {
   normalizeCountry,
   outreachJurisdictionPolicy,
 } from './outreach-jurisdiction.js';
+import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import { OutreachSendControls } from './outreach-send-controls.js';
 import {
   OUTREACH_TRANSPORT,
+  smtpFailureTelemetry,
   type OutreachTransport,
 } from './outreach-smtp.transport.js';
 import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
@@ -122,6 +124,7 @@ export class OutreachSendService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly controls: OutreachSendControls,
     private readonly authorization: OutreachAuthorizationConsumer,
+    private readonly mailboxes: OutreachMailboxService,
   ) {}
 
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
@@ -290,8 +293,32 @@ export class OutreachSendService {
         errorMessageOf(error, '发送健康度熔断'),
       );
     }
-    // 授权 scope 里更紧的 caps 收紧本批次的 env 上限（授权是上界，env 是默认值）。
-    const controlState = await this.controls.beginBatch(tenant, now, grant.action.caps);
+    // 发件信箱资产（P4-02）：状态非 ACTIVE 整批停发；日/周上限取 min(env, 信箱, 授权)；
+    // 用量优先读落库计数（跨进程/重启一致），无资产时回退台账回读。
+    const mailboxAsset = await this.mailboxes
+      .ensureDefaultMailbox(tenant.workspaceId, this.config.OUTREACH_SMTP_FROM_ADDRESS, {
+        dailyCap: this.config.OUTREACH_MAILBOX_DAILY_CAP,
+        weeklyCap: this.config.OUTREACH_MAILBOX_WEEKLY_CAP,
+      })
+      .catch(() => null);
+    if (mailboxAsset && mailboxAsset.state !== 'ACTIVE') {
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        'OUTREACH_MAILBOX_PAUSED',
+        `发件信箱 ${mailboxAsset.address} 处于 ${mailboxAsset.state}，整批停发`,
+      );
+    }
+    const mailboxUsage = mailboxAsset
+      ? await this.mailboxes.usage(mailboxAsset.id, now).catch(() => undefined)
+      : undefined;
+    const controlState = await this.controls.beginBatch(tenant, now, {
+      capsOverride: grant.action.caps,
+      mailbox: mailboxAsset
+        ? { dailyCap: mailboxAsset.dailyCap, weeklyCap: mailboxAsset.weeklyCap }
+        : undefined,
+      usage: mailboxUsage,
+    });
 
     // 逐封预检：法域同意 → DNC（控制面在发送循环内逐封评估，见下方 checkDraft）。
     let preflight!: Map<string, DraftPreflight>;
@@ -412,6 +439,7 @@ export class OutreachSendService {
         );
       }
 
+      const attemptStartedAt = Date.now();
       try {
         const unsubscribe = await this.unsubscribe.issue(
           tenant,
@@ -446,7 +474,10 @@ export class OutreachSendService {
               authorizationUse,
               messageId,
               status: 'SENT',
+              // SMTP DATA 被 250 接受即为成功（P4-04 遥测）。
+              smtpStatusCode: 250,
               sentAt: new Date(),
+              latencyMs: Date.now() - attemptStartedAt,
             },
           }),
           this.prisma.outreachDraft.update({
@@ -455,10 +486,18 @@ export class OutreachSendService {
           }),
         ]);
         this.controls.recordSent(controlState, draft.recipientEmail);
+        if (mailboxAsset) {
+          await this.mailboxes.recordSend(mailboxAsset, draft.recipientEmail, now).catch(async () => {
+            await this.recordDraftEvent(tenant, batchId, draft, 'MAILBOX_COUNTER_STALE', {
+              reason: '发送成功但信箱计数落库失败，需人工核对配额',
+            });
+          });
+        }
         sentDraftIds.add(draft.id);
         results.push({ draftId: draft.id, status: 'SENT', messageId });
       } catch (error) {
-        const message = error instanceof Error ? error.message : '发送失败';
+        const telemetry = smtpFailureTelemetry(error);
+        const message = telemetry.smtpResponse ?? (error instanceof Error ? error.message : '发送失败');
         await this.prisma.$transaction([
           this.prisma.outreachSend.create({
             data: {
@@ -474,6 +513,10 @@ export class OutreachSendService {
               authorizationUse,
               status: 'FAILED',
               error: message.slice(0, 1000),
+              smtpStatusCode: telemetry.smtpStatusCode,
+              smtpResponse: telemetry.smtpResponse,
+              bounceType: telemetry.bounceType,
+              latencyMs: Date.now() - attemptStartedAt,
             },
           }),
           this.prisma.outreachDraft.update({
@@ -481,6 +524,16 @@ export class OutreachSendService {
             data: { status: 'FAILED' },
           }),
         ]);
+        if (telemetry.bounceType === 'HARD') {
+          if (mailboxAsset) {
+            await this.mailboxes.recordHardBounce(mailboxAsset.id, now).catch(() => undefined);
+          }
+          await this.recordDraftEvent(tenant, batchId, draft, 'SEND_HARD_REJECTED', {
+            code: 'OUTREACH_SMTP_HARD_REJECT',
+            smtpStatusCode: telemetry.smtpStatusCode,
+            response: telemetry.smtpResponse,
+          });
+        }
         results.push({ draftId: draft.id, status: 'FAILED', error: message });
       }
     }
