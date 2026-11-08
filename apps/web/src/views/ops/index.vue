@@ -41,6 +41,7 @@ const userQuery = ref('');
 const userBusy = ref('');
 const workspaceId = ref('');
 const attributionRows = ref<Row[]>([]);
+const batchRows = ref<Row[]>([]);
 const runs = ref<Row[]>([]);
 const leads = ref<Row[]>([]);
 const outbox = ref<Row[]>([]);
@@ -158,6 +159,7 @@ async function loadProviders(): Promise<void> {
       workspaceId.value = String(workspaces.value[0].id);
     }
     await loadAttribution();
+    await loadBatches();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -179,6 +181,22 @@ async function loadAttribution(): Promise<void> {
   } catch (err) {
     attributionRows.value = [];
     error.value = err instanceof Error ? err.message : String(err);
+  }
+}
+async function loadBatches(): Promise<void> {
+  if (!workspaceId.value) {
+    batchRows.value = [];
+    return;
+  }
+  try {
+    batchRows.value =
+      (
+        await api<{ batches: Row[] }>(
+          `/api/ops/workspaces/${workspaceId.value}/candidate-batches`,
+        )
+      ).batches ?? [];
+  } catch {
+    batchRows.value = [];
   }
 }
 async function loadChannels(): Promise<void> {
@@ -1066,7 +1084,7 @@ onMounted(checkSession);
           <section v-else-if="active === 'providers'" class="ops__stack">
             <div class="ops__toolbar">
               <span class="ops__muted">数据源效能（按工作空间）：</span>
-              <select v-model="workspaceId" @change="loadAttribution">
+              <select v-model="workspaceId" @change="loadAttribution(); loadBatches()">
                 <option v-for="workspace in workspaces" :key="workspace.id" :value="String(workspace.id)">
                   {{ workspace.name || workspace.id }}
                 </option>
@@ -1087,6 +1105,27 @@ onMounted(checkSession);
                     <td>{{ row.recommended }}</td>
                   </tr>
                   <tr v-if="attributionRows.length === 0"><td colspan="8" class="ops__muted">暂无归因数据（该空间还没有挖掘记录）</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="ops__toolbar">
+              <span class="ops__muted">候选批次（最近 50 批，qualify 每批一条）：</span>
+            </div>
+            <div class="ops__table-wrap">
+              <table class="ops__table">
+                <thead><tr><th>时间</th><th>批次</th><th>产出</th><th>推荐</th><th>待审</th><th>拒绝</th><th>禁联</th><th>制裁隔离</th></tr></thead>
+                <tbody>
+                  <tr v-for="row in batchRows" :key="row.event_id">
+                    <td>{{ String(row.occurred_at).slice(0, 16).replace('T', ' ') }}</td>
+                    <td :title="row.run_ref ? `run ${row.run_ref}` : ''">#{{ row.batch_no }}<span v-if="row.batch_ref" class="ops__muted"> · {{ String(row.batch_ref).split(':')[1]?.slice(0, 8) }}</span></td>
+                    <td>{{ row.scored }}</td>
+                    <td>{{ row.queue_recommended }}</td>
+                    <td>{{ row.queue_needs_review }}</td>
+                    <td>{{ row.queue_rejected }}</td>
+                    <td>{{ row.queue_suppressed }}</td>
+                    <td>{{ row.queue_sanctions_hold }}</td>
+                  </tr>
+                  <tr v-if="batchRows.length === 0"><td colspan="8" class="ops__muted">暂无候选批次（该空间还没有 qualify 记录）</td></tr>
                 </tbody>
               </table>
             </div>

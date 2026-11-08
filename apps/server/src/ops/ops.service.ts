@@ -602,6 +602,43 @@ export class OpsService {
    * RLS），按工作空间聚合（运营诊断口径）；平台级汇总待专门的跨空间读取角色。
    * 判定取每家公司最新一条 job/lead 作为现状（近似口径，文档注明）。
    */
+  /**
+   * M2 步 10：候选批次（CandidateBatchCompleted 事件投影，读 event_inbox，不落新表）。
+   * 运营归因页展示批次产出与判定分布；旧 run 回放（缺字段）按 0/null 兼容。
+   */
+  async candidateBatches(workspaceId: string, opts: { limit?: number } = {}): Promise<Row[]> {
+    if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION', message: 'workspaceId 需要 UUID' } });
+    }
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+    const rows = await this.prisma.eventInbox.findMany({
+      where: { workspaceId, type: 'CandidateBatchCompleted' },
+      orderBy: { occurredAt: 'desc' },
+      take: limit,
+      select: { eventId: true, payload: true, occurredAt: true },
+    });
+    const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+    const str = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
+    return rows.map((row) => {
+      const payload = (row.payload ?? {}) as Record<string, unknown>;
+      const queues = (payload.queues ?? {}) as Record<string, unknown>;
+      return {
+        event_id: row.eventId,
+        occurred_at: row.occurredAt.toISOString(),
+        run_ref: str(payload.run_ref),
+        icp_id: str(payload.icp_id),
+        batch_no: num(payload.batch_no),
+        batch_ref: str(payload.batch_ref),
+        scored: num(payload.scored),
+        queue_recommended: num(queues.recommended),
+        queue_needs_review: num(queues.needs_review),
+        queue_rejected: num(queues.rejected),
+        queue_suppressed: num(queues.suppressed),
+        queue_sanctions_hold: num(queues.sanctions_hold),
+      };
+    });
+  }
+
   async providerAttribution(workspaceId: string): Promise<Row[]> {
     if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'workspaceId 需要 UUID' } });
