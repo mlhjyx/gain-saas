@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
@@ -150,7 +150,7 @@ onMounted(load);
             </template>
             <template v-else>{{ $t('gainos.campaigns.noRevision') }}</template>
           </td>
-          <td>{{ new Date(campaign.updatedAt).toLocaleString() }}</td>
+          <td>{{ formatDateTime(campaign.updatedAt) }}</td>
           <td>
             <button class="cp__link" type="button" @click="open(campaign)">
               {{ budgetOf(campaign) }}

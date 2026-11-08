@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 
 import type { StatusTone } from '@gain-saas/shared';
 
-import { glossaryStatus, glossaryTerm, statusClass } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus, glossaryTerm, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -339,8 +339,7 @@ function taskRunStatusTone(status: string): string {
 }
 
 function formatRunTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+  return formatDateTime(value);
 }
 
 async function loadTaskRuns(icpId: string): Promise<void> {

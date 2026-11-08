@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
+
+import { formatDateTime } from '@gain-saas/shared';
 import ErrorNotice from '#/components/error-notice.vue';
 import {
   failureText,
@@ -175,9 +177,7 @@ function evidenceTypeLabel(value: string): string {
 }
 
 function fmt(value: string | null | undefined): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatDateTime(value) || value || '—';
 }
 
 onMounted(load);

@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import { formatDateTime } from '@gain-saas/shared';
+
 import { failureText, gainosApi, type DeletionRequestView } from '#/api/gainos';
 
 defineOptions({ name: 'SettingsPrivacy' });
@@ -43,7 +45,7 @@ function statusTone(status?: string): string {
 }
 
 function fmtTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return formatDateTime(value) || '—';
 }
 
 function persist(): void {

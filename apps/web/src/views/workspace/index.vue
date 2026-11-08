@@ -4,7 +4,7 @@ import type { SessionInfo } from '#/api/gainos';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
 
@@ -575,15 +575,7 @@ function timeValue(value?: string | null): number {
 }
 
 function formatTime(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(value);
 }
 
 function icpStatusLabel(status?: string): string {

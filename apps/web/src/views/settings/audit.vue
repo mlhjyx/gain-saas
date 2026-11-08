@@ -16,6 +16,8 @@ function shortTarget(target?: string | null): string {
   return target;
 }
 
+import { formatDateTime } from '@gain-saas/shared';
+
 import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
@@ -30,7 +32,7 @@ const loading = ref(true);
 const error = ref<{ title: string; next?: string } | null>(null);
 
 function fmtTime(value: string): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return formatDateTime(value) || '—';
 }
 
 function fmtDetail(value: unknown): string {

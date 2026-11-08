@@ -7,7 +7,7 @@ import type { CanonicalContact, Lead, OutreachBatchDetail, OutreachBatchSummary,
 
 import { computed, onMounted, ref } from 'vue';
 
-import { deriveOutreachActions, glossaryStatus, statusClass } from '@gain-saas/shared';
+import { deriveOutreachActions, formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -55,9 +55,7 @@ function tone(domain: 'outreachBatch' | 'outreachDraft', value: string | undefin
   return statusClass(glossaryStatus(domain, value ?? undefined, preferences.app.locale)?.tone ?? 'neutral');
 }
 function when(value: string | null | undefined): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  return formatDateTime(value) || '—';
 }
 
 const latestApproval = computed(() => detail.value?.approvals[0] ?? null);

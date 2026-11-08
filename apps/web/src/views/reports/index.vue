@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import { formatDateTime } from '@gain-saas/shared';
+
 import { failureText, gainosApi, type Icp, type Lead } from '#/api/gainos';
 
 defineOptions({ name: 'WeeklyReport' });
@@ -325,7 +327,7 @@ onMounted(load);
               </div>
               <span class="rp__chip">{{ lead.status }}</span>
             </header>
-            <p class="rp__muted">{{ $t('gainos.reports.onlineUpdated', { date: lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : '—' }) }}</p>
+            <p class="rp__muted">{{ $t('gainos.reports.onlineUpdated', { date: formatDateTime(lead.updatedAt) || '—' }) }}</p>
             <div class="rp__outcome-grid">
               <label class="rp__field"><span>{{ $t('gainos.reports.relevance') }}</span>
                 <select v-model="draftOf(lead).relevance">

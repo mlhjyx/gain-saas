@@ -10,6 +10,8 @@ import { onMounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import { formatDate } from '@gain-saas/shared';
+
 import {
   failureText,
   gainosApi,
@@ -192,7 +194,7 @@ onMounted(load);
                 {{ protectionLabel(row.protectionClass) }}
               </span>
             </td>
-            <td>{{ new Date(row.createdAt).toLocaleDateString() }}</td>
+            <td>{{ formatDate(row.createdAt) }}</td>
             <td class="sp__row-actions">
               <button
                 class="sp__link"

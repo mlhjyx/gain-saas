@@ -5,6 +5,8 @@ import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import { formatDateTime } from '@gain-saas/shared';
+
 import { failureText, gainosApi } from '#/api/gainos';
 
 /**
@@ -60,7 +62,7 @@ function kindLabel(value?: string | null): string {
 }
 
 function fmtTime(ts?: string | null): string {
-  return ts ? new Date(ts).toLocaleString() : '—';
+  return formatDateTime(ts) || '—';
 }
 </script>
 

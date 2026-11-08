@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 
 import { $t } from '#/locales';
 import { newAttemptId } from '#/utils/attempt-id';
+import { formatDate as formatDateValue } from '@gain-saas/shared';
 
 import {
   failureText,
@@ -52,9 +53,7 @@ let platformBasisLoaded = false;
 const contacts = computed<CanonicalContact[]>(() => detail.value?.company.contacts ?? []);
 
 function formatDate(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+  return formatDateValue(value);
 }
 
 function evidenceOf(contactId: string): ContactEvidence[] {
