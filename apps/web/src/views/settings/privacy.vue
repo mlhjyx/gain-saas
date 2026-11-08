@@ -249,7 +249,7 @@ onMounted(() => {
 .pv__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); }
 .pv__field select, .pv__field input, .pv__lookup input { border: 1px solid var(--gs-border-strong); border-radius: 9px; padding: 8px 10px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
 .pv__actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.pv__cta { border: 0; border-radius: 10px; padding: 9px 18px; background: var(--gs-accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.pv__cta { border: 0; border-radius: 10px; padding: 9px 18px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; cursor: pointer; }
 .pv__cta:disabled { opacity: .45; cursor: not-allowed; }
 .pv__secondary { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
 .pv__error { display: grid; gap: 2px; font-size: 12.5px; color: var(--gs-warn); }

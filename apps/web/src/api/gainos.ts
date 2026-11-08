@@ -436,6 +436,17 @@ export interface TaskRunView {
   finishedAt: string | null;
 }
 
+export interface OutreachReplyView {
+  id: string;
+  contactRef: string;
+  recipientEmail: string | null;
+  kind: 'REPLY' | 'BOUNCE' | 'UNSUBSCRIBE' | string;
+  classification: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'OUT_OF_OFFICE' | 'UNKNOWN' | string;
+  subject: string | null;
+  snippet: string | null;
+  receivedAt: string;
+}
+
 export interface AcquisitionTaskView {
   id: string;
   icpId: string | null;
@@ -920,6 +931,10 @@ export const gainosApi = {
       rerunOf?: string | null;
       replayed?: boolean;
     }>(`/tasks/${taskId}/runs`, attemptId ? { planId, attemptId } : { planId }),
+  /** 回复收件箱：任何回复/退信/退订（append-only）。 */
+  outreachReplies: () =>
+    requestClient.get<{ data: OutreachReplyView[] }>('/outreach/replies'),
+
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
   /** M0⑤：增量拉取 run 事件（after=上次的 nextAfter；事件可重放）。 */
   runEvents: (runId: string, after = 0, limit = 200) =>

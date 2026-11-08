@@ -1,5 +1,6 @@
 {
   "menu": {
+    "tasks": "Tasks",
     "reports": "Weekly Report",
     "members": "Members & Roles",
     "workspaces": "Workspaces",
@@ -8,6 +9,44 @@
     "sources": "Data sources",
     "campaigns": "Campaign plans",
     "suppressions": "Do-not-contact list"
+  },
+  "tasks": {
+    "title": "Prospecting tasks",
+    "subtitle": "Each task prospects one customer segment; this is the task list with the latest activity.",
+    "empty": "No prospecting tasks yet. Set your target customer profile in Find buyers and start prospecting.",
+    "emptyCta": "Set target customer profile",
+    "colTask": "Task",
+    "colStatus": "Latest activity",
+    "colLastRun": "Last activity at",
+    "colActions": "Actions",
+    "viewRun": "View details",
+    "noRun": "No activity yet",
+    "never": "Never",
+    "taskActive": "Active",
+    "taskPaused": "Paused",
+    "taskArchived": "Archived"
+  },
+  "replies": {
+    "tab": "Replies",
+    "title": "Reply inbox",
+    "subtitle": "Buyer replies, bounces and unsubscribes land here; any reply stops the related sending immediately.",
+    "empty": "No replies yet. After the first send, replies and bounces will appear here.",
+    "colTime": "Time",
+    "colRecipient": "Recipient",
+    "colClass": "Category",
+    "colSubject": "Subject",
+    "class": {
+      "POSITIVE": "Interested",
+      "NEUTRAL": "Neutral",
+      "NEGATIVE": "Declined",
+      "OUT_OF_OFFICE": "Auto-reply",
+      "UNKNOWN": "Unclassified"
+    },
+    "kind": {
+      "REPLY": "Reply",
+      "BOUNCE": "Bounce",
+      "UNSUBSCRIBE": "Unsubscribe"
+    }
   },
   "growth": {
     "title": "Opportunities & outreach",
@@ -431,7 +470,7 @@
   "findBuyers": {
     "kicker": "Coming in M3",
     "title": "Find buyers",
-    "subtitle": "Define your target customer profile profile and let GainOS discover overseas companies by market and product — with fit, need and reachability judged before delivery.",
+    "subtitle": "Define your target customer profile and let GainOS discover overseas companies by market and product — with fit, need and reachability judged before delivery.",
     "step1Title": "Complete company profile",
     "step1Checking": "Checking profile status…",
     "step1Ready": "Ready · {count} profiles",
@@ -617,6 +656,8 @@
       "mismatch": "Mismatch",
       "unknown": "Not assessed"
     },
+    "loadMore": "Load more",
+    "showingCount": "Showing {shown} of {total}",
     "viewPackage": "View lead package",
     "accept": "Worth pursuing",
     "reject": "Not a fit",
@@ -717,7 +758,7 @@
     },
     "reasonSelect": "Choose a reason",
     "qgoEntry": "Opportunities",
-    "promoteQgo": "Promote to QGO",
+    "promoteQgo": "Promote to opportunity",
     "promoteTitle": "Promote to opportunity (QGO)",
     "promoteEvidence": "Demand / timing evidence (at least one)",
     "promoteEvidenceType": "Evidence type",
@@ -1059,6 +1100,18 @@
       "weak": "Needs review",
       "mismatch": "Mismatch"
     },
+    "jobVerdictLabel": "Verdict",
+    "quickSummary": "{total} companies · {hidden} mismatches hidden",
+    "quickToggleAll": "Show all",
+    "quickToggleCollapse": "Collapse",
+    "quickFilterEmpty": "Nothing to review in this filter; use Show all to view the full list.",
+    "jobErrorPipeline": "Company pipeline failed",
+    "jobErrorCancelled": "Cancelled",
+    "metaJudged": "Judged this time",
+    "metaPrefiltered": "Prefiltered out",
+    "metaDeep": "Deep done/failed",
+    "metaFailureHigh": "High deep-stage failure rate",
+    "taskId": "Task",
     "jobError": "Error code",
     "jobsEmpty": "No company-level records yet (they appear once the quick scan starts).",
     "jobStageColumn": "Stage",
@@ -1129,6 +1182,12 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "Sign in",
+      "bffRequest": "Business request",
+      "memberInvite": "Invite member",
+      "roleChange": "Role change"
+    },
     "title": "Audit log",
     "subtitle": "Your own login, membership, and workspace actions in this workspace. To prevent cross-tenant leakage only your records are shown; platform operations are audited in the ops console.",
     "time": "Time",
@@ -1269,6 +1328,7 @@
     }
   },
   "campaigns": {
+    "goOutreach": "Go to outreach",
     "title": "Campaign plans",
     "subtitle": "Have the system draft what to do, how large, and the budget cap; it only takes effect after your approval. Shadow period: approvals do not execute.",
     "stage": "Stage 3 · Plan & approval",
@@ -1337,6 +1397,8 @@
     "planVersion": "Plan version"
   },
   "qgos": {
+    "loadMore": "Load more",
+    "goCampaigns": "Go to campaigns",
     "stage": "Convert",
     "title": "Opportunities",
     "subtitle": "Evidenced opportunities, manual sales acceptance and outcome logging — the fuel for attribution and unit economics.",
@@ -1344,7 +1406,7 @@
     "stateFilter": "Filter by state",
     "all": "All",
     "emptyTitle": "No opportunities yet",
-    "emptyDesc": "Accept a lead in Buyers, then use “Promote to QGO” to attach demand/timing evidence and a next step.",
+    "emptyDesc": "Accept a lead in Buyers, then use “Promote to opportunity” to attach demand/timing evidence and a next step.",
     "emptyCta": "Go to leads",
     "nextStep": "Next step",
     "score": "Fit {score}",
@@ -1384,6 +1446,11 @@
     }
   },
   "outreach": {
+    "pickContact": "Pick contact from leads",
+    "pickLead": "Lead",
+    "pickLeadPlaceholder": "— choose a lead —",
+    "pickEmpty": "No named contacts on this lead",
+    "pickUse": "Use",
     "title": "Outreach batches",
     "subtitle": "Drafts are reviewed before sending; approval only queues the batch, and nothing is sent until the channel is enabled.",
     "newBatch": "New batch",
@@ -1434,6 +1501,7 @@
     "eventOther": "Other activity"
   },
   "suppressions": {
+    "loadMore": "Load more",
     "title": "Do-not-contact list",
     "subtitle": "Listed e-mails, domains or companies are blocked before any outbound action. Legal entries are never physically deleted — removal goes through a recorded release request.",
     "addTitle": "Add to the do-not-contact list",

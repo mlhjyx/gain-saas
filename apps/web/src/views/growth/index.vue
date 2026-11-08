@@ -19,6 +19,7 @@ defineOptions({ name: 'Growth' });
 const CampaignsList = defineAsyncComponent(() => import('#/views/campaigns/index.vue'));
 const QgosList = defineAsyncComponent(() => import('#/views/qgos/index.vue'));
 const OutreachBatches = defineAsyncComponent(() => import('#/views/outreach/index.vue'));
+const OutreachReplies = defineAsyncComponent(() => import('#/views/outreach/replies.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -27,9 +28,10 @@ const TABS = computed(() => [
   { key: 'campaigns', label: glossaryTerm('campaign', preferences.app.locale) },
   { key: 'opportunities', label: glossaryTerm('qgo', preferences.app.locale) },
   { key: 'outreach', label: glossaryTerm('outreach', preferences.app.locale) },
+  { key: 'replies', label: $t('gainos.replies.tab') },
 ]);
 
-const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach']);
+const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach', 'replies']);
 const active = computed(() => {
   const tab = route.query.tab;
   return typeof tab === 'string' && TAB_KEYS.has(tab) ? tab : 'campaigns';
@@ -69,15 +71,19 @@ function select(key: string): void {
     </div>
 
     <section v-if="active === 'campaigns'" class="gr__panel" role="tabpanel">
-      <CampaignsList />
+      <CampaignsList embedded />
     </section>
 
     <section v-else-if="active === 'opportunities'" class="gr__panel" role="tabpanel">
-      <QgosList />
+      <QgosList embedded />
+    </section>
+
+    <section v-else-if="active === 'outreach'" class="gr__panel" role="tabpanel">
+      <OutreachBatches embedded />
     </section>
 
     <section v-else class="gr__panel" role="tabpanel">
-      <OutreachBatches />
+      <OutreachReplies embedded />
     </section>
   </div>
 </template>
@@ -91,7 +97,7 @@ function select(key: string): void {
 /* 页头与 tab 跟内嵌页面共用同一容器宽度（1080 + 24 内边距），避免双重缩进 */
 .gr__bar {
   width: 100%;
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 24px 24px 6px;
   box-sizing: border-box;
@@ -164,7 +170,7 @@ function select(key: string): void {
 /* 触达占位不是整页组件，自己补齐与页面一致的容器 */
 .gr__panel--inner {
   width: 100%;
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 18px 24px 48px;
   box-sizing: border-box;
@@ -232,9 +238,9 @@ function select(key: string): void {
 }
 
 .gr__cta {
-  border: 1px solid var(--gs-accent);
-  background: var(--gs-accent);
-  color: #fff;
+  border: 1px solid var(--gs-accent-cta);
+  background: var(--gs-accent-cta);
+  color: var(--gs-accent-cta-fg);
   font-size: 13px;
   font-weight: 600;
   border-radius: 10px;
@@ -243,8 +249,8 @@ function select(key: string): void {
 }
 
 .gr__cta:hover {
-  background: var(--gs-accent-strong);
-  border-color: var(--gs-accent-strong);
+  background: var(--gs-accent-cta-hover);
+  border-color: var(--gs-accent-cta-hover);
 }
 
 .gr__ghost {

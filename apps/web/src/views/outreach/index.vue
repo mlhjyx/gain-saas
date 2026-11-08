@@ -3,11 +3,11 @@
  * 触达批次（M2 步 11-2）：批次列表、草稿预览/编辑、提交审批与批准/拒绝。
  * 批准只入待发队列；发送通道默认关，本页不触发任何外发。
  */
-import type { OutreachBatchDetail, OutreachBatchSummary, OutreachDraftView } from '#/api/gainos';
+import type { CanonicalContact, Lead, OutreachBatchDetail, OutreachBatchSummary, OutreachDraftView } from '#/api/gainos';
 
 import { computed, onMounted, ref } from 'vue';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { deriveOutreachActions, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -15,6 +15,9 @@ import { $t } from '#/locales';
 import { failureText, gainosApi } from '#/api/gainos';
 
 defineOptions({ name: 'OutreachBatches' });
+
+// 内嵌在「商机与触达」枢纽时不渲染自己的页头。
+defineProps<{ embedded?: boolean }>();
 
 const batches = ref<OutreachBatchSummary[]>([]);
 const detail = ref<OutreachBatchDetail | null>(null);
@@ -58,11 +61,13 @@ function when(value: string | null | undefined): string {
 }
 
 const latestApproval = computed(() => detail.value?.approvals[0] ?? null);
-const canEdit = computed(() => detail.value?.status === 'DRAFT');
-const canSubmit = computed(() => canEdit.value && (detail.value?.drafts.length ?? 0) > 0);
-const canDecide = computed(
-  () => detail.value?.status === 'PENDING_APPROVAL' && latestApproval.value?.state === 'PENDING',
+// 按钮可用性统一由共享状态机派生（v3.0 ch07），页面不再自己判断状态。
+const flowActions = computed(() =>
+  deriveOutreachActions({ status: detail.value?.status, draftCount: detail.value?.drafts.length ?? 0 }),
 );
+const canEdit = computed(() => flowActions.value.canAddDraft);
+const canSubmit = computed(() => flowActions.value.canSubmit);
+const canDecide = computed(() => flowActions.value.canApprove && latestApproval.value?.state === 'PENDING');
 const canReopen = computed(
   () => detail.value?.status === 'DECLINED' || detail.value?.status === 'EXPIRED',
 );
@@ -114,6 +119,51 @@ function openCreateDraft(): void {
   draftForm.value = emptyDraft();
   draftError.value = null;
   draftDialog.value = { mode: 'create' };
+}
+
+// 从线索选择联系人（审计：触达草稿此前要求手输 contactRef UUID，全站无处可见）。
+const pickerOpen = ref(false);
+const pickerLeads = ref<Lead[]>([]);
+const pickerLeadId = ref('');
+const pickerLeadName = ref('');
+const pickerContacts = ref<CanonicalContact[]>([]);
+const pickerBusy = ref(false);
+const pickerError = ref<string | null>(null);
+
+async function togglePicker(): Promise<void> {
+  pickerOpen.value = !pickerOpen.value;
+  pickerError.value = null;
+  if (!pickerOpen.value || pickerLeads.value.length > 0) return;
+  try {
+    const data = await gainosApi.leads({ queue: 'recommended', limit: 50 });
+    pickerLeads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
+  } catch (err) {
+    pickerError.value = failureText(err).title;
+  }
+}
+
+async function loadPickerContacts(): Promise<void> {
+  if (!pickerLeadId.value) return;
+  pickerBusy.value = true;
+  pickerError.value = null;
+  try {
+    const pkg = await gainosApi.leadPackage(pickerLeadId.value);
+    pickerContacts.value = pkg.contacts ?? [];
+    pickerLeadName.value = pkg.company?.name ?? '';
+  } catch (err) {
+    pickerError.value = failureText(err).title;
+    pickerContacts.value = [];
+  } finally {
+    pickerBusy.value = false;
+  }
+}
+
+function pickContact(contact: CanonicalContact): void {
+  const email = (contact.contactPoints ?? []).find((point) => String(point.type ?? '').toLowerCase() === 'email');
+  draftForm.value.contactRef = contact.id;
+  if (email?.value) draftForm.value.recipientEmail = email.value;
+  if (pickerLeadName.value) draftForm.value.companyName = pickerLeadName.value;
+  pickerOpen.value = false;
 }
 function openEditDraft(draft: OutreachDraftView): void {
   draftForm.value = {
@@ -230,12 +280,12 @@ onMounted(loadBatches);
 </script>
 
 <template>
-  <div class="ob">
+  <div class="ob" :class="{ 'is-embedded': embedded }">
     <header class="ob__head">
-      <div>
+      <div v-if="!embedded">
         <h2>{{ $t('gainos.outreach.title') }}</h2>
-        <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       </div>
+      <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       <button class="ob__primary" type="button" @click="showCreate = !showCreate">
         {{ $t('gainos.outreach.newBatch') }}
       </button>
@@ -261,7 +311,7 @@ onMounted(loadBatches);
     <p v-if="notice" class="ob__notice">{{ notice }}</p>
     <p v-if="loading" class="ob__muted">{{ $t('gainos.outreach.loading') }}</p>
 
-    <div v-else class="ob__grid">
+    <div v-else-if="!error" class="ob__grid">
       <section class="ob__list" :aria-label="$t('gainos.outreach.listTitle')">
         <p v-if="batches.length === 0" class="ob__muted">{{ $t('gainos.outreach.empty') }}</p>
         <button
@@ -289,12 +339,12 @@ onMounted(loadBatches);
             </span>
           </div>
           <div class="ob__actions">
-            <button v-if="canEdit" class="ob__primary" type="button" @click="openCreateDraft">
+            <button v-if="canEdit" class="ob__ghost" type="button" @click="openCreateDraft">
               {{ $t('gainos.outreach.addDraft') }}
             </button>
             <button
               v-if="canSubmit"
-              class="ob__primary"
+              class="ob__ghost"
               type="button"
               :disabled="busy === 'submit'"
               @click="submitBatch"
@@ -381,6 +431,33 @@ onMounted(loadBatches);
         <label>
           {{ $t('gainos.outreach.contactRef') }}
           <input v-model="draftForm.contactRef" :placeholder="$t('gainos.outreach.contactRefHint')" />
+          <button class="ob__ghost ob__pick-toggle" type="button" @click="togglePicker">
+            {{ $t('gainos.outreach.pickContact') }}
+          </button>
+          <div v-if="pickerOpen" class="ob__pick">
+            <label>
+              {{ $t('gainos.outreach.pickLead') }}
+              <select v-model="pickerLeadId" @change="loadPickerContacts">
+                <option value="">{{ $t('gainos.outreach.pickLeadPlaceholder') }}</option>
+                <option v-for="lead in pickerLeads" :key="lead.id" :value="lead.id">
+                  {{ lead.company?.name ?? lead.id.slice(0, 8) }}
+                </option>
+              </select>
+            </label>
+            <p v-if="pickerBusy" class="ob__muted">{{ $t('gainos.common.loading') }}</p>
+            <p v-else-if="pickerError" class="ob__error">{{ pickerError }}</p>
+            <p v-else-if="pickerLeadId && pickerContacts.length === 0" class="ob__muted">
+              {{ $t('gainos.outreach.pickEmpty') }}
+            </p>
+            <ul v-else class="ob__pick-list">
+              <li v-for="contact in pickerContacts" :key="contact.id">
+                <span>{{ contact.fullName }}<small v-if="contact.title"> · {{ contact.title }}</small></span>
+                <button class="ob__link" type="button" @click="pickContact(contact)">
+                  {{ $t('gainos.outreach.pickUse') }}
+                </button>
+              </li>
+            </ul>
+          </div>
         </label>
         <label>
           {{ $t('gainos.outreach.recipient') }}
@@ -400,7 +477,7 @@ onMounted(loadBatches);
         </label>
         <p v-if="draftError" class="ob__error">{{ draftError }}</p>
         <div class="ob__actions">
-          <button class="ob__primary" type="submit" :disabled="busy === 'draft'">
+          <button class="ob__ghost" type="submit" :disabled="busy === 'draft'">
             {{ $t('gainos.outreach.save') }}
           </button>
           <button class="ob__ghost" type="button" @click="draftDialog = null">
@@ -413,7 +490,8 @@ onMounted(loadBatches);
 </template>
 
 <style scoped>
-.ob { width: 100%; max-width: 1080px; margin: 0 auto; padding: 12px 24px 32px; box-sizing: border-box; display: grid; gap: 16px; }
+.ob { width: 100%; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); box-sizing: border-box; display: grid; gap: 16px; }
+.ob.is-embedded { padding: 0; max-width: none; margin: 0; }
 .ob__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ob__head h2 { margin: 0 0 4px; font-size: 22px; }
 .ob__sub { margin: 0; color: var(--gs-muted, #667085); }
@@ -421,7 +499,7 @@ onMounted(loadBatches);
 .ob__grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
 .ob__list { display: grid; gap: 8px; }
 .ob__item { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid #e4e7ec; border-radius: 10px; background: #fff; cursor: pointer; }
-.ob__item.is-active { border-color: #7f56d9; box-shadow: 0 0 0 2px #f4ebff; }
+.ob__item.is-active { border-color: var(--gs-accent-cta); box-shadow: 0 0 0 2px var(--gs-accent-soft); }
 .ob__item-name { font-weight: 600; }
 .ob__item-meta { color: var(--gs-muted, #667085); font-size: 12px; }
 .ob__detail { border: 1px solid #e4e7ec; border-radius: 10px; padding: 16px; display: grid; gap: 14px; }
@@ -429,12 +507,17 @@ onMounted(loadBatches);
 .ob__detail-head h3 { margin: 0 0 6px; }
 .ob__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ob__primary, .ob__ghost, .ob__danger { padding: 8px 14px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
-.ob__primary { background: #7f56d9; color: #fff; }
+.ob__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .ob__primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.ob__ghost { background: #fff; border-color: #d0d5dd; }
+.ob__ghost { background: var(--gs-surface); border-color: var(--gs-border-strong); color: var(--gs-fg-2); }
 .ob__danger { background: #d92d20; color: #fff; }
-.ob__link { border: 0; background: none; color: #7f56d9; cursor: pointer; padding: 0 6px 0 0; }
-.ob__link--danger { color: #d92d20; }
+.ob__pick-toggle { margin-top: 6px; justify-self: start; }
+.ob__pick { margin-top: 8px; display: grid; gap: 8px; border: 1px dashed var(--gs-border-dashed); border-radius: 10px; padding: 10px 12px; }
+.ob__pick-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.ob__pick-list li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.ob__pick-list small { color: var(--gs-fg-subtle); }
+.ob__link { border: 0; background: none; color: var(--gs-accent-strong); cursor: pointer; padding: 0 6px 0 0; }
+.ob__link--danger { color: var(--gs-danger); }
 .ob__table { width: 100%; border-collapse: collapse; }
 .ob__table th, .ob__table td { text-align: left; padding: 8px; border-bottom: 1px solid #f2f4f7; vertical-align: top; }
 .ob__row-actions { white-space: nowrap; }

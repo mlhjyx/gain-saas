@@ -2,11 +2,16 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
+
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type CampaignSummary } from '#/api/gainos';
 
 defineOptions({ name: 'Campaigns' });
+
+// 在「商机与触达」枢纽内嵌时不渲染自己的页头（父页已有标题与 tab）。
+defineProps<{ embedded?: boolean }>();
 
 const router = useRouter();
 
@@ -31,6 +36,11 @@ const revisionStateLabel = (state: string | null | undefined): string => {
     default: return $t('gainos.campaigns.noRevision');
   }
 };
+
+function campaignBadgeClass(state?: string | null): string {
+  const meta = glossaryStatus('campaign', state);
+  return statusClass(meta?.tone ?? 'neutral');
+}
 
 const campaignStatusLabel = (status: string): string => {
   switch (status) {
@@ -91,9 +101,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="cp">
+  <div class="cp" :class="{ 'is-embedded': embedded }">
     <header class="cp__head">
-      <div>
+      <div v-if="!embedded">
         <span class="cp__stage">{{ $t('gainos.campaigns.stage') }}</span>
         <h1>{{ $t('gainos.campaigns.title') }}</h1>
         <p>{{ $t('gainos.campaigns.subtitle') }}</p>
@@ -111,7 +121,10 @@ onMounted(load);
       <p v-if="error.next">{{ error.next }}</p>
       <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
     </div>
-    <p v-else-if="!hasCampaigns" class="cp__hint">{{ $t('gainos.campaigns.empty') }}</p>
+    <div v-else-if="!hasCampaigns" class="cp__empty">
+      <p>{{ $t('gainos.campaigns.empty') }}</p>
+      <button class="cp__primary" type="button" @click="showCreate = true">{{ $t('gainos.campaigns.newCampaign') }}</button>
+    </div>
 
     <table v-else class="cp__table">
       <thead>
@@ -129,7 +142,7 @@ onMounted(load);
             <strong>{{ campaign.name }}</strong>
             <p class="cp__objective">{{ campaign.objective }}</p>
           </td>
-          <td>{{ campaignStatusLabel(campaign.status) }}</td>
+          <td><span class="gs-badge" :class="campaignBadgeClass(campaign.status)">{{ campaignStatusLabel(campaign.status) }}</span></td>
           <td>
             <template v-if="campaign.latestRevision">
               {{ $t('gainos.campaigns.revision', { no: campaign.latestRevision.revisionNo }) }}
@@ -173,25 +186,28 @@ onMounted(load);
 </template>
 
 <style scoped>
-.cp { max-width: 1080px; margin: 0 auto; padding: 24px; }
+.cp { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
+.cp.is-embedded { padding: 0; max-width: none; margin: 0; }
 .cp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: #7a6a52; text-transform: uppercase; }
 .cp h1 { margin: 6px 0; font-size: 26px; }
 .cp__head p { margin: 0; color: #6b6257; max-width: 640px; }
-.cp__primary { background: #b45309; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+.cp__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface); padding: 40px 24px; display: grid; place-items: center; gap: 12px; color: var(--gs-fg-muted); font-size: 13.5px; }
+.cp__empty p { margin: 0; }
+.cp__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
 .cp__banner { margin: 18px 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #92400e; }
 .cp__hint { color: #6b6257; }
 .cp__error { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; }
 .cp__table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 .cp__table th, .cp__table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #eee5d8; vertical-align: top; }
 .cp__objective { margin: 4px 0 0; color: #6b6257; font-size: 13px; }
-.cp__link { border: none; background: none; color: #b45309; cursor: pointer; text-decoration: underline; }
+.cp__link { border: none; background: none; color: var(--gs-accent-strong); cursor: pointer; text-decoration: underline; }
 .cp__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
 .cp__card { background: #fff; border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
 .cp__card label { display: grid; gap: 6px; font-size: 14px; }
 .cp__card input, .cp__card textarea { border: 1px solid #d8cbb8; border-radius: 8px; padding: 8px 10px; font: inherit; }
 .cp__actions { display: flex; gap: 8px; justify-content: flex-end; }
-.cp__actions button { border-radius: 8px; padding: 8px 14px; border: none; background: #b45309; color: #fff; cursor: pointer; }
+.cp__actions button { border-radius: 8px; padding: 8px 14px; border: none; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; }
 .cp__ghost { background: #f3ece1 !important; color: #6b6257 !important; }
 .cp__error-inline { color: #991b1b; margin: 0; }
 </style>

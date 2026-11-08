@@ -1,5 +1,6 @@
 {
   "menu": {
+    "tasks": "挖掘任务",
     "reports": "周报",
     "members": "成员与角色",
     "workspaces": "工作空间",
@@ -8,6 +9,44 @@
     "sources": "数据源",
     "campaigns": "战役计划",
     "suppressions": "禁联名单"
+  },
+  "tasks": {
+    "title": "挖掘任务",
+    "subtitle": "每个任务按计划挖一类客户；这里是任务列表与最近一次运行的结果。",
+    "empty": "还没有挖掘任务。先到「找买家」设定目标客户画像并发起寻源。",
+    "emptyCta": "去设定目标客户画像",
+    "colTask": "任务",
+    "colStatus": "最近运行",
+    "colLastRun": "最近运行时间",
+    "colActions": "操作",
+    "viewRun": "查看运行",
+    "noRun": "还没有运行",
+    "never": "从未",
+    "taskActive": "进行中",
+    "taskPaused": "已暂停",
+    "taskArchived": "已归档"
+  },
+  "replies": {
+    "tab": "回复",
+    "title": "回复收件箱",
+    "subtitle": "买家的回复、退信与退订都会出现在这里；任何回复都会让相关发送立即停止。",
+    "empty": "还没有收到回复。首次发送后，回复与退信会出现在这里。",
+    "colTime": "时间",
+    "colRecipient": "收件人",
+    "colClass": "分类",
+    "colSubject": "主题",
+    "class": {
+      "POSITIVE": "有意向",
+      "NEUTRAL": "中性",
+      "NEGATIVE": "明确拒绝",
+      "OUT_OF_OFFICE": "自动回复",
+      "UNKNOWN": "未分类"
+    },
+    "kind": {
+      "REPLY": "回复",
+      "BOUNCE": "退信",
+      "UNSUBSCRIBE": "退订"
+    }
   },
   "growth": {
     "title": "商机与触达",
@@ -431,7 +470,7 @@
   "findBuyers": {
     "kicker": "M3 开放",
     "title": "找买家",
-    "subtitle": "设定目标客户画像画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
+    "subtitle": "设定目标客户画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
     "step1Title": "完成公司档案",
     "step1Checking": "正在确认档案状态…",
     "step1Ready": "已就绪 · 共 {count} 份档案",
@@ -617,6 +656,8 @@
       "mismatch": "不匹配",
       "unknown": "待评估"
     },
+    "loadMore": "加载更多",
+    "showingCount": "已显示 {shown} / 共 {total} 条",
     "viewPackage": "查看档案包",
     "accept": "值得跟进",
     "reject": "暂不跟进",
@@ -1059,6 +1100,18 @@
       "weak": "待复核",
       "mismatch": "不匹配"
     },
+    "jobVerdictLabel": "判定",
+    "quickSummary": "共 {total} 家 · 已隐藏不匹配 {hidden} 家",
+    "quickToggleAll": "显示全部",
+    "quickToggleCollapse": "收起",
+    "quickFilterEmpty": "当前没有需要查看的公司；可点「显示全部」查看完整名单。",
+    "jobErrorPipeline": "公司处理失败",
+    "jobErrorCancelled": "已取消",
+    "metaJudged": "本轮判定",
+    "metaPrefiltered": "预筛出局",
+    "metaDeep": "深挖完成/失败",
+    "metaFailureHigh": "深挖失败率偏高",
+    "taskId": "任务",
     "jobError": "失败码",
     "jobsEmpty": "暂无公司级记录（快扫开始后出现）。",
     "jobStageColumn": "状态",
@@ -1129,6 +1182,12 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "登录",
+      "bffRequest": "业务请求",
+      "memberInvite": "邀请成员",
+      "roleChange": "角色变更"
+    },
     "title": "操作审计",
     "subtitle": "展示你在本工作空间的登录、成员与工作空间操作留痕。为避免跨租户泄露，只显示你本人的记录；平台运营审计在运营台。",
     "time": "时间",
@@ -1269,6 +1328,7 @@
     }
   },
   "campaigns": {
+    "goOutreach": "去触达批次",
     "title": "战役计划",
     "subtitle": "让系统先起草一份「做什么、做到多大、花多少钱上限」的计划；你批准后才生效。影子期：批准也不会真的执行。",
     "stage": "阶段 3 · 计划与审批",
@@ -1337,6 +1397,8 @@
     "planVersion": "计划版本"
   },
   "qgos": {
+    "loadMore": "加载更多",
+    "goCampaigns": "去战役计划",
     "stage": "Convert",
     "title": "商机",
     "subtitle": "带证据的商机、销售接受与结果登记——归因与单位经济的原料。",
@@ -1384,6 +1446,11 @@
     }
   },
   "outreach": {
+    "pickContact": "从线索中选择联系人",
+    "pickLead": "选择线索",
+    "pickLeadPlaceholder": "— 选择一条线索 —",
+    "pickEmpty": "该线索暂无具名联系人",
+    "pickUse": "使用",
     "title": "触达批次",
     "subtitle": "草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。",
     "newBatch": "新建批次",
@@ -1434,6 +1501,7 @@
     "eventOther": "其他操作"
   },
   "suppressions": {
+    "loadMore": "加载更多",
     "title": "禁联名单",
     "subtitle": "加入名单的邮箱、域名或公司在任何对外动作前都会被拦下；法定禁联不会物理删除，解除需提交申请留痕。",
     "addTitle": "加入禁联名单",

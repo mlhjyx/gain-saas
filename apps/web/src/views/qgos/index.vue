@@ -17,6 +17,9 @@ import {
  */
 defineOptions({ name: 'Qgos' });
 
+// 内嵌在「商机与触达」枢纽时不渲染自己的页头。
+defineProps<{ embedded?: boolean }>();
+
 const OUTCOME_VALUES: QgoOutcomeValue[] = [
   'REPLIED',
   'MEETING_BOOKED',
@@ -30,6 +33,12 @@ const OUTCOME_VALUES: QgoOutcomeValue[] = [
 const STATE_TABS = ['', 'OPEN', 'CONVERTED', 'DROPPED'] as const;
 
 const rows = ref<QgoView[]>([]);
+const limit = ref(100);
+const hasMore = computed(() => rows.value.length >= limit.value);
+function loadMore(): void {
+  limit.value += 100;
+  void load();
+}
 const loading = ref(true);
 const loadError = ref<ReturnType<typeof failureText> | null>(null);
 const stateFilter = ref<string>('');
@@ -52,7 +61,7 @@ async function load(): Promise<void> {
   loadError.value = null;
   try {
     const data = await gainosApi.qgos({
-      limit: 100,
+      limit: limit.value,
       ...(stateFilter.value ? { state: stateFilter.value } : {}),
     });
     rows.value = Array.isArray(data) ? data : ((data as unknown as { data?: QgoView[] })?.data ?? []);
@@ -175,14 +184,15 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="qg">
+  <div class="qg" :class="{ 'is-embedded': embedded }">
     <header class="qg__head">
-      <div>
+      <div v-if="!embedded">
         <span class="qg__stage">{{ $t('gainos.qgos.stage') }}</span>
         <h1>{{ $t('gainos.qgos.title') }}</h1>
         <p>{{ $t('gainos.qgos.subtitle') }}</p>
       </div>
       <div class="qg__head-actions">
+        <router-link class="qg__link" to="/growth?tab=campaigns">{{ $t('gainos.qgos.goCampaigns') }}</router-link>
         <router-link class="qg__link" to="/leads">{{ $t('gainos.qgos.backToLeads') }}</router-link>
         <button class="qg__btn" type="button" :class="{ 'is-loading': loading }" @click="load">
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
@@ -207,7 +217,7 @@ onMounted(load);
     <ErrorNotice v-if="loadError" :title="loadError.title" :why="loadError.why" :next="loadError.next" :code="loadError.code" />
 
     <section v-if="loading" class="qg__state">{{ $t('gainos.common.loading') }}</section>
-    <section v-else-if="rows.length === 0" class="qg__empty">
+    <section v-else-if="!loadError && rows.length === 0" class="qg__empty">
       <p class="qg__empty-title">{{ $t('gainos.qgos.emptyTitle') }}</p>
       <p class="qg__empty-desc">{{ $t('gainos.qgos.emptyDesc') }}</p>
       <router-link class="qg__btn" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</router-link>
@@ -227,6 +237,10 @@ onMounted(load);
         </div>
       </li>
     </ol>
+
+    <p v-if="hasMore" class="qg__more">
+      <button class="qg__btn" type="button" @click="loadMore">{{ $t('gainos.qgos.loadMore') }}</button>
+    </p>
 
     <div v-if="selected || detailLoading" class="qg__overlay" @click.self="closeDetail">
       <section class="qg__drawer" role="dialog" aria-modal="true" :aria-label="$t('gainos.qgos.detailTitle')">
@@ -325,16 +339,18 @@ onMounted(load);
 <style scoped>
 .qg {
   padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   display: grid;
   gap: 16px;
 }
+.qg.is-embedded { padding: 0; max-width: none; margin: 0; }
 
 .qg__head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .qg__stage { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gs-fg-subtle); }
 .qg__head h1 { margin: 6px 0 4px; font-size: 24px; }
 .qg__head p { margin: 0; color: var(--gs-fg-muted); font-size: 13.5px; }
+.qg__more { margin: 8px 0 0; text-align: center; }
 .qg__head-actions { display: flex; gap: 8px; align-items: center; }
 
 .qg__btn,
@@ -352,7 +368,7 @@ onMounted(load);
   text-decoration: none;
 }
 
-.qg__btn--primary { background: var(--gs-accent, #2563eb); border-color: transparent; color: #fff; }
+.qg__btn--primary { background: var(--gs-accent-cta); border-color: transparent; color: var(--gs-accent-cta-fg); }
 .qg__btn--danger { color: var(--gs-danger); border-color: var(--gs-danger-border); }
 .qg__btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
@@ -376,8 +392,8 @@ onMounted(load);
 .qg__meta { display: flex; gap: 12px; font-size: 12px; color: var(--gs-fg-subtle); }
 
 .qg__state-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--gs-divider); color: var(--gs-fg-muted); }
-.qg__state-badge--open { background: rgba(37, 99, 235, 0.12); color: var(--gs-accent, #2563eb); }
-.qg__state-badge--converted { background: rgba(22, 163, 74, 0.14); color: #15803d; }
+.qg__state-badge--open { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.qg__state-badge--converted { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
 .qg__state-badge--dropped { background: var(--gs-danger-bg); color: var(--gs-danger); }
 
 .qg__overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; justify-content: flex-end; z-index: 60; }
@@ -394,7 +410,7 @@ onMounted(load);
 .qg__evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .qg__evidence-card { border: 1px solid var(--gs-border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; }
 .qg__evidence-type { font-size: 12px; color: var(--gs-fg-subtle); text-transform: uppercase; letter-spacing: 0.05em; }
-.qg__evidence-card a { font-size: 12.5px; word-break: break-all; color: var(--gs-accent, #2563eb); }
+.qg__evidence-card a { font-size: 12.5px; word-break: break-all; color: var(--gs-accent-strong); }
 .qg__evidence-card p { margin: 0; font-size: 13px; }
 .qg__evidence-card small { color: var(--gs-fg-subtle); }
 

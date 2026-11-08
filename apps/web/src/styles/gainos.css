@@ -9,18 +9,20 @@
  */
 
 :root {
-  /* 文字层级 */
+  /* 文字层级（AA：muted 7.6:1、subtle 4.8:1 on white；2026-11-09 审计修复） */
   --gs-fg: #0f172a;
   --gs-fg-2: #374151;
-  --gs-fg-muted: #6b7280;
-  --gs-fg-subtle: #9ca3af;
-  --gs-fg-placeholder: #b6bcc7;
+  --gs-fg-muted: #4b5563;
+  --gs-fg-subtle: #6b7280;
+  --gs-fg-placeholder: #8b93a1;
 
   /* 表面与背景 */
   --gs-bg: #f7f8fa;
   --gs-surface: #ffffff;
   --gs-surface-2: #f3f4f6;
   --gs-surface-3: #fbfcfd;
+  /* 深色表格表头等的柔和底色（此前被引用但未定义，深色下回退成浅灰） */
+  --gs-bg-soft: #f8fafc;
 
   /* 边框与分隔 */
   --gs-border: #eceef2;
@@ -36,7 +38,11 @@
 
   /* 品牌绿 */
   --gs-accent: #00b96b;
-  --gs-accent-strong: #009a5c;
+  --gs-accent-strong: #007a47;
+  /* CTA（实心按钮）专用深绿：白字 5.4:1 达 AA；装饰仍用 --gs-accent */
+  --gs-accent-cta: #007a47;
+  --gs-accent-cta-hover: #00693f;
+  --gs-accent-cta-fg: #ffffff;
   --gs-accent-soft: #e7f8f0;
   --gs-accent-soft-border: #9fe3c4;
   --gs-accent-glow: rgba(0, 185, 107, 0.45);
@@ -68,13 +74,14 @@
   --gs-fg: #e8ebf0;
   --gs-fg-2: #c4cbd6;
   --gs-fg-muted: #98a1b1;
-  --gs-fg-subtle: #6f7888;
-  --gs-fg-placeholder: #5c6575;
+  --gs-fg-subtle: #8b94a6;
+  --gs-fg-placeholder: #6f7888;
 
   --gs-bg: #0b0f16;
   --gs-surface: #141922;
   --gs-surface-2: #1c222d;
   --gs-surface-3: #10151d;
+  --gs-bg-soft: #1c222d;
 
   --gs-border: #232b37;
   --gs-border-strong: #2c3543;
@@ -88,6 +95,10 @@
 
   --gs-accent: #14c983;
   --gs-accent-strong: #34d399;
+  /* 深色下亮绿底配深色字（8.9:1），避免白字对比不足 */
+  --gs-accent-cta: #14c983;
+  --gs-accent-cta-hover: #34d399;
+  --gs-accent-cta-fg: #0b0f16;
   --gs-accent-soft: rgba(20, 201, 131, 0.14);
   --gs-accent-soft-border: rgba(20, 201, 131, 0.34);
   --gs-accent-glow: rgba(20, 201, 131, 0.35);
@@ -107,6 +118,13 @@
 /* 窄屏:顶栏空间紧张,品牌只留图形标记,避免名称被截断成 "Ga…" */
 @media (max-width: 640px) {
   header a > span.truncate {
+    display: none;
+  }
+  /* 390px 顶栏放不下工作空间选择器与搜索：隐藏两者，保留主题/语言/刷新/通知/退出 */
+  header .workspace-switcher {
+    display: none;
+  }
+  header .mr-1.sm\:mr-4:has(svg.lucide-search) {
     display: none;
   }
 }
@@ -160,4 +178,20 @@ body {
 .gs-badge--danger {
   background: var(--gs-danger-bg);
   color: var(--gs-danger);
+}
+
+/* F0 组件一致性：主按钮统一规格（高度 38 / 圆角 10 / 13.5px·600）。
+   各视图的 scoped 样式保留自身颜色语义，这里只收敛尺寸与字重。 */
+.cp__primary, .ob__primary, .qg__btn--primary, .cd__primary,
+.mb__cta, .sp__cta, .pv__cta, .ws__primary, .tk__refresh {
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* 可访问性基线（审计 二-2x）：键盘焦点可见；禁止缩放已在 index.html 移除 */
+:focus-visible {
+  outline: 2px solid var(--gs-accent-strong);
+  outline-offset: 2px;
 }

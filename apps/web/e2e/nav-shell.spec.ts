@@ -65,11 +65,11 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
 
   // 三 tab：战役计划 / 商机 / 触达（术语取自 glossary）
   const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveText(['战役计划', '商机', '触达']);
+  await expect(tabs).toHaveText(['战役计划', '商机', '触达', '回复']);
 
-  // tab 1：内嵌真实战役计划列表（M2.1）——空态与新建入口都是真页面自己的
-  await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '新建计划' })).toBeVisible();
+  // tab 1：内嵌真实战役计划列表（M2.1）——父页已给标题，内嵌页不再渲染自己的 H1（F0：双页头消除）
+  await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '新建计划' }).first()).toBeVisible();
   await expect(page.getByText('还没有任何计划。先新建一个，再让系统起草。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-campaigns.png') });
@@ -78,7 +78,7 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
   await tabs.nth(1).click();
   await page.waitForURL(/tab=opportunities/);
   await settle(page);
-  await expect(page.getByRole('heading', { level: 1, name: '商机', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '商机', exact: true })).toHaveCount(0);
   await expect(page.getByText('还没有商机')).toBeVisible();
   await expect(page.getByRole('link', { name: '去买家线索' })).toBeVisible();
   await settle(page);
@@ -88,7 +88,7 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
   await tabs.nth(2).click();
   await page.waitForURL(/tab=outreach/);
   await settle(page);
-  await expect(page.getByRole('heading', { level: 2, name: '触达批次', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: '触达批次', exact: true })).toHaveCount(0);
   await expect(page.getByText('还没有触达批次。新建一个批次，加入草稿后提交审批。')).toBeVisible();
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('growth-outreach.png') });

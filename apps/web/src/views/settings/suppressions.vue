@@ -55,17 +55,26 @@ function protectionLabel(protection: string): string {
   return protection === 'LEGAL' ? $t('gainos.suppressions.protectionLegal') : $t('gainos.suppressions.protectionPreference');
 }
 
+const limit = ref(50);
+const hasMore = ref(false);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const page = await gainosApi.suppressions({ limit: 50 });
+    const page = await gainosApi.suppressions({ limit: limit.value });
     rows.value = page.data ?? [];
+    hasMore.value = Boolean((page as unknown as { page?: { has_more?: boolean } }).page?.has_more);
   } catch (err) {
     error.value = failureText(err).title;
   } finally {
     loading.value = false;
   }
+}
+
+function loadMore(): void {
+  limit.value += 50;
+  void load();
 }
 
 async function add(): Promise<void> {
@@ -197,13 +206,16 @@ onMounted(load);
           </tr>
         </tbody>
       </table>
+        <p v-if="hasMore" class="sp__hint sp__more">
+          <button type="button" class="sp__link" @click="loadMore">{{ $t('gainos.suppressions.loadMore') }}</button>
+        </p>
       <p class="sp__hint">{{ $t('gainos.suppressions.releaseHint') }}</p>
     </section>
   </div>
 </template>
 
 <style scoped>
-.sp { display: grid; gap: 16px; max-width: 960px; }
+.sp { display: grid; gap: 16px; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
 .sp__head h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--gs-fg); }
 .sp__head p { margin: 6px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); line-height: 1.7; }
 .sp__notice { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; }
@@ -214,12 +226,13 @@ onMounted(load);
 .sp__form select, .sp__form input { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 7px 10px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
 .sp__grow { flex: 1 1 240px; }
 .sp__grow input { width: 100%; box-sizing: border-box; }
-.sp__cta { border: 1px solid var(--gs-accent); background: var(--gs-accent); color: #fff; font-size: 13px; font-weight: 600; border-radius: 9px; padding: 8px 16px; cursor: pointer; }
+.sp__cta { border: 1px solid var(--gs-accent); background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; border-radius: 9px; padding: 8px 16px; cursor: pointer; }
 .sp__cta:disabled { opacity: 0.6; cursor: progress; }
 .sp__hint { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
 .sp__err { margin: 0; font-size: 12.5px; color: var(--gs-danger); }
 .sp__state { color: var(--gs-fg-muted); font-size: 13px; }
 .sp__state--err { color: var(--gs-danger); display: flex; gap: 8px; align-items: center; }
+.sp__more { text-align: center; }
 .sp__empty { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .sp__table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .sp__table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--gs-fg-subtle); padding: 6px 10px; border-bottom: 1px solid var(--gs-border); }

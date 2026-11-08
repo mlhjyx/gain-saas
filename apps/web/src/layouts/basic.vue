@@ -48,6 +48,17 @@ const showDot = computed(() =>
 
 const menus = computed(() => []);
 
+// 侧栏/菜单标题在路由模块加载时求值一次，切语言后不会热更新（审计 二-06）。
+// 语言切换后整页重载一次，保证导航、页面与通知全部即时切换（URL 与登录态保留）。
+watch(
+  () => preferences.app.locale,
+  (next, prev) => {
+    if (prev && next !== prev) {
+      window.location.reload();
+    }
+  },
+);
+
 const avatar = computed(() => {
   return userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
 });
@@ -58,6 +69,9 @@ function serverTitle(row: AppNotification): string | undefined {
 }
 
 function notificationTitle(row: AppNotification): string {
+  // 服务端标题已带结果与建议（信息契约审计 §5.9）；本地映射只作旧数据/未知类型的回退。
+  const server = serverTitle(row);
+  if (server) return server;
   switch (row.type) {
     case 'DiscoveryRunCompleted': return $t('gainos.notifications.runCompleted');
     case 'DiscoveryRunPartial': return $t('gainos.notifications.runPartial');
@@ -69,25 +83,29 @@ function notificationTitle(row: AppNotification): string {
     case 'SanctionsHoldDetected': return $t('gainos.notifications.sanctionsHold');
     case 'WorkspaceQuotaWarning': return $t('gainos.notifications.quotaWarning');
     case 'WorkspaceQuotaExceeded': return $t('gainos.notifications.quotaExceeded');
-    default: return serverTitle(row) ?? $t('gainos.notifications.default');
+    default: return $t('gainos.notifications.default');
   }
+}
+
+function withRef(text: string, row: AppNotification): string {
+  return row.refId ? `${text} · #${row.refId.slice(0, 8)}` : text;
 }
 
 function notificationMessage(row: AppNotification): string {
   switch (row.type) {
-    case 'DiscoveryRunCompleted': return $t('gainos.notifications.runCompletedMessage');
-    case 'DiscoveryRunPartial': return $t('gainos.notifications.runPartialMessage');
-    case 'DiscoveryRunFailed': return $t('gainos.notifications.runFailedMessage');
-    case 'DiscoveryRunCancelled': return $t('gainos.notifications.runCancelledMessage');
-    case 'LeadQualified': return $t('gainos.notifications.leadQualifiedMessage');
-    case 'ClaimApproved': return $t('gainos.notifications.claimApprovedMessage');
-    case 'ClaimRejected': return $t('gainos.notifications.claimRejectedMessage');
+    case 'DiscoveryRunCompleted': return withRef($t('gainos.notifications.runCompletedMessage'), row);
+    case 'DiscoveryRunPartial': return withRef($t('gainos.notifications.runPartialMessage'), row);
+    case 'DiscoveryRunFailed': return withRef($t('gainos.notifications.runFailedMessage'), row);
+    case 'DiscoveryRunCancelled': return withRef($t('gainos.notifications.runCancelledMessage'), row);
+    case 'LeadQualified': return withRef($t('gainos.notifications.leadQualifiedMessage'), row);
+    case 'ClaimApproved': return withRef($t('gainos.notifications.claimApprovedMessage'), row);
+    case 'ClaimRejected': return withRef($t('gainos.notifications.claimRejectedMessage'), row);
     // 服务端标题带计数/额度明细（无 PII），优先按界面语言展示。
     case 'SanctionsHoldDetected':
     case 'WorkspaceQuotaWarning':
     case 'WorkspaceQuotaExceeded':
-      return serverTitle(row) ?? $t('gainos.notifications.default');
-    default: return serverTitle(row) ?? '';
+      return withRef(serverTitle(row) ?? $t('gainos.notifications.default'), row);
+    default: return withRef(serverTitle(row) ?? '', row);
   }
 }
 
