@@ -105,6 +105,8 @@ enum CampaignPlanJobState {
   RUNNING
   SUCCEEDED
   FAILED
+  /// M2.2：重规划轮次/成本预算耗尽仍不合法——停在列表等人工编辑 plan JSON。
+  NEEDS_HUMAN
 }
 
 model Campaign {
@@ -142,6 +144,8 @@ model CampaignPlanJob {
   /// 成功回调落下 revision 后回填；幂等键 (jobId, planHash)。
   planHash     String?              @map("plan_hash")
   revisionId   String?              @map("revision_id") @db.Uuid
+  /// M2.2：逐轮重规划历史（[{round, reasonCode, issues?}]，交付/终态时由引擎回传）。
+  replanHistory Json?               @map("replan_history")
   error        String?
   issues       Json?
   createdBy    String               @map("created_by")

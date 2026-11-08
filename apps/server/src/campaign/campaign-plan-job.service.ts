@@ -34,16 +34,35 @@ const createJobBody = z.object({
   budgetCapMicros: z.number().int().min(0).optional(),
 });
 
+const replanHistoryEntry = z.object({
+  round: z.number().int().min(0).max(2),
+  reasonCode: z.string().regex(ERROR_TOKEN).max(32),
+  issues: z
+    .array(
+      z.object({
+        path: z.string().max(200),
+        message: z.string().max(300),
+      }),
+    )
+    .max(50)
+    .optional(),
+});
+
+const replanHistorySchema = z.array(replanHistoryEntry).max(3);
+
 const completeBody = z.object({
   jobId: z.string().uuid(),
   workspaceId: z.string().uuid(),
   campaignId: z.string().uuid(),
   plan: z.unknown(),
+  replanHistory: replanHistorySchema.optional(),
 });
 
 const jobFailureBody = z.object({
   workspaceId: z.string().uuid(),
-  state: z.literal('FAILED'),
+  // M2.2：NEEDS_HUMAN = 重规划预算耗尽；FAILED = 其它终态失败。
+  state: z.enum(['FAILED', 'NEEDS_HUMAN']),
+  replanHistory: replanHistorySchema.optional(),
   error: z.string().regex(ERROR_TOKEN),
   issues: z
     .array(
@@ -75,6 +94,7 @@ export interface CampaignPlanJobView {
   objective: string;
   error: string | null;
   issues: Prisma.JsonValue | null;
+  replanHistory: Prisma.JsonValue | null;
   planHash: string | null;
   revisionId: string | null;
   createdAt: Date;
@@ -91,6 +111,42 @@ export class CampaignPlanJobService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
+  /** 逐轮重规划轨迹（M2.2）：交付成功或终态回写时落 campaign_decision_trace。 */
+  private async writeReplanTraces(
+    tx: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      campaignId: string;
+      jobId: string;
+      history: readonly {
+        round: number;
+        reasonCode: string;
+        issues?: readonly { path: string; message: string }[] | undefined;
+      }[];
+    },
+  ): Promise<void> {
+    for (const entry of input.history) {
+      await tx.campaignDecisionTrace.create({
+        data: {
+          workspaceId: input.workspaceId,
+          campaignId: input.campaignId,
+          traceId: `campaign-plan:${input.jobId}`,
+          stepType: 'campaign.replan.round',
+          actor: PLANNER_ACTOR,
+          actorType: 'service',
+          decisionType: 'campaign.replan',
+          chosenOption: `round:${entry.round}`,
+          reasonCode: entry.reasonCode,
+          evidence: {
+            jobId: input.jobId,
+            round: entry.round,
+            ...(entry.issues !== undefined ? { issues: entry.issues } : {}),
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+    }
+  }
+
   private toView(job: {
     id: string;
     campaignId: string;
@@ -98,6 +154,7 @@ export class CampaignPlanJobService {
     objective: string;
     error: string | null;
     issues: Prisma.JsonValue | null;
+    replanHistory: Prisma.JsonValue | null;
     planHash: string | null;
     revisionId: string | null;
     createdAt: Date;
@@ -110,6 +167,7 @@ export class CampaignPlanJobService {
       objective: job.objective,
       error: job.error,
       issues: job.issues,
+      replanHistory: job.replanHistory ?? null,
       planHash: job.planHash,
       revisionId: job.revisionId,
       createdAt: job.createdAt,
@@ -250,6 +308,7 @@ export class CampaignPlanJobService {
       });
     }
     const { jobId, workspaceId, campaignId, plan } = parsed.data;
+    const replanHistory = parsed.data.replanHistory;
     const { plan: validated, planHash } = await this.campaigns.validateRevisionPlan(
       workspaceId,
       plan,
@@ -292,9 +351,24 @@ export class CampaignPlanJobService {
           planHash,
           reasonCode: 'PLANNER_DRAFT_VALIDATED',
         });
+        if (replanHistory !== undefined && replanHistory.length > 0) {
+          await this.writeReplanTraces(tx, {
+            workspaceId,
+            campaignId,
+            jobId,
+            history: replanHistory,
+          });
+        }
         const updated = await tx.campaignPlanJob.updateMany({
           where: { id: jobId, workspaceId, state: { in: ['PENDING', 'RUNNING'] } },
-          data: { state: 'SUCCEEDED', planHash, revisionId: created.id },
+          data: {
+            state: 'SUCCEEDED',
+            planHash,
+            revisionId: created.id,
+            ...(replanHistory !== undefined
+              ? { replanHistory: replanHistory as unknown as Prisma.InputJsonValue }
+              : {}),
+          },
         });
         if (updated.count !== 1) {
           throw new ConflictException({
@@ -342,8 +416,8 @@ export class CampaignPlanJobService {
   }
 
   /**
-   * 内部回写：引擎把 job 置 FAILED（闭集错误码 + 有界 issues）。
-   * 幂等：已 FAILED 且同错误码 → 200 no-op；已终结且状态不同 → 409。
+   * 内部回写：引擎把 job 置终态 FAILED 或 NEEDS_HUMAN（闭集错误码 + 有界 issues + 逐轮历史）。
+   * 幂等：已同态且同错误码 → 200 no-op；已终结且状态不同 → 409。
    */
   async reportJobFailure(jobId: string, input: unknown): Promise<CampaignPlanJobView> {
     if (!UUID_RE.test(jobId)) jobNotFound();
@@ -354,6 +428,8 @@ export class CampaignPlanJobService {
       });
     }
     const { workspaceId, error, issues } = parsed.data;
+    const targetState = parsed.data.state;
+    const replanHistory = parsed.data.replanHistory;
     const job = await this.prisma.campaignPlanJob.findFirst({
       where: { id: jobId, workspaceId },
     });
@@ -361,31 +437,48 @@ export class CampaignPlanJobService {
     if (job.state === 'SUCCEEDED') {
       stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已完成，不能再回写失败');
     }
-    if (job.state === 'FAILED') {
-      if (job.error === error) return this.toView(job);
-      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已失败且错误码不同');
+    if (job.state === 'FAILED' || job.state === 'NEEDS_HUMAN') {
+      if (job.state === targetState && job.error === error) return this.toView(job);
+      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已终结且终态不同');
     }
-    const updated = await this.prisma.campaignPlanJob.updateMany({
-      where: { id: jobId, workspaceId, state: { in: ['PENDING', 'RUNNING'] } },
-      data: {
-        state: 'FAILED',
-        error,
-        ...(issues !== undefined
-          ? { issues: issues as unknown as Prisma.InputJsonValue }
-          : {}),
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.campaignPlanJob.updateMany({
+        where: { id: jobId, workspaceId, state: { in: ['PENDING', 'RUNNING'] } },
+        data: {
+          state: targetState,
+          error,
+          ...(issues !== undefined
+            ? { issues: issues as unknown as Prisma.InputJsonValue }
+            : {}),
+          ...(replanHistory !== undefined
+            ? { replanHistory: replanHistory as unknown as Prisma.InputJsonValue }
+            : {}),
+        },
+      });
+      if (result.count === 1 && replanHistory !== undefined && replanHistory.length > 0) {
+        await this.writeReplanTraces(tx, {
+          workspaceId,
+          campaignId: job.campaignId,
+          jobId,
+          history: replanHistory,
+        });
+      }
+      return result;
     });
     if (updated.count !== 1) {
       const raced = await this.prisma.campaignPlanJob.findFirst({
         where: { id: jobId, workspaceId },
       });
-      if (raced?.state === 'FAILED' && raced.error === error) return this.toView(raced);
+      if (raced?.state === targetState && raced.error === error) return this.toView(raced);
       stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 状态已变化');
     }
     await this.audit.record({
       realm: 'service',
       actorId: PLANNER_ACTOR,
-      action: 'campaign.plan_job.failed',
+      action:
+        targetState === 'NEEDS_HUMAN'
+          ? 'campaign.plan_job.needs_human'
+          : 'campaign.plan_job.failed',
       target: `campaign/${job.campaignId}`,
       detail: { jobId, error },
     });
