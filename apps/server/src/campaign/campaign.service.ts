@@ -11,6 +11,7 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
+import { CampaignReplanService } from './campaign-replan.service.js';
 import { CampaignTokenSigner } from './campaign-token.signer.js';
 import { planHashOf } from './campaign-plan.canonical.js';
 import { validateCampaignPlan, type CampaignPlanV0 } from './campaign-plan.schema.js';
@@ -61,6 +62,7 @@ export class CampaignService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly signer: CampaignTokenSigner,
+    private readonly replan: CampaignReplanService,
     @Inject(APP_CONFIG) config: AppConfig,
   ) {
     this.approvalTtlMs = config.CAMPAIGN_APPROVAL_TTL_HOURS * 3600_000;
@@ -398,6 +400,7 @@ export class CampaignService {
       throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'decision 必须是 approve 或 decline' } });
     }
     const reason = typeof input.reason === 'string' ? input.reason.slice(0, 500) : null;
+    let declinedRevisionId: string | null = null;
     const outcome = await this.prisma.$transaction(async (tx) => {
       const approval = await tx.campaignApproval.findFirst({
         where: { id: approvalId, workspaceId: tenant.workspaceId },
@@ -437,6 +440,7 @@ export class CampaignService {
       });
       const selfApproval = approval.requestedBy === tenant.userId;
       if (decision === 'decline') {
+        declinedRevisionId = approval.revisionId;
         await tx.campaignRevision.update({
           where: { id: approval.revisionId },
           data: { state: 'DECLINED' },
@@ -542,6 +546,17 @@ export class CampaignService {
         authorizationId: outcome.authorization?.id ?? null,
       },
     });
+    if (outcome.kind === 'decided' && decision === 'decline' && declinedRevisionId !== null) {
+      // M2.2：拒绝后自动重生成一次 / 再被拒转 NEEDS_HUMAN（尽力而为，不影响拒绝本身）。
+      await this.replan
+        .onApprovalDeclined({
+          tenant,
+          campaignId,
+          revisionId: declinedRevisionId,
+          reason,
+        })
+        .catch(() => undefined);
+    }
     return outcome;
   }
 
