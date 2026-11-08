@@ -151,7 +151,7 @@ export class BffHandler {
       } catch (err) {
         if (err instanceof WorkspaceBudgetQuotaExceededError) {
           res.status(err.status).json(
-            this.engine.toClientError(err.status, { error: { code: err.code, message: err.message } }),
+            this.engine.toClientError(err.status, { error: { code: err.code, message: err.message } }, req.headers?.['accept-language'] as string | undefined),
           );
           return;
         }
@@ -168,7 +168,7 @@ export class BffHandler {
         res.status(502).json(
           this.engine.toClientError(502, {
             error: { code, message: err instanceof Error ? err.message : String(err) },
-          }),
+          }, req.headers?.['accept-language'] as string | undefined),
         );
         return;
       }
@@ -187,7 +187,7 @@ export class BffHandler {
       if (result.status >= 400) {
         // 引擎 401/403 折算 502:不能让上游授权问题触发前端「会话过期」登出
         const clientStatus = this.engine.toClientStatus(result.status, result.body);
-        res.status(clientStatus).json(this.engine.toClientError(result.status, result.body));
+        res.status(clientStatus).json(this.engine.toClientError(result.status, result.body, req.headers?.['accept-language'] as string | undefined));
         return;
       }
       if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
@@ -213,7 +213,7 @@ export class BffHandler {
     } catch (err) {
       // 引擎不可达:三层文案 + 技术详情(与引擎业务错误同构)
       res.status(502).json(
-        this.engine.toClientError(502, { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } }),
+        this.engine.toClientError(502, { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } }, req.headers?.['accept-language'] as string | undefined),
       );
     }
   }
@@ -249,7 +249,7 @@ export function registerBffMiddleware(
       const raw = typeof e?.getResponse === 'function' ? e.getResponse() : undefined;
       const error = (raw as { error?: { code?: unknown; message?: unknown } } | undefined)?.error;
       const code = typeof error?.code === 'string' ? error.code : 'AUTH_REQUIRED';
-      const copy = copyForError(code);
+      const copy = copyForError(code, req.headers?.['accept-language'] as string | undefined);
       res.status(status).json({
         error: { code, userCopy: { title: copy.title, why: copy.why, next: copy.next } },
         meta: { engineCode: code, engineMessage: typeof error?.message === 'string' ? error.message : '' },
