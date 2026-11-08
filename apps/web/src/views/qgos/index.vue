@@ -33,6 +33,12 @@ const OUTCOME_VALUES: QgoOutcomeValue[] = [
 const STATE_TABS = ['', 'OPEN', 'CONVERTED', 'DROPPED'] as const;
 
 const rows = ref<QgoView[]>([]);
+const limit = ref(100);
+const hasMore = computed(() => rows.value.length >= limit.value);
+function loadMore(): void {
+  limit.value += 100;
+  void load();
+}
 const loading = ref(true);
 const loadError = ref<ReturnType<typeof failureText> | null>(null);
 const stateFilter = ref<string>('');
@@ -55,7 +61,7 @@ async function load(): Promise<void> {
   loadError.value = null;
   try {
     const data = await gainosApi.qgos({
-      limit: 100,
+      limit: limit.value,
       ...(stateFilter.value ? { state: stateFilter.value } : {}),
     });
     rows.value = Array.isArray(data) ? data : ((data as unknown as { data?: QgoView[] })?.data ?? []);
@@ -232,6 +238,10 @@ onMounted(load);
       </li>
     </ol>
 
+    <p v-if="hasMore" class="qg__more">
+      <button class="qg__btn" type="button" @click="loadMore">{{ $t('gainos.qgos.loadMore') }}</button>
+    </p>
+
     <div v-if="selected || detailLoading" class="qg__overlay" @click.self="closeDetail">
       <section class="qg__drawer" role="dialog" aria-modal="true" :aria-label="$t('gainos.qgos.detailTitle')">
         <header class="qg__drawer-head">
@@ -340,6 +350,7 @@ onMounted(load);
 .qg__stage { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gs-fg-subtle); }
 .qg__head h1 { margin: 6px 0 4px; font-size: 24px; }
 .qg__head p { margin: 0; color: var(--gs-fg-muted); font-size: 13.5px; }
+.qg__more { margin: 8px 0 0; text-align: center; }
 .qg__head-actions { display: flex; gap: 8px; align-items: center; }
 
 .qg__btn,

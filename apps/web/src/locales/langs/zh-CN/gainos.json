@@ -1397,6 +1397,7 @@
     "planVersion": "计划版本"
   },
   "qgos": {
+    "loadMore": "加载更多",
     "goCampaigns": "去战役计划",
     "stage": "Convert",
     "title": "商机",

@@ -1254,6 +1254,7 @@ onUnmounted(() => {
 .run__table-scroll .run__table thead th { position: sticky; top: 0; background: var(--gs-surface-2); z-index: 1; }
 .run__quick-toggle { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
 .run__quick-toggle button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 4px 10px; cursor: pointer; color: var(--gs-fg-2); }
+.run__head-actions button { white-space: nowrap; }
 .run__summary { display: grid; grid-template-columns: minmax(260px, 1.6fr) repeat(5, minmax(110px, 1fr)); gap: 12px; }
 .run__summary article { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
 .run__summary article span { font-size: 12px; color: var(--gs-fg-muted); }

@@ -1397,6 +1397,7 @@
     "planVersion": "Plan version"
   },
   "qgos": {
+    "loadMore": "Load more",
     "goCampaigns": "Go to campaigns",
     "stage": "Convert",
     "title": "Opportunities",
