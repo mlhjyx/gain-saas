@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { preferences, usePreferences } from '@vben/preferences';
-import { useUserStore } from '@vben/stores';
 
 import { Button, Input, message, Select } from 'ant-design-vue';
 
@@ -14,7 +13,6 @@ import { useAuthStore } from '#/store';
 defineOptions({ name: 'OnboardingWizard' });
 
 const router = useRouter();
-const userStore = useUserStore();
 const authStore = useAuthStore();
 const { locale } = usePreferences();
 
@@ -105,10 +103,9 @@ async function loadContext() {
       await router.replace(preferences.app.defaultHomePath);
       return;
     }
-    if (!name.value) name.value = context?.workspace?.name ?? userStore.userInfo?.realName ?? '';
+    if (!name.value) name.value = context?.workspace?.name ?? '';
   } catch {
     // 上下文拉取失败不阻塞；提交时服务端仍会校验。
-    if (!name.value) name.value = userStore.userInfo?.realName ?? '';
   } finally {
     loading.value = false;
   }
