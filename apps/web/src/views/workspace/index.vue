@@ -1205,7 +1205,7 @@ onUnmounted(() => {
 .wk__lead-side { flex: none; display: grid; justify-items: end; gap: 3px; }
 .wk__lead-badge { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 2px 7px; background: var(--gs-divider); color: var(--gs-fg-2); }
 .wk__lead-badge--recommended { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.wk__lead-badge--needs_review { background: var(--gs-warn-bg); color: var(--gs-warn); }
+.wk__lead-badge--needs_review { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
 .wk__lead-badge--sanctions_hold { background: var(--gs-danger-bg); color: var(--gs-danger); }
 .wk__lead-score { font-size: 11px; color: var(--gs-fg-muted); font-variant-numeric: tabular-nums; }
 

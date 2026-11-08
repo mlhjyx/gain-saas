@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { glossaryStatus, statusClass } from '@gain-saas/shared';
+
 import { $t } from '#/locales';
 
 import {
@@ -58,6 +60,11 @@ const icpName = (id: string): string => {
 
 const money = (micros: number | undefined): string =>
   typeof micros === 'number' ? `$${(micros / 1_000_000).toFixed(2)}` : '';
+
+function approvalBadgeClass(state?: string | null): string {
+  const meta = glossaryStatus('approval', state);
+  return statusClass(meta?.tone ?? 'neutral');
+}
 
 const revisionStateLabel = (state: string): string => {
   switch (state) {
@@ -355,7 +362,7 @@ onUnmounted(stopPolling);
         <ol class="cd__timeline">
           <li v-for="revision in revisions" :key="revision.id">
             <strong>{{ $t('gainos.campaigns.revision', { no: revision.revisionNo }) }}</strong>
-            <span class="cd__state">{{ revisionStateLabel(revision.state) }}</span>
+            <span class="gs-badge" :class="approvalBadgeClass(revision.state)">{{ revisionStateLabel(revision.state) }}</span>
             <span class="cd__muted">{{ new Date(revision.createdAt).toLocaleString() }}</span>
             <p v-if="revision.approvals[0]?.decisionReason" class="cd__muted">
               {{ revision.approvals[0].decisionReason }}
