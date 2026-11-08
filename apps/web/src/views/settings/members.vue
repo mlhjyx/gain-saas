@@ -184,7 +184,7 @@ onMounted(load);
 .mb__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); }
 .mb__cta {
   flex: none; border: 0; border-radius: 11px; padding: 11px 18px; cursor: pointer;
-  background: var(--gs-accent); color: #fff; font-size: 14px; font-weight: 600;
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 14px; font-weight: 600;
   box-shadow: 0 8px 18px -6px var(--gs-accent-glow); transition: transform .15s ease;
 }
 .mb__cta:hover { transform: translateY(-1px); }
@@ -230,5 +230,5 @@ onMounted(load);
 .mb__actions { display: flex; justify-content: flex-end; gap: 10px; }
 .mb__btn { border-radius: 11px; padding: 11px 20px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; }
 .mb__btn--ghost { background: var(--gs-divider); color: var(--gs-fg-2); }
-.mb__btn--primary { background: var(--gs-accent); color: #fff; }
+.mb__btn--primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 </style>

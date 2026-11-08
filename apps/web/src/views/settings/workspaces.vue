@@ -187,7 +187,7 @@ onMounted(load);
 .ws__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
 .ws__row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ws__row input { flex: 1; min-width: 220px; border: 1px solid var(--gs-border-strong); border-radius: 9px; padding: 9px 11px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
-.ws__primary { border: 0; border-radius: 9px; padding: 9px 16px; background: var(--gs-accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ws__primary { border: 0; border-radius: 9px; padding: 9px 16px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; cursor: pointer; }
 .ws__primary:disabled { opacity: .5; cursor: default; }
 .ws__secondary { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--gs-fg-2); margin-right: 8px; }
 .ws__danger { border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--gs-danger); }

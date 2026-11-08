@@ -91,7 +91,7 @@ function select(key: string): void {
 /* 页头与 tab 跟内嵌页面共用同一容器宽度（1080 + 24 内边距），避免双重缩进 */
 .gr__bar {
   width: 100%;
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 24px 24px 6px;
   box-sizing: border-box;
@@ -164,7 +164,7 @@ function select(key: string): void {
 /* 触达占位不是整页组件，自己补齐与页面一致的容器 */
 .gr__panel--inner {
   width: 100%;
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 18px 24px 48px;
   box-sizing: border-box;
@@ -232,9 +232,9 @@ function select(key: string): void {
 }
 
 .gr__cta {
-  border: 1px solid var(--gs-accent);
-  background: var(--gs-accent);
-  color: #fff;
+  border: 1px solid var(--gs-accent-cta);
+  background: var(--gs-accent-cta);
+  color: var(--gs-accent-cta-fg);
   font-size: 13px;
   font-weight: 600;
   border-radius: 10px;
@@ -243,8 +243,8 @@ function select(key: string): void {
 }
 
 .gr__cta:hover {
-  background: var(--gs-accent-strong);
-  border-color: var(--gs-accent-strong);
+  background: var(--gs-accent-cta-hover);
+  border-color: var(--gs-accent-cta-hover);
 }
 
 .gr__ghost {

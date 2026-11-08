@@ -173,7 +173,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.cp { max-width: 1080px; margin: 0 auto; padding: 24px; }
+.cp { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
 .cp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: #7a6a52; text-transform: uppercase; }
 .cp h1 { margin: 6px 0; font-size: 26px; }

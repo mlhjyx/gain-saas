@@ -325,7 +325,7 @@ onMounted(load);
 <style scoped>
 .qg {
   padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   display: grid;
   gap: 16px;

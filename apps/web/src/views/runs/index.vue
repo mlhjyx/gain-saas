@@ -1156,7 +1156,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.run { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1240px; margin: 0 auto; display: grid; gap: 18px; }
+.run { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
 .run__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .run__back { border: 0; background: transparent; padding: 0; color: var(--gs-fg-muted); font-size: 13px; cursor: pointer; }
 .run__back:hover { color: var(--gs-accent-strong); }
@@ -1169,7 +1169,7 @@ onUnmounted(() => {
 .run__modal-card { width: min(520px, 100%); background: var(--gs-surface); border-radius: 16px; padding: 22px 24px; display: grid; gap: 10px; box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28); }
 .run__modal-card h2 { margin: 0; font-size: 17px; }
 .run__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
-.run__action--primary { background: var(--gs-accent); border-color: var(--gs-accent); color: #fff; font-weight: 600; }
+.run__action--primary { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
 .run__outcome {
   display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 12px; border: 1px solid var(--gs-border);
@@ -1215,7 +1215,7 @@ onUnmounted(() => {
 .run__stage.is-pending, .run__stage.is-skipped { opacity: .62; }
 .run__stage-top { display: flex; justify-content: space-between; align-items: center; }
 .run__stage-index { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #f1f5f9; color: var(--gs-fg-muted); font-size: 11px; font-weight: 700; }
-.run__stage.is-done .run__stage-index { background: var(--gs-accent); color: #fff; }
+.run__stage.is-done .run__stage-index { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .run__stage-state { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--gs-fg-muted); text-transform: uppercase; }
 .run__stage.is-done .run__stage-state { color: #008f52; }
 .run__stage.is-failed .run__stage-state { color: #b91c1c; }

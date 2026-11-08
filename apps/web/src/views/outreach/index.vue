@@ -413,7 +413,7 @@ onMounted(loadBatches);
 </template>
 
 <style scoped>
-.ob { width: 100%; max-width: 1080px; margin: 0 auto; padding: 12px 24px 32px; box-sizing: border-box; display: grid; gap: 16px; }
+.ob { width: 100%; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); box-sizing: border-box; display: grid; gap: 16px; }
 .ob__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ob__head h2 { margin: 0 0 4px; font-size: 22px; }
 .ob__sub { margin: 0; color: var(--gs-muted, #667085); }

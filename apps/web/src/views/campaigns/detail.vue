@@ -442,7 +442,7 @@ onUnmounted(stopPolling);
 </template>
 
 <style scoped>
-.cd { max-width: 1080px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
+.cd { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); display: grid; gap: 16px; }
 .cd__head { display: flex; gap: 16px; align-items: flex-start; }
 .cd__head h1 { margin: 0; font-size: 24px; }
 .cd__head p { margin: 4px 0 0; color: #6b6257; }

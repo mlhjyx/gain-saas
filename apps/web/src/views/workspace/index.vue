@@ -1082,7 +1082,7 @@ onUnmounted(() => {
 }
 .wk__step-dot svg { width: 13px; height: 13px; }
 .wk__step.is-done .wk__step-dot { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.wk__step.is-current .wk__step-dot { background: var(--gs-accent); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-accent) 18%, transparent); }
+.wk__step.is-current .wk__step-dot { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-accent) 18%, transparent); }
 .wk__step-label { font-size: 13.5px; color: var(--gs-fg-muted); white-space: nowrap; }
 .wk__step.is-current .wk__step-label { color: var(--gs-fg); font-weight: 600; }
 .wk__step.is-done .wk__step-label { color: var(--gs-fg-2); }
@@ -1116,7 +1116,7 @@ onUnmounted(() => {
 .wk__next-cta {
   flex: none; display: inline-flex; align-items: center; gap: 8px;
   border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer;
-  background: var(--gs-accent); color: #fff; font-size: 14.5px; font-weight: 600;
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 14.5px; font-weight: 600;
   box-shadow: 0 8px 20px -6px var(--gs-accent-glow);
   transition: transform .16s ease, box-shadow .16s ease;
 }
@@ -1175,7 +1175,7 @@ onUnmounted(() => {
   border: 0; background: transparent; padding: 2px 0; cursor: pointer;
   font-size: 12.5px; font-weight: 600; color: var(--gs-accent-strong);
 }
-.wk__text-btn:hover { color: var(--gs-accent); }
+.wk__text-btn:hover { color: var(--gs-accent-strong); }
 .wk__text-btn:disabled { opacity: .5; cursor: default; }
 
 .wk__notif-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; }
