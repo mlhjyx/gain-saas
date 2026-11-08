@@ -25,4 +25,11 @@ describe('canonical JSON 与 plan_hash', () => {
   it('undefined 字段被跳过（等价于未提供）', () => {
     expect(planHashOf({ a: 1, b: undefined })).toBe(planHashOf({ a: 1 }));
   });
+
+  it('M2.2 契约扩展不改变 canonical 语义：maxReplans 仍是整数指纹的一部分', () => {
+    const plan = (maxReplans: number) => ({ decisionPolicy: { maxReplans } });
+    expect(planHashOf(plan(0))).toBe(planHashOf({ decisionPolicy: { maxReplans: 0 } }));
+    expect(planHashOf(plan(0))).not.toBe(planHashOf(plan(1)));
+    expect(planHashOf(plan(1))).not.toBe(planHashOf(plan(2)));
+  });
 });
