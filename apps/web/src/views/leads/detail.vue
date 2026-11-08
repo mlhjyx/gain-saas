@@ -364,7 +364,7 @@ watch(tab, (next) => {
     </PageHeader>
 
     <div v-if="pkg" class="lpd__bar">
-      <span class="gs-badge" :class="statusToneClass">{{ statusLabel }}</span>
+      <span class="gs-badge" :class="statusToneClass">{{ statusLabel(status) }}</span>
       <div class="lpd__bar-actions">
         <button v-if="canDecide" class="lpd__ghost lpd__ghost--danger" type="button" @click="openDecision('reject')">
           {{ $t('gainos.leads.reject') }}

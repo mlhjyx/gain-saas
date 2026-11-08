@@ -43,9 +43,11 @@ test('线索详情深链、四 tab 与接受动作', async ({ page }) => {
   // tab 进 URL，可直接分享
   await page.getByRole('tab', { name: '结果' }).click();
   await page.waitForURL((url) => url.pathname === '/leads/lead-1' && url.searchParams.get('tab') === 'outcomes');
+  // 页面切换有 120–180ms 淡入过渡；等过渡结束再点操作条，避免旧/新视图同时在 DOM。
+  await page.waitForTimeout(600);
 
   // 接受动作：确认后 POST 到 accept
-  await page.getByRole('button', { name: '接受' }).click();
+  await page.getByRole('button', { name: '值得跟进' }).first().click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: '确认跟进' }).click();
   await expect.poll(() => backend.callsTo('POST', '/leads/lead-1/accept').length).toBe(1);

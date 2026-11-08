@@ -77,7 +77,6 @@ const REJECT_CODES = [
   'OTHER',
 ] as const;
 const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
-const SCORE_DIMS = ['fit', 'role', 'intent', 'demand_proof', 'reachability', 'data_quality', 'engagement'] as const;
 
 const activeQueue = ref<string>(queueFromRoute() ?? 'needs_review');
 const leads = ref<Lead[]>([]);
@@ -89,8 +88,6 @@ const activeIcpId = ref('');
 const queueCounts = ref<LeadQueueCounts | null>(null);
 // 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
 const pageLimit = ref(50);
-
-const sanctionsNotice = ref<string | null>(null);
 
 // M2 步 10：从已接受线索提升为商机（QGO）。证据门与下一步在服务端再次校验。
 const promoteOpen = ref(false);
@@ -476,7 +473,14 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
       <article v-for="lead in leads" :key="lead.id" class="ld__lead">
         <header class="ld__lead-head">
           <div>
-            <h2>{{ lead.company?.name || $t('gainos.leads.unknownCompany') }}</h2>
+            <h2>
+              <RouterLink
+                class="ld__title-link"
+                :to="{ name: 'LeadDetail', params: { leadId: lead.id } }"
+              >
+                {{ lead.company?.name || $t('gainos.leads.unknownCompany') }}
+              </RouterLink>
+            </h2>
             <p v-if="lead.company?.country || lead.company?.industry">
               {{ [lead.company?.country, lead.company?.industry].filter(Boolean).join(' · ') }}
             </p>
@@ -632,6 +636,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__step.is-done { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
 .ld__step.is-current { color: var(--gs-accent-cta-fg); background: var(--gs-accent-cta); }
 .ld__step.is-current .ld__step-dot { background: rgba(255,255,255,.22); color: #fff; }
+.ld__title-link { color: inherit; text-decoration: none; }
+.ld__title-link:hover { color: var(--gs-accent-strong); text-decoration: underline; }
 .ld__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; font-weight: 600; }
 .ld__queues { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
 .ld__q {
