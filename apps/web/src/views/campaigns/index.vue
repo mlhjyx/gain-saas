@@ -8,6 +8,9 @@ import { failureText, gainosApi, type CampaignSummary } from '#/api/gainos';
 
 defineOptions({ name: 'Campaigns' });
 
+// 在「商机与触达」枢纽内嵌时不渲染自己的页头（父页已有标题与 tab）。
+defineProps<{ embedded?: boolean }>();
+
 const router = useRouter();
 
 const campaigns = ref<CampaignSummary[]>([]);
@@ -91,9 +94,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="cp">
+  <div class="cp" :class="{ 'is-embedded': embedded }">
     <header class="cp__head">
-      <div>
+      <div v-if="!embedded">
         <span class="cp__stage">{{ $t('gainos.campaigns.stage') }}</span>
         <h1>{{ $t('gainos.campaigns.title') }}</h1>
         <p>{{ $t('gainos.campaigns.subtitle') }}</p>
@@ -174,6 +177,7 @@ onMounted(load);
 
 <style scoped>
 .cp { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
+.cp.is-embedded { padding: 0; max-width: none; margin: 0; }
 .cp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: #7a6a52; text-transform: uppercase; }
 .cp h1 { margin: 6px 0; font-size: 26px; }

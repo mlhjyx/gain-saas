@@ -178,7 +178,8 @@ onMounted(load);
   padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
   max-width: 1280px;
   margin: 0 auto;
- display: grid; gap: 18px; max-width: 860px; }
+ display: grid; gap: 18px; }
+.mb > * { width: 100%; max-width: 860px; }
 .mb__head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
 .mb__head h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
 .mb__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); }

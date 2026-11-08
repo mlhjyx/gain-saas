@@ -69,15 +69,15 @@ function select(key: string): void {
     </div>
 
     <section v-if="active === 'campaigns'" class="gr__panel" role="tabpanel">
-      <CampaignsList />
+      <CampaignsList embedded />
     </section>
 
     <section v-else-if="active === 'opportunities'" class="gr__panel" role="tabpanel">
-      <QgosList />
+      <QgosList embedded />
     </section>
 
     <section v-else class="gr__panel" role="tabpanel">
-      <OutreachBatches />
+      <OutreachBatches embedded />
     </section>
   </div>
 </template>

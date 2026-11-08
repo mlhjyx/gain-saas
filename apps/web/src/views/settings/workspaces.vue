@@ -175,7 +175,7 @@ onMounted(load);
   padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
   max-width: 1280px; margin: 0 auto; display: grid; gap: 16px;
 }
-.ws > * { width: 100%; max-width: 860px; justify-self: center; }
+.ws > * { width: 100%; max-width: 860px; justify-self: start; }
 .ws__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .ws__head h1 { margin: 0; font-size: 22px; color: var(--gs-fg); }
 .ws__head p { margin: 6px 0 0; font-size: 13px; color: var(--gs-fg-muted); line-height: 1.7; max-width: 640px; }

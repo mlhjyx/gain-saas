@@ -17,6 +17,9 @@ import {
  */
 defineOptions({ name: 'Qgos' });
 
+// 内嵌在「商机与触达」枢纽时不渲染自己的页头。
+defineProps<{ embedded?: boolean }>();
+
 const OUTCOME_VALUES: QgoOutcomeValue[] = [
   'REPLIED',
   'MEETING_BOOKED',
@@ -175,9 +178,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="qg">
+  <div class="qg" :class="{ 'is-embedded': embedded }">
     <header class="qg__head">
-      <div>
+      <div v-if="!embedded">
         <span class="qg__stage">{{ $t('gainos.qgos.stage') }}</span>
         <h1>{{ $t('gainos.qgos.title') }}</h1>
         <p>{{ $t('gainos.qgos.subtitle') }}</p>
@@ -330,6 +333,7 @@ onMounted(load);
   display: grid;
   gap: 16px;
 }
+.qg.is-embedded { padding: 0; max-width: none; margin: 0; }
 
 .qg__head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .qg__stage { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gs-fg-subtle); }

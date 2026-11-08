@@ -16,6 +16,9 @@ import { failureText, gainosApi } from '#/api/gainos';
 
 defineOptions({ name: 'OutreachBatches' });
 
+// 内嵌在「商机与触达」枢纽时不渲染自己的页头。
+defineProps<{ embedded?: boolean }>();
+
 const batches = ref<OutreachBatchSummary[]>([]);
 const detail = ref<OutreachBatchDetail | null>(null);
 const loading = ref(true);
@@ -230,9 +233,9 @@ onMounted(loadBatches);
 </script>
 
 <template>
-  <div class="ob">
+  <div class="ob" :class="{ 'is-embedded': embedded }">
     <header class="ob__head">
-      <div>
+      <div v-if="!embedded">
         <h2>{{ $t('gainos.outreach.title') }}</h2>
         <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       </div>
@@ -414,6 +417,7 @@ onMounted(loadBatches);
 
 <style scoped>
 .ob { width: 100%; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); box-sizing: border-box; display: grid; gap: 16px; }
+.ob.is-embedded { padding: 0; max-width: none; margin: 0; }
 .ob__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ob__head h2 { margin: 0 0 4px; font-size: 22px; }
 .ob__sub { margin: 0; color: var(--gs-muted, #667085); }

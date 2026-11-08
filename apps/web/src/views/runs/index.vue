@@ -486,6 +486,23 @@ function stageLabel(stage: string): string {
 }
 
 const fit = computed<Record<string, number>>(() => (recordOf('fit') as Record<string, number>) ?? {});
+// 新格式 run 用 stats.quickScan / stats.deep（旧 run 才有 stats.companies/stats.fit）。
+// 摘要与元信息行在两种格式下都要显示真实数字（2026-11-09 信息契约审计：KPI 全 0 对 448 判定）。
+const quickScan = computed<Record<string, any>>(() => recordOf('quickScan'));
+const deepStage = computed<Record<string, any>>(() => recordOf('deep'));
+const summaryCompanies = computed<number | null>(() =>
+  stats.value.companies ?? quickScan.value.poolSize ?? null,
+);
+const summaryMatch = computed<number | null>(() => fit.value.match ?? quickScan.value.match ?? null);
+const summaryWeak = computed<number | null>(() => fit.value.weak ?? quickScan.value.weak ?? null);
+const summaryExcluded = computed<number | null>(() => {
+  if (fit.value.mismatch !== undefined) return Number(fit.value.mismatch) + Number(stats.value.suppressed ?? 0);
+  if (quickScan.value.mismatch !== undefined) return Number(quickScan.value.mismatch) + Number(quickScan.value.prefilteredOut ?? 0);
+  return null;
+});
+const failureRateHigh = computed(() =>
+  Array.isArray(stats.value.alerts) && (stats.value.alerts as string[]).includes('failure_rate_high'),
+);
 type SourceRow = Record<string, any> & { source: string };
 const perSource = computed<SourceRow[]>(() =>
   Object.entries(recordOf('perSource')).map(([source, value]) => ({
@@ -757,6 +774,15 @@ const statusTone = computed(() => {
 });
 
 // 状态文案取自 @gain-saas/shared 的 glossary（P6 §4），未登记值不裸奔。
+function jobErrorLabel(code?: string | null): string {
+  if (!code) return '—';
+  const known: Record<string, string> = {
+    COMPANY_PIPELINE_FAILED: $t('gainos.runs.jobErrorPipeline'),
+    CancelledFailure: $t('gainos.runs.jobErrorCancelled'),
+  };
+  return known[code] ?? code;
+}
+
 function statusLabel(status?: string): string {
   return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
@@ -821,6 +847,11 @@ onUnmounted(() => {
         <span class="run__kicker">{{ $t('gainos.runs.kicker') }}</span>
         <h1>{{ $t('gainos.runs.title') }}</h1>
         <p class="run__muted">{{ $t('gainos.runs.subtitle') }}</p>
+        <p class="run__muted run__identity">
+          <span v-if="run.icpId">{{ $t('gainos.runs.icp') }} {{ run.icpId.slice(0, 8) }}</span>
+          <span v-if="run.planId"> · {{ $t('gainos.runs.plan') }} {{ run.planId.slice(0, 8) }}</span>
+          <span> · {{ $t('gainos.runs.taskId') }} {{ run.id.slice(0, 8) }}</span>
+        </p>
       </div>
       <div class="run__head-actions">
         <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
@@ -846,12 +877,18 @@ onUnmounted(() => {
           <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ new Date(run.completedAt).toLocaleString() }}</p>
           <p v-if="run.status === 'RUNNING'" class="run__muted">{{ $t('gainos.runs.runStatusHint') }}</p>
         </article>
-        <article><span>{{ $t('gainos.runs.summaryCompanies') }}</span><strong>{{ textOf(stats.companies) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryMatch') }}</span><strong>{{ textOf(fit.match ?? 0) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryPartialMatch') }}</span><strong>{{ textOf(fit.weak ?? 0) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryExcluded') }}</span><strong>{{ textOf(Number(fit.mismatch ?? 0) + Number(stats.suppressed ?? 0)) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryCompanies') }}</span><strong>{{ textOf(summaryCompanies) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryMatch') }}</span><strong>{{ textOf(summaryMatch) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryPartialMatch') }}</span><strong>{{ textOf(summaryWeak) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryExcluded') }}</span><strong>{{ textOf(summaryExcluded) }}</strong></article>
         <article><span>{{ $t('gainos.runs.summaryDuration') }}</span><strong>{{ elapsed }}</strong></article>
       </section>
+      <p v-if="quickScan.judged !== undefined || deepStage.done !== undefined" class="run__meta run__muted">
+        <span v-if="quickScan.judged !== undefined">{{ $t('gainos.runs.metaJudged') }} {{ textOf(quickScan.judged) }}</span>
+        <span v-if="quickScan.prefilteredOut !== undefined"> · {{ $t('gainos.runs.metaPrefiltered') }} {{ textOf(quickScan.prefilteredOut) }}</span>
+        <span v-if="deepStage.done !== undefined || deepStage.failed !== undefined"> · {{ $t('gainos.runs.metaDeep') }} {{ textOf(deepStage.done) }}/{{ textOf(deepStage.failed) }}</span>
+        <span v-if="failureRateHigh" class="gs-badge gs-badge--danger" style="margin-left: 8px">{{ $t('gainos.runs.metaFailureHigh') }}</span>
+      </p>
 
       <p v-if="stopNotice" class="run__muted">{{ stopNotice }}</p>
       <p v-if="retryNotice" class="run__muted">{{ retryNotice }}</p>
@@ -862,7 +899,7 @@ onUnmounted(() => {
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.quickListTitle') }}</h2>
           <table class="run__table">
-            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th></tr></thead>
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdictLabel') }}</th></tr></thead>
             <tbody>
               <tr v-for="job in quickJobs" :key="job.id">
                 <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
@@ -876,13 +913,13 @@ onUnmounted(() => {
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.deepQueueTitle') }}</h2>
           <table class="run__table">
-            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th><th>{{ $t('gainos.runs.jobError') }}</th></tr></thead>
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdictLabel') }}</th><th>{{ $t('gainos.runs.jobError') }}</th></tr></thead>
             <tbody>
               <tr v-for="job in deepJobs" :key="job.id">
                 <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
                 <td>{{ jobStageLabel(job.stage) }}</td>
                 <td>{{ jobVerdictLabel(job.verdictDeep ?? job.verdictQuick) }}</td>
-                <td class="run__error-text">{{ job.lastErrorCode ?? '—' }}</td>
+                <td class="run__error-text">{{ jobErrorLabel(job.lastErrorCode) }}</td>
               </tr>
               <tr v-if="deepJobs.length === 0"><td colspan="4" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
             </tbody>
