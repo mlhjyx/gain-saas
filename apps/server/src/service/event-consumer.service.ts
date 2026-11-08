@@ -339,6 +339,12 @@ export class EventConsumerService implements OnModuleInit {
       return;
     }
 
+    if (type === 'CandidateBatchCompleted') {
+      // M2 步 10：候选批次日志在此只吸收（event_inbox 已存完整 payload）；批次产出/判定分布的
+      // 运营归因聚合读 event_inbox，不再落业务表。旧 run 回放（最小/缺字段载荷）必须不报错。
+      return;
+    }
+
     // 单条事实审批不生成站内通知：一次理解会产生上百条 Claim，逐条通知会把铃铛淹没。
     // 审批结果仍在企业事实页与审计中可见。
   }

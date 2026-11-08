@@ -230,7 +230,7 @@ export function registerBffMiddleware(
   guard: BffGuard,
 ): void {
   express.use(async (req: Request, res: Response, next: () => void) => {
-    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/tasks') || req.path.startsWith('/api/campaigns') || req.path.startsWith('/api/internal/')) {
+    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/tasks') || req.path.startsWith('/api/campaigns') || req.path.startsWith('/api/qgos') || req.path.startsWith('/api/saos') || req.path.startsWith('/api/internal/')) {
       next();
       return;
     }
