@@ -26,6 +26,28 @@
     "taskPaused": "Paused",
     "taskArchived": "Archived"
   },
+  "replies": {
+    "tab": "Replies",
+    "title": "Reply inbox",
+    "subtitle": "Buyer replies, bounces and unsubscribes land here; any reply stops the related sending immediately.",
+    "empty": "No replies yet. After the first send, replies and bounces will appear here.",
+    "colTime": "Time",
+    "colRecipient": "Recipient",
+    "colClass": "Category",
+    "colSubject": "Subject",
+    "class": {
+      "POSITIVE": "Interested",
+      "NEUTRAL": "Neutral",
+      "NEGATIVE": "Declined",
+      "OUT_OF_OFFICE": "Auto-reply",
+      "UNKNOWN": "Unclassified"
+    },
+    "kind": {
+      "REPLY": "Reply",
+      "BOUNCE": "Bounce",
+      "UNSUBSCRIBE": "Unsubscribe"
+    }
+  },
   "growth": {
     "title": "Opportunities & outreach",
     "subtitle": "Campaign plans, the opportunity pipeline and controlled outreach share one entry point; each section opens as its task flow goes live.",

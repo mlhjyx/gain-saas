@@ -19,6 +19,7 @@ defineOptions({ name: 'Growth' });
 const CampaignsList = defineAsyncComponent(() => import('#/views/campaigns/index.vue'));
 const QgosList = defineAsyncComponent(() => import('#/views/qgos/index.vue'));
 const OutreachBatches = defineAsyncComponent(() => import('#/views/outreach/index.vue'));
+const OutreachReplies = defineAsyncComponent(() => import('#/views/outreach/replies.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -27,9 +28,10 @@ const TABS = computed(() => [
   { key: 'campaigns', label: glossaryTerm('campaign', preferences.app.locale) },
   { key: 'opportunities', label: glossaryTerm('qgo', preferences.app.locale) },
   { key: 'outreach', label: glossaryTerm('outreach', preferences.app.locale) },
+  { key: 'replies', label: $t('gainos.replies.tab') },
 ]);
 
-const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach']);
+const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach', 'replies']);
 const active = computed(() => {
   const tab = route.query.tab;
   return typeof tab === 'string' && TAB_KEYS.has(tab) ? tab : 'campaigns';
@@ -76,8 +78,12 @@ function select(key: string): void {
       <QgosList embedded />
     </section>
 
-    <section v-else class="gr__panel" role="tabpanel">
+    <section v-else-if="active === 'outreach'" class="gr__panel" role="tabpanel">
       <OutreachBatches embedded />
+    </section>
+
+    <section v-else class="gr__panel" role="tabpanel">
+      <OutreachReplies embedded />
     </section>
   </div>
 </template>

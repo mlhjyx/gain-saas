@@ -65,7 +65,7 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
 
   // 三 tab：战役计划 / 商机 / 触达（术语取自 glossary）
   const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveText(['战役计划', '商机', '触达']);
+  await expect(tabs).toHaveText(['战役计划', '商机', '触达', '回复']);
 
   // tab 1：内嵌真实战役计划列表（M2.1）——父页已给标题，内嵌页不再渲染自己的 H1（F0：双页头消除）
   await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toHaveCount(0);

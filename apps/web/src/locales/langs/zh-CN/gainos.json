@@ -26,6 +26,28 @@
     "taskPaused": "已暂停",
     "taskArchived": "已归档"
   },
+  "replies": {
+    "tab": "回复",
+    "title": "回复收件箱",
+    "subtitle": "买家的回复、退信与退订都会出现在这里；任何回复都会让相关发送立即停止。",
+    "empty": "还没有收到回复。首次发送后，回复与退信会出现在这里。",
+    "colTime": "时间",
+    "colRecipient": "收件人",
+    "colClass": "分类",
+    "colSubject": "主题",
+    "class": {
+      "POSITIVE": "有意向",
+      "NEUTRAL": "中性",
+      "NEGATIVE": "明确拒绝",
+      "OUT_OF_OFFICE": "自动回复",
+      "UNKNOWN": "未分类"
+    },
+    "kind": {
+      "REPLY": "回复",
+      "BOUNCE": "退信",
+      "UNSUBSCRIBE": "退订"
+    }
+  },
   "growth": {
     "title": "商机与触达",
     "subtitle": "从战役计划、商机管线到受控触达——三段工作面在同一个入口，随任务推进逐段开放。",
