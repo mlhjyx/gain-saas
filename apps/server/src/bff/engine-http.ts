@@ -115,10 +115,10 @@ export class EngineHttp {
   }
 
   /** 引擎错误 → 前端三层文案(PRD §14.2/§14.4;词表唯一真值在 packages/shared)。 */
-  toClientError(status: number, engineBody: unknown): ClientErrorBody {
+  toClientError(status: number, engineBody: unknown, lang?: string | null): ClientErrorBody {
     const err = (engineBody as { error?: { code?: string; message?: string } } | null)?.error;
     const code = err?.code ?? 'UNKNOWN';
-    let copy = copyForError(code);
+    let copy = copyForError(code, lang);
     if ((status === 401 || status === 403) && !DOMAIN_FORBIDDEN_CODES.has(code)) {
       // 引擎对我们的服务身份说 401/403 = SaaS↔引擎授权未就绪(角色映射/JWKS 未配),
       // 绝不代表「用户会话失效」——必须给出可理解的降级说明,而不是让前端登出用户。
