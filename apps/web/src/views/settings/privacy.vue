@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue';
 
 import { $t } from '#/locales';
 
+import { formatDateTime } from '@gain-saas/shared';
+
 import { failureText, gainosApi, type DeletionRequestView } from '#/api/gainos';
 
 defineOptions({ name: 'SettingsPrivacy' });
@@ -43,7 +45,7 @@ function statusTone(status?: string): string {
 }
 
 function fmtTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return formatDateTime(value) || '—';
 }
 
 function persist(): void {
@@ -249,7 +251,7 @@ onMounted(() => {
 .pv__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); }
 .pv__field select, .pv__field input, .pv__lookup input { border: 1px solid var(--gs-border-strong); border-radius: 9px; padding: 8px 10px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
 .pv__actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.pv__cta { border: 0; border-radius: 10px; padding: 9px 18px; background: var(--gs-accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.pv__cta { border: 0; border-radius: 10px; padding: 9px 18px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; cursor: pointer; }
 .pv__cta:disabled { opacity: .45; cursor: not-allowed; }
 .pv__secondary { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
 .pv__error { display: grid; gap: 2px; font-size: 12.5px; color: var(--gs-warn); }
@@ -261,9 +263,9 @@ onMounted(() => {
 .pv__table th { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-bg-soft, #f8fafc); white-space: nowrap; }
 .pv__table tr:last-child td { border-bottom: 0; }
 .pv__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
-.pv__badge { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 650; background: #f1f5f9; color: #475569; }
-.pv__badge.is-ok { background: #e8f9f0; color: #008f52; }
-.pv__badge.is-warn { background: #fef3c7; color: #b45309; }
-.pv__badge.is-bad { background: #fee2e2; color: #b91c1c; }
+.pv__badge { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 650; background: var(--gs-surface-2); color: var(--gs-fg-muted); }
+.pv__badge.is-ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.pv__badge.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
+.pv__badge.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger); }
 @media (max-width: 900px) { .pv__grid { grid-template-columns: 1fr; } .pv__head { flex-direction: column; } .pv__lookup { width: 100%; } .pv__lookup input { min-width: 0; flex: 1; } }
 </style>

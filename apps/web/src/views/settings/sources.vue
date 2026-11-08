@@ -322,7 +322,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.src { padding: clamp(18px, 2.4vw, 32px); max-width: 1040px; margin: 0 auto; display: grid; gap: 16px; }
+.src { padding: clamp(18px, 2.4vw, 32px); max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
 .src__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .src__head h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--gs-fg); }
 .src__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
@@ -344,7 +344,7 @@ onMounted(load);
 .src__file { position: relative; overflow: hidden; display: inline-flex; }
 .src__file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .src__file span, .src__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; }
-.src__action--on { background: var(--gs-accent); border-color: var(--gs-accent); color: #fff; }
+.src__action--on { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .src__action:disabled { opacity: .45; cursor: not-allowed; }
 .src__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .src__table th, .src__table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gs-border); }

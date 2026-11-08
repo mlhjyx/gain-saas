@@ -96,6 +96,79 @@ describe('OpsChannelsService（P3 数据源归属）', () => {
     );
   });
 
+  it('manifest 创建：name 可省略（引擎从 manifest.meta 派生），审计带 manifestSha256', async () => {
+    const { service, engine, audit } = makeService({
+      '/source-channels': { status: 201, body: { data: { id: 'ch-9', name: 'SAM.gov', manifestSha256: 'a'.repeat(64) } } },
+    });
+    const created = await service.create('op-1', { manifest: { meta: { name: 'SAM.gov' }, transport: {} } });
+    expect(created).toEqual({ id: 'ch-9', name: 'SAM.gov', manifestSha256: 'a'.repeat(64) });
+    expect(engine.call).toHaveBeenCalledWith('op-1', 'POST', '/source-channels', {
+      body: { manifest: { meta: { name: 'SAM.gov' }, transport: {} } },
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'channel.create',
+        target: 'ch-9',
+        detail: expect.objectContaining({ name: 'SAM.gov', mode: 'api', manifestSha256: 'a'.repeat(64) }),
+      }),
+    );
+  });
+
+  it('patch 接受 manifest 重存（字段清单含 manifest）', async () => {
+    const { service, engine, audit } = makeService();
+    await service.patch('op-1', 'ch-1', { manifest: { meta: { name: 'X' } } });
+    expect(engine.call).toHaveBeenCalledWith('op-1', 'PATCH', '/source-channels/ch-1', {
+      body: { manifest: { meta: { name: 'X' } } },
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'channel.patch', detail: { fields: ['manifest'], status: undefined } }),
+    );
+  });
+
+  it('detail 透传 GET /source-channels/:id（只读不写审计）', async () => {
+    const { service, calls, audit } = makeService({
+      '/source-channels/ch-1': { status: 200, body: { data: { id: 'ch-1', auth: { type: 'apiKey', secrets: [] } } } },
+    });
+    await expect(service.detail('op-1', 'ch-1')).resolves.toEqual({
+      id: 'ch-1',
+      auth: { type: 'apiKey', secrets: [] },
+    });
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/source-channels/ch-1' });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('test（保存即测试）：成功与 fail-closed 都写 channel.probe 审计', async () => {
+    const ok = makeService({
+      '/source-channels/ch-1/test': {
+        status: 200,
+        body: { data: { probeId: 'p-1', status: 'SUCCEEDED', recordsFound: 3, errorCode: null } },
+      },
+    });
+    await expect(ok.service.test('op-1', 'ch-1')).resolves.toMatchObject({ status: 'SUCCEEDED', recordsFound: 3 });
+    expect(ok.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'channel.probe',
+        target: 'ch-1',
+        detail: expect.objectContaining({ engineStatus: 200, probeStatus: 'SUCCEEDED', recordsFound: 3 }),
+      }),
+    );
+
+    const unavailable = makeService({
+      '/source-channels/ch-1/test': {
+        status: 503,
+        body: { error: { code: 'CHANNEL_TEST_EGRESS_UNAVAILABLE', message: 'not wired' } },
+      },
+    });
+    const error = await unavailable.service.test('op-1', 'ch-1').catch((err: unknown) => err);
+    expect((error as HttpException).getStatus()).toBe(503);
+    expect(unavailable.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'channel.probe',
+        detail: expect.objectContaining({ engineStatus: 503, engineCode: 'CHANNEL_TEST_EGRESS_UNAVAILABLE' }),
+      }),
+    );
+  });
+
   it('preview/run 的引擎 fail-closed 也留审计并原样抛出 409', async () => {
     const { service, audit } = makeService({
       '/source-channels/ch-1/preview': {

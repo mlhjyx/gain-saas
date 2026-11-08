@@ -25,15 +25,6 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        name: 'SettingsWorkspaces',
-        path: 'workspaces',
-        component: () => import('#/views/settings/workspaces.vue'),
-        meta: {
-          icon: 'lucide:building-2',
-          title: $t('gainos.menu.workspaces'),
-        },
-      },
-      {
         name: 'SettingsSuppressions',
         path: 'suppressions',
         component: () => import('#/views/settings/suppressions.vue'),

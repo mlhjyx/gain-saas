@@ -865,13 +865,13 @@ onUnmounted(() => {
           >
             {{ retryingId === c.id ? $t('gainos.companies.retrying') : $t('gainos.companies.retryUnderstanding') }}
           </button>
-          <button type="button" class="cp__confirm" @click="openDocuments(c)">
+          <button type="button" class="cp__confirm cp__confirm--ghost" @click="openDocuments(c)">
             {{ $t('gainos.companies.documents') }}
           </button>
           <button
             v-if="c.status === 'DRAFT'"
             type="button"
-            class="cp__confirm"
+            class="cp__confirm cp__confirm--ghost"
             @click="openEdit(c)"
           >
             {{ $t('gainos.companies.edit') }}
@@ -879,7 +879,7 @@ onUnmounted(() => {
           <button
             v-if="c.status === 'DRAFT'"
             type="button"
-            class="cp__confirm"
+            class="cp__confirm cp__confirm--ghost cp__confirm--danger"
             :disabled="deletingId === c.id"
             @click="removeCompany(c)"
           >
@@ -1324,7 +1324,7 @@ onUnmounted(() => {
 .cp__cta {
   display: inline-flex; align-items: center; gap: 7px; flex: none; cursor: pointer;
   border: 0; border-radius: 11px; padding: 11px 18px; font-size: 14px; font-weight: 600;
-  background: var(--gs-accent); color: #fff; box-shadow: 0 8px 18px -6px var(--gs-accent-glow);
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); box-shadow: 0 8px 18px -6px var(--gs-accent-glow);
   transition: transform .15s ease, box-shadow .15s ease;
 }
 .cp__cta:hover { transform: translateY(-1px); }
@@ -1367,12 +1367,16 @@ onUnmounted(() => {
 .cp__badge { flex: none; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 4px 12px; }
 .cp__badge--draft { background: var(--gs-divider); color: var(--gs-fg-muted); }
 .cp__badge--enriching { background: var(--gs-indigo-soft); color: var(--gs-indigo); }
-.cp__badge--review { background: #fef3c7; color: #b45309; }
+.cp__badge--review { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .cp__badge--active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.cp__badge--failed { background: #fee2e2; color: #b91c1c; }
-.cp__item-error { margin-top: 2px; font-size: 12px; color: #b91c1c; font-family: var(--gs-mono, monospace); }
+.cp__badge--failed { background: var(--gs-danger-bg); color: var(--gs-danger); }
+.cp__item-error { margin-top: 2px; font-size: 12px; color: var(--gs-danger); font-family: var(--gs-mono, monospace); }
 .cp__item-side { display: flex; align-items: center; gap: 10px; flex: none; }
-.cp__confirm { border: 0; border-radius: 9px; padding: 7px 12px; background: var(--gs-accent); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cp__confirm { border: 0; border-radius: 9px; padding: 7px 12px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cp__confirm--ghost { background: var(--gs-surface); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); }
+.cp__confirm--ghost:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
+.cp__confirm--danger { color: var(--gs-danger); }
+.cp__confirm--danger:hover { border-color: var(--gs-danger-border); color: var(--gs-danger); }
 .cp__confirm:disabled { opacity: .55; cursor: default; }
 
 .cp__modal {
@@ -1427,11 +1431,11 @@ onUnmounted(() => {
 .cp__btn { border-radius: 11px; padding: 11px 20px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; }
 .cp__btn--ghost { background: var(--gs-divider); color: var(--gs-fg-2); }
 .cp__btn--ghost:hover { background: var(--gs-border-strong); }
-.cp__btn--primary { background: var(--gs-accent); color: #fff; }
+.cp__btn--primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .cp__btn--primary:hover { filter: brightness(1.04); }
 .cp__btn--primary:disabled { opacity: .7; cursor: default; }
 .cp__btn--danger { color: var(--gs-danger); }
-.cp__btn--danger:not(:disabled):hover { color: #fff; background: var(--gs-danger); }
+.cp__btn--danger:not(:disabled):hover { color: var(--gs-accent-cta-fg); background: var(--gs-danger); }
 .cp__btn:disabled { cursor: default; }
 
 /* ── 企业列表：事实入口 ── */

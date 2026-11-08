@@ -94,6 +94,19 @@ export class OpsController {
     return { data: await this.opsChannels.patch(req.opsUser!.id, id, body) };
   }
 
+  /** v3.0：渠道详情（manifest + 健康摘要 + 密钥已配置/未配置）。 */
+  @Get('channels/:id')
+  async channelDetail(@Param('id') id: string, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.detail(req.opsUser!.id, id) };
+  }
+
+  /** v3.0 保存即测试（probe）。 */
+  @Post('channels/:id/test')
+  @HttpCode(200)
+  async testChannel(@Param('id') id: string, @Req() req: OpsRequest) {
+    return { data: await this.opsChannels.test(req.opsUser!.id, id) };
+  }
+
   @Post('channels/:id/preview')
   @HttpCode(200)
   async previewChannel(@Param('id') id: string, @Req() req: OpsRequest) {

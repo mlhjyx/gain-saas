@@ -13,7 +13,7 @@ const CHANNEL_MODES = ['api', 'crawl', 'import'] as const;
 const CHANNEL_STATUSES = ['DISABLED', 'ENABLED', 'AUTO_DISABLED'] as const;
 const ROBOTS_POLICIES = ['A', 'B', 'C'] as const;
 
-const createSchema = z.object({
+const legacyCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   mode: z.enum(CHANNEL_MODES),
   category: z.string().trim().min(1).max(100),
@@ -24,11 +24,21 @@ const createSchema = z.object({
   owner: z.string().trim().max(200).optional(),
 });
 
+/** v3.0：manifest 驱动创建——name/category/mode 由引擎从 channel-manifest/v1 派生。 */
+const manifestCreateSchema = z.object({
+  manifest: z.record(z.string(), z.unknown()),
+  name: z.string().trim().min(1).max(200).optional(),
+  owner: z.string().trim().max(200).optional(),
+});
+
+const createSchema = z.union([manifestCreateSchema, legacyCreateSchema]);
+
 const patchSchema = z
   .object({
     name: z.string().trim().min(1).max(200).optional(),
     mode: z.enum(CHANNEL_MODES).optional(),
     config: z.record(z.string(), z.unknown()).optional(),
+    manifest: z.record(z.string(), z.unknown()).optional(),
     status: z.enum(CHANNEL_STATUSES).optional(),
     license: z.string().trim().max(200).nullable().optional(),
     tosUrl: z.string().trim().max(2048).nullable().optional(),
@@ -84,15 +94,52 @@ export class OpsChannelsService {
     if (!parsed.success) throw validationError(parsed.error);
     const result = await this.engine.call(actorId, 'POST', '/source-channels', { body: parsed.data });
     if (result.status >= 300) throw engineError(result);
-    const channel = engineData(result) as { id?: string; name?: string } | null;
+    const channel = engineData(result) as { id?: string; name?: string; manifestSha256?: string | null } | null;
+    const mode = 'mode' in parsed.data ? parsed.data.mode : 'api';
+    const category = 'category' in parsed.data ? parsed.data.category : null;
     await this.audit.record({
       realm: 'ops',
       actorId,
       action: 'channel.create',
       target: channel?.id,
-      detail: { name: parsed.data.name, mode: parsed.data.mode, category: parsed.data.category },
+      detail: {
+        name: parsed.data.name ?? channel?.name ?? null,
+        mode,
+        category,
+        manifestSha256: channel?.manifestSha256 ?? null,
+      },
     });
     return channel;
+  }
+
+  /** v3.0：渠道详情（manifest + 健康摘要 + 密钥「已配置/未配置」；只读不写审计）。 */
+  async detail(actorId: string, channelId: string): Promise<unknown> {
+    const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}`);
+    if (result.status >= 300) throw engineError(result);
+    return engineData(result);
+  }
+
+  /** v3.0 保存即测试：无论引擎接受/拒绝都留审计（试跑也是出网意图）。 */
+  async test(actorId: string, channelId: string): Promise<unknown> {
+    const result = await this.engine.call(actorId, 'POST', `/source-channels/${channelId}/test`, {});
+    const engineCode =
+      (result.body as { error?: { code?: string } } | null)?.error?.code ?? null;
+    const probe = (result.body as { data?: { status?: string; recordsFound?: number; errorCode?: string | null } } | null)?.data;
+    await this.audit.record({
+      realm: 'ops',
+      actorId,
+      action: 'channel.probe',
+      target: channelId,
+      detail: {
+        engineStatus: result.status,
+        engineCode,
+        probeStatus: probe?.status ?? null,
+        recordsFound: probe?.recordsFound ?? null,
+        errorCode: probe?.errorCode ?? null,
+      },
+    });
+    if (result.status >= 300) throw engineError(result);
+    return engineData(result);
   }
 
   async patch(actorId: string, channelId: string, body: unknown): Promise<unknown> {

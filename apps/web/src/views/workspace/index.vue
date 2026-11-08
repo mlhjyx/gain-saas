@@ -4,7 +4,7 @@ import type { SessionInfo } from '#/api/gainos';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
 
@@ -46,6 +46,7 @@ const STEPS = computed(() =>
 );
 
 const loading = ref(true);
+const loadError = ref<{ title: string; next?: string } | null>(null);
 const engineNotice = ref<string | null>(null);
 const workspaceName = ref('');
 const role = ref<'admin' | 'member' | ''>('');
@@ -504,7 +505,7 @@ const kpis = computed(() => {
       label: $t('gainos.workspace.kpiRun'),
       value: loaded ? runValue : '—',
       hint: runHint,
-      to: link ? `/runs/${link.runId}` : '/find-buyers',
+      to: '/tasks',
       valueClass: runTone,
       text: true,
     },
@@ -574,15 +575,7 @@ function timeValue(value?: string | null): number {
 }
 
 function formatTime(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(value);
 }
 
 function icpStatusLabel(status?: string): string {
@@ -686,6 +679,7 @@ async function load(): Promise<void> {
   notificationsLoading.value = true;
   engineNotice.value = null;
   notificationsError.value = null;
+  loadError.value = null;
 
   try {
     const [sessionRes, companyRes, icpRes, notificationsRes, membersRes] =
@@ -824,6 +818,12 @@ async function load(): Promise<void> {
     } else {
       completenessByCompany.value = {};
     }
+
+    // 关键接口失败时给出可见错误与重试（审计 二-03：此前失败被静默显示成「未授权/全 0」）。
+    const critical = [sessionRes, companyRes, icpRes].filter((r) => r.status === 'rejected');
+    if (critical.length > 0) {
+      loadError.value = failureText((critical[0] as PromiseRejectedResult).reason);
+    }
   } finally {
     loading.value = false;
     notificationsLoading.value = false;
@@ -900,6 +900,13 @@ onUnmounted(() => {
 
 <template>
   <div class="wk">
+    <div v-if="loadError" class="wk__error" role="alert">
+      <div>
+        <strong>{{ loadError.title }}</strong>
+        <p v-if="loadError.next">{{ loadError.next }}</p>
+      </div>
+      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
+    </div>
     <header class="wk__hero">
       <div class="wk__hero-main">
         <div class="wk__eyebrow">
@@ -1018,7 +1025,7 @@ onUnmounted(() => {
           <h2>{{ $t('gainos.workspace.recentLeads') }}</h2>
           <button type="button" class="wk__text-btn" @click="router.push('/leads')">{{ $t('gainos.workspace.viewAllLeads') }}</button>
         </header>
-        <p v-if="recentLeadRows.length === 0" class="wk__empty">{{ $t('gainos.workspace.recentLeadsEmpty') }}</p>
+        <p v-if="!loading && recentLeadRows.length === 0" class="wk__empty">{{ $t('gainos.workspace.recentLeadsEmpty') }}</p>
         <ul v-else class="wk__lead-list">
           <li v-for="lead in recentLeadRows" :key="lead.id">
             <button type="button" class="wk__lead" @click="openLead(lead)">
@@ -1082,7 +1089,7 @@ onUnmounted(() => {
 }
 .wk__step-dot svg { width: 13px; height: 13px; }
 .wk__step.is-done .wk__step-dot { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.wk__step.is-current .wk__step-dot { background: var(--gs-accent); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-accent) 18%, transparent); }
+.wk__step.is-current .wk__step-dot { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-accent) 18%, transparent); }
 .wk__step-label { font-size: 13.5px; color: var(--gs-fg-muted); white-space: nowrap; }
 .wk__step.is-current .wk__step-label { color: var(--gs-fg); font-weight: 600; }
 .wk__step.is-done .wk__step-label { color: var(--gs-fg-2); }
@@ -1116,7 +1123,7 @@ onUnmounted(() => {
 .wk__next-cta {
   flex: none; display: inline-flex; align-items: center; gap: 8px;
   border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer;
-  background: var(--gs-accent); color: #fff; font-size: 14.5px; font-weight: 600;
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 14.5px; font-weight: 600;
   box-shadow: 0 8px 20px -6px var(--gs-accent-glow);
   transition: transform .16s ease, box-shadow .16s ease;
 }
@@ -1175,7 +1182,7 @@ onUnmounted(() => {
   border: 0; background: transparent; padding: 2px 0; cursor: pointer;
   font-size: 12.5px; font-weight: 600; color: var(--gs-accent-strong);
 }
-.wk__text-btn:hover { color: var(--gs-accent); }
+.wk__text-btn:hover { color: var(--gs-accent-strong); }
 .wk__text-btn:disabled { opacity: .5; cursor: default; }
 
 .wk__notif-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; }
@@ -1205,10 +1212,13 @@ onUnmounted(() => {
 .wk__lead-side { flex: none; display: grid; justify-items: end; gap: 3px; }
 .wk__lead-badge { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 2px 7px; background: var(--gs-divider); color: var(--gs-fg-2); }
 .wk__lead-badge--recommended { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.wk__lead-badge--needs_review { background: var(--gs-warn-bg); color: var(--gs-warn); }
+.wk__lead-badge--needs_review { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
 .wk__lead-badge--sanctions_hold { background: var(--gs-danger-bg); color: var(--gs-danger); }
 .wk__lead-score { font-size: 11px; color: var(--gs-fg-muted); font-variant-numeric: tabular-nums; }
 
+.wk__error { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); border-radius: 12px; padding: 14px 16px; color: var(--gs-danger); font-size: 13px; }
+.wk__error p { margin: 4px 0 0; }
+.wk__error button { flex: none; border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger); }
 .wk__empty { margin: 0; padding: 26px 10px; text-align: center; font-size: 12.8px; line-height: 1.7; color: var(--gs-fg-subtle); }
 .wk__empty p { margin: 0 0 8px; }
 

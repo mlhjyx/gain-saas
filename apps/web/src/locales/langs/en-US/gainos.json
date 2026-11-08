@@ -1,13 +1,51 @@
 {
   "menu": {
+    "tasks": "Tasks",
     "reports": "Weekly Report",
     "members": "Members & Roles",
-    "workspaces": "Workspaces",
     "privacy": "Data & privacy",
     "audit": "Audit",
     "sources": "Data sources",
     "campaigns": "Campaign plans",
     "suppressions": "Do-not-contact list"
+  },
+  "tasks": {
+    "title": "Prospecting tasks",
+    "subtitle": "Each task prospects one customer segment; this is the task list with the latest activity.",
+    "empty": "No prospecting tasks yet. Set your target customer profile in Find buyers and start prospecting.",
+    "emptyCta": "Set target customer profile",
+    "colTask": "Task",
+    "colStatus": "Latest activity",
+    "colLastRun": "Last activity at",
+    "colActions": "Actions",
+    "viewRun": "View details",
+    "noRun": "No activity yet",
+    "never": "Never",
+    "taskActive": "Active",
+    "taskPaused": "Paused",
+    "taskArchived": "Archived"
+  },
+  "replies": {
+    "tab": "Replies",
+    "title": "Reply inbox",
+    "subtitle": "Buyer replies, bounces and unsubscribes land here; any reply stops the related sending immediately.",
+    "empty": "No replies yet. After the first send, replies and bounces will appear here.",
+    "colTime": "Time",
+    "colRecipient": "Recipient",
+    "colClass": "Category",
+    "colSubject": "Subject",
+    "class": {
+      "POSITIVE": "Interested",
+      "NEUTRAL": "Neutral",
+      "NEGATIVE": "Declined",
+      "OUT_OF_OFFICE": "Auto-reply",
+      "UNKNOWN": "Unclassified"
+    },
+    "kind": {
+      "REPLY": "Reply",
+      "BOUNCE": "Bounce",
+      "UNSUBSCRIBE": "Unsubscribe"
+    }
   },
   "growth": {
     "title": "Opportunities & outreach",
@@ -21,30 +59,6 @@
     "outreachNote": "No e-mail is sent until the sending channel is enabled.",
     "outreachCta": "Go to buyer leads",
     "outreachDisabled": "New outreach batch (coming soon)"
-  },
-  "workspaces": {
-    "title": "Workspaces",
-    "subtitle": "One account can belong to multiple workspaces. Switching moves company profiles, target customer profiles and leads to that workspace.",
-    "currentTitle": "Current workspace",
-    "currentDesc": "This is the workspace you are using now. Renaming only changes the display name.",
-    "name": "Workspace name",
-    "namePlaceholder": "e.g. Acme Export Co., Ltd.",
-    "rename": "Save name",
-    "renamed": "Workspace name updated.",
-    "listTitle": "My workspaces",
-    "role": "Role",
-    "action": "Actions",
-    "current": "Current",
-    "admin": "Admin",
-    "member": "Member",
-    "switch": "Switch",
-    "leave": "Leave",
-    "leaveHint": "You need a new invitation to rejoin after leaving. The last member or last admin cannot leave.",
-    "leaveConfirm": "Leave “{name}”?",
-    "left": "You left the workspace.",
-    "createTitle": "New workspace",
-    "createDesc": "You become its admin and switch to it immediately.",
-    "create": "Create & switch"
   },
   "common": {
     "retry": "Retry",
@@ -73,7 +87,14 @@
     "claimRejectedMessage": "One company fact was set aside.",
     "sanctionsHold": "Leads hit the sanctions list",
     "quotaWarning": "Quota almost used up",
-    "quotaExceeded": "Quota used up for this period"
+    "quotaExceeded": "Quota used up for this period",
+    "pageTitle": "Notifications",
+    "pageSubtitle": "Prospecting, lead, compliance and quota alerts in one place; repeated alerts for the same item are grouped.",
+    "empty": "No notifications yet. New progress will show up here.",
+    "markAll": "Mark all as read",
+    "markAllConfirm": "Confirm mark all",
+    "markAllDone": "All notifications marked as read",
+    "groupCount": "{count} in total"
   },
   "brand": {
     "tagline": "Export growth opportunity OS",
@@ -108,7 +129,7 @@
   },
   "login": {
     "title": "Welcome back",
-    "subtitle": "Sign in to your workspace and keep this week's growth moving.",
+    "subtitle": "Sign in to your company account and keep this week's growth moving.",
     "email": "Work email",
     "password": "Password",
     "passwordPlaceholder": "10+ chars, letters & digits",
@@ -123,13 +144,16 @@
     "errEmailInvalid": "That email doesn't look right",
     "errPasswordRequired": "Enter your password",
     "errPasswordShort": "Password must be at least 10 characters",
+    "errUnauthorized": "Incorrect email or password",
+    "forgot": "Forgot password?",
+    "forgotHint": "During the beta a company admin resets passwords — ask your admin to reset it, then sign in again.",
     "errFailed": "Sign-in failed, please try again"
   },
   "register": {
     "title": "Create your account",
-    "subtitle": "We will set up a dedicated workspace for you and walk you through company setup.",
+    "subtitle": "We will create your company profile and walk you through setup.",
     "inviteTitle": "Accept invitation",
-    "inviteSubtitle": "Set your password to join the team workspace.",
+    "inviteSubtitle": "Set your password to join the team.",
     "company": "Company name",
     "companyPlaceholder": "e.g. Ningbo Hongda Machinery Co., Ltd.",
     "email": "Work email",
@@ -139,7 +163,7 @@
     "inviteCodeOptional": "Optional during beta",
     "inviteCodePlaceholder": "Required if provided to you",
     "submit": "Sign up",
-    "submitInvite": "Join workspace",
+    "submitInvite": "Join the team",
     "submitting": "Submitting",
     "haveAccount": "Already have an account?",
     "goLogin": "Sign in",
@@ -148,7 +172,7 @@
     "errEmailInvalid": "That email doesn't look right",
     "errPassword": "Password must be 10+ characters with letters and digits",
     "errFailed": "Something went wrong, please try again",
-    "companyHint": "used as your workspace name"
+    "companyHint": "used as your company name"
   },
   "workspace": {
     "greetingNight": "Still up",
@@ -431,7 +455,7 @@
   "findBuyers": {
     "kicker": "Coming in M3",
     "title": "Find buyers",
-    "subtitle": "Define your target customer profile profile and let GainOS discover overseas companies by market and product — with fit, need and reachability judged before delivery.",
+    "subtitle": "Define your target customer profile and let GainOS discover overseas companies by market and product — with fit, need and reachability judged before delivery.",
     "step1Title": "Complete company profile",
     "step1Checking": "Checking profile status…",
     "step1Ready": "Ready · {count} profiles",
@@ -617,6 +641,8 @@
       "mismatch": "Mismatch",
       "unknown": "Not assessed"
     },
+    "loadMore": "Load more",
+    "showingCount": "Showing {shown} of {total}",
     "viewPackage": "View lead package",
     "accept": "Worth pursuing",
     "reject": "Not a fit",
@@ -717,7 +743,7 @@
     },
     "reasonSelect": "Choose a reason",
     "qgoEntry": "Opportunities",
-    "promoteQgo": "Promote to QGO",
+    "promoteQgo": "Promote to opportunity",
     "promoteTitle": "Promote to opportunity (QGO)",
     "promoteEvidence": "Demand / timing evidence (at least one)",
     "promoteEvidenceType": "Evidence type",
@@ -904,7 +930,7 @@
     "creating": "Creating…",
     "willJoinAdmin": "Will join as admin",
     "willJoinMember": "Will join as member",
-    "confirmRemove": "Remove this member? They lose access to this workspace immediately.",
+    "confirmRemove": "Remove this member? They lose access to this company immediately.",
     "remove": "Remove",
     "errEmail": "Enter a valid email address",
     "loading": "Loading members…"
@@ -1029,7 +1055,7 @@
     "retryTitle": "Retry this task",
     "retryLastOutcomeLabel": "Last outcome",
     "retryLastOutcome": "{status} (failed at: {stage})",
-    "retryBudget": "Retrying starts a new attempt on the same query plan: it requests a fresh execution-budget grant and counts toward the workspace task quota. Leads already produced by earlier attempts are kept.",
+    "retryBudget": "Retrying starts a new attempt on the same query plan: it requests a fresh execution-budget grant and counts toward the company task quota. Leads already produced by earlier attempts are kept.",
     "retryConfirm": "Confirm retry",
     "retryRequested": "Retry requested; opening the new task…",
     "retryUnavailable": "This task has no attribution and cannot be retried directly; adjust the target customer profiles on the Find Buyers page and regenerate the plan.",
@@ -1059,6 +1085,18 @@
       "weak": "Needs review",
       "mismatch": "Mismatch"
     },
+    "jobVerdictLabel": "Verdict",
+    "quickSummary": "{total} companies · {hidden} mismatches hidden",
+    "quickToggleAll": "Show all",
+    "quickToggleCollapse": "Collapse",
+    "quickFilterEmpty": "Nothing to review in this filter; use Show all to view the full list.",
+    "jobErrorPipeline": "Company pipeline failed",
+    "jobErrorCancelled": "Cancelled",
+    "metaJudged": "Judged this time",
+    "metaPrefiltered": "Prefiltered out",
+    "metaDeep": "Deep done/failed",
+    "metaFailureHigh": "High deep-stage failure rate",
+    "taskId": "Task",
     "jobError": "Error code",
     "jobsEmpty": "No company-level records yet (they appear once the quick scan starts).",
     "jobStageColumn": "Stage",
@@ -1129,8 +1167,14 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "Sign in",
+      "bffRequest": "Business request",
+      "memberInvite": "Invite member",
+      "roleChange": "Role change"
+    },
     "title": "Audit log",
-    "subtitle": "Your own login, membership, and workspace actions in this workspace. To prevent cross-tenant leakage only your records are shown; platform operations are audited in the ops console.",
+    "subtitle": "Your own login, membership, and permission actions in this company. To prevent cross-tenant leakage only your records are shown; platform operations are audited in the ops console.",
     "time": "Time",
     "action": "Action",
     "target": "Target",
@@ -1178,12 +1222,12 @@
     "receipt": "Receipt",
     "createdAt": "Created",
     "receiptSummary": "Contacts {contacts} · points {points} · evidence {evidence}",
-    "unknownStatus": "Not found (still processing or another workspace)",
+    "unknownStatus": "Not found (still processing or not in this company)",
     "trackedNote": "Receipts contain counts only. Clearing this browser's local list does not affect the server."
   },
   "onboarding": {
     "title": "Complete your company profile",
-    "subtitle": "Three steps to set up your workspace — everything we do next builds on this",
+    "subtitle": "Three steps to set up your company — everything we do next builds on this",
     "stepBasics": "Basics",
     "stepProducts": "Products",
     "stepMarkets": "Markets",
@@ -1212,7 +1256,7 @@
   },
   "sources": {
     "title": "Data sources",
-    "subtitle": "Enable approved channels or import your own buyer lists into this workspace’s private company pool.",
+    "subtitle": "Enable approved channels or import your own buyer lists into this company’s private pool.",
     "availableTitle": "Available channels",
     "availableDesc": "Channels approved by the platform. Once enabled, discovery tasks consume the pool they build.",
     "availableEmpty": "No channels available yet. Approved channels appear here.",
@@ -1245,7 +1289,7 @@
     "colLastRun": "Last trial",
     "registryEmpty": "No channels registered.",
     "createChannelTitle": "Add an import channel",
-    "createChannelDesc": "Register a private import channel for your lists (visible only in this workspace) to track output by source.",
+    "createChannelDesc": "Register a private import channel for your lists (visible only in this company) to track output by source.",
     "channelName": "Channel name",
     "createChannel": "Create",
     "channelCreated": "Channel created (disabled by default; imports still work).",
@@ -1269,6 +1313,7 @@
     }
   },
   "campaigns": {
+    "goOutreach": "Go to outreach",
     "title": "Campaign plans",
     "subtitle": "Have the system draft what to do, how large, and the budget cap; it only takes effect after your approval. Shadow period: approvals do not execute.",
     "stage": "Stage 3 · Plan & approval",
@@ -1283,6 +1328,9 @@
     "colBudget": "Budget cap",
     "colUpdated": "Updated",
     "open": "Open",
+    "ctaDraft": "Continue draft",
+    "ctaActive": "View progress",
+    "ctaView": "View details",
     "shadowBanner": "Shadow period: approvals do not execute; only decisions and metrics are recorded.",
     "draftButton": "Draft a plan",
     "drafting": "Drafting…",
@@ -1337,6 +1385,8 @@
     "planVersion": "Plan version"
   },
   "qgos": {
+    "loadMore": "Load more",
+    "goCampaigns": "Go to campaigns",
     "stage": "Convert",
     "title": "Opportunities",
     "subtitle": "Evidenced opportunities, manual sales acceptance and outcome logging — the fuel for attribution and unit economics.",
@@ -1344,7 +1394,7 @@
     "stateFilter": "Filter by state",
     "all": "All",
     "emptyTitle": "No opportunities yet",
-    "emptyDesc": "Accept a lead in Buyers, then use “Promote to QGO” to attach demand/timing evidence and a next step.",
+    "emptyDesc": "Accept a lead in Buyers, then use “Promote to opportunity” to attach demand/timing evidence and a next step.",
     "emptyCta": "Go to leads",
     "nextStep": "Next step",
     "score": "Fit {score}",
@@ -1384,6 +1434,11 @@
     }
   },
   "outreach": {
+    "pickContact": "Pick contact from leads",
+    "pickLead": "Lead",
+    "pickLeadPlaceholder": "— choose a lead —",
+    "pickEmpty": "No named contacts on this lead",
+    "pickUse": "Use",
     "title": "Outreach batches",
     "subtitle": "Drafts are reviewed before sending; approval only queues the batch, and nothing is sent until the channel is enabled.",
     "newBatch": "New batch",
@@ -1434,6 +1489,7 @@
     "eventOther": "Other activity"
   },
   "suppressions": {
+    "loadMore": "Load more",
     "title": "Do-not-contact list",
     "subtitle": "Listed e-mails, domains or companies are blocked before any outbound action. Legal entries are never physically deleted — removal goes through a recorded release request.",
     "addTitle": "Add to the do-not-contact list",

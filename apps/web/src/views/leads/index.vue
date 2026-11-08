@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDate as formatDateValue, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -92,9 +92,25 @@ const notice = ref<string | null>(null);
 const icps = ref<Icp[]>([]);
 const activeIcpId = ref('');
 const queueCounts = ref<LeadQueueCounts | null>(null);
+// 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
+const pageLimit = ref(50);
 
 const selected = ref<Lead | null>(null);
 const pkg = ref<LeadPackage | null>(null);
+// 证据去重：同一 URL/同一文本只展示一行（审计 二-34：同一 impressum 重复 7 行）。
+const pkgEvidence = computed(() => {
+  const list = pkg.value?.evidence ?? [];
+  const seen = new Set<string>();
+  const out: Array<Record<string, unknown>> = [];
+  for (const item of list) {
+    const key = `${evidenceUrl(item)}|${textOf(item)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+});
+
 const pkgLoading = ref(false);
 const pkgError = ref<{ title: string; next?: string } | null>(null);
 const draft = ref<Record<string, unknown> | null>(null);
@@ -228,6 +244,16 @@ function queueCount(key: string): number | undefined {
   if (key === 'suppressed') return counts.suppressed;
   if (key === 'sanctions_hold') return counts.sanctions_hold;
   return undefined;
+}
+
+// 总数与「加载更多」：队列计数是权威总数，列表按 pageLimit 递增拉取。
+const totalForQueue = computed(() => queueCount(activeQueue.value));
+const hasMoreLeads = computed(
+  () => typeof totalForQueue.value === 'number' && leads.value.length < totalForQueue.value,
+);
+function loadMore(): void {
+  pageLimit.value += 50;
+  void load();
 }
 function statusLabel(status?: string): string {
   if (!status) return $t('gainos.leads.status.DISCOVERED');
@@ -383,9 +409,7 @@ function sanctionBlocked(status?: string): boolean {
   return status === 'potential_match' || status === 'confirmed_true_hit';
 }
 function formatDate(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+  return formatDateValue(value);
 }
 const draftText = computed(() => {
   if (!draft.value) return '';
@@ -433,7 +457,7 @@ async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    const data = await gainosApi.leads({ icpId: activeIcpId.value, queue: activeQueue.value, limit: 50 });
+    const data = await gainosApi.leads({ icpId: activeIcpId.value, queue: activeQueue.value, limit: pageLimit.value });
     leads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
     await loadQueueCounts();
   } catch (error) {
@@ -597,6 +621,7 @@ async function reviewSanctions(decision: 'cleared_false_positive' | 'confirmed_t
 
 watch(activeQueue, () => {
   notice.value = null;
+  pageLimit.value = 50;
   void load();
 });
 watch(
@@ -746,6 +771,10 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           </button>
         </div>
       </article>
+      <div v-if="hasMoreLeads" class="ld__more">
+        <span class="ld__basis">{{ $t('gainos.leads.showingCount', { shown: leads.length, total: totalForQueue }) }}</span>
+        <button type="button" class="ld__action" @click="loadMore">{{ $t('gainos.leads.loadMore') }}</button>
+      </div>
     </section>
 
     <!-- 线索档案包 -->
@@ -837,8 +866,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 
           <div class="ld__block">
             <h3>{{ $t('gainos.leads.evidenceTitle') }}</h3>
-            <ul v-if="pkg.evidence && pkg.evidence.length" class="ld__bullets">
-              <li v-for="(item, i) in pkg.evidence" :key="i">
+            <ul v-if="pkgEvidence.length" class="ld__bullets">
+              <li v-for="(item, i) in pkgEvidence" :key="i">
                 <a v-if="evidenceUrl(item)" :href="evidenceUrl(item)" target="_blank" rel="noreferrer">{{ textOf(item) || evidenceUrl(item) }}</a>
                 <span v-else>{{ textOf(item) || '—' }}</span>
               </li>
@@ -1049,7 +1078,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__step { display: flex; align-items: center; gap: 6px; flex: none; padding: 6px 10px; border-radius: 999px; font-size: 12px; color: var(--gs-fg-subtle); background: var(--gs-divider); }
 .ld__step-dot { width: 19px; height: 19px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--gs-surface); font-size: 10.5px; font-weight: 700; }
 .ld__step.is-done { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
-.ld__step.is-current { color: #fff; background: var(--gs-accent); }
+.ld__step.is-current { color: var(--gs-accent-cta-fg); background: var(--gs-accent-cta); }
 .ld__step.is-current .ld__step-dot { background: rgba(255,255,255,.22); color: #fff; }
 .ld__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; font-weight: 600; }
 .ld__queues { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
@@ -1065,9 +1094,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__error { background: var(--gs-surface); border: 1px solid var(--gs-warn); border-radius: 14px; padding: 20px; display: grid; gap: 8px; }
 .ld__error h2 { margin: 0; font-size: 15px; color: var(--gs-warn); }
 .ld__error p { margin: 0; font-size: 13px; color: var(--gs-fg-muted); }
-.ld__error button { justify-self: start; border: 0; border-radius: 8px; padding: 7px 14px; background: var(--gs-accent); color: #fff; cursor: pointer; font-size: 13px; }
+.ld__error button { justify-self: start; border: 0; border-radius: 8px; padding: 7px 14px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; font-size: 13px; }
 .ld__skeletons { display: grid; gap: 12px; }
-.ld__skeleton { height: 104px; border-radius: 14px; background: var(--gs-divider); animation: ld-pulse 1.4s ease-in-out infinite; }
+.ld__skeleton { height: 104px; border-radius: 14px; background: var(--gs-surface-2); border: 1px solid var(--gs-border); animation: ld-pulse 1.4s ease-in-out infinite; }
 @keyframes ld-pulse { 50% { opacity: .55; } }
 .ld__empty {
   max-width: 760px; margin: 0 auto; display: grid; place-items: center; gap: 6px; text-align: center;
@@ -1077,8 +1106,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__empty-mark svg { width: 26px; height: 26px; }
 .ld__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
 .ld__empty-desc { margin: 0 0 14px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 520px; line-height: 1.75; }
-.ld__cta { border-radius: 11px; padding: 10px 20px; font-size: 13.5px; font-weight: 600; background: var(--gs-accent); color: #fff; text-decoration: none; }
+.ld__cta { border-radius: 11px; padding: 10px 20px; font-size: 13.5px; font-weight: 600; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none; }
 .ld__list { display: grid; gap: 12px; }
+.ld__more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 8px 0 4px; }
 .ld__lead { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }
 .ld__lead-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .ld__lead-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
@@ -1094,9 +1124,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .ld__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .ld__action:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.ld__action--accept { background: var(--gs-accent); border-color: var(--gs-accent); color: #fff; font-weight: 600; }
-.ld__action--accept:hover { color: #fff; }
-.ld__action--reject { color: var(--gs-warn); border-color: var(--gs-warn-bg); }
+.ld__action--accept { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
+.ld__action--accept:hover { color: var(--gs-accent-cta-fg); }
+.ld__action--reject { color: var(--gs-danger); border-color: var(--gs-danger-border); }
 .ld__action--danger { color: var(--gs-danger); border-color: var(--gs-danger-border); }
 .ld__action.is-loading { opacity: .6; cursor: progress; }
 .ld__sanctions-actions { display: grid; gap: 8px; margin-top: 6px; }

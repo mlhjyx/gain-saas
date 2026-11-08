@@ -5,6 +5,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import { deriveRunActions, formatDateTime } from '@gain-saas/shared';
+
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob, type DiscoveryRunTrace } from '#/api/gainos';
@@ -32,6 +34,14 @@ const stopNotice = ref<string | null>(null);
 
 const QUICK_STAGES = new Set(['queued', 'prefiltered_out', 'quick_judged']);
 const quickJobs = computed(() => jobs.value.filter((job) => QUICK_STAGES.has(job.stage)));
+// 快扫名单默认只展示「匹配/待复核」，其余折叠——避免 200 行把结论区埋到十几屏外（审计 一-01）。
+const showAllQuick = ref(false);
+const quickJobsShown = computed(() =>
+  showAllQuick.value
+    ? quickJobs.value
+    : quickJobs.value.filter((job) => String(job.verdictQuick ?? '') !== 'mismatch'),
+);
+const quickHiddenCount = computed(() => quickJobs.value.length - quickJobsShown.value.length);
 const deepJobs = computed(() => jobs.value.filter((job) => !QUICK_STAGES.has(job.stage)));
 
 function jobStageLabel(stage: string): string {
@@ -177,7 +187,7 @@ function traceNumber(value: unknown): number | null {
 const traceEntries = computed<TraceEntry[]>(() =>
   traceRows.value.map((row) => {
     const chosen = (row.chosenOption ?? {}) as Record<string, unknown>;
-    const time = new Date(row.createdAt).toLocaleString();
+    const time = formatDateTime(row.createdAt);
     const evidence: TraceEvidence[] = traceObjectList(row.evidence)
       .filter((item) => typeof item['url'] === 'string' && item['url'])
       .map((item) => ({
@@ -313,6 +323,14 @@ const canRetry = computed(() => {
     Boolean(run.value?.taskRef?.taskId) &&
     Boolean(run.value?.planId);
 });
+const hasLeadOutput = computed(
+  () => run.value?.status === 'PARTIAL' || Number(stats.value.leads ?? quickScan.value.leads ?? 0) > 0,
+);
+const runActions = computed(() =>
+  deriveRunActions({ status: run.value?.status, retriable: canRetry.value, hasLeads: hasLeadOutput.value }),
+);
+
+
 
 const retryOutcomeText = computed(() => {
   const status = statusLabel(run.value?.status);
@@ -486,6 +504,23 @@ function stageLabel(stage: string): string {
 }
 
 const fit = computed<Record<string, number>>(() => (recordOf('fit') as Record<string, number>) ?? {});
+// 新格式 run 用 stats.quickScan / stats.deep（旧 run 才有 stats.companies/stats.fit）。
+// 摘要与元信息行在两种格式下都要显示真实数字（2026-11-09 信息契约审计：KPI 全 0 对 448 判定）。
+const quickScan = computed<Record<string, any>>(() => recordOf('quickScan'));
+const deepStage = computed<Record<string, any>>(() => recordOf('deep'));
+const summaryCompanies = computed<number | null>(() =>
+  stats.value.companies ?? quickScan.value.poolSize ?? null,
+);
+const summaryMatch = computed<number | null>(() => fit.value.match ?? quickScan.value.match ?? null);
+const summaryWeak = computed<number | null>(() => fit.value.weak ?? quickScan.value.weak ?? null);
+const summaryExcluded = computed<number | null>(() => {
+  if (fit.value.mismatch !== undefined) return Number(fit.value.mismatch) + Number(stats.value.suppressed ?? 0);
+  if (quickScan.value.mismatch !== undefined) return Number(quickScan.value.mismatch) + Number(quickScan.value.prefilteredOut ?? 0);
+  return null;
+});
+const failureRateHigh = computed(() =>
+  Array.isArray(stats.value.alerts) && (stats.value.alerts as string[]).includes('failure_rate_high'),
+);
 type SourceRow = Record<string, any> & { source: string };
 const perSource = computed<SourceRow[]>(() =>
   Object.entries(recordOf('perSource')).map(([source, value]) => ({
@@ -757,6 +792,15 @@ const statusTone = computed(() => {
 });
 
 // 状态文案取自 @gain-saas/shared 的 glossary（P6 §4），未登记值不裸奔。
+function jobErrorLabel(code?: string | null): string {
+  if (!code) return '—';
+  const known: Record<string, string> = {
+    COMPANY_PIPELINE_FAILED: $t('gainos.runs.jobErrorPipeline'),
+    CancelledFailure: $t('gainos.runs.jobErrorCancelled'),
+  };
+  return known[code] ?? code;
+}
+
 function statusLabel(status?: string): string {
   return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
@@ -821,6 +865,11 @@ onUnmounted(() => {
         <span class="run__kicker">{{ $t('gainos.runs.kicker') }}</span>
         <h1>{{ $t('gainos.runs.title') }}</h1>
         <p class="run__muted">{{ $t('gainos.runs.subtitle') }}</p>
+        <p class="run__muted run__identity">
+          <span v-if="run.icpId">{{ $t('gainos.runs.icp') }} {{ run.icpId.slice(0, 8) }}</span>
+          <span v-if="run.planId"> · {{ $t('gainos.runs.plan') }} {{ run.planId.slice(0, 8) }}</span>
+          <span> · {{ $t('gainos.runs.taskId') }} {{ run.id.slice(0, 8) }}</span>
+        </p>
       </div>
       <div class="run__head-actions">
         <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
@@ -841,17 +890,23 @@ onUnmounted(() => {
       <section class="run__summary">
         <article class="run__status-card">
           <span class="run__badge" :class="statusTone">{{ statusLabel(run.status) }}</span>
-          <p class="run__muted">{{ $t('gainos.runs.started') }} {{ new Date(run.createdAt).toLocaleString() }}</p>
+          <p class="run__muted">{{ $t('gainos.runs.started') }} {{ formatDateTime(run.createdAt) }}</p>
           <p class="run__muted">{{ $t('gainos.runs.duration') }} {{ elapsed }}</p>
-          <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ new Date(run.completedAt).toLocaleString() }}</p>
+          <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ formatDateTime(run.completedAt) }}</p>
           <p v-if="run.status === 'RUNNING'" class="run__muted">{{ $t('gainos.runs.runStatusHint') }}</p>
         </article>
-        <article><span>{{ $t('gainos.runs.summaryCompanies') }}</span><strong>{{ textOf(stats.companies) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryMatch') }}</span><strong>{{ textOf(fit.match ?? 0) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryPartialMatch') }}</span><strong>{{ textOf(fit.weak ?? 0) }}</strong></article>
-        <article><span>{{ $t('gainos.runs.summaryExcluded') }}</span><strong>{{ textOf(Number(fit.mismatch ?? 0) + Number(stats.suppressed ?? 0)) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryCompanies') }}</span><strong>{{ textOf(summaryCompanies) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryMatch') }}</span><strong>{{ textOf(summaryMatch) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryPartialMatch') }}</span><strong>{{ textOf(summaryWeak) }}</strong></article>
+        <article><span>{{ $t('gainos.runs.summaryExcluded') }}</span><strong>{{ textOf(summaryExcluded) }}</strong></article>
         <article><span>{{ $t('gainos.runs.summaryDuration') }}</span><strong>{{ elapsed }}</strong></article>
       </section>
+      <p v-if="quickScan.judged !== undefined || deepStage.done !== undefined" class="run__meta run__muted">
+        <span v-if="quickScan.judged !== undefined">{{ $t('gainos.runs.metaJudged') }} {{ textOf(quickScan.judged) }}</span>
+        <span v-if="quickScan.prefilteredOut !== undefined"> · {{ $t('gainos.runs.metaPrefiltered') }} {{ textOf(quickScan.prefilteredOut) }}</span>
+        <span v-if="deepStage.done !== undefined || deepStage.failed !== undefined"> · {{ $t('gainos.runs.metaDeep') }} {{ textOf(deepStage.done) }}/{{ textOf(deepStage.failed) }}</span>
+        <span v-if="failureRateHigh" class="gs-badge gs-badge--danger" style="margin-left: 8px">{{ $t('gainos.runs.metaFailureHigh') }}</span>
+      </p>
 
       <p v-if="stopNotice" class="run__muted">{{ stopNotice }}</p>
       <p v-if="retryNotice" class="run__muted">{{ retryNotice }}</p>
@@ -861,28 +916,37 @@ onUnmounted(() => {
       <section class="run__grid">
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.quickListTitle') }}</h2>
+          <p class="run__quick-toggle run__muted">
+            <span>{{ $t('gainos.runs.quickSummary', { total: quickJobs.length, hidden: quickHiddenCount }) }}</span>
+            <button type="button" @click="showAllQuick = !showAllQuick">
+              {{ showAllQuick ? $t('gainos.runs.quickToggleCollapse') : $t('gainos.runs.quickToggleAll') }}
+            </button>
+          </p>
+          <div class="run__table-scroll">
           <table class="run__table">
-            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th></tr></thead>
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdictLabel') }}</th></tr></thead>
             <tbody>
-              <tr v-for="job in quickJobs" :key="job.id">
+              <tr v-for="job in quickJobsShown" :key="job.id">
                 <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
                 <td>{{ jobStageLabel(job.stage) }}</td>
                 <td>{{ jobVerdictLabel(job.verdictQuick) }}</td>
               </tr>
               <tr v-if="quickJobs.length === 0"><td colspan="3" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
+              <tr v-else-if="quickJobsShown.length === 0"><td colspan="3" class="run__muted">{{ $t('gainos.runs.quickFilterEmpty') }}</td></tr>
             </tbody>
           </table>
+          </div>
         </article>
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.deepQueueTitle') }}</h2>
           <table class="run__table">
-            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdict') }}</th><th>{{ $t('gainos.runs.jobError') }}</th></tr></thead>
+            <thead><tr><th>{{ $t('gainos.runs.jobName') }}</th><th>{{ $t('gainos.runs.jobStageColumn') }}</th><th>{{ $t('gainos.runs.jobVerdictLabel') }}</th><th>{{ $t('gainos.runs.jobError') }}</th></tr></thead>
             <tbody>
               <tr v-for="job in deepJobs" :key="job.id">
                 <td><strong>{{ job.name ?? job.companyId }}</strong><br /><small class="run__muted">{{ job.domain ?? '' }}</small></td>
                 <td>{{ jobStageLabel(job.stage) }}</td>
                 <td>{{ jobVerdictLabel(job.verdictDeep ?? job.verdictQuick) }}</td>
-                <td class="run__error-text">{{ job.lastErrorCode ?? '—' }}</td>
+                <td class="run__error-text">{{ jobErrorLabel(job.lastErrorCode) }}</td>
               </tr>
               <tr v-if="deepJobs.length === 0"><td colspan="4" class="run__muted">{{ $t('gainos.runs.jobsEmpty') }}</td></tr>
             </tbody>
@@ -955,8 +1019,8 @@ onUnmounted(() => {
           </p>
         </div>
         <div class="run__outcome-actions">
-          <button v-if="canRetry" class="run__action run__action--primary" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
-          <button v-if="run.status === 'PARTIAL'" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
+          <button v-if="runActions.canRetry" class="run__action" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
+          <button v-if="runActions.canViewLeads" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
           <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.adjustIcp') }}</button>
         </div>
       </section>
@@ -972,7 +1036,7 @@ onUnmounted(() => {
                 <small v-if="attempt.rerunOf" class="run__muted"> · {{ $t('gainos.runs.attemptRetriedFrom', { n: taskAttempts.find((row) => row.id === attempt.rerunOf)?.attempt ?? '?' }) }}</small>
               </td>
               <td>{{ statusLabel(attempt.status) }}</td>
-              <td>{{ new Date(attempt.startedAt).toLocaleString() }}</td>
+              <td>{{ formatDateTime(attempt.startedAt) }}</td>
               <td>
                 <button v-if="attempt.runId && attempt.runId !== runId" class="run__action" type="button" @click="router.push({ name: 'DiscoveryRun', params: { runId: attempt.runId } })">{{ $t('gainos.runs.attemptOpen') }}</button>
               </td>
@@ -1156,7 +1220,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.run { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1240px; margin: 0 auto; display: grid; gap: 18px; }
+.run { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
 .run__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .run__back { border: 0; background: transparent; padding: 0; color: var(--gs-fg-muted); font-size: 13px; cursor: pointer; }
 .run__back:hover { color: var(--gs-accent-strong); }
@@ -1169,7 +1233,7 @@ onUnmounted(() => {
 .run__modal-card { width: min(520px, 100%); background: var(--gs-surface); border-radius: 16px; padding: 22px 24px; display: grid; gap: 10px; box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28); }
 .run__modal-card h2 { margin: 0; font-size: 17px; }
 .run__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
-.run__action--primary { background: var(--gs-accent); border-color: var(--gs-accent); color: #fff; font-weight: 600; }
+.run__action--primary { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
 .run__outcome {
   display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 12px; border: 1px solid var(--gs-border);
@@ -1182,25 +1246,31 @@ onUnmounted(() => {
 .run__outcome-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .run__muted { color: var(--gs-fg-muted); font-size: 12.5px; margin: 0; }
 .run__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
-.run__error { border-radius: 14px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; padding: 16px 18px; display: grid; gap: 8px; }
+.run__error { border-radius: 14px; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); color: var(--gs-danger); padding: 16px 18px; display: grid; gap: 8px; }
+.run__error button { justify-self: start; border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger); }
 .run__error h2 { margin: 0; font-size: 16px; }
 .run__error p { margin: 0; font-size: 13px; }
+.run__table-scroll { max-height: 480px; overflow: auto; border-radius: 10px; }
+.run__table-scroll .run__table thead th { position: sticky; top: 0; background: var(--gs-surface-2); z-index: 1; }
+.run__quick-toggle { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+.run__quick-toggle button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 4px 10px; cursor: pointer; color: var(--gs-fg-2); }
+.run__head-actions button { white-space: nowrap; }
 .run__summary { display: grid; grid-template-columns: minmax(260px, 1.6fr) repeat(5, minmax(110px, 1fr)); gap: 12px; }
 .run__summary article { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
 .run__summary article span { font-size: 12px; color: var(--gs-fg-muted); }
 .run__summary article strong { font-size: 24px; font-weight: 680; color: var(--gs-fg); }
-.run__summary article.is-bad strong { color: #b91c1c; }
+.run__summary article.is-bad strong { color: var(--gs-danger); }
 .run__status-card { gap: 6px !important; }
 .run__badge { justify-self: start; border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; }
-.run__badge.is-ok { background: #e8f9f0; color: #008f52; }
-.run__badge.is-warn { background: #fef3c7; color: #b45309; }
-.run__badge.is-bad { background: #fee2e2; color: #b91c1c; }
-.run__badge.is-running { background: #e0f2fe; color: #0369a1; }
+.run__badge.is-ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.run__badge.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
+.run__badge.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger); }
+.run__badge.is-running { background: var(--gs-indigo-soft); color: var(--gs-indigo); }
 .run__user-stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .run__user-stage { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 12px 14px; display: grid; gap: 5px; }
-.run__user-stage.is-done { border-color: #bbf7d0; background: linear-gradient(180deg, #f0fdf4, #fff); }
+.run__user-stage.is-done { border-color: var(--gs-accent-soft-border); background: linear-gradient(180deg, var(--gs-accent-soft), var(--gs-surface)); }
 .run__user-stage.is-current { border-color: var(--gs-accent); box-shadow: 0 0 0 1px var(--gs-accent) inset; }
-.run__user-stage.is-failed { border-color: #fecaca; background: #fff7f7; }
+.run__user-stage.is-failed { border-color: var(--gs-danger-border); background: var(--gs-danger-bg); }
 .run__user-stage.is-pending, .run__user-stage.is-skipped { opacity: .62; }
 .run__user-stage strong { font-size: 13.5px; color: var(--gs-fg); }
 .run__user-stage-value { font-size: 20px; font-weight: 700; color: var(--gs-fg); line-height: 1.2; }
@@ -1209,24 +1279,24 @@ onUnmounted(() => {
 .run__tech[open] > summary { margin-bottom: 12px; }
 .run__stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .run__stage { position: relative; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 12px 14px; display: grid; gap: 4px; }
-.run__stage.is-done { border-color: #bbf7d0; background: linear-gradient(180deg, #f0fdf4, #fff); }
+.run__stage.is-done { border-color: var(--gs-accent-soft-border); background: linear-gradient(180deg, var(--gs-accent-soft), var(--gs-surface)); }
 .run__stage.is-current { border-color: var(--gs-accent); box-shadow: 0 0 0 1px var(--gs-accent) inset; }
-.run__stage.is-failed { border-color: #fecaca; background: #fff7f7; }
+.run__stage.is-failed { border-color: var(--gs-danger-border); background: var(--gs-danger-bg); }
 .run__stage.is-pending, .run__stage.is-skipped { opacity: .62; }
 .run__stage-top { display: flex; justify-content: space-between; align-items: center; }
-.run__stage-index { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #f1f5f9; color: var(--gs-fg-muted); font-size: 11px; font-weight: 700; }
-.run__stage.is-done .run__stage-index { background: var(--gs-accent); color: #fff; }
+.run__stage-index { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--gs-surface-2); color: var(--gs-fg-muted); font-size: 11px; font-weight: 700; }
+.run__stage.is-done .run__stage-index { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
 .run__stage-state { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--gs-fg-muted); text-transform: uppercase; }
-.run__stage.is-done .run__stage-state { color: #008f52; }
-.run__stage.is-failed .run__stage-state { color: #b91c1c; }
+.run__stage.is-done .run__stage-state { color: var(--gs-accent-strong); }
+.run__stage.is-failed .run__stage-state { color: var(--gs-danger); }
 .run__stage strong { font-size: 13px; color: var(--gs-fg); }
 .run__stage-value { font-size: 20px; font-weight: 700; color: var(--gs-fg); }
 .run__stage-hint { font-size: 11px; color: var(--gs-fg-muted); min-height: 28px; }
-.run__failure { border-radius: 14px; border: 1px solid #fecaca; background: #fef2f2; padding: 16px 18px; display: grid; gap: 10px; }
-.run__failure h2 { margin: 0; font-size: 15px; color: #991b1b; }
+.run__failure { border-radius: 14px; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); padding: 16px 18px; display: grid; gap: 10px; }
+.run__failure h2 { margin: 0; font-size: 15px; color: var(--gs-danger); }
 .run__failure dl { margin: 0; display: flex; gap: 24px; flex-wrap: wrap; }
-.run__failure dt { font-size: 11px; color: #b91c1c; text-transform: uppercase; letter-spacing: .08em; }
-.run__failure dd { margin: 2px 0 0; font-size: 13px; color: #7f1d1d; }
+.run__failure dt { font-size: 11px; color: var(--gs-danger); text-transform: uppercase; letter-spacing: .08em; }
+.run__failure dd { margin: 2px 0 0; font-size: 13px; color: var(--gs-danger); }
 .run__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
 .run__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
 .run__card--wide { grid-column: 1 / -1; }
@@ -1236,19 +1306,19 @@ onUnmounted(() => {
 .run__table th { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-bg-soft, #f8fafc); }
 .run__table tr:last-child td { border-bottom: 0; }
 .run__chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.run__chip { border-radius: 999px; padding: 2px 9px; background: #f1f5f9; color: #475569; font-size: 11.5px; font-weight: 600; }
-.run__chip.is-warn { background: #fef3c7; color: #b45309; }
+.run__chip { border-radius: 999px; padding: 2px 9px; background: var(--gs-surface-2); color: var(--gs-fg-muted); font-size: 11.5px; font-weight: 600; }
+.run__chip.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
 .run__facts { margin: 0; display: grid; gap: 6px; }
 .run__facts div { display: grid; grid-template-columns: 130px 1fr; gap: 8px; font-size: 12.5px; }
 .run__facts dt { color: var(--gs-fg-muted); }
 .run__facts dd { margin: 0; color: var(--gs-fg); word-break: break-word; }
-.run__error-text { color: #b45309; max-width: 420px; word-break: break-word; }
+.run__error-text { color: var(--gs-warn); max-width: 420px; word-break: break-word; }
 /* M2 步 9b-4：「过程」时间线（只读）。 */
 .run__trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .run__trace-item { border-left: 3px solid var(--gs-border); padding: 2px 0 2px 12px; display: grid; gap: 4px; }
 .run__trace-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; }
 .run__trace-line { margin: 0; font-size: 12.5px; line-height: 1.5; }
-.run__trace-line--warn { color: #b45309; }
+.run__trace-line--warn { color: var(--gs-warn); }
 .run__trace-meta { display: inline-flex; align-items: baseline; gap: 8px; }
 .run__trace-evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
 .run__trace-evidence a { color: var(--gs-accent-strong); text-decoration: none; }
@@ -1258,7 +1328,7 @@ onUnmounted(() => {
 .run__trace-tech dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
 .run__trace-tech dt { color: var(--gs-fg-subtle); }
 .run__trace-tech dd { margin: 0; overflow-wrap: anywhere; }
-.run__action--danger { border-color: #b45309; color: #b45309; }
+.run__action--danger { border-color: var(--gs-warn); color: var(--gs-warn); }
 .run__details { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); padding: 14px 18px; }
 .run__details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gs-fg); }
 .run__details pre { margin: 12px 0 0; font-size: 11.5px; line-height: 1.6; max-height: 420px; overflow: auto; background: var(--gs-bg-soft, #f8fafc); padding: 14px; border-radius: 10px; }

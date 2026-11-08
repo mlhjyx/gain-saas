@@ -10,7 +10,7 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:handshake',
-      order: 5,
+      order: 6,
       title: navTitle('growth'),
     },
     name: 'Growth',

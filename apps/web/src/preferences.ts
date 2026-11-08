@@ -36,7 +36,9 @@ export const overridesPreferences = defineOverridesPreferences({
     sourceDark: LOGO_SRC,
   },
   theme: {
-    colorPrimary: 'hsl(160 84% 39%)',
+    // AA：原 hsl(160 84% 39%)≈#10b77f 与白字/浅底对比度仅 2.2–2.6:1；
+    // 加深到 hsl(155 100% 24%)≈#007a47（白底 5.4:1），侧栏激活项与 vben 派生控件一并达标。
+    colorPrimary: 'hsl(155 100% 24%)',
     // GainOS 采用浅色品牌设计(深色品牌面板在登录页内自持):
     // 整体 UI 固定浅色，避免跟随系统深色导致对比度失效。
     mode: 'light',
@@ -50,6 +52,10 @@ export const overridesPreferences = defineOverridesPreferences({
   },
   // 顶栏只保留与产品相关的能力:搜索、主题、语言、全屏、刷新、通知、退出。
   // 去掉锁屏 / 时区 / 设置抽屉入口(后者在移动端会浮在内容之上)。
+  // 注意：**不要在这里重写 widget.order** —— vben 的偏好合并用 defu，数组是拼接
+  // 而不是覆盖，再写一遍会让每个控件渲染两次（2026-11-09 全站顶栏重复的根因）。
+  // 默认 order 里已被下面布尔开关裁掉 preferences/timezone/fullscreen/lockScreenBtn，
+  // 剩余可见序列（搜索→主题→语言→刷新→通知→退出）正是产品要的顺序。
   widget: {
     lockScreen: false,
     timezone: false,
@@ -58,14 +64,6 @@ export const overridesPreferences = defineOverridesPreferences({
     languageToggle: true,
     themeToggle: true,
     fullscreen: false,
-    order: [
-      'globalSearch',
-      'themeToggle',
-      'languageToggle',
-      'refresh',
-      'notification',
-      'logoutBtn',
-    ],
   },
   copyright: appCopyrightPreferences,
 });

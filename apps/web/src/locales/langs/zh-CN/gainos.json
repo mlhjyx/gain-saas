@@ -1,13 +1,51 @@
 {
   "menu": {
+    "tasks": "挖掘任务",
     "reports": "周报",
     "members": "成员与角色",
-    "workspaces": "工作空间",
     "privacy": "数据与隐私",
     "audit": "审计",
     "sources": "数据源",
     "campaigns": "战役计划",
     "suppressions": "禁联名单"
+  },
+  "tasks": {
+    "title": "挖掘任务",
+    "subtitle": "每个任务按计划挖一类客户；这里是任务列表与最近一次运行的结果。",
+    "empty": "还没有挖掘任务。先到「找买家」设定目标客户画像并发起寻源。",
+    "emptyCta": "去设定目标客户画像",
+    "colTask": "任务",
+    "colStatus": "最近运行",
+    "colLastRun": "最近运行时间",
+    "colActions": "操作",
+    "viewRun": "查看运行",
+    "noRun": "还没有运行",
+    "never": "从未",
+    "taskActive": "进行中",
+    "taskPaused": "已暂停",
+    "taskArchived": "已归档"
+  },
+  "replies": {
+    "tab": "回复",
+    "title": "回复收件箱",
+    "subtitle": "买家的回复、退信与退订都会出现在这里；任何回复都会让相关发送立即停止。",
+    "empty": "还没有收到回复。首次发送后，回复与退信会出现在这里。",
+    "colTime": "时间",
+    "colRecipient": "收件人",
+    "colClass": "分类",
+    "colSubject": "主题",
+    "class": {
+      "POSITIVE": "有意向",
+      "NEUTRAL": "中性",
+      "NEGATIVE": "明确拒绝",
+      "OUT_OF_OFFICE": "自动回复",
+      "UNKNOWN": "未分类"
+    },
+    "kind": {
+      "REPLY": "回复",
+      "BOUNCE": "退信",
+      "UNSUBSCRIBE": "退订"
+    }
   },
   "growth": {
     "title": "商机与触达",
@@ -21,30 +59,6 @@
     "outreachNote": "发送通道开放前，系统不会发出任何邮件。",
     "outreachCta": "去查看买家线索",
     "outreachDisabled": "新建触达批次（即将开放）"
-  },
-  "workspaces": {
-    "title": "工作空间",
-    "subtitle": "一个账号可以属于多个工作空间。切换后，公司档案、目标客户画像和线索都会切到对应空间。",
-    "currentTitle": "当前工作空间",
-    "currentDesc": "这里显示的是你正在使用的空间；改名只影响显示名称。",
-    "name": "工作空间名称",
-    "namePlaceholder": "例如：宁波宏达机电有限公司",
-    "rename": "保存名称",
-    "renamed": "工作空间名称已更新。",
-    "listTitle": "我加入的工作空间",
-    "role": "角色",
-    "action": "操作",
-    "current": "当前",
-    "admin": "管理员",
-    "member": "成员",
-    "switch": "切换",
-    "leave": "退出",
-    "leaveHint": "退出后需要重新被邀请才能加入。最后一名成员或最后一名管理员不能退出。",
-    "leaveConfirm": "确认退出「{name}」？",
-    "left": "已退出该工作空间。",
-    "createTitle": "新建工作空间",
-    "createDesc": "新建后你会成为该空间的管理员，并自动切换过去。",
-    "create": "创建并切换"
   },
   "common": {
     "retry": "重试",
@@ -73,7 +87,14 @@
     "claimRejectedMessage": "有一条企业事实未被采用。",
     "sanctionsHold": "有线索命中制裁名单",
     "quotaWarning": "额度即将用完",
-    "quotaExceeded": "本期额度已用完"
+    "quotaExceeded": "本期额度已用完",
+    "pageTitle": "通知",
+    "pageSubtitle": "挖掘、线索、合规与额度提醒都汇总在这里；同一对象的多条通知会合并计数。",
+    "empty": "暂时没有通知。新的进展会在这里提醒你。",
+    "markAll": "全部标为已读",
+    "markAllConfirm": "确认全部已读",
+    "markAllDone": "已全部标为已读",
+    "groupCount": "共 {count} 条"
   },
   "brand": {
     "tagline": "海外增长机会操作系统",
@@ -108,7 +129,7 @@
   },
   "login": {
     "title": "欢迎回来",
-    "subtitle": "登录你的工作空间，继续本周的增长节奏。",
+    "subtitle": "登录你的公司账号，继续本周的增长节奏。",
     "email": "工作邮箱",
     "password": "密码",
     "passwordPlaceholder": "至少 10 位，含字母与数字",
@@ -123,13 +144,16 @@
     "errEmailInvalid": "邮箱格式不正确",
     "errPasswordRequired": "请输入密码",
     "errPasswordShort": "密码至少 10 位",
+    "errUnauthorized": "邮箱或密码不正确",
+    "forgot": "忘记密码？",
+    "forgotHint": "内测阶段密码由公司管理员重置：请联系管理员重置后再登录。",
     "errFailed": "登录没有成功，请重试"
   },
   "register": {
     "title": "创建账号",
-    "subtitle": "注册后会为你自动创建一个专属工作空间，并引导完成企业建档。",
+    "subtitle": "注册后会为你自动创建公司档案，并引导完成企业建档。",
     "inviteTitle": "接受邀请",
-    "inviteSubtitle": "设置你的登录密码，即可加入团队的工作空间。",
+    "inviteSubtitle": "设置你的登录密码，即可加入团队。",
     "company": "公司名称",
     "companyPlaceholder": "例如：宁波宏达机电有限公司",
     "email": "工作邮箱",
@@ -139,7 +163,7 @@
     "inviteCodeOptional": "内测阶段选填",
     "inviteCodePlaceholder": "如有请填写",
     "submit": "注册",
-    "submitInvite": "加入工作空间",
+    "submitInvite": "加入团队",
     "submitting": "提交中",
     "haveAccount": "已经有账号？",
     "goLogin": "直接登录",
@@ -148,7 +172,7 @@
     "errEmailInvalid": "邮箱格式不正确",
     "errPassword": "密码至少 10 位，且包含字母与数字",
     "errFailed": "操作没有成功，请重试",
-    "companyHint": "将作为工作空间名称"
+    "companyHint": "将作为公司名称"
   },
   "workspace": {
     "greetingNight": "夜深了",
@@ -431,7 +455,7 @@
   "findBuyers": {
     "kicker": "M3 开放",
     "title": "找买家",
-    "subtitle": "设定目标客户画像画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
+    "subtitle": "设定目标客户画像，让 GainOS 按市场与产品去海外发现候选企业——并在交付前判断匹配、需求与可达性。",
     "step1Title": "完成公司档案",
     "step1Checking": "正在确认档案状态…",
     "step1Ready": "已就绪 · 共 {count} 份档案",
@@ -617,6 +641,8 @@
       "mismatch": "不匹配",
       "unknown": "待评估"
     },
+    "loadMore": "加载更多",
+    "showingCount": "已显示 {shown} / 共 {total} 条",
     "viewPackage": "查看档案包",
     "accept": "值得跟进",
     "reject": "暂不跟进",
@@ -904,7 +930,7 @@
     "creating": "创建中…",
     "willJoinAdmin": "将加入为管理员",
     "willJoinMember": "将加入为成员",
-    "confirmRemove": "确认移除该成员？对方将立即失去本工作空间的访问权限。",
+    "confirmRemove": "确认移除该成员？对方将立即失去本公司的访问权限。",
     "remove": "移除",
     "errEmail": "请填写有效的邮箱地址",
     "loading": "正在加载成员…"
@@ -1029,7 +1055,7 @@
     "retryTitle": "重试这次挖掘",
     "retryLastOutcomeLabel": "上次结果",
     "retryLastOutcome": "{status}（失败阶段：{stage}）",
-    "retryBudget": "重试会基于同一寻源方案发起一次新的尝试：会新申请一份执行预算授权，并计入工作空间的执行次数上限；上一次已产出的线索保留不变。",
+    "retryBudget": "重试会基于同一寻源方案发起一次新的尝试：会新申请一份执行预算授权，并计入公司的执行次数上限；上一次已产出的线索保留不变。",
     "retryConfirm": "确认重试",
     "retryRequested": "已发起重试，正在打开新的挖掘任务…",
     "retryUnavailable": "这个挖掘任务缺少任务归因，无法直接重试；请到「找买家」页调整目标客户画像后重新生成方案。",
@@ -1059,6 +1085,18 @@
       "weak": "待复核",
       "mismatch": "不匹配"
     },
+    "jobVerdictLabel": "判定",
+    "quickSummary": "共 {total} 家 · 已隐藏不匹配 {hidden} 家",
+    "quickToggleAll": "显示全部",
+    "quickToggleCollapse": "收起",
+    "quickFilterEmpty": "当前没有需要查看的公司；可点「显示全部」查看完整名单。",
+    "jobErrorPipeline": "公司处理失败",
+    "jobErrorCancelled": "已取消",
+    "metaJudged": "本轮判定",
+    "metaPrefiltered": "预筛出局",
+    "metaDeep": "深挖完成/失败",
+    "metaFailureHigh": "深挖失败率偏高",
+    "taskId": "任务",
     "jobError": "失败码",
     "jobsEmpty": "暂无公司级记录（快扫开始后出现）。",
     "jobStageColumn": "状态",
@@ -1129,8 +1167,14 @@
     }
   },
   "audit": {
+    "actionName": {
+      "login": "登录",
+      "bffRequest": "业务请求",
+      "memberInvite": "邀请成员",
+      "roleChange": "角色变更"
+    },
     "title": "操作审计",
-    "subtitle": "展示你在本工作空间的登录、成员与工作空间操作留痕。为避免跨租户泄露，只显示你本人的记录；平台运营审计在运营台。",
+    "subtitle": "展示你在本公司的登录、成员与权限操作留痕。为避免跨租户泄露，只显示你本人的记录；平台运营审计在运营台。",
     "time": "时间",
     "action": "动作",
     "target": "对象",
@@ -1178,7 +1222,7 @@
     "receipt": "回执",
     "createdAt": "创建时间",
     "receiptSummary": "联系人 {contacts} · 联系点 {points} · 证据 {evidence}",
-    "unknownStatus": "未查到（可能在执行或不属于本工作空间）",
+    "unknownStatus": "未查到（可能在执行或不属于本公司）",
     "trackedNote": "回执只含计数，不含个人数据；浏览器本地记录可清除，服务端不受影响。"
   },
   "onboarding": {
@@ -1212,7 +1256,7 @@
   },
   "sources": {
     "title": "数据源",
-    "subtitle": "启用平台已批准的渠道，或导入你自己的买家名单（只进入本工作空间的私有公司池）。",
+    "subtitle": "启用平台已批准的渠道，或导入你自己的买家名单（只进入本公司的私有公司池）。",
     "availableTitle": "可用渠道",
     "availableDesc": "平台已批准的数据源。启用后，挖掘任务会消费该渠道养出的公司池。",
     "availableEmpty": "暂时没有可用渠道。平台运营登记并通过审批后会出现在这里。",
@@ -1245,7 +1289,7 @@
     "colLastRun": "最近运行",
     "registryEmpty": "还没有登记渠道。",
     "createChannelTitle": "新增导入渠道",
-    "createChannelDesc": "为你的名单登记一个私有导入渠道（仅本工作空间可见），便于按来源追踪产出。",
+    "createChannelDesc": "为你的名单登记一个私有导入渠道（仅本公司可见），便于按来源追踪产出。",
     "channelName": "渠道名称",
     "createChannel": "创建",
     "channelCreated": "渠道已创建（默认停用，导入不受影响）。",
@@ -1269,6 +1313,7 @@
     }
   },
   "campaigns": {
+    "goOutreach": "去触达批次",
     "title": "战役计划",
     "subtitle": "让系统先起草一份「做什么、做到多大、花多少钱上限」的计划；你批准后才生效。影子期：批准也不会真的执行。",
     "stage": "阶段 3 · 计划与审批",
@@ -1283,6 +1328,9 @@
     "colBudget": "预算上限",
     "colUpdated": "更新时间",
     "open": "查看",
+    "ctaDraft": "继续起草",
+    "ctaActive": "查看进展",
+    "ctaView": "查看详情",
     "shadowBanner": "影子期：批准不会真的执行；我们只记录决策与指标。",
     "draftButton": "让系统起草计划",
     "drafting": "正在起草…",
@@ -1337,6 +1385,8 @@
     "planVersion": "计划版本"
   },
   "qgos": {
+    "loadMore": "加载更多",
+    "goCampaigns": "去战役计划",
     "stage": "Convert",
     "title": "商机",
     "subtitle": "带证据的商机、销售接受与结果登记——归因与单位经济的原料。",
@@ -1384,6 +1434,11 @@
     }
   },
   "outreach": {
+    "pickContact": "从线索中选择联系人",
+    "pickLead": "选择线索",
+    "pickLeadPlaceholder": "— 选择一条线索 —",
+    "pickEmpty": "该线索暂无具名联系人",
+    "pickUse": "使用",
     "title": "触达批次",
     "subtitle": "草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。",
     "newBatch": "新建批次",
@@ -1434,6 +1489,7 @@
     "eventOther": "其他操作"
   },
   "suppressions": {
+    "loadMore": "加载更多",
     "title": "禁联名单",
     "subtitle": "加入名单的邮箱、域名或公司在任何对外动作前都会被拦下；法定禁联不会物理删除，解除需提交申请留痕。",
     "addTitle": "加入禁联名单",
