@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AppConfig } from '../config/configuration.js';
 import type { PrismaService } from '../shared/prisma.service.js';
 import type { AuditService } from '../shared/audit.service.js';
+import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import { SmtpProtocolError } from './outreach-smtp.transport.js';
 import {
@@ -219,6 +220,27 @@ class FakeSendPrisma {
   mailboxes: Row[] = [];
   mailboxCounters: Row[] = [];
   domainCounters: Row[] = [];
+  breakers: Row[] = [];
+
+  readonly outreachBreaker = {
+    findUnique: async ({
+      where,
+    }: {
+      where: {
+        workspaceId_scope_scopeRef: { workspaceId: string; scope: string; scopeRef: string };
+      };
+    }) => {
+      const key = where.workspaceId_scope_scopeRef;
+      return (
+        this.breakers.find(
+          (row) =>
+            row.workspaceId === key.workspaceId &&
+            row.scope === key.scope &&
+            row.scopeRef === key.scopeRef,
+        ) ?? null
+      );
+    },
+  };
 
   readonly outreachDomain = {
     upsert: async ({
@@ -582,6 +604,11 @@ function service(
     audit,
     config,
   );
+  const health = new OutreachHealthService(
+    prisma as unknown as PrismaService,
+    audit,
+    config,
+  );
   return new OutreachSendService(
     prisma as unknown as PrismaService,
     audit,
@@ -593,6 +620,7 @@ function service(
     controls,
     authorization,
     mailboxes,
+    health,
   );
 }
 
@@ -1363,6 +1391,48 @@ describe('OutreachSendService · 发送遥测与信箱资产（P4-02/P4-04）', 
       (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('OutreachSendService · 持久化熔断（P4-08）', () => {
+  it('熔断器 OPEN：整批停发 OUTREACH_MAILBOX_PAUSED（来自持久化状态而非即时计算）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.breakers.push({
+      workspaceId: WS_A,
+      scope: 'mailbox',
+      scopeRef: 'outreach@example.test',
+      state: 'OPEN',
+      reason: 'HARD_BOUNCE_RATE',
+    });
+    const transport = fakeTransport();
+
+    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
+    );
+    expect(transport.send).not.toHaveBeenCalled();
+  });
+
+  it('熔断器 HALF_OPEN：只发小批复核（上限 1），其余顺延 OUTREACH_HALF_OPEN_CAP', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.breakers.push({
+      workspaceId: WS_A,
+      scope: 'mailbox',
+      scopeRef: 'outreach@example.test',
+      state: 'HALF_OPEN',
+      reason: 'HARD_BOUNCE_RATE',
+    });
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport, true, new Map(), false, {
+      OUTREACH_HALF_OPEN_BATCH_LIMIT: 1,
+    }).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    const deferred = prisma.events.find((event) => event.type === 'DRAFT_DEFERRED')!;
+    expect((deferred.detail as Row).code).toBe('OUTREACH_HALF_OPEN_CAP');
   });
 });
 

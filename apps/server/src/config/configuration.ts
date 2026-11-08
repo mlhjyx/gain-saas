@@ -121,6 +121,8 @@ const schema = z.object({
   OUTREACH_BOUNCE_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   OUTREACH_BOUNCE_MIN_SAMPLE: z.coerce.number().int().min(1).default(20),
   OUTREACH_BOUNCE_RATE_HALT: z.coerce.number().min(0).max(1).default(0.05),
+  // 域级退信率红线（ch05 §5.3.5.6：≥10% 暂停域名）。
+  OUTREACH_DOMAIN_BOUNCE_HALT_RATE: z.coerce.number().min(0).max(1).default(0.1),
   OUTREACH_COMPLAINT_MIN_SAMPLE: z.coerce.number().int().min(1).default(100),
   OUTREACH_COMPLAINT_RATE_HALT: z.coerce.number().min(0).max(1).default(0.003),
   // 发送成本估算（µUSD/封，全载摊销口径 §5.3.5.5），用于授权预算上限校验。
@@ -146,6 +148,28 @@ const schema = z.object({
     .min(30_000)
     .max(3_600_000)
     .default(300_000),
+  // 发送 job 队列 worker（P4-04）：默认关闭；仅在 OUTREACH_SEND_ENABLED=true 且影子关闭时才真正轮询。
+  OUTREACH_SENDER_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_SENDER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(15_000),
+  OUTREACH_SENDER_CLAIM_LIMIT: z.coerce.number().int().min(1).max(100).default(20),
+  OUTREACH_SEND_JOB_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  // 发送失败重试退避（秒，逗号分隔；第 n 次失败用第 n 项，越界取末项）。
+  OUTREACH_SEND_JOB_RETRY_BACKOFF_SECONDS: z
+    .string()
+    .regex(/^\d+(,\d+)*$/, '退避必须是逗号分隔的秒数')
+    .default('30,120,600'),
+  // 窗口外/限速/额度命中时的顺延间隔（秒）。
+  OUTREACH_SEND_JOB_DEFER_SECONDS: z.coerce.number().int().min(60).max(86_400).default(1800),
+  // 熔断评估 worker（P4-08）：默认关闭；评估也可以由运营手动触发 POST /api/outreach/health/evaluate。
+  OUTREACH_HEALTH_EVAL_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_HEALTH_EVAL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(86_400_000)
+    .default(3_600_000),
+  // HALF_OPEN 复核小批上限（ch05 §5.3.5.6：人工恢复后先发 ≤10 封）。
+  OUTREACH_HALF_OPEN_BATCH_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；

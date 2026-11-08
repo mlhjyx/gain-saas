@@ -12,6 +12,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import { hashOutreachDrafts } from './outreach-content.js';
+import { sendJobKey } from './outreach-send-jobs.service.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -352,6 +353,20 @@ export class OutreachBatchService {
         await tx.outreachDraft.updateMany({
           where: { batchId, status: 'PENDING_APPROVAL' },
           data: { status: 'APPROVED', approvedBy: tenant.userId, approvedAt: now },
+        });
+        // P4-04：审批通过为每封草稿入队发送 job；幂等键吸收重复审批与重放。
+        const approvedDrafts = await tx.outreachDraft.findMany({
+          where: { batchId },
+          select: { id: true },
+        });
+        await tx.outreachSendJob.createMany({
+          data: approvedDrafts.map((draft) => ({
+            workspaceId: tenant.workspaceId,
+            batchId,
+            draftId: draft.id,
+            idempotencyKey: sendJobKey(batchId, draft.id),
+          })),
+          skipDuplicates: true,
         });
         await tx.outreachBatchEvent.create({
           data: {
