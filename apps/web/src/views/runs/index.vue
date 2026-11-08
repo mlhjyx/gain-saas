@@ -315,6 +315,7 @@ const retryNotice = ref<string | null>(null);
 const retryError = ref<string | null>(null);
 const retryAttemptId = ref<string | null>(null);
 const taskAttempts = ref<AttemptRow[]>([]);
+const taskName = ref<null | string>(null);
 
 const canRetry = computed(() => {
   const status = run.value?.status;
@@ -351,11 +352,13 @@ async function loadTaskAttempts(): Promise<void> {
   const icpId = run.value?.icpId;
   if (!taskId || !icpId) {
     taskAttempts.value = [];
+    taskName.value = null;
     return;
   }
   try {
     const tasks = await gainosApi.acquisitionTasks(icpId);
     const task = tasks.find((entry) => entry.id === taskId);
+    taskName.value = task?.name ?? null;
     taskAttempts.value = (task?.runs ?? [])
       .map((row) => ({
         id: row.id,
@@ -891,6 +894,12 @@ onUnmounted(() => {
         <article class="run__status-card">
           <span class="run__badge" :class="statusTone">{{ statusLabel(run.status) }}</span>
           <p class="run__muted">{{ $t('gainos.runs.started') }} {{ formatDateTime(run.createdAt) }}</p>
+          <p v-if="run.taskRef?.taskId" class="run__muted">
+            {{ $t('gainos.runs.taskLabel') }}
+            <RouterLink class="run__task-link" :to="{ name: 'TaskDetail', params: { taskId: run.taskRef.taskId } }">
+              {{ taskName ?? run.taskRef.taskId.slice(0, 8) }}
+            </RouterLink>
+          </p>
           <p class="run__muted">{{ $t('gainos.runs.duration') }} {{ elapsed }}</p>
           <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ formatDateTime(run.completedAt) }}</p>
           <p v-if="run.status === 'RUNNING'" class="run__muted">{{ $t('gainos.runs.runStatusHint') }}</p>
@@ -1244,6 +1253,8 @@ onUnmounted(() => {
 .run__outcome strong { display: block; font-size: 14px; color: var(--gs-fg); }
 .run__outcome p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--gs-fg-muted); }
 .run__outcome-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.run__task-link { color: var(--gs-accent-strong); font-weight: 600; text-decoration: none; }
+.run__task-link:hover { text-decoration: underline; }
 .run__muted { color: var(--gs-fg-muted); font-size: 12.5px; margin: 0; }
 .run__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
 .run__error { border-radius: 14px; border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); color: var(--gs-danger); padding: 16px 18px; display: grid; gap: 8px; }

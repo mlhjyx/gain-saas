@@ -95,7 +95,9 @@ function fmtTime(ts?: string | null): string {
       <tbody>
         <tr v-for="task in tasks" :key="task.id">
           <td>
-            <strong>{{ task.name }}</strong>
+            <RouterLink class="tk__link" :to="{ name: 'TaskDetail', params: { taskId: task.id } }">
+              <strong>{{ task.name }}</strong>
+            </RouterLink>
             <br />
             <small class="tk__muted">
               {{ task.icpId ? `${$t('gainos.runs.icp')} ${task.icpId.slice(0, 8)}` : '—' }}

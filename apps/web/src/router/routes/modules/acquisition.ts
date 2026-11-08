@@ -36,6 +36,16 @@ const routes: RouteRecordRaw[] = [
     component: () => import('#/views/leads/index.vue'),
   },
   {
+    // v3.0 P5b-08：线索档案包整页（?tab=package|people|draft|outcomes 可分享）。
+    meta: {
+      hideInMenu: true,
+      title: $t('gainos.leads.packageTitle'),
+    },
+    name: 'LeadDetail',
+    path: '/leads/:leadId',
+    component: () => import('#/views/leads/detail.vue'),
+  },
+  {
     // 周报迁出六项导航（P6 设计 §3）：入口保留在工作台，路由不删（渐进披露）。
     meta: {
       hideInMenu: true,
