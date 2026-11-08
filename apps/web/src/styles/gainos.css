@@ -120,10 +120,7 @@
   header a > span.truncate {
     display: none;
   }
-  /* 390px 顶栏放不下工作空间选择器与搜索：隐藏两者，保留主题/语言/刷新/通知/退出 */
-  header .workspace-switcher {
-    display: none;
-  }
+  /* 390px 顶栏放不下搜索：隐藏它，保留主题/语言/刷新/通知/退出 */
   header .mr-1.sm\:mr-4:has(svg.lucide-search) {
     display: none;
   }

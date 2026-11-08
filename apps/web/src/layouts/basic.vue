@@ -17,7 +17,7 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
-import WorkspaceSwitcher from '#/components/workspace-switcher.vue';
+import type { GainosUserInfo } from '#/api/core/user';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
@@ -47,6 +47,14 @@ const showDot = computed(() =>
 );
 
 const menus = computed(() => []);
+
+/** 顶栏展示公司名；人（realName）只出现在问候与水印里（P5b-14）。 */
+const companyName = computed(
+  () =>
+    (userStore.userInfo as GainosUserInfo | null)?.workspaceName ??
+    userStore.userInfo?.username ??
+    '',
+);
 
 // 侧栏/菜单标题在路由模块加载时求值一次，切语言后不会热更新（审计 二-06）。
 // 语言切换后整页重载一次，保证导航、页面与通知全部即时切换（URL 与登录态保留）。
@@ -254,7 +262,7 @@ onUnmounted(() => {
     :avatar
     :logo-src="logoGainos"
     :logo-src-dark="logoGainos"
-    :text="userStore.userInfo?.realName"
+    :text="companyName"
     logo-text="GainOS"
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
@@ -263,14 +271,11 @@ onUnmounted(() => {
       <UserDropdown
         :avatar
         :menus
-        :text="userStore.userInfo?.realName"
+        :text="companyName"
         :description="userStore.userInfo?.username"
         @clear-preferences-and-logout="handleLogout"
         @logout="handleLogout"
       />
-    </template>
-    <template #header-right-0>
-      <WorkspaceSwitcher />
     </template>
     <template #notification>
       <Notification

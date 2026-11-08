@@ -27,13 +27,13 @@ const PAGES = [
   '/growth?tab=outreach',
   '/settings/members',
   '/settings/suppressions',
-  '/settings/workspaces',
   '/settings/privacy',
   '/settings/audit',
   '/settings/sources',
   '/reports',
   '/qgos',
   '/campaigns',
+  '/tasks',
 ];
 
 test('零术语扫描：全部租户页面的可见文本不含禁用词', async ({ page }) => {

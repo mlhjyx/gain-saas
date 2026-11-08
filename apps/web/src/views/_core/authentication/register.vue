@@ -9,6 +9,7 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 import { $t } from '#/locales';
 
 import { acceptInviteApi, registerApi } from '#/api/core/auth';
+import { getUserInfoApi } from '#/api/core/user';
 import { gainosApi } from '#/api/gainos';
 import { useAuthStore } from '#/store';
 
@@ -106,19 +107,7 @@ async function onSubmit() {
       // 接受邀请时后端已直接下发会话 cookie,无需再登录一次
       await acceptInviteApi({ token: inviteToken.value, password: form.password });
       const session = await gainosApi.session();
-      const workspaceName =
-        session.workspaces.find((w) => w.id === session.workspace.id)?.name ??
-        'Workspace';
-      useUserStore().setUserInfo({
-        userId: session.user.id,
-        username: session.user.email,
-        realName: workspaceName,
-        roles: [session.workspace.role],
-        avatar: '',
-        desc: '',
-        homePath: '/workspace',
-        token: '',
-      });
+      useUserStore().setUserInfo(await getUserInfoApi());
       const accessStore = useAccessStore();
       accessStore.setAccessToken('cookie-session');
       accessStore.setAccessCodes(

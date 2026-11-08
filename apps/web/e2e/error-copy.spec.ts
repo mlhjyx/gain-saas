@@ -16,7 +16,7 @@ test('错误三层文案 + 技术详情折叠（402 执行预算已用完）', a
         errorPayload('EXECUTION_BUDGET_AUTHORITY_EXHAUSTED', {
           next: '联系运营追加预算后再继续。',
           title: '执行预算已用完',
-          why: '该工作空间本期的执行额度已经耗尽。',
+          why: '该公司本期的执行额度已经耗尽。',
         }),
       ),
       contentType: 'application/json',
@@ -30,7 +30,7 @@ test('错误三层文案 + 技术详情折叠（402 执行预算已用完）', a
 
   // 发生了什么 / 为什么 / 怎么办
   await expect(page.getByRole('heading', { name: '执行预算已用完' })).toBeVisible();
-  await expect(page.getByText('该工作空间本期的执行额度已经耗尽。')).toBeVisible();
+  await expect(page.getByText('该公司本期的执行额度已经耗尽。')).toBeVisible();
   await expect(page.getByText('联系运营追加预算后再继续。', { exact: true })).toBeVisible();
 
   // 技术详情：默认收起，错误码展开后可见
