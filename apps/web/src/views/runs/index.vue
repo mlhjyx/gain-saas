@@ -94,40 +94,68 @@ async function loadMoreTrace(): Promise<void> {
   }
 }
 
+// 零术语红线：未登记的值一律回退人话，绝不把引擎标识/原因码原样渲染进可见面。
 function traceAgentLabel(agentKey: string): string {
   const key = `gainos.runs.traceAgent.${agentKey}`;
   const value = $t(key);
-  return value === key ? agentKey : value;
+  return value === key ? $t('gainos.runs.traceAgentFallback') : value;
 }
 
 function traceStepLabel(decisionType: string): string {
   const key = `gainos.runs.traceStep.${decisionType}`;
   const value = $t(key);
-  return value === key ? decisionType : value;
+  return value === key ? $t('gainos.runs.traceStepFallback') : value;
 }
 
 function traceReasonLabel(code: unknown): string {
   if (typeof code !== 'string' || !code) return '—';
   const key = `gainos.runs.traceRejectReason.${code}`;
   const value = $t(key);
-  return value === key ? code : value;
+  return value === key ? $t('gainos.runs.traceReasonUnknown') : value;
 }
 
 function traceRejectReasonLabel(code: unknown): string {
   if (typeof code !== 'string' || !code) return '—';
   const key = `gainos.runs.traceVerdictReason.${code}`;
   const value = $t(key);
-  return value === key ? code : value;
+  return value === key ? $t('gainos.runs.traceReasonUnknown') : value;
+}
+
+/** 数据源标识（引擎 adapter key）→ 人话名称；未登记回退「其它数据源」。 */
+function traceSourceLabel(key: unknown): string {
+  if (typeof key !== 'string' || !key) return $t('gainos.runs.traceSourceOther');
+  const full = `gainos.runs.traceSource.${key}`;
+  const value = $t(full);
+  return value === full ? $t('gainos.runs.traceSourceOther') : value;
+}
+
+interface TraceEvidence {
+  support: string | null;
+  url: string;
+}
+
+interface TraceTech {
+  agentKey: string;
+  attempt: number;
+  cost: string;
+  decisionType: string;
+  reasonCode: string;
+  rejectedCount: number;
+  score: string;
+  traceId: string;
 }
 
 interface TraceEntry {
-  id: string;
   agentLabel: string;
-  stepLabel: string;
-  time: string;
-  headline: string;
+  attempt: number;
   detail: string | null;
+  evidence: TraceEvidence[];
+  headline: string;
+  id: string;
   rejected: string | null;
+  stepLabel: string;
+  tech: TraceTech;
+  time: string;
 }
 
 function traceStringList(value: unknown): string[] {
@@ -150,18 +178,34 @@ const traceEntries = computed<TraceEntry[]>(() =>
   traceRows.value.map((row) => {
     const chosen = (row.chosenOption ?? {}) as Record<string, unknown>;
     const time = new Date(row.createdAt).toLocaleString();
+    const evidence: TraceEvidence[] = traceObjectList(row.evidence)
+      .filter((item) => typeof item['url'] === 'string' && item['url'])
+      .map((item) => ({
+        support: typeof item['support'] === 'string' && item['support'] ? item['support'] : null,
+        url: item['url'] as string,
+      }));
+    const tech: TraceTech = {
+      agentKey: row.agentKey,
+      attempt: row.attempt,
+      cost: `${row.costEstimatedMicros ?? '—'} / ${row.costActualMicros ?? '—'}`,
+      decisionType: row.decisionType,
+      reasonCode: row.reasonCode ?? '—',
+      rejectedCount: traceObjectList(row.rejectedCandidates).length,
+      score: row.score === null ? '—' : String(row.score),
+      traceId: row.id,
+    };
     if (row.decisionType === 'source.route') {
       const sources = traceStringList(chosen['sources']);
       const rejected = traceObjectList(row.rejectedCandidates);
       const skipped = rejected
         .map((item) => {
-          const ref = typeof item['candidateRef'] === 'string' ? item['candidateRef'] : '—';
+          const ref = traceSourceLabel(item['candidateRef']);
           return `${ref}（${traceReasonLabel(item['rejectReason'])}）`;
         })
         .join('、');
       const headline =
         sources.length > 0
-          ? `${$t('gainos.runs.traceChosenSources')}：${sources.join('、')}`
+          ? `${$t('gainos.runs.traceChosenSources')}：${sources.map(traceSourceLabel).join('、')}`
           : $t('gainos.runs.traceNoSource');
       const reason =
         typeof row.reasonCode === 'string' && row.reasonCode
@@ -170,10 +214,13 @@ const traceEntries = computed<TraceEntry[]>(() =>
       return {
         id: row.id,
         agentLabel: traceAgentLabel(row.agentKey),
+        attempt: row.attempt,
         stepLabel: traceStepLabel(row.decisionType),
         time,
         headline,
         detail: reason,
+        evidence,
+        tech,
         rejected: skipped ? `${$t('gainos.runs.traceSkipped')}：${skipped}` : null,
       };
     }
@@ -202,20 +249,28 @@ const traceEntries = computed<TraceEntry[]>(() =>
       return {
         id: row.id,
         agentLabel: traceAgentLabel(row.agentKey),
+        attempt: row.attempt,
         stepLabel: traceStepLabel(row.decisionType),
         time,
         headline,
         detail: verdictText,
+        evidence,
+        tech,
         rejected: rejectedText ? `${$t('gainos.runs.traceRejected')}：${rejectedText}` : null,
       };
     }
     return {
       id: row.id,
       agentLabel: traceAgentLabel(row.agentKey),
+      attempt: row.attempt,
       stepLabel: traceStepLabel(row.decisionType),
       time,
-      headline: row.reasonCode ? `${$t('gainos.runs.traceReason', { reason: row.reasonCode })}` : '—',
+      headline: row.reasonCode
+        ? `${$t('gainos.runs.traceReason', { reason: traceReasonLabel(row.reasonCode) })}`
+        : '—',
       detail: null,
+      evidence,
+      tech,
       rejected: null,
     };
   }),
@@ -845,11 +900,33 @@ onUnmounted(() => {
           <li v-for="entry in traceEntries" :key="entry.id" class="run__trace-item">
             <div class="run__trace-head">
               <strong>{{ entry.agentLabel }} · {{ entry.stepLabel }}</strong>
-              <small class="run__muted">{{ entry.time }}</small>
+              <span class="run__trace-meta">
+                <span v-if="entry.attempt > 1" class="run__chip is-warn">{{ $t('gainos.runs.traceAttemptBadge', { n: entry.attempt }) }}</span>
+                <small class="run__muted">{{ entry.time }}</small>
+              </span>
             </div>
             <p class="run__trace-line">{{ entry.headline }}</p>
             <p v-if="entry.detail" class="run__trace-line run__muted">{{ entry.detail }}</p>
             <p v-if="entry.rejected" class="run__trace-line run__trace-line--warn">{{ entry.rejected }}</p>
+            <ul v-if="entry.evidence.length" class="run__trace-evidence">
+              <li v-for="(item, index) in entry.evidence" :key="index">
+                <a :href="item.url" target="_blank" rel="noopener noreferrer">{{ $t('gainos.runs.traceEvidenceLink', { n: index + 1 }) }}</a>
+                <span v-if="item.support" class="run__muted"> · {{ item.support }}</span>
+              </li>
+            </ul>
+            <details class="run__trace-tech">
+              <summary>{{ $t('gainos.runs.traceTech') }}</summary>
+              <dl>
+                <dt>{{ $t('gainos.runs.traceTechDecision') }}</dt><dd>{{ entry.tech.decisionType }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechAgent') }}</dt><dd>{{ entry.tech.agentKey }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechAttempt') }}</dt><dd>{{ entry.tech.attempt }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechReason') }}</dt><dd>{{ entry.tech.reasonCode }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechScore') }}</dt><dd>{{ entry.tech.score }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechCost') }}</dt><dd>{{ entry.tech.cost }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechRejected') }}</dt><dd>{{ entry.tech.rejectedCount }}</dd>
+                <dt>{{ $t('gainos.runs.traceTechTraceId') }}</dt><dd>{{ entry.tech.traceId }}</dd>
+              </dl>
+            </details>
           </li>
         </ol>
         <button v-if="traceHasMore" class="run__action" type="button" :disabled="traceLoading" @click="loadMoreTrace">{{ $t('gainos.runs.traceLoadMore') }}</button>
@@ -1172,6 +1249,15 @@ onUnmounted(() => {
 .run__trace-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; }
 .run__trace-line { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .run__trace-line--warn { color: #b45309; }
+.run__trace-meta { display: inline-flex; align-items: baseline; gap: 8px; }
+.run__trace-evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
+.run__trace-evidence a { color: var(--gs-accent-strong); text-decoration: none; }
+.run__trace-evidence a:hover { text-decoration: underline; }
+.run__trace-tech { font-size: 12px; color: var(--gs-fg-subtle); }
+.run__trace-tech summary { cursor: pointer; }
+.run__trace-tech dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.run__trace-tech dt { color: var(--gs-fg-subtle); }
+.run__trace-tech dd { margin: 0; overflow-wrap: anywhere; }
 .run__action--danger { border-color: #b45309; color: #b45309; }
 .run__details { border: 1px solid var(--gs-border); border-radius: 14px; background: var(--gs-surface); padding: 14px 18px; }
 .run__details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gs-fg); }

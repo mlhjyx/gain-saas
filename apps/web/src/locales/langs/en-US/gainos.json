@@ -1061,15 +1061,19 @@
     "jobError": "Error code",
     "jobsEmpty": "No company-level records yet (they appear once the quick scan starts).",
     "jobStageColumn": "Stage",
-    "traceTitle": "Process",
-    "traceSubtitle": "How this round decided: which sources it used, which it skipped, and how each judging batch turned out.",
+    "traceTitle": "Sourcing process",
+    "traceSubtitle": "How this round decided: which sources were used, which were skipped, per-batch verdicts and the candidates that did not pass.",
     "traceEmpty": "No process records yet (the decision trace accumulates from tasks on the new version).",
     "traceLoading": "Loading process…",
     "traceLoadError": "Could not load the process view; it will retry automatically.",
     "traceLoadMore": "Load more",
     "traceStep": {
-      "source.route": "Source routing",
-      "fit.judge": "Batch judging"
+      "source": {
+        "route": "Source routing"
+      },
+      "fit": {
+        "judge": "Batch judging"
+      }
     },
     "traceChosenSources": "Sources used",
     "traceNoSource": "No source was available for this query",
@@ -1092,8 +1096,35 @@
     },
     "traceReason": "Reason: {reason}",
     "traceAgent": {
-      "discovery.source_scout": "Source scout",
-      "discovery.qualifier": "Qualification judge"
+      "discovery": {
+        "source_scout": "Source scout",
+        "qualifier": "Qualifier"
+      }
+    },
+    "traceAgentFallback": "Agent",
+    "traceStepFallback": "Decision",
+    "traceReasonUnknown": "Other reason",
+    "traceAttemptBadge": "Attempt {n}",
+    "traceEvidenceLink": "Evidence {n}",
+    "traceTech": "Technical details",
+    "traceTechDecision": "Decision type",
+    "traceTechAgent": "Agent key",
+    "traceTechAttempt": "Attempt",
+    "traceTechReason": "Reason code",
+    "traceTechScore": "Score",
+    "traceTechCost": "Cost (micros, estimated / actual)",
+    "traceTechRejected": "Rejected candidates",
+    "traceTechTraceId": "Trace record",
+    "traceSourceOther": "Other sources",
+    "traceSource": {
+      "wikidata": "Wikidata",
+      "openstreetmap": "OpenStreetMap",
+      "ted": "TED notices",
+      "openfda": "openFDA",
+      "public_web": "Public web search",
+      "directory": "Trade directories",
+      "trade_fair": "Trade fairs",
+      "samgov": "SAM.gov opportunities"
     }
   },
   "audit": {
