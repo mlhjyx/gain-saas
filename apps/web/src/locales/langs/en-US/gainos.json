@@ -1076,7 +1076,41 @@
     },
     "jobError": "Error code",
     "jobsEmpty": "No company-level records yet (they appear once the quick scan starts).",
-    "jobStageColumn": "Stage"
+    "jobStageColumn": "Stage",
+    "traceTitle": "Process",
+    "traceSubtitle": "How this round decided: which sources it used, which it skipped, and how each judging batch turned out.",
+    "traceEmpty": "No process records yet (the decision trace accumulates from tasks on the new version).",
+    "traceLoading": "Loading process…",
+    "traceLoadError": "Could not load the process view; it will retry automatically.",
+    "traceLoadMore": "Load more",
+    "traceStep": {
+      "source.route": "Source routing",
+      "fit.judge": "Batch judging"
+    },
+    "traceChosenSources": "Sources used",
+    "traceNoSource": "No source was available for this query",
+    "traceSkipped": "Skipped sources",
+    "traceRejectReason": {
+      "SOURCE_DISABLED": "disabled",
+      "SOURCE_LINEAGE_UNAVAILABLE": "no governed lineage",
+      "SOURCE_HINT_INVALID": "invalid source hint",
+      "SOURCE_HINT_EXCLUDED": "excluded by source hint",
+      "LEASE_STOP": "time budget exhausted",
+      "SOURCE_UNKNOWN": "unregistered source"
+    },
+    "traceJudged": "Judged {judged}/{total}",
+    "traceVerdicts": "Match {match} · Unsure {weak} · Mismatch {mismatch}",
+    "traceRejected": "Not passed",
+    "traceVerdictReason": {
+      "VERDICT_MISMATCH": "mismatch",
+      "EXTERNAL_PROCESSING_BLOCKED": "blocked by compliance gate",
+      "QUICK_JUDGE_FAILED": "judging failed"
+    },
+    "traceReason": "Reason: {reason}",
+    "traceAgent": {
+      "discovery.source_scout": "Source scout",
+      "discovery.qualifier": "Qualification judge"
+    }
   },
   "audit": {
     "title": "Audit log",
