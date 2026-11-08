@@ -578,6 +578,24 @@ export interface DiscoveryRunJob {
   finishedAt: string | null;
 }
 
+/** M2 步 9b-4：run 决策轨迹（过程时间线）——引擎 `agent_decision_trace` 的只读投影。 */
+export interface DiscoveryRunTrace {
+  id: string;
+  stepType: string;
+  agentKey: string;
+  actorType: string;
+  attempt: number;
+  decisionType: string;
+  chosenOption: Record<string, unknown> | null;
+  score: number | null;
+  reasonCode: string | null;
+  evidence: Array<Record<string, unknown>>;
+  rejectedCandidates: Array<Record<string, unknown>>;
+  costEstimatedMicros: string | null;
+  costActualMicros: string | null;
+  createdAt: string;
+}
+
 /** SaaS 侧的 run → plan/ICP 引用，用于关闭页面后找回挖掘任务。 */
 export interface DiscoveryRunLink {
   runId: string;
@@ -897,6 +915,13 @@ export const gainosApi = {
   /** M0⑤：run 的公司级队列（默认取第一页 200 家）。 */
   runJobs: (runId: string, limit = 200) =>
     requestClient.get<DiscoveryRunJob[]>(`/discovery-runs/${runId}/jobs`, { params: { limit } }),
+  /** M2 步 9b-4：run 的「过程」时间线（键集分页；不传 cursor 即第一页）。 */
+  runTrace: (runId: string, params: { limit?: number; cursor?: string } = {}) =>
+    requestClient.get<{
+      data: DiscoveryRunTrace[];
+      page?: { next_cursor?: string | null; has_more?: boolean };
+    }>(`/runs/${runId}/trace`, { params }),
+
   /** M0④/⑤：停止深挖（保留已完成结果；未完成公司下一次 run 重新排队）。 */
   cancelDiscoveryRun: (runId: string) =>
     requestClient.post<{ runId: string; status: string }>(`/discovery-runs/${runId}/cancel`, {}),

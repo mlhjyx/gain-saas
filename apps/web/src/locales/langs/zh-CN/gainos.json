@@ -1076,7 +1076,41 @@
     },
     "jobError": "失败码",
     "jobsEmpty": "暂无公司级记录（快扫开始后出现）。",
-    "jobStageColumn": "状态"
+    "jobStageColumn": "状态",
+    "traceTitle": "过程",
+    "traceSubtitle": "这一轮是怎么判断的：选了哪些数据源、哪些被跳过、每批判定结果与未通过的候选。",
+    "traceEmpty": "这一轮还没有过程记录（过程轨迹从接入新版本后的挖掘任务开始积累）。",
+    "traceLoading": "正在加载过程…",
+    "traceLoadError": "过程加载失败，稍后自动重试。",
+    "traceLoadMore": "加载更多",
+    "traceStep": {
+      "source.route": "选择数据源",
+      "fit.judge": "批量判定"
+    },
+    "traceChosenSources": "采用的源",
+    "traceNoSource": "本轮查询没有可用的数据源",
+    "traceSkipped": "跳过的源",
+    "traceRejectReason": {
+      "SOURCE_DISABLED": "已停用",
+      "SOURCE_LINEAGE_UNAVAILABLE": "缺少受治理血缘",
+      "SOURCE_HINT_INVALID": "源提示不合法",
+      "SOURCE_HINT_EXCLUDED": "不符合源提示",
+      "LEASE_STOP": "运行时间用尽",
+      "SOURCE_UNKNOWN": "未登记的源"
+    },
+    "traceJudged": "判定 {judged}/{total} 家",
+    "traceVerdicts": "匹配 {match} · 待定 {weak} · 不符 {mismatch}",
+    "traceRejected": "未通过",
+    "traceVerdictReason": {
+      "VERDICT_MISMATCH": "判定不符",
+      "EXTERNAL_PROCESSING_BLOCKED": "合规闸门拦截",
+      "QUICK_JUDGE_FAILED": "判定失败"
+    },
+    "traceReason": "原因：{reason}",
+    "traceAgent": {
+      "discovery.source_scout": "源侦察员",
+      "discovery.qualifier": "资格判定员"
+    }
   },
   "audit": {
     "title": "操作审计",
