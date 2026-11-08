@@ -24,7 +24,29 @@
     "never": "从未",
     "taskActive": "进行中",
     "taskPaused": "已暂停",
-    "taskArchived": "已归档"
+    "taskArchived": "已归档",
+    "detailTitle": "任务详情",
+    "detailSubtitle": "这个任务在挖谁、历次运行的结果与重试入口。",
+    "backToList": "返回任务列表",
+    "notFoundTitle": "任务不存在或不属于你",
+    "notFoundNext": "返回任务列表重新选择。",
+    "retryLast": "重试上次运行",
+    "retrying": "正在发起…",
+    "retryRequested": "已发起重试，正在打开新的运行。",
+    "icp": "目标客户画像",
+    "createdAt": "创建时间",
+    "runsCount": "运行次数",
+    "runHistory": "运行历史",
+    "colAttempt": "尝试",
+    "colRunStatus": "结果",
+    "colTrigger": "触发方式",
+    "colStarted": "开始时间",
+    "colFinished": "结束时间",
+    "noRunYet": "还没有运行记录。到「找买家」发起一次寻源。",
+    "trigger": {
+      "manual": "手动",
+      "schedule": "定时"
+    }
   },
   "replies": {
     "tab": "回复",
@@ -967,6 +989,7 @@
     "plan": "方案",
     "icp": "目标客户画像",
     "started": "开始",
+    "taskLabel": "所属任务",
     "completed": "完成",
     "duration": "耗时",
     "subtitle": "看看这一轮找到了哪些公司、判断了多少，以及下一步可以做什么。",
