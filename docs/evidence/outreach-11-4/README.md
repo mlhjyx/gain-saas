@@ -30,7 +30,7 @@ OUTREACH_DKIM_PRIVATE_KEY_PATH=/tmp/outreach-11-3-evidence/dkim-test20261108.key
 /tmp/dkim-verify-venv/bin/python verify-dkim.py mailpit-raw.eml dkim-public.b64
 ```
 
-## 演示结果（`demo-result.json`，14 项全部 PASS）
+## 演示结果（`demo-result.json`，16 项全部 PASS；下表按主题归并）
 
 | 步骤 | 结果 |
 | --- | --- |
