@@ -32,6 +32,7 @@ interface DraftRow {
   batchId: string;
   contactRef: string;
   recipientEmail: string;
+  countryCode?: string | null;
   companyName: string | null;
   subject: string;
   body: string;
@@ -383,5 +384,26 @@ describe('OutreachBatchService', () => {
     await service.decideApproval(tenantA, batch.id, approval.id, { decision: 'approve' });
     const approved = prisma.events.find((event) => event.type === 'BATCH_APPROVED')!;
     expect(approved.detail).toMatchObject({ selfApproval: true });
+  });
+
+  it('draft countryCode：小写归一化为大写入库，非法国家代码拒绝（法域门输入）', async () => {
+    const { service } = build();
+    const batch = await service.createBatch(tenantA, { name: '德国首触' });
+    const draft = await service.addDraft(tenantA, batch.id, {
+      ...draftInput(),
+      countryCode: 'de',
+    });
+    expect(draft.countryCode).toBe('DE');
+
+    await expect(
+      service.addDraft(tenantA, batch.id, {
+        ...draftInput(CONTACT_2),
+        countryCode: 'DEU',
+      }),
+    ).rejects.toSatisfy(
+      (error) =>
+        (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
+        'VALIDATION_ERROR',
+    );
   });
 });

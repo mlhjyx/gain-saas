@@ -35,6 +35,8 @@ export interface OutreachDraftInput {
   companyName?: string | null;
   subject: string;
   body: string;
+  /** 收件人国家（ISO 3166-1 alpha-2）；发送时法域同意门的输入，缺失按 REVIEW_REQUIRED 拒发。 */
+  countryCode?: string | null;
 }
 
 function normalizeDraft(input: OutreachDraftInput) {
@@ -57,7 +59,18 @@ function normalizeDraft(input: OutreachDraftInput) {
   if (companyName && companyName.length > 200) {
     invalid('VALIDATION_ERROR', '公司名不超过 200 字');
   }
-  return { contactRef: input.contactRef, recipientEmail, companyName, subject, body };
+  const countryCode = input.countryCode?.trim().toUpperCase() || null;
+  if (countryCode && !/^[A-Z]{2}$/.test(countryCode)) {
+    invalid('VALIDATION_ERROR', 'countryCode 必须是 ISO 3166-1 两位国家代码');
+  }
+  return {
+    contactRef: input.contactRef,
+    recipientEmail,
+    companyName,
+    subject,
+    body,
+    countryCode,
+  };
 }
 
 /**
