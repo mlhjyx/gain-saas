@@ -121,3 +121,43 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/* 统一状态徽标（P6 词表 glossary.ts 的 tone 色板）：
+   状态不靠颜色单独传义——文案与色板永远成对出现（PRD §14.4 / 设计 §3.9）。 */
+.gs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--gs-divider);
+  color: var(--gs-fg-2);
+  white-space: nowrap;
+}
+
+.gs-badge--neutral {
+  background: var(--gs-divider);
+  color: var(--gs-fg-2);
+}
+
+.gs-badge--processing {
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-strong);
+}
+
+.gs-badge--success {
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-strong);
+}
+
+.gs-badge--warning {
+  background: var(--gs-warn-bg);
+  color: var(--gs-warn);
+}
+
+.gs-badge--danger {
+  background: var(--gs-danger-bg);
+  color: var(--gs-danger);
+}
