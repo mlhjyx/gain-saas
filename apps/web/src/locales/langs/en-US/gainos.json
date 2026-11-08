@@ -87,7 +87,14 @@
     "claimRejectedMessage": "One company fact was set aside.",
     "sanctionsHold": "Leads hit the sanctions list",
     "quotaWarning": "Quota almost used up",
-    "quotaExceeded": "Quota used up for this period"
+    "quotaExceeded": "Quota used up for this period",
+    "pageTitle": "Notifications",
+    "pageSubtitle": "Prospecting, lead, compliance and quota alerts in one place; repeated alerts for the same item are grouped.",
+    "empty": "No notifications yet. New progress will show up here.",
+    "markAll": "Mark all as read",
+    "markAllConfirm": "Confirm mark all",
+    "markAllDone": "All notifications marked as read",
+    "groupCount": "{count} in total"
   },
   "brand": {
     "tagline": "Export growth opportunity OS",
@@ -137,6 +144,9 @@
     "errEmailInvalid": "That email doesn't look right",
     "errPasswordRequired": "Enter your password",
     "errPasswordShort": "Password must be at least 10 characters",
+    "errUnauthorized": "Incorrect email or password",
+    "forgot": "Forgot password?",
+    "forgotHint": "During the beta a company admin resets passwords — ask your admin to reset it, then sign in again.",
     "errFailed": "Sign-in failed, please try again"
   },
   "register": {
@@ -1318,6 +1328,9 @@
     "colBudget": "Budget cap",
     "colUpdated": "Updated",
     "open": "Open",
+    "ctaDraft": "Continue draft",
+    "ctaActive": "View progress",
+    "ctaView": "View details",
     "shadowBanner": "Shadow period: approvals do not execute; only decisions and metrics are recorded.",
     "draftButton": "Draft a plan",
     "drafting": "Drafting…",

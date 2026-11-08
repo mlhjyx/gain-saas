@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDate as formatDateValue, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -409,9 +409,7 @@ function sanctionBlocked(status?: string): boolean {
   return status === 'potential_match' || status === 'confirmed_true_hit';
 }
 function formatDate(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+  return formatDateValue(value);
 }
 const draftText = computed(() => {
   if (!draft.value) return '';

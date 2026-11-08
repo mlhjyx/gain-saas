@@ -20,6 +20,7 @@ const authStore = useAuthStore();
 const form = reactive({ email: '', password: '' });
 const errors = reactive<{ email?: string; password?: string }>({});
 const showPassword = ref(false);
+const showForgotHint = ref(false);
 const submitting = ref(false);
 const failure = ref<string | null>(null);
 
@@ -52,7 +53,7 @@ async function onSubmit() {
     });
     await router.push('/workspace');
   } catch (error) {
-    const detail = (
+    const response = (
       error as {
         response?: {
           data?: {
@@ -61,12 +62,19 @@ async function onSubmit() {
               userCopy?: { title?: string; next?: string };
             };
           };
+          status?: number;
         };
       }
-    )?.response?.data?.error;
-    failure.value = detail?.userCopy
-      ? `${detail.userCopy.title}${detail.userCopy.next ? ` — ${detail.userCopy.next}` : ''}`
-      : (detail?.message ?? (error as Error)?.message ?? $t('gainos.login.errFailed'));
+    )?.response;
+    const detail = response?.data?.error;
+    if (response?.status === 401 || response?.status === 403) {
+      // QW13：凭据错误给业务文案，不把 "Unauthorized" 这类原始信息丢给用户。
+      failure.value = $t('gainos.login.errUnauthorized');
+    } else {
+      failure.value = detail?.userCopy
+        ? `${detail.userCopy.title}${detail.userCopy.next ? ` — ${detail.userCopy.next}` : ''}`
+        : (detail?.message ?? (error as Error)?.message ?? $t('gainos.login.errFailed'));
+    }
   } finally {
     submitting.value = false;
   }
@@ -182,6 +190,10 @@ async function onSubmit() {
               </button>
             </div>
             <span v-if="errors.password" class="g-field__err" role="alert">{{ errors.password }}</span>
+            <button class="g-field__forgot" type="button" @click="showForgotHint = !showForgotHint">
+              {{ $t('gainos.login.forgot') }}
+            </button>
+            <p v-if="showForgotHint" class="g-field__hint">{{ $t('gainos.login.forgotHint') }}</p>
           </label>
 
           <Transition name="g-fade">

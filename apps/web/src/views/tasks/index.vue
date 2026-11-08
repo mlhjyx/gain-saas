@@ -3,7 +3,7 @@ import type { AcquisitionTaskView, TaskRunView } from '#/api/gainos';
 
 import { onMounted, ref } from 'vue';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
@@ -57,7 +57,7 @@ function runBadgeClass(status?: string | null): string {
 }
 
 function fmtTime(ts?: string | null): string {
-  return ts ? new Date(ts).toLocaleString() : $t('gainos.tasks.never');
+  return formatDateTime(ts) || $t('gainos.tasks.never');
 }
 </script>
 

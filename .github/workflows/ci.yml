@@ -26,6 +26,10 @@ jobs:
       - name: Zero-jargon terminology lint
         run: pnpm lint:terms
 
+      # QW14：视图日期格式唯一口径（YYYY-MM-DD / YYYY-MM-DD HH:mm），禁止 toLocale 系列。
+      - name: Date format lint
+        run: pnpm lint:date
+
       # 全新安装没有生成的 Prisma Client;server 的 tsc 依赖它的生成类型,先生成再构建。
       - name: Prisma generate (server client)
         run: pnpm --filter @gain-saas/server db:generate

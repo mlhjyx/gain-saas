@@ -19,6 +19,7 @@ import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
 import { useAuthStore } from '#/store';
+import { formatDateTime } from '@gain-saas/shared';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 // 侧栏标记显式传入:覆盖 localStorage 里可能残留的旧 logo
@@ -129,7 +130,7 @@ async function loadNotifications(): Promise<void> {
       avatar: preferences.app.defaultAvatar ?? '/favicon.svg',
       title: notificationTitle(row),
       message: notificationMessage(row),
-      date: new Date(row.createdAt).toLocaleString(),
+      date: formatDateTime(row.createdAt),
       isRead: Boolean(row.readAt),
       link: row.link,
       type: row.type,
@@ -169,10 +170,7 @@ async function handleMakeAll() {
 }
 
 const viewAll = () => {
-  void router.push({
-    path: '/workspace',
-    query: { panel: 'notifications', t: String(Date.now()) },
-  });
+  void router.push('/notifications');
 };
 
 const handleClick = async (item: NotificationItem) => {

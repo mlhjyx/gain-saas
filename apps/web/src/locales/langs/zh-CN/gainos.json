@@ -87,7 +87,14 @@
     "claimRejectedMessage": "有一条企业事实未被采用。",
     "sanctionsHold": "有线索命中制裁名单",
     "quotaWarning": "额度即将用完",
-    "quotaExceeded": "本期额度已用完"
+    "quotaExceeded": "本期额度已用完",
+    "pageTitle": "通知",
+    "pageSubtitle": "挖掘、线索、合规与额度提醒都汇总在这里；同一对象的多条通知会合并计数。",
+    "empty": "暂时没有通知。新的进展会在这里提醒你。",
+    "markAll": "全部标为已读",
+    "markAllConfirm": "确认全部已读",
+    "markAllDone": "已全部标为已读",
+    "groupCount": "共 {count} 条"
   },
   "brand": {
     "tagline": "海外增长机会操作系统",
@@ -137,6 +144,9 @@
     "errEmailInvalid": "邮箱格式不正确",
     "errPasswordRequired": "请输入密码",
     "errPasswordShort": "密码至少 10 位",
+    "errUnauthorized": "邮箱或密码不正确",
+    "forgot": "忘记密码？",
+    "forgotHint": "内测阶段密码由公司管理员重置：请联系管理员重置后再登录。",
     "errFailed": "登录没有成功，请重试"
   },
   "register": {
@@ -1318,6 +1328,9 @@
     "colBudget": "预算上限",
     "colUpdated": "更新时间",
     "open": "查看",
+    "ctaDraft": "继续起草",
+    "ctaActive": "查看进展",
+    "ctaView": "查看详情",
     "shadowBanner": "影子期：批准不会真的执行；我们只记录决策与指标。",
     "draftButton": "让系统起草计划",
     "drafting": "正在起草…",

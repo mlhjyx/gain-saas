@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
@@ -285,7 +285,7 @@ onUnmounted(stopPolling);
         <p>{{ conclusion }}</p>
         <p class="cd__muted">
           {{ $t('gainos.campaigns.approvalExpires') }}:
-          {{ new Date(pendingApproval.expiresAt).toLocaleString() }}
+          {{ formatDateTime(pendingApproval.expiresAt) }}
         </p>
         <div class="cd__actions">
           <button type="button" class="cd__primary" :disabled="busy === 'decide'" @click="showApprove = true">
@@ -345,7 +345,7 @@ onUnmounted(stopPolling);
               {{ $t('gainos.campaigns.summaryBudget') }}:
               {{ money(latest.plan.budget.capMicros) || $t('gainos.campaigns.noBudget') }}
             </li>
-            <li>{{ $t('gainos.campaigns.revision', { no: latest.revisionNo }) }} · {{ new Date(latest.createdAt).toLocaleString() }}</li>
+            <li>{{ $t('gainos.campaigns.revision', { no: latest.revisionNo }) }} · {{ formatDateTime(latest.createdAt) }}</li>
           </ul>
         </details>
         <details class="cd__why-3">
@@ -362,8 +362,8 @@ onUnmounted(stopPolling);
         <h2>{{ $t('gainos.campaigns.authorization') }}</h2>
         <p>{{ $t('gainos.campaigns.authIssued') }}</p>
         <p class="cd__muted">
-          {{ new Date(authorization.issuedAt).toLocaleString() }} –
-          {{ new Date(authorization.expiresAt).toLocaleString() }}
+          {{ formatDateTime(authorization.issuedAt) }} –
+          {{ formatDateTime(authorization.expiresAt) }}
         </p>
       </section>
 
@@ -373,7 +373,7 @@ onUnmounted(stopPolling);
           <li v-for="revision in revisions" :key="revision.id">
             <strong>{{ $t('gainos.campaigns.revision', { no: revision.revisionNo }) }}</strong>
             <span class="gs-badge" :class="approvalBadgeClass(revision.state)">{{ revisionStateLabel(revision.state) }}</span>
-            <span class="cd__muted">{{ new Date(revision.createdAt).toLocaleString() }}</span>
+            <span class="cd__muted">{{ formatDateTime(revision.createdAt) }}</span>
             <p v-if="revision.approvals[0]?.decisionReason" class="cd__muted">
               {{ revision.approvals[0].decisionReason }}
             </p>
@@ -385,7 +385,7 @@ onUnmounted(stopPolling);
         <h2>{{ $t('gainos.campaigns.traceTitle') }}</h2>
         <ol class="cd__timeline">
           <li v-for="entry in detail.recentTrace" :key="entry.traceId">
-            <span class="cd__muted">{{ new Date(entry.createdAt).toLocaleString() }}</span>
+            <span class="cd__muted">{{ formatDateTime(entry.createdAt) }}</span>
             <span>{{ traceStepLabel(entry.stepType) }} · {{ entry.actorType }}</span>
           </li>
         </ol>

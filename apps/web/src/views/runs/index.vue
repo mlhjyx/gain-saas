@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
-import { deriveRunActions } from '@gain-saas/shared';
+import { deriveRunActions, formatDateTime } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
@@ -187,7 +187,7 @@ function traceNumber(value: unknown): number | null {
 const traceEntries = computed<TraceEntry[]>(() =>
   traceRows.value.map((row) => {
     const chosen = (row.chosenOption ?? {}) as Record<string, unknown>;
-    const time = new Date(row.createdAt).toLocaleString();
+    const time = formatDateTime(row.createdAt);
     const evidence: TraceEvidence[] = traceObjectList(row.evidence)
       .filter((item) => typeof item['url'] === 'string' && item['url'])
       .map((item) => ({
@@ -890,9 +890,9 @@ onUnmounted(() => {
       <section class="run__summary">
         <article class="run__status-card">
           <span class="run__badge" :class="statusTone">{{ statusLabel(run.status) }}</span>
-          <p class="run__muted">{{ $t('gainos.runs.started') }} {{ new Date(run.createdAt).toLocaleString() }}</p>
+          <p class="run__muted">{{ $t('gainos.runs.started') }} {{ formatDateTime(run.createdAt) }}</p>
           <p class="run__muted">{{ $t('gainos.runs.duration') }} {{ elapsed }}</p>
-          <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ new Date(run.completedAt).toLocaleString() }}</p>
+          <p v-if="run.completedAt" class="run__muted">{{ $t('gainos.runs.completed') }} {{ formatDateTime(run.completedAt) }}</p>
           <p v-if="run.status === 'RUNNING'" class="run__muted">{{ $t('gainos.runs.runStatusHint') }}</p>
         </article>
         <article><span>{{ $t('gainos.runs.summaryCompanies') }}</span><strong>{{ textOf(summaryCompanies) }}</strong></article>
@@ -1036,7 +1036,7 @@ onUnmounted(() => {
                 <small v-if="attempt.rerunOf" class="run__muted"> · {{ $t('gainos.runs.attemptRetriedFrom', { n: taskAttempts.find((row) => row.id === attempt.rerunOf)?.attempt ?? '?' }) }}</small>
               </td>
               <td>{{ statusLabel(attempt.status) }}</td>
-              <td>{{ new Date(attempt.startedAt).toLocaleString() }}</td>
+              <td>{{ formatDateTime(attempt.startedAt) }}</td>
               <td>
                 <button v-if="attempt.runId && attempt.runId !== runId" class="run__action" type="button" @click="router.push({ name: 'DiscoveryRun', params: { runId: attempt.runId } })">{{ $t('gainos.runs.attemptOpen') }}</button>
               </td>
