@@ -364,3 +364,48 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
     expect(notificationCreate).not.toHaveBeenCalled();
   });
 });
+
+describe('M2 步 10：CandidateBatchCompleted 消费（兼容旧 run 回放）', () => {
+  async function consumeBatch(payload: Record<string, unknown>) {
+    const body = {
+      data: [
+        {
+          event_id: EVENT_ID,
+          event_type: 'CandidateBatchCompleted',
+          workspace_id: WORKSPACE,
+          occurred_at: new Date().toISOString(),
+          aggregate_id: '99999999-9999-4999-8999-999999999999',
+          payload,
+        },
+      ],
+      page: { next_cursor: null, has_more: false },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    await service.consumeOnce();
+    return tx;
+  }
+
+  it('完整载荷被吸收：不产生通知、不写业务派生', async () => {
+    const tx = await consumeBatch({
+      run_ref: 'run-1',
+      icp_id: '99999999-9999-4999-8999-999999999999',
+      batch_no: 0,
+      batch_ref: 'qualify:run-1:0',
+      scored: 2,
+      queues: { recommended: 1, needs_review: 1, rejected: 0, suppressed: 0, sanctions_hold: 0 },
+      candidates: [],
+    });
+    expect(tx.notification.create).not.toHaveBeenCalled();
+    expect(tx.qualifiedLead.create).not.toHaveBeenCalled();
+  });
+
+  it('旧 run 回放（缺新字段/空载荷）→ 兼容消费不报错', async () => {
+    const tx = await consumeBatch({});
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+});
