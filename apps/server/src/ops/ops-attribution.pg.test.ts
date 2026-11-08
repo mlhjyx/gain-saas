@@ -29,7 +29,6 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
   let pg: DisposablePostgres;
   let prisma: PrismaClient;
   let service: OpsAttributionService;
-  let enginePlanRows: Array<{ campaign_id: string | null; plan_engine_micros: bigint }>;
 
   const ids = {
     workspace: randomUUID(),
@@ -58,15 +57,32 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
     prisma = new PrismaClient({ datasourceUrl: pg.databaseUrl });
     await seed();
 
-    enginePlanRows = [];
+    // 引擎侧真实形状：在本一次性库里建同名 usage_ledger 表，让对账 SQL 真被执行
+    //（不是预置行 mock），覆盖 task/runId 解析逻辑。
+    await prisma.$executeRawUnsafe(`CREATE TABLE usage_ledger (
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL,
+      resource_type text,
+      quantity double precision,
+      cost_usd double precision,
+      ref_type text,
+      ref_id text,
+      meta jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
     const database = {
       db: {
         withWorkspace: async (
           _workspaceId: string,
           fn: (client: {
-            query: () => Promise<{ rows: typeof enginePlanRows }>;
+            query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
           }) => unknown,
-        ) => fn({ query: async () => ({ rows: enginePlanRows }) }),
+        ) =>
+          fn({
+            query: async (sql, params = []) => ({
+              rows: (await prisma.$queryRawUnsafe(sql, ...params)) as unknown[],
+            }),
+          }),
       },
     } as unknown as OpsDatabase;
     service = new OpsAttributionService(database, prisma as never);
@@ -346,15 +362,45 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
     });
   }, 60_000);
 
-  it('故意造差变红：引擎侧出现 campaign.plan 成本而视图未计入 → 对账红（差异精确）', async () => {
-    enginePlanRows = [{ campaign_id: ids.campaign, plan_engine_micros: 500_000n }];
+  it('引擎真实形状行（meta.task + meta.runId）：归集一分不差，故意造差 → 红', async () => {
+    // 2026-11-08 global_dev 实测形状：{"task":"campaign.plan","runId":"campaign.plan:campaign:<id>:<hash>"}。
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO usage_ledger (id, workspace_id, resource_type, quantity, cost_usd, ref_type, meta)
+       VALUES ($1::uuid, $2::uuid, 'ai_tokens', 1, 0.01, 'ai_trace', $3::jsonb)`,
+      randomUUID(),
+      ids.workspace,
+      JSON.stringify({
+        task: 'campaign.plan',
+        model: 'deepseek-flash',
+        runId: `campaign.plan:campaign:${ids.campaign}:deadbeef`,
+        costSource: 'token_estimate',
+      }),
+    );
+    // 诱饵：runId 第二段不是 campaign（形状不符）的行不得参与归集。
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO usage_ledger (id, workspace_id, resource_type, cost_usd, meta)
+       VALUES ($1::uuid, $2::uuid, 'ai_tokens', 5, $3::jsonb)`,
+      randomUUID(),
+      ids.workspace,
+      JSON.stringify({
+        task: 'campaign.plan',
+        runId: `campaign.plan:run:${randomUUID()}`,
+      }),
+    );
     try {
       const result = await service.attribution(ids.workspace);
       expect(result.reconciliation.balanced).toBe(false);
       const row = result.reconciliation.rows.find((item) => item.campaignId === ids.campaign);
-      expect(row).toMatchObject({ planViewMicros: 0, planEngineMicros: 500_000, diffMicros: -500_000 });
+      expect(row).toMatchObject({
+        planViewMicros: 0,
+        planEngineMicros: 10_000,
+        diffMicros: -10_000,
+      });
     } finally {
-      enginePlanRows = [];
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM usage_ledger WHERE workspace_id = $1::uuid`,
+        ids.workspace,
+      );
     }
   }, 60_000);
 });
