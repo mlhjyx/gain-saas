@@ -43,3 +43,43 @@ jobs:
           git diff --exit-code -- packages/engine-client/src/openapi.json || \
             (echo "::error::引擎 OpenAPI 合同有漂移 —— 请运行 pnpm gen:engine 并提交" && exit 1)
         continue-on-error: true # CI 环境无引擎实例时跳过;本机/部署机必跑
+
+  # M2 步 14-3：Playwright 主链路（BFF mock，不依赖引擎/数据库；本地已全绿）。
+  # 若长期不稳定，按设计 D-14-c 降为每日夜跑（保留本 job，改 cron 触发）。
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm 11 per packageManager)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared + web (e2e 产物)
+        run: |
+          pnpm --filter @gain-saas/shared build
+          pnpm --filter @vben/web-antd build
+
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright (main chain + zero-jargon + error copy)
+        run: pnpm exec playwright test
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
