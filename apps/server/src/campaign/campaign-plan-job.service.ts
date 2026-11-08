@@ -32,6 +32,9 @@ const createJobBody = z.object({
   icpId: z.string().uuid().optional(),
   audienceSizeCap: z.number().int().min(1).max(1000).optional(),
   budgetCapMicros: z.number().int().min(0).optional(),
+  // M2.2：请求级重规划预算（0–2，缺省 0）。计划会原样回声该值；
+  // ≥1 时人工拒绝会触发一次自动重生成（CampaignReplanService）。
+  maxReplans: z.number().int().min(0).max(2).optional(),
 });
 
 const replanHistoryEntry = z.object({
@@ -240,6 +243,7 @@ export class CampaignPlanJobService {
         ...(parsed.data.budgetCapMicros !== undefined
           ? { budgetCapMicros: parsed.data.budgetCapMicros }
           : {}),
+        ...(parsed.data.maxReplans !== undefined ? { maxReplans: parsed.data.maxReplans } : {}),
       });
     } catch (error) {
       // 触发失败（quote/引擎拒绝/不可达）：job 立即 FAILED，重试须重新发起（新 jobId + 新 Grant）。
