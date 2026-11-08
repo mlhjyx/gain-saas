@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 
@@ -12,6 +12,7 @@ import {
   type LeadDecisionInput,
   type LeadPackage,
   type LeadQueueCounts,
+  type PromoteQgoInput,
 } from '#/api/gainos';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
@@ -19,7 +20,8 @@ import DecisionMakerCard from './DecisionMakerCard.vue';
 defineOptions({ name: 'Leads' });
 
 const route = useRoute();
-const QUEUE_KEYS = ['needs_review', 'recommended', 'rejected', 'suppressed'] as const;
+const router = useRouter();
+const QUEUE_KEYS = ['needs_review', 'recommended', 'rejected', 'suppressed', 'sanctions_hold'] as const;
 
 function queueFromRoute(): string | null {
   const raw = route.query.queue;
@@ -108,6 +110,65 @@ const copied = ref(false);
 const sanctionsBusy = ref(false);
 const sanctionsError = ref<{ title: string; next?: string } | null>(null);
 const sanctionsNotice = ref<string | null>(null);
+
+// M2 步 10：从已接受线索提升为商机（QGO）。证据门与下一步在服务端再次校验。
+const promoteOpen = ref(false);
+const promoteTarget = ref<Lead | null>(null);
+const promoteEvidence = ref<Array<{ type: string; url: string; support: string }>>([
+  { type: 'customer_reply', url: '', support: '' },
+]);
+const promoteNextStep = ref('');
+const promoteBusy = ref(false);
+const promoteError = ref<ReturnType<typeof failureText> | null>(null);
+
+function openPromote(lead: Lead): void {
+  promoteTarget.value = lead;
+  promoteOpen.value = true;
+  promoteEvidence.value = [{ type: 'customer_reply', url: '', support: '' }];
+  promoteNextStep.value = '';
+  promoteError.value = null;
+}
+
+function addEvidenceRow(): void {
+  if (promoteEvidence.value.length < 10) {
+    promoteEvidence.value.push({ type: 'other', url: '', support: '' });
+  }
+}
+
+function removeEvidenceRow(index: number): void {
+  if (promoteEvidence.value.length > 1) promoteEvidence.value.splice(index, 1);
+}
+
+async function submitPromote(): Promise<void> {
+  const lead = promoteTarget.value;
+  if (!lead || promoteBusy.value) return;
+  const evidence = promoteEvidence.value
+    .filter((row) => row.type.trim())
+    .map((row) => ({
+      type: row.type.trim(),
+      ...(row.url.trim() ? { url: row.url.trim() } : {}),
+      ...(row.support.trim() ? { support: row.support.trim() } : {}),
+    }));
+  const input: PromoteQgoInput = {
+    leadRef: lead.id,
+    evidence,
+    nextStep: promoteNextStep.value.trim(),
+  };
+  promoteBusy.value = true;
+  promoteError.value = null;
+  try {
+    await gainosApi.promoteQgo(input);
+    promoteOpen.value = false;
+    promoteTarget.value = null;
+    notice.value = $t('gainos.leads.promoteDone');
+    await router.push('/qgos');
+  } catch (error) {
+    promoteError.value = failureText(error);
+  } finally {
+    promoteBusy.value = false;
+  }
+}
+
 
 const modal = ref<'accept' | 'reject' | null>(null);
 const target = ref<Lead | null>(null);
@@ -572,6 +633,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             <option v-for="icp in icps" :key="icp.id" :value="icp.id">{{ icp.name }}</option>
           </select>
         </label>
+        <button class="ld__refresh" type="button" @click="$router.push('/qgos')">{{ $t('gainos.leads.qgoEntry') }}</button>
         <button class="ld__refresh" type="button" :class="{ 'is-loading': loading }" @click="load">
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
         </button>
@@ -665,6 +727,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             <button type="button" class="ld__action ld__action--reject" @click="openReject(lead)">{{ $t('gainos.leads.reject') }}</button>
             <button type="button" class="ld__action ld__action--accept" @click="openAccept(lead)">{{ $t('gainos.leads.accept') }}</button>
           </template>
+          <button v-else-if="lead.status === 'QUALIFIED'" type="button" class="ld__action ld__action--accept" @click="openPromote(lead)">
+            {{ $t('gainos.leads.promoteQgo') }}
+          </button>
         </div>
       </article>
     </section>
@@ -881,6 +946,52 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         </div>
       </section>
     </div>
+
+    <!-- M2 步 10：提升为商机（QGO） -->
+    <div v-if="promoteOpen" class="ld__overlay ld__overlay--top" @click.self="promoteOpen = false">
+      <section class="ld__modal ld__modal--narrow" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.promoteTitle')">
+        <header class="ld__modal-head">
+          <div>
+            <h2>{{ $t('gainos.leads.promoteTitle') }}</h2>
+            <p>{{ promoteTarget?.company?.name || $t('gainos.leads.unknownCompany') }}</p>
+          </div>
+          <button type="button" class="ld__close" :aria-label="$t('gainos.common.cancel')" @click="promoteOpen = false">×</button>
+        </header>
+        <div class="ld__modal-body">
+          <div v-if="promoteError" class="ld__modal-error" role="alert">
+            <h3>{{ promoteError.title }}</h3>
+            <p v-if="promoteError.why">{{ promoteError.why }}</p>
+            <p v-if="promoteError.next">{{ promoteError.next }}</p>
+          </div>
+          <div class="ld__field">
+            <span>{{ $t('gainos.leads.promoteEvidence') }}</span>
+            <div v-for="(row, i) in promoteEvidence" :key="i" class="ld__evidence-row">
+              <select v-model="row.type" :aria-label="$t('gainos.leads.promoteEvidenceType')">
+                <option value="customer_reply">{{ $t('gainos.leads.evidenceType.customer_reply') }}</option>
+                <option value="purchase_page">{{ $t('gainos.leads.evidenceType.purchase_page') }}</option>
+                <option value="tender_hit">{{ $t('gainos.leads.evidenceType.tender_hit') }}</option>
+                <option value="customs_signal">{{ $t('gainos.leads.evidenceType.customs_signal') }}</option>
+                <option value="other">{{ $t('gainos.leads.evidenceType.other') }}</option>
+              </select>
+              <input v-model="row.url" type="url" :placeholder="$t('gainos.leads.promoteUrlHint')" />
+              <input v-model="row.support" type="text" maxlength="500" :placeholder="$t('gainos.leads.promoteSupportHint')" />
+              <button type="button" class="ld__action" :disabled="promoteEvidence.length <= 1" @click="removeEvidenceRow(i)">×</button>
+            </div>
+            <button type="button" class="ld__action" @click="addEvidenceRow">{{ $t('gainos.leads.addEvidence') }}</button>
+          </div>
+          <label class="ld__field">
+            <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
+            <textarea v-model="promoteNextStep" rows="2" maxlength="500" :placeholder="$t('gainos.leads.promoteNextStepHint')"></textarea>
+          </label>
+          <div class="ld__modal-actions">
+            <button type="button" class="ld__action" @click="promoteOpen = false">{{ $t('gainos.common.cancel') }}</button>
+            <button type="button" class="ld__action ld__action--accept" :disabled="promoteBusy || !promoteNextStep.trim()" @click="submitPromote">
+              {{ promoteBusy ? $t('gainos.leads.submitting') : $t('gainos.leads.promoteSubmit') }}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -1051,3 +1162,24 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
   .ld__modal-actions .ld__action { width: 100%; }
 }
 </style>
+
+.ld__evidence-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ld__evidence-row select,
+.ld__evidence-row input {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-bg);
+  color: var(--gs-fg);
+}
+
+@media (max-width: 720px) {
+  .ld__evidence-row { grid-template-columns: 1fr; }
+}
