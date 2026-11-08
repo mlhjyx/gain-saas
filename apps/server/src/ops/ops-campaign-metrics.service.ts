@@ -11,7 +11,8 @@ import { OpsDatabase } from './ops-database.service.js';
  *    PENDING 且已过 expiresAt 的审批按既有惰性投影口径计为 EXPIRED（与 decide 路径一致）。
  *  - 每通过计划成本 = 窗口内规划轮次成本合计 / 通过数。优先取
  *    `campaign_decision_trace.cost_actual_micros`（SaaS 侧已有字段）；无行时回退到引擎库
- *    `usage_ledger`（ref_type/meta 标记 campaign.plan）；两者都无数据时如实返回
+ *    `usage_ledger`（引擎实测形状：`meta.task='campaign.plan'`，campaignId 取
+ *    `meta.runId='campaign.plan:campaign:<id>:<hash>'` 第三段，见 #886）；都无数据时如实返回
  *    `pending`（引擎归属随 M2.2-1 接线），不返回 0 冒充「零成本」。
  *  - 人工修改距离 = 批准 revision 与**首稿**（最小 revision_no）的叶子字段 diff 数；
  *    0 表示零修改通过（D-M2.2-c 结构距离）。
@@ -269,10 +270,13 @@ export class OpsCampaignMetricsService {
       };
     }
     try {
+      // 形状以 2026-11-08 在 global_dev 的实测为准（#886）：meta.task 标记任务，
+      // campaignId 在 meta.runId 的第三段；旧版对 meta.campaignId/ref_type 的假设会静默归零。
       const rows = (await this.opsDatabase.db.query(
-        `SELECT COALESCE(meta->>'campaignId', ref_id) AS campaign_id, SUM(cost_usd) AS cost_usd
+        `SELECT split_part(meta->>'runId', ':', 3) AS campaign_id, SUM(cost_usd) AS cost_usd
          FROM usage_ledger
-         WHERE (ref_type = 'campaign.plan' OR meta->>'purpose' = 'campaign.plan')
+         WHERE meta->>'task' = 'campaign.plan'
+           AND meta->>'runId' LIKE 'campaign.plan:campaign:%'
            AND created_at >= $1 AND created_at < $2
          GROUP BY 1`,
         [from.toISOString(), to.toISOString()],
