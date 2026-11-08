@@ -1,31 +1,21 @@
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { OpsDatabase } from './ops-database.service.js';
 import { OpsAttributionService } from './ops-attribution.service.js';
+import {
+  dockerAvailable,
+  startDisposablePostgres,
+  type DisposablePostgres,
+} from './attribution-test-pg.js';
 
 /**
  * M2 步 12-1 验收核心（真库）：一次性 PostgreSQL 容器 + 全量迁移，
  * 断言 v_campaign_attribution / v_outcome_chain 的口径与「一分不差」对账；
  * 含故意造差变红样例（引擎侧出现视图未计入的 campaign.plan 成本）。
  *
- * 本机用 default docker context（显式注入，不影响宿主其它项目）；
- * 无 docker 的环境跳过并给出提示（不伪装通过）。
+ * 供应器见 attribution-test-pg.ts（digest 钉住的镜像；CI 无 docker 即失败）。
  */
-const dockerEnv = { ...process.env, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT ?? 'default' };
-
-function dockerAvailable(): boolean {
-  try {
-    // 高负载主机上 docker info 可能超过 10s（本机 load 40+ 实测），放宽到 60s。
-    execFileSync('docker', ['info'], { env: dockerEnv, stdio: 'ignore', timeout: 60_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const available = dockerAvailable();
 if (!available) {
   // CI 必须真跑这条验收（真库一致性 + 造差变红）；docker 缺失视为失败而不是静默通过。
@@ -35,11 +25,8 @@ if (!available) {
   console.warn('[ops-attribution.pg] docker 不可用，跳过真库一致性测试');
 }
 
-const serverDir = fileURLToPath(new URL('../..', import.meta.url));
-const prismaBin = fileURLToPath(new URL('../../node_modules/.bin/prisma', import.meta.url));
-
 describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL）', () => {
-  const containerName = `gain-attribution-${process.pid}-${randomUUID().slice(0, 8)}`;
+  let pg: DisposablePostgres;
   let prisma: PrismaClient;
   let service: OpsAttributionService;
   let enginePlanRows: Array<{ campaign_id: string | null; plan_engine_micros: bigint }>;
@@ -67,58 +54,8 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
   const issuedAt = new Date('2026-11-08T00:00:00Z');
 
   beforeAll(async () => {
-    execFileSync(
-      'docker',
-      [
-        'run', '-d', '--name', containerName,
-        '-e', 'POSTGRES_PASSWORD=attribution-test',
-        '-p', '127.0.0.1::5432',
-        // 按 digest 钉住（/global/CLAUDE.md「镜像一律按 digest 钉住」）。
-        'postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139',
-      ],
-      { env: dockerEnv, stdio: 'ignore' },
-    );
-    let ready = false;
-    for (let attempt = 0; attempt < 300 && !ready; attempt += 1) {
-      try {
-        // 必须走 TCP：init 阶段的临时 postgres 只监听 socket，socket 探针会假就绪
-        // （2026-11-08 本机 load 40+ 时 initdb 用了约 3.5 分钟，socket 探针提前通过）。
-        execFileSync(
-          'docker',
-          [
-            'exec', containerName,
-            'pg_isready', '-h', '127.0.0.1', '-p', '5432', '-U', 'postgres', '-d', 'postgres',
-          ],
-          { env: dockerEnv, stdio: 'ignore' },
-        );
-        ready = true;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
-      }
-    }
-    if (!ready) throw new Error('disposable postgres did not become ready');
-
-    const portMapping = execFileSync('docker', ['port', containerName, '5432/tcp'], {
-      env: dockerEnv,
-    })
-      .toString()
-      .trim()
-      .split('\n')[0]!;
-    const port = portMapping.slice(portMapping.lastIndexOf(':') + 1);
-    const databaseUrl = `postgresql://postgres:attribution-test@127.0.0.1:${port}/postgres`;
-
-    try {
-      execFileSync(prismaBin, ['migrate', 'deploy'], {
-        cwd: serverDir,
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-        stdio: 'pipe',
-      });
-    } catch (error) {
-      const stderr = (error as { stderr?: Buffer }).stderr?.toString('utf8') ?? '';
-      throw new Error(`prisma migrate deploy failed: ${stderr || String(error)}`);
-    }
-
-    prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+    pg = startDisposablePostgres();
+    prisma = new PrismaClient({ datasourceUrl: pg.databaseUrl });
     await seed();
 
     enginePlanRows = [];
@@ -137,11 +74,7 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
 
   afterAll(async () => {
     await prisma?.$disconnect().catch(() => undefined);
-    try {
-      execFileSync('docker', ['rm', '-f', containerName], { env: dockerEnv, stdio: 'ignore' });
-    } catch {
-      /* 容器已被移除 */
-    }
+    pg?.stop();
   }, 120_000);
 
   async function seed(): Promise<void> {
