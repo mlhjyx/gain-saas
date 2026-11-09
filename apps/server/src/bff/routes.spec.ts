@@ -104,3 +104,42 @@ describe('P1 attempt 维度：三类写路由的 attemptId 透传与剥离', () 
     expect(engineRequestBody(route!, body, { writeAttemptId: true })).toEqual(body);
   });
 });
+
+describe('判定复核队列与度量 BFF 路由', () => {
+  const find = (method: string, saasPath: string) =>
+    BFF_ROUTES.findIndex((route) => route.method === method && route.saasPath === saasPath);
+  const routeAt = (method: string, saasPath: string) => {
+    const index = find(method, saasPath);
+    expect(index, `${method} ${saasPath}`).toBeGreaterThanOrEqual(0);
+    return BFF_ROUTES[index]!;
+  };
+
+  it('队列、认领、结论与明细对成员开放且不需要 Execution Budget Grant', () => {
+    const expected: Array<[string, string]> = [
+      ['GET', 'judgment-reviews'],
+      ['POST', 'judgment-reviews/:id/claim'],
+      ['POST', 'judgment-reviews/:id/resolve'],
+      ['GET', 'judgments/stats'],
+      ['GET', 'judgments/:id'],
+    ];
+    for (const [method, saasPath] of expected) {
+      const route = routeAt(method, saasPath);
+      expect(route.enginePath, `${method} ${saasPath}`).toBe(`/${saasPath}`);
+      expect(route.access, `${method} ${saasPath}`).toBe('member');
+      expect(route.grant, `${method} ${saasPath}`).toBeUndefined();
+    }
+  });
+
+  it('judgments/stats 排在 judgments/:id 之前（否则统计会被当成判定 ID）', () => {
+    expect(find('GET', 'judgments/stats')).toBeLessThan(find('GET', 'judgments/:id'));
+  });
+
+  it('度量四个只读端点透传为成员路由', () => {
+    for (const saasPath of ['metrics/vric', 'metrics/catalog', 'metrics/observations', 'metrics/rollups']) {
+      const route = routeAt('GET', saasPath);
+      expect(route.enginePath).toBe(`/${saasPath}`);
+      expect(route.access).toBe('member');
+      expect(route.grant).toBeUndefined();
+    }
+  });
+});

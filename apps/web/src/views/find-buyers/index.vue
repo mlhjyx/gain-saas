@@ -1116,13 +1116,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 .fb__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
 .fb__empty-desc { margin: 0 0 10px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 540px; line-height: 1.75; }
 .fb__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-.fb__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }
+/* 卡片用纵向 flex（而非 grid）：外层网格把同行卡片拉伸到等高时，
+   grid 的 auto 行会把多余高度平摊到每一行——标题/标签/统计行全部被撑高，
+   标签变成竖长椭圆、按钮悬在卡片中部。flex + margin-top:auto 让内容
+   顶部对齐、按钮钉在卡片底部，多余空间只留在按钮上方。 */
+.fb__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
 .fb__card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .fb__card-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
 .fb__card-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
-.fb__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fb__chips { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 6px; }
 .fb__chip { font-size: 11.5px; background: var(--gs-divider); color: var(--gs-fg-2); border-radius: 999px; padding: 3px 9px; }
-.fb__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.fb__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
 .fb__overlay {
   position: fixed; inset: 0; z-index: 1000; background: rgba(15,23,42,.58); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden;

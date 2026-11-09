@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
 
-const PAGES = ['/workspace', '/campaigns', '/outreach'];
+const PAGES = ['/workspace', '/campaigns', '/outreach', '/growth?tab=reviews', '/growth?tab=metrics'];
 
 function luminance(rgb: string): number {
   const match = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);

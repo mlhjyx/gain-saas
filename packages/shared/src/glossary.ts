@@ -269,6 +269,66 @@ export const OUTREACH_DRAFT_STATUS = {
   FAILED: { zh: '发送失败', en: 'Failed', tone: 'danger', engine: ['FAILED'] },
 } as const satisfies Record<string, GlossaryStatus>;
 
+/** 判定复核任务状态（引擎 judgment_review_task.status，P3 J17）。 */
+export const REVIEW_TASK_STATUS = {
+  queued: { zh: '待认领', en: 'To claim', tone: 'warning', engine: ['queued'] },
+  in_review: { zh: '复核中', en: 'In review', tone: 'processing', engine: ['in_review'] },
+  resolved: { zh: '已复核', en: 'Reviewed', tone: 'success', engine: ['resolved'] },
+  expired: { zh: '已过期', en: 'Expired', tone: 'neutral', engine: ['expired'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 复核优先级（引擎为 0–3，界面按 P0–P3 展示；SLA 用 dueAt 现算）。 */
+export const REVIEW_PRIORITY = {
+  '0': { zh: 'P0 紧急', en: 'P0 urgent', tone: 'danger', engine: ['0'] },
+  '1': { zh: 'P1 高', en: 'P1 high', tone: 'warning', engine: ['1'] },
+  '2': { zh: 'P2 常规', en: 'P2 normal', tone: 'processing', engine: ['2'] },
+  '3': { zh: 'P3 低', en: 'P3 low', tone: 'neutral', engine: ['3'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 复核任务来源（引擎 judgment_review_task.reason）。 */
+export const REVIEW_REASON = {
+  UNKNOWN: { zh: '机器无法判定', en: 'No machine decision', tone: 'warning', engine: ['UNKNOWN'] },
+  BORDERLINE: { zh: '边界案例', en: 'Borderline', tone: 'warning', engine: ['BORDERLINE'] },
+  RANDOM_AUDIT: { zh: '随机抽检', en: 'Random audit', tone: 'processing', engine: ['RANDOM_AUDIT'] },
+  DRIFT_AUDIT: { zh: '标准漂移审计', en: 'Rubric drift audit', tone: 'neutral', engine: ['DRIFT_AUDIT'] },
+  APPEAL: { zh: '申诉复核', en: 'Appeal', tone: 'neutral', engine: ['APPEAL'] },
+  CONFORMAL_ABSTAIN: {
+    zh: '模型置信度不足',
+    en: 'Low confidence',
+    tone: 'warning',
+    engine: ['CONFORMAL_ABSTAIN'],
+  },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 判定结论（引擎 verdict：机器判定与人工复核共用）。 */
+export const REVIEW_VERDICT = {
+  FIT: { zh: '符合', en: 'Fits', tone: 'success', engine: ['FIT'] },
+  NOT_FIT: { zh: '不符合', en: 'Does not fit', tone: 'danger', engine: ['NOT_FIT'] },
+  UNKNOWN: { zh: '无法判断', en: 'Unclear', tone: 'neutral', engine: ['UNKNOWN'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 判据评分档（引擎 fit-v2 rubric 的 criterion.label）。 */
+export const REVIEW_CRITERION_LABEL = {
+  pass: { zh: '符合', en: 'Pass', tone: 'success', engine: ['pass'] },
+  weak: { zh: '偏弱', en: 'Weak', tone: 'warning', engine: ['weak'] },
+  fail: { zh: '不符', en: 'Fail', tone: 'danger', engine: ['fail'] },
+  unclear: { zh: '证据不足', en: 'Unclear', tone: 'neutral', engine: ['unclear'] },
+  not_applicable: {
+    zh: '不适用',
+    en: 'Not applicable',
+    tone: 'neutral',
+    engine: ['not_applicable'],
+  },
+} as const satisfies Record<string, GlossaryStatus>;
+
+/** 指标字典状态（引擎 metric_definition.status）。 */
+export const METRIC_STATUS = {
+  ACTIVE: { zh: '生效中', en: 'Active', tone: 'success', engine: ['ACTIVE'] },
+  DRAFT: { zh: '草稿', en: 'Draft', tone: 'warning', engine: ['DRAFT'] },
+  DEPRECATED: { zh: '已弃用', en: 'Deprecated', tone: 'neutral', engine: ['DEPRECATED'] },
+  RETIRED: { zh: '已停用', en: 'Retired', tone: 'neutral', engine: ['RETIRED'] },
+} as const satisfies Record<string, GlossaryStatus>;
+
 export const STATUS_TABLES = {
   run: RUN_STATUS,
   icp: ICP_STATUS,
@@ -282,6 +342,12 @@ export const STATUS_TABLES = {
   outreachSend: OUTREACH_SEND_STATUS,
   outreachBatch: OUTREACH_BATCH_STATUS,
   outreachDraft: OUTREACH_DRAFT_STATUS,
+  reviewTask: REVIEW_TASK_STATUS,
+  reviewPriority: REVIEW_PRIORITY,
+  reviewReason: REVIEW_REASON,
+  reviewVerdict: REVIEW_VERDICT,
+  criterionLabel: REVIEW_CRITERION_LABEL,
+  metricStatus: METRIC_STATUS,
 } as const;
 
 export type StatusDomain = keyof typeof STATUS_TABLES;

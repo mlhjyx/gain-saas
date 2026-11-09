@@ -25,6 +25,8 @@ const PAGES = [
   '/growth',
   '/growth?tab=opportunities',
   '/growth?tab=outreach',
+  '/growth?tab=reviews',
+  '/growth?tab=metrics',
   '/settings/members',
   '/settings/suppressions',
   '/settings/privacy',

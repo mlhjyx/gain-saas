@@ -115,4 +115,70 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
     }
     await audit(page);
   });
+
+  test('判定复核页与详情抽屉可访问', async ({ page }) => {
+    const backend = await installMockBackend(page);
+    const task = {
+      companyName: 'Muster Metallbau GmbH',
+      dueAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      id: 'jr-1',
+      judgmentRecordId: 'record-1',
+      priority: 0,
+      reason: 'UNKNOWN',
+      status: 'queued',
+      verdictAtJudge: 'UNKNOWN',
+    };
+    backend.set('GET', '/judgment-reviews', { items: [task], nextCursor: null });
+    backend.set('GET', '/judgments/stats', {
+      byPriority: { '0': 1 },
+      byReason: { UNKNOWN: 1 },
+      byStatus: { queued: 1 },
+      overturn: { overturned: 0, rate: null, resolved: 0 },
+      windowDays: 7,
+    });
+    backend.set('GET', '/judgments/record-1', {
+      canonicalCompanyId: 'c1',
+      createdAt: '2026-11-09T08:00:00.000Z',
+      criteria: [
+        {
+          applicable: true,
+          evidence: [
+            {
+              kind: 'website',
+              span: '官网产品页：金属加工与批发',
+              url: 'https://muster-metallbau.de/produkte',
+            },
+          ],
+          id: 'C1_MATERIAL',
+          label: 'pass',
+          rationale: '官网列出与目标品类一致的金属制品。',
+          score: 8,
+        },
+      ],
+      failureCode: null,
+      id: 'record-1',
+      modelRequested: 'judge-v2',
+      verdict: 'UNKNOWN',
+    });
+    await loginAs(page);
+    await page.goto('/growth?tab=reviews');
+    await page.waitForLoadState('networkidle');
+    await audit(page);
+
+    await page
+      .locator('.rv__table tbody tr')
+      .first()
+      .getByRole('button', { name: '查看' })
+      .click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await audit(page, { include: '[role="dialog"]' });
+  });
+
+  test('度量页可访问', async ({ page }) => {
+    await installMockBackend(page);
+    await loginAs(page);
+    await page.goto('/growth?tab=metrics');
+    await page.waitForLoadState('networkidle');
+    await audit(page);
+  });
 });
