@@ -289,7 +289,7 @@ test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
   expect(body.nextStep).toBe('已收到客户回复，约下周电话');
 });
 
-test('主链路 5：战役计划审批 → 已批准 → 影子横幅（不执行）', async ({ page }) => {
+test('主链路 5：战役计划审批 → 已批准 → 运行期横幅（按授权执行）', async ({ page }) => {
   const backend = await installMockBackend(page);
   const detail = {
     authorizations: [],
@@ -366,11 +366,11 @@ test('主链路 5：战役计划审批 → 已批准 → 影子横幅（不执�
   await page.waitForURL(/\/campaigns\/camp-1/);
   await settle(page);
   await expect(page.getByRole('heading', { name: '待审批' })).toBeVisible();
-  await expect(page.locator('.cd__banner')).toHaveText('影子期：批准不会真的执行；我们只记录决策与指标。');
+  await expect(page.locator('.cd__banner')).toHaveText('批准后将签发执行授权并进入执行；发送仍受国家合规门与渠道授权约束。');
   await page.getByRole('button', { name: '批准' }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: '批准' }).click();
-  await expect(page.getByText('已批准，系统已签发执行授权（影子期不会真的执行）。')).toBeVisible();
-  // 影子期没有任何“执行”动作入口
+  await expect(page.getByText('已批准，系统已签发执行授权。')).toBeVisible();
+  // 批准即签发授权：页面不额外暴露手动“执行”入口
   await expect(page.getByRole('button', { name: /执行/ })).toHaveCount(0);
 });
 
@@ -509,7 +509,7 @@ test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发
   await loginAs(page);
   await page.goto('/growth?tab=outreach');
   await settle(page);
-  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与影子语义仍需可见
+  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与「批准入队、发送受开关约束」语义仍需可见
   await expect(page.getByText('草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。')).toBeVisible();
   await expect(page.getByText('einkauf@muster.de')).toBeVisible();
   await expect(page.getByText('关于工业泵供应的合作')).toBeVisible();
