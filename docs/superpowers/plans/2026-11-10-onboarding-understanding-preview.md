@@ -76,6 +76,20 @@ SaaS（本仓）：
 
 每步的验收指标在第 1 步埋点基础上增加：第 2 步「无官网建档成功率、注册库命中率」；第 3 步「证据覆盖率、批量审批耗时、修正回流条数」；第 4 步「ICP 建议采纳率、首个有效 ICP 时长」。
 
+### 4.1 交付拆分（每项一个 worktree + 一个 PR，后端与 SaaS 分开）
+
+| 阶段 | 仓 | PR 内容 | 验收 |
+| --- | --- | --- | --- |
+| 2a | backend | 注册库候选查询：公司名 + 国家 → GLEIF / Companies House / INPI（均已 ENABLED）候选（带注册号、地址、状态、来源），只读、无模型调用 | 候选命中率；端点单测；registry 单测；OpenAPI/治理门 |
+| 2b | backend | 理解进度投影：understanding run 的逐页抓取/失败事件落库（新表或 run stats JSON），预览端点补 `pages[]` 与 ETA 建议 | 事件与 Temporal 历史一致；失败页可解释；迁移与 RLS 基线 |
+| 2c | SaaS | 无官网分支：公司名 + 国家 → 候选选择 → 预填档案 → 完成建档；进度页展示逐页状态与预计时间 | e2e 主链路（mock）+ 真引擎冒烟；无官网建档成功率埋点 |
+| 3a | backend | 证据徽章读模型：T1 注册 / T2 展会新闻 / T3 官网，含抓取时间与跨源佐证（Evidence 已有 sourceUrl/fetchedAt，补 provider 分类与聚合端点） | 证据覆盖率；跨源冲突不静默覆盖；单测 |
+| 3b | SaaS | 公司档案 v2：证据徽章、跨源佐证、批量审批；修正触发重理解并打标回流 | 批量审批耗时；修正回流条数；e2e |
+| 4a | backend | 卖方画像 → ICP 草稿建议（industryCode + offerings + targetMarkets → 画像/排除项），人工审批后激活 | 建议采纳率；无审批不激活；预算与审计 |
+| 4b | SaaS | ICP 建议卡与采纳/修改交互；首个有效 ICP 时长看板 | 采纳率与时长；e2e |
+
+发布顺序：每阶段后端先升级，SaaS 后上线；新增端点一律先补 operation-descriptions/OpenAPI 与治理门。
+
 ## 5. 风险与待决
 
 - **草稿清理**：放弃的 DRAFT 会留在引擎；现有 DELETE 可清，定时清理另立卡。
