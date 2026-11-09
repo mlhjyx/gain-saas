@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.issuer.js';
+import { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.issuer.js';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
