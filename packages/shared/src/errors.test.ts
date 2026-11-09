@@ -71,6 +71,12 @@ describe('copyForError', () => {
       'OUTREACH_EXPERIMENT_NOT_DRAFT',
       'OUTREACH_EXPERIMENT_NOT_RUNNING',
       'OUTREACH_EXPERIMENT_ARCHIVED',
+      'OUTREACH_TEMPLATE_NOT_FOUND',
+      'OUTREACH_TEMPLATE_STATE_INVALID',
+      'OUTREACH_TEMPLATE_REVIEW_MISMATCH',
+      'OUTREACH_LEGAL_REVIEW_NOT_FOUND',
+      'OUTREACH_LEGAL_REVIEW_NOT_APPROVED',
+      'OUTREACH_LEGAL_REVIEW_KIND_MISMATCH',
     ] as const;
     for (const code of sendGateCodes) {
       expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);
