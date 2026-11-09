@@ -1331,6 +1331,7 @@
     },
     "retry": "重试理解",
     "switchManual": "改为手动填写",
+    "failureWebsiteHint": "如果网址写错了，改好后点「重试理解」",
     "previewTitle": "我们读完了官网，请确认下面的信息（可勾选或取消）",
     "industry": "所属行业",
     "industryPlaceholder": "选择最接近的行业（可留空）",

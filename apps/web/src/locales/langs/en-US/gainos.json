@@ -1331,6 +1331,7 @@
     },
     "retry": "Retry",
     "switchManual": "Fill in manually",
+    "failureWebsiteHint": "If the address was wrong, fix it and press Retry",
     "previewTitle": "We finished reading your website — confirm the details below (tick or untick)",
     "industry": "Industry",
     "industryPlaceholder": "Pick the closest industry (optional)",

@@ -433,6 +433,11 @@ onBeforeUnmount(stopPolling);
         <section v-else-if="view === 'failed'" class="onboarding-section">
           <h2 class="waiting-title">{{ $t('gainos.onboarding.failureTitle') }}</h2>
           <p class="section-desc">{{ failureCopy() }}</p>
+          <label class="field">
+            <span class="field-label">{{ $t('gainos.onboarding.website') }}</span>
+            <Input v-model:value="website" :placeholder="$t('gainos.onboarding.websitePlaceholder')" />
+            <span class="field-hint">{{ $t('gainos.onboarding.failureWebsiteHint') }}</span>
+          </label>
           <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
           <div class="onboarding-actions">
             <Button :loading="starting" type="primary" @click="retryUnderstanding">
