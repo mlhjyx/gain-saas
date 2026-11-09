@@ -1,9 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
@@ -65,6 +68,7 @@ export class OutreachTemplatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async create(tenant: OutreachTenant, input: CreateTemplateInput) {
@@ -194,6 +198,14 @@ export class OutreachTemplatesService {
         error: {
           code: 'OUTREACH_TEMPLATE_REVIEW_MISMATCH',
           message: '法审文档哈希与当前模板内容不一致（模板改过），需重新提交法审',
+        },
+      });
+    }
+    if (this.config.OUTREACH_LEGAL_REQUIRE_COUNSEL && review.reviewerKind !== 'LAWYER') {
+      throw new ConflictException({
+        error: {
+          code: 'OUTREACH_LEGAL_COUNSEL_REQUIRED',
+          message: '当前要求外部律师书面意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true），负责人风险接受记录不可用于激活',
         },
       });
     }

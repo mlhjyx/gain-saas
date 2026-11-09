@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { AppConfig } from '../config/configuration.js';
 import type { AuditService } from '../shared/audit.service.js';
 import type { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
@@ -87,11 +88,19 @@ class FakeTemplatesPrisma {
   };
 }
 
-function build(prisma = new FakeTemplatesPrisma()) {
+function build(
+  prisma = new FakeTemplatesPrisma(),
+  overrides: Partial<AppConfig> = {},
+) {
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
+  const config = { OUTREACH_LEGAL_REQUIRE_COUNSEL: false, ...overrides } as AppConfig;
   return {
     prisma,
-    templates: new OutreachTemplatesService(prisma as unknown as PrismaService, audit),
+    templates: new OutreachTemplatesService(
+      prisma as unknown as PrismaService,
+      audit,
+      config,
+    ),
     reviews: new OutreachLegalReviewsService(prisma as unknown as PrismaService, audit),
   };
 }
@@ -181,6 +190,30 @@ describe('OutreachTemplatesService（P4-05 模板版本化与法审占位）', (
     const retired = await ctx.templates.retire(tenant, v2.id);
     expect(retired.state).toBe('RETIRED');
     expect(await ctx.templates.activeFor(tenant, 'email_first', 'DE', 'de')).toBeNull();
+  });
+
+  it('负责人风险接受（OWNER_RISK_ACCEPTANCE）：默认可用于激活；REQUIRE_COUNSEL=true 时拒绝', async () => {
+    const ctx = build();
+    const v1 = await ctx.templates.create(tenant, emailTemplate);
+    await ctx.templates.submitReview(tenant, v1.id);
+    const ownerReview = await approvedReviewFor(ctx, v1.contentHash as string, {
+      reviewerKind: 'OWNER_RISK_ACCEPTANCE',
+      reviewerName: '产品负责人',
+      reviewerFirm: '内部风险接受（无法务意见）',
+    });
+    expect(ownerReview.reviewerKind).toBe('OWNER_RISK_ACCEPTANCE');
+    const approved = await ctx.templates.approve(tenant, v1.id, ownerReview.id);
+    expect(approved.state).toBe('APPROVED');
+
+    const strict = build(new FakeTemplatesPrisma(), { OUTREACH_LEGAL_REQUIRE_COUNSEL: true });
+    const s1 = await strict.templates.create(tenant, emailTemplate);
+    await strict.templates.submitReview(tenant, s1.id);
+    const ownerReview2 = await approvedReviewFor(strict, s1.contentHash as string, {
+      reviewerKind: 'OWNER_RISK_ACCEPTANCE',
+    });
+    await expect(
+      strict.templates.approve(tenant, s1.id, ownerReview2.id),
+    ).rejects.toSatisfy((error) => errorCode(error) === 'OUTREACH_LEGAL_COUNSEL_REQUIRED');
   });
 
   it('负向：跳步/法审不匹配全部拒绝（状态、缺失、类型、结论、哈希）', async () => {

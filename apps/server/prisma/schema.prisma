@@ -534,6 +534,63 @@ model OutreachSendJob {
   @@map("outreach_send_job")
 }
 
+// ─── P4-10：DE 电话推定同意证据链 ─────────────────────────────────────────────
+
+/// 拨号依据（P4-10）：四问证据链——为什么打给这个人/与产品有何具体关联/证据来源与时间/谁审过。
+/// valid_until ≤ 采集日 + 90 天；必须绑定 ACTIVE phone_script 模板与 APPROVED phone_script 法审。
+model OutreachCallBasis {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workspaceId        String   @map("workspace_id") @db.Uuid
+  contactRef         String   @map("contact_ref") @db.Uuid
+  phoneE164          String   @map("phone_e164") @db.VarChar(32)
+  companyName        String   @map("company_name") @db.VarChar(200)
+  contactRole        String?  @map("contact_role") @db.VarChar(200)
+  /// fair_visit | inbound_inquiry | existing_customer | published_buying_role | association_member | referral | public_procurement
+  triggerType        String   @map("trigger_type") @db.VarChar(32)
+  triggerEvidence    Json     @map("trigger_evidence")
+  /// 逐条手写：为什么本产品与该公司业务具体相关（禁模板化，≥20 字）。
+  relevanceStatement String   @map("relevance_statement")
+  lawfulBasis        String   @default("uwg_7_2_1_presumed_consent+gdpr_6_1_f") @map("lawful_basis") @db.VarChar(64)
+  collectedSourceUrl String   @map("collected_source_url")
+  collectedAt        DateTime @map("collected_at") @db.Date
+  scriptTemplateId   String   @map("script_template_id") @db.Uuid
+  legalReviewId      String   @map("legal_review_id") @db.Uuid
+  reviewedBy         String   @map("reviewed_by") @db.VarChar(200)
+  reviewedAt         DateTime @map("reviewed_at")
+  validUntil         DateTime @map("valid_until") @db.Date
+  createdBy          String   @map("created_by") @db.VarChar(200)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  attempts OutreachCallAttempt[]
+
+  @@index([workspaceId, contactRef, validUntil])
+  @@map("outreach_call_basis")
+}
+
+/// 拨号记录（P4-10，append-only）：outcome 闭集；OBJECTED/nie_anrufen 写 phone 渠道 OPT_OUT 并阻断后续拨号。
+model OutreachCallAttempt {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  basisId         String    @map("basis_id") @db.Uuid
+  attemptNo       Int       @map("attempt_no")
+  startedAt       DateTime  @map("started_at")
+  endedAt         DateTime? @map("ended_at")
+  durationSeconds Int?      @map("duration_seconds")
+  /// CONNECTED_MEETING | CONNECTED_FOLLOWUP | CONNECTED_NO | NO_ANSWER | VOICEMAIL | OBJECTED | WRONG_NUMBER | GATEKEEPER
+  outcome         String    @db.VarChar(24)
+  objectionCode   String?   @map("objection_code") @db.VarChar(32)
+  notesHash       String?   @map("notes_hash") @db.Char(64)
+  notesRef        String?   @map("notes_ref") @db.VarChar(256)
+  createdBy       String    @map("created_by") @db.VarChar(200)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  basis OutreachCallBasis @relation(fields: [basisId], references: [id], onDelete: Cascade)
+
+  @@unique([basisId, attemptNo])
+  @@index([workspaceId, startedAt])
+  @@map("outreach_call_attempt")
+}
+
 // ─── P4-05：法审记录与模板版本化（序列/话术/页脚的内容底座）───────────────────
 
 /// 法审记录（占位，等律师书面意见）：模板/话术/同意措辞/合法利益评估的审阅回执。
@@ -543,6 +600,9 @@ model LegalReview {
   workspaceId  String   @map("workspace_id") @db.Uuid
   /// email_template | phone_script | consent_wording | lia_letter
   subjectKind  String   @map("subject_kind") @db.VarChar(32)
+  /// LAWYER = 外部律师书面意见；OWNER_RISK_ACCEPTANCE = 负责人内部风险接受（无外部法务意见，
+  /// 用户 2026-11-09 决定允许系统自签；审计如实记录，不冒充律师意见）。
+  reviewerKind String   @default("LAWYER") @map("reviewer_kind") @db.VarChar(24)
   /// 被审文档内容哈希（与模板 contentHash 同构，激活时必须一致）。
   documentHash String   @map("document_hash") @db.Char(64)
   reviewerName String   @map("reviewer_name") @db.VarChar(200)

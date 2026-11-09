@@ -77,6 +77,12 @@ describe('copyForError', () => {
       'OUTREACH_LEGAL_REVIEW_NOT_FOUND',
       'OUTREACH_LEGAL_REVIEW_NOT_APPROVED',
       'OUTREACH_LEGAL_REVIEW_KIND_MISMATCH',
+      'OUTREACH_CALL_BASIS_NOT_FOUND',
+      'OUTREACH_CALL_BASIS_EXPIRED',
+      'OUTREACH_CALL_SCRIPT_NOT_APPROVED',
+      'OUTREACH_CALL_LEGAL_REVIEW_REQUIRED',
+      'OUTREACH_CALL_OBJECTED',
+      'OUTREACH_LEGAL_COUNSEL_REQUIRED',
     ] as const;
     for (const code of sendGateCodes) {
       expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);

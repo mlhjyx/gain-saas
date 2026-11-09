@@ -170,6 +170,9 @@ const schema = z.object({
     .default(3_600_000),
   // HALF_OPEN 复核小批上限（ch05 §5.3.5.6：人工恢复后先发 ≤10 封）。
   OUTREACH_HALF_OPEN_BATCH_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
+  // 法审口径（用户 2026-11-09 决定）：默认允许「负责人内部风险接受」自签（reviewerKind=
+  // OWNER_RISK_ACCEPTANCE，审计如实记录、不冒充律师）；置 true 恢复「必须外部律师书面意见」发布门。
+  OUTREACH_LEGAL_REQUIRE_COUNSEL: z.string().default('false').transform((v) => v === 'true'),
   // 触达授权签发（P4-03 签发侧）：默认不自动签发（批次批准后由管理员端点手动签发）；
   // 授权 TTL 默认 7 天且不超过计划窗口 notAfter；计划窗口默认 7 天。
   OUTREACH_AUTHORIZATION_AUTO_ISSUE: z.string().default('false').transform((v) => v === 'true'),

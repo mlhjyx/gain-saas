@@ -1,4 +1,5 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { ImapFlow } from 'imapflow';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
@@ -21,23 +22,18 @@ export interface OutreachImapClient {
 }
 
 /**
- * imapflow 适配器。依赖不在 package.json（安装会阻塞 CI 环境），
- * 仅在 OUTREACH_IMAP_ENABLED=true 且模块可用时工作；否则抛清晰错误，由轮询器记日志跳过。
+ * imapflow 适配器（依赖已入 package.json：imapflow@2.11.0）。
+ * 仅在 OUTREACH_IMAP_ENABLED=true 时由轮询器调用；未配置凭据时抛出清晰错误，由轮询器计数跳过。
  */
 @Injectable()
 export class ImapFlowClient implements OutreachImapClient {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  private async withClient<T>(fn: (client: unknown, lock: unknown) => Promise<T>, mailbox: string): Promise<T> {
-    const spec = 'imapflow';
-    let module: { ImapFlow?: new (options: Record<string, unknown>) => unknown };
-    try {
-      module = (await import(spec)) as typeof module;
-    } catch {
-      throw new Error('IMAP 客户端依赖未安装（imapflow），拒绝轮询');
+  private async withClient<T>(fn: (client: ImapFlow) => Promise<T>, mailbox: string): Promise<T> {
+    if (!this.config.OUTREACH_IMAP_HOST || !this.config.OUTREACH_IMAP_USER) {
+      throw new Error('IMAP 未配置（OUTREACH_IMAP_HOST/OUTREACH_IMAP_USER）');
     }
-    if (!module.ImapFlow) throw new Error('imapflow 导出缺失');
-    const client = new module.ImapFlow({
+    const client = new ImapFlow({
       host: this.config.OUTREACH_IMAP_HOST,
       port: this.config.OUTREACH_IMAP_PORT,
       secure: true,
@@ -47,16 +43,12 @@ export class ImapFlowClient implements OutreachImapClient {
       },
       tls: { rejectUnauthorized: this.config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED },
       logger: false,
-    }) as {
-      connect(): Promise<void>;
-      logout(): Promise<void>;
-      getMailboxLock(name: string): Promise<{ release(): void }>;
-    };
+    });
     await client.connect();
     try {
       const lock = await client.getMailboxLock(mailbox);
       try {
-        return await fn(client, lock);
+        return await fn(client);
       } finally {
         lock.release();
       }
@@ -66,18 +58,9 @@ export class ImapFlowClient implements OutreachImapClient {
   }
 
   async fetchUnseen(mailbox: string): Promise<OutreachImapMessage[]> {
-    if (!this.config.OUTREACH_IMAP_HOST || !this.config.OUTREACH_IMAP_USER) {
-      throw new Error('IMAP 未配置（OUTREACH_IMAP_HOST/OUTREACH_IMAP_USER）');
-    }
     return this.withClient(async (client) => {
       const messages: OutreachImapMessage[] = [];
-      const flow = client as {
-        fetch(
-          range: Record<string, unknown>,
-          options: Record<string, unknown>,
-        ): AsyncIterable<{ uid: number; source?: Buffer }>;
-      };
-      for await (const message of flow.fetch({ seen: false }, { source: true, uid: true })) {
+      for await (const message of client.fetch({ seen: false }, { source: true, uid: true })) {
         if (!message.source) continue;
         messages.push({ uid: message.uid, raw: message.source.toString('utf8') });
       }
@@ -87,10 +70,7 @@ export class ImapFlowClient implements OutreachImapClient {
 
   async markSeen(mailbox: string, uid: number): Promise<void> {
     await this.withClient(async (client) => {
-      const flow = client as {
-        messageFlagsAdd(uid: number, flags: string[], options: Record<string, unknown>): Promise<boolean>;
-      };
-      await flow.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+      await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
     }, mailbox);
   }
 }
