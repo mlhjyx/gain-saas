@@ -178,6 +178,14 @@ const schema = z.object({
   OUTREACH_AUTHORIZATION_AUTO_ISSUE: z.string().default('false').transform((v) => v === 'true'),
   OUTREACH_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(5).max(43200).default(10080),
   OUTREACH_AUTHZ_SCHEDULE_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+  // 日对账 worker（P4-14）：默认关闭；也可由 GET /api/outreach/reconciliation 手动触发。
+  OUTREACH_RECONCILE_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(3_600_000)
+    .max(86_400_000)
+    .default(86_400_000),
   // 指标与成本报表（P4-09）：默认窗口 4 周；周快照 worker 默认关闭（可由 API 手动触发）。
   OUTREACH_METRICS_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(28),
   OUTREACH_METRICS_SNAPSHOT_ENABLED: z.string().default('false').transform((v) => v === 'true'),

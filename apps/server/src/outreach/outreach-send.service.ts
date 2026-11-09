@@ -923,6 +923,31 @@ export class OutreachSendService {
     const approval =
       batch.approvals.find((row) => row.state === 'APPROVED') ?? batch.approvals[0] ?? null;
 
+    // P4-14 审计包扩展：发件资产、种子测试、熔断快照与授权消费（全部来自当前数据库事实）。
+    const senderAddress = this.config.OUTREACH_SMTP_FROM_ADDRESS?.toLowerCase();
+    const senderDomain = senderAddress?.split('@')[1];
+    const [mailboxAsset, domainRow, breakers] = await Promise.all([
+      senderAddress
+        ? this.prisma.outreachMailbox.findFirst({
+            where: { workspaceId: tenant.workspaceId, address: senderAddress },
+          })
+        : Promise.resolve(null),
+      senderDomain
+        ? this.prisma.outreachDomain.findFirst({
+            where: { workspaceId: tenant.workspaceId, domain: senderDomain },
+          })
+        : Promise.resolve(null),
+      this.prisma.outreachBreaker.findMany({
+        where: { workspaceId: tenant.workspaceId },
+      }),
+    ]);
+    const latestSeed = domainRow
+      ? await this.prisma.outreachSeedTest.findFirst({
+          where: { domainId: domainRow.id },
+          orderBy: { testedAt: 'desc' },
+        })
+      : null;
+
     const packageData = {
       schemaVersion: 'outreach-audit-package/v1',
       generatedAt: new Date().toISOString(),
@@ -953,6 +978,39 @@ export class OutreachSendService {
               approval.requestedBy !== null && approval.requestedBy === approval.decidedBy,
           }
         : null,
+      authorization: {
+        id: batch.authorizationId,
+        consumedUses: batch.sends.filter((send) => send.authorizationUse !== null).length,
+      },
+      mailbox: mailboxAsset
+        ? {
+            address: mailboxAsset.address,
+            warmupStage: mailboxAsset.warmupStage,
+            state: mailboxAsset.state,
+            dailyCap: mailboxAsset.dailyCap,
+            weeklyCap: mailboxAsset.weeklyCap,
+            lastSendAt: mailboxAsset.lastSendAt?.toISOString() ?? null,
+          }
+        : null,
+      seedTest: latestSeed
+        ? {
+            testedAt: latestSeed.testedAt.toISOString(),
+            provider: latestSeed.provider,
+            inboxPct: latestSeed.inboxPct,
+            spamPct: latestSeed.spamPct,
+            reportRef: latestSeed.reportRef,
+          }
+        : null,
+      jurisdictionPolicyVersion: 'outreach-jurisdiction/v0',
+      health: {
+        breakers: breakers.map((breaker) => ({
+          scope: breaker.scope,
+          scopeRef: breaker.scopeRef,
+          state: breaker.state,
+          reason: breaker.reason,
+          openedAt: breaker.openedAt?.toISOString() ?? null,
+        })),
+      },
       drafts: batch.drafts.map((draft) => {
         const consent = latestConsent.get(draft.contactRef);
         return {

@@ -246,6 +246,8 @@ class FakeSendPrisma {
   };
 
   readonly outreachBreaker = {
+    findMany: async ({ where }: { where: Row }) =>
+      this.breakers.filter((row) => row.workspaceId === where.workspaceId),
     findUnique: async ({
       where,
     }: {
@@ -283,6 +285,16 @@ class FakeSendPrisma {
       this.domains.push(row);
       return { ...row };
     },
+    findFirst: async ({ where }: { where: Row }) =>
+      this.domains.find(
+        (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
+          (!where.domain || row.domain === where.domain),
+      ) ?? null,
+  };
+
+  readonly outreachSeedTest = {
+    findFirst: async () => null,
   };
 
   readonly outreachMailbox = {
@@ -754,6 +766,11 @@ describe('OutreachSendService', () => {
     const latest = prisma.packages[prisma.packages.length - 1];
     const auditPackage = latest.package as {
       batch: { authorizationId: string };
+      authorization: { id: string; consumedUses: number };
+      mailbox: { address: string; warmupStage: string } | null;
+      seedTest: unknown;
+      jurisdictionPolicyVersion: string;
+      health: { breakers: unknown[] };
       approval: { decidedBy: string; decidedAt: string };
       drafts: Array<{
         subject: string;
@@ -763,6 +780,14 @@ describe('OutreachSendService', () => {
       }>;
     };
     expect(auditPackage.batch.authorizationId).toBe(AUTHZ);
+    expect(auditPackage.authorization).toMatchObject({ id: AUTHZ, consumedUses: 2 });
+    expect(auditPackage.mailbox).toMatchObject({
+      address: 'outreach@example.test',
+      warmupStage: 'MATURE',
+    });
+    expect(auditPackage.seedTest).toBeNull();
+    expect(auditPackage.jurisdictionPolicyVersion).toBe('outreach-jurisdiction/v0');
+    expect(auditPackage.health.breakers).toEqual([]);
     expect(auditPackage.approval.decidedBy).toBe('approver@example.test');
     expect(auditPackage.drafts[0].subject).toBe('Pumpen – kurze Frage');
     expect(auditPackage.drafts[0].countryCode).toBe('DE');

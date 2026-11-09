@@ -23,6 +23,9 @@ import { OutreachLegalReviewsService } from './outreach-legal-reviews.service.js
 import { OutreachMetricsController } from './outreach-metrics.controller.js';
 import { OutreachMetricsService } from './outreach-metrics.service.js';
 import { OutreachMetricsWorker } from './outreach-metrics.worker.js';
+import { OutreachReconciliationController } from './outreach-reconciliation.controller.js';
+import { OutreachReconciliationService } from './outreach-reconciliation.service.js';
+import { OutreachReconciliationWorker } from './outreach-reconciliation.worker.js';
 import {
   OutreachLegalReviewsController,
   OutreachTemplatesController,
@@ -82,6 +85,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachLegalReviewsController,
     OutreachTemplatesController,
     OutreachCallsController,
+    OutreachReconciliationController,
   ],
   providers: [
     OutreachConsentService,
@@ -106,6 +110,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachExperimentsService,
     OutreachMetricsService,
     OutreachMetricsWorker,
+    OutreachReconciliationService,
+    OutreachReconciliationWorker,
     OutreachLegalReviewsService,
     OutreachTemplatesService,
     OutreachCallsService,
