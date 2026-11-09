@@ -491,7 +491,10 @@ onUnmounted(stopPolling);
 .cd__error details { margin-top: 6px; }
 .cd__error-inline { color: var(--gs-danger); margin: 0; }
 .cd__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
-.cd__dialog { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
+.cd__dialog { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; box-sizing: border-box; }
+/* 长选项文本会把 grid 列的 min-content 撑宽、溢出卡片；允许多行收缩并让控件占满轨道（2026-11-10）。 */
+.cd__dialog > * { min-width: 0; }
+.cd__dialog select, .cd__dialog input, .cd__dialog textarea { width: 100%; min-width: 0; }
 .cd__dialog label { display: grid; gap: 6px; font-size: 14px; }
 .cd__dialog input, .cd__dialog select, .cd__dialog textarea { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }
 </style>
