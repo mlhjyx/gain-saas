@@ -13,12 +13,12 @@ export interface OutreachImapMessage {
 }
 
 /**
- * 极窄的 IMAP 客户端接口：只为「取未读 + 标记已读」。测试注入 fake，
- * 生产实现 ImapFlowClient 惰性加载 imapflow（未安装时给出明确错误，不影响其他功能）。
+ * 极窄的 IMAP 客户端接口：只为「取未读 + 标记已读」。`account` 参数仅用于日志/关联，
+ * 真实收件箱名由 OUTREACH_IMAP_MAILBOX（默认 INBOX）决定——不是邮箱地址。
  */
 export interface OutreachImapClient {
-  fetchUnseen(mailbox: string): Promise<OutreachImapMessage[]>;
-  markSeen(mailbox: string, uid: number): Promise<void>;
+  fetchUnseen(account: string): Promise<OutreachImapMessage[]>;
+  markSeen(account: string, uid: number): Promise<void>;
 }
 
 /**
@@ -29,7 +29,7 @@ export interface OutreachImapClient {
 export class ImapFlowClient implements OutreachImapClient {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  private async withClient<T>(fn: (client: ImapFlow) => Promise<T>, mailbox: string): Promise<T> {
+  private async withClient<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
     if (!this.config.OUTREACH_IMAP_HOST || !this.config.OUTREACH_IMAP_USER) {
       throw new Error('IMAP 未配置（OUTREACH_IMAP_HOST/OUTREACH_IMAP_USER）');
     }
@@ -46,7 +46,7 @@ export class ImapFlowClient implements OutreachImapClient {
     });
     await client.connect();
     try {
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await client.getMailboxLock(this.config.OUTREACH_IMAP_MAILBOX);
       try {
         return await fn(client);
       } finally {
@@ -57,7 +57,7 @@ export class ImapFlowClient implements OutreachImapClient {
     }
   }
 
-  async fetchUnseen(mailbox: string): Promise<OutreachImapMessage[]> {
+  async fetchUnseen(_account: string): Promise<OutreachImapMessage[]> {
     return this.withClient(async (client) => {
       const messages: OutreachImapMessage[] = [];
       for await (const message of client.fetch({ seen: false }, { source: true, uid: true })) {
@@ -65,13 +65,13 @@ export class ImapFlowClient implements OutreachImapClient {
         messages.push({ uid: message.uid, raw: message.source.toString('utf8') });
       }
       return messages;
-    }, mailbox);
+    });
   }
 
-  async markSeen(mailbox: string, uid: number): Promise<void> {
+  async markSeen(_account: string, uid: number): Promise<void> {
     await this.withClient(async (client) => {
       await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
-    }, mailbox);
+    });
   }
 }
 

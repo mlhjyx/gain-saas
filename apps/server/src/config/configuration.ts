@@ -148,6 +148,8 @@ const schema = z.object({
     .min(30_000)
     .max(3_600_000)
     .default(300_000),
+  // 真实收件箱名（IMAP mailbox），不是邮箱地址；Gmail/Workspace 收件箱为 INBOX。
+  OUTREACH_IMAP_MAILBOX: z.string().min(1).max(128).default('INBOX'),
   // 发送 job 队列 worker（P4-04）：默认关闭；仅在 OUTREACH_SEND_ENABLED=true 且影子关闭时才真正轮询。
   OUTREACH_SENDER_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   OUTREACH_SENDER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(15_000),

@@ -29,8 +29,10 @@ packages/shared：5 files / 39 tests 绿
 
 1. ~~安装依赖 `imapflow`~~ **已完成（2026-11-10）**：`imapflow@2.11.0` 已入 `apps/server/package.json` 与 pnpm-lock，
    适配器改为静态类型导入（P4-10 分支）；
-2. 配置 `OUTREACH_IMAP_HOST/PORT/USER/PASSWORD` 并用真实信箱做一次「取未读 → ingest → 标记已读」验收，
-   把验收用的 Message-ID 与 ingest 结果记录在本目录（**待真实信箱凭据**）；
+2. ~~「取未读 → ingest → 标记已读」验收~~ **协议级已完成（2026-11-10，本地 GreenMail，零费用）**：
+   见 `docs/evidence/outreach-p4-imap-acceptance/`（7/7 PASS，含 DSN 硬退与停发联动；验收中修复了
+   「信箱地址误当邮箱名」的真实缺陷，新增 `OUTREACH_IMAP_MAILBOX` 默认 INBOX）。
+   生产信箱凭据到位后仍需对真实 provider 跑同一脚本一次（改 host/port/user/pass 即可）；
 3. 多信箱投产前把凭据从进程级 env 改为按 `outreach_mailbox.secret_ref` 引用。
 
 ## 不能证明什么
