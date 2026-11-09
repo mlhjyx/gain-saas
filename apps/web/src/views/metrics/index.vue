@@ -101,18 +101,30 @@ const stratum = ref('');
 
 const strata = computed(() => [...new Set(vricBuckets.value.map((bucket) => bucket.stratumKey))].sort());
 
-/** 通道拆分行（stratum 带 channel）是附加项；默认展示不含通道的总行。 */
-function isChannelStratum(key: string): boolean {
+/** stratum 里除标识（workspace/icp）之外的业务维度；空数组 = 工作空间总行。 */
+function stratumDimensions(key: string): string[] {
   try {
     const value = JSON.parse(key) as unknown;
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && 'channel' in (value as Record<string, unknown>);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    return Object.keys(value as Record<string, unknown>).filter(
+      (name) => name !== 'workspace_id' && name !== 'icp_id',
+    );
   } catch {
-    return false;
+    return [];
   }
 }
 
+/**
+ * 默认分层：优先工作空间总行（只含标识维度），其次不含 channel 的行；
+ * 通道拆分行（stratum 带 channel）是附加项，不能抢默认选中。
+ */
 function pickDefaultStratum(list: string[]): string {
-  return list.find((key) => !isChannelStratum(key)) ?? list[0] ?? '';
+  return (
+    list.find((key) => stratumDimensions(key).length === 0) ??
+    list.find((key) => !stratumDimensions(key).includes('channel')) ??
+    list[0] ??
+    ''
+  );
 }
 
 const chartBuckets = computed(() =>
@@ -215,7 +227,8 @@ watch([granularity], () => {
 watch([chartBuckets], () => {
   renderChart();
 });
-watch(isDark, () => {
+// 图例文案随语言切换，深色切换时颜色令牌也要重取。
+watch([isDark, strictLabel, plusLabel], () => {
   renderChart();
 });
 
@@ -518,7 +531,7 @@ onMounted(() => {
                 <td>{{ unitLabel(item.unit) }}</td>
                 <td>
                   <span class="gs-badge" :class="statusClass(metricStatus(item.status)?.tone ?? 'neutral')">
-                    {{ metricStatus(item.status)?.label ?? item.status }}
+                    {{ metricStatus(item.status)?.label ?? $t('gainos.common.unknownStatus') }}
                   </span>
                 </td>
                 <td>{{ item.owner }}</td>
@@ -676,7 +689,7 @@ onMounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in rollups" :key="`${row.bucket}-${row.metricId}-${row.stratumKey}`">
+                <tr v-for="row in rollups" :key="`${row.bucket}-${row.metricId}-${row.metricVersion}-${row.stratumKey}`">
                   <td>{{ row.bucket }}</td>
                   <td class="mt__mono">{{ row.metricId }}</td>
                   <td>{{ stratumLabel(row.stratumKey) }}</td>

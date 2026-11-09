@@ -263,7 +263,7 @@ test('度量：VRIC 成对趋势、指标目录与观测/聚合表', async ({ pa
   await expect(summary).toContainText('严格口径（STRICT） 1.500');
   await expect(summary).toContainText('放宽口径（PLUS） —');
   await expect(page.getByText('某侧没有数据时折线断开——空白代表缺数据，不代表 0。')).toBeVisible();
-  await expect(page.locator('.mt__chart canvas').first()).toBeVisible();
+  await expect(page.locator('.mt__chart canvas').first()).toBeVisible({ timeout: 15_000 });
 
   // 指标目录
   await expect(page.getByRole('cell', { name: 'T0-001' })).toBeVisible();

@@ -90,6 +90,7 @@
     "loading": "正在加载…",
     "cancel": "取消",
     "comingSoon": "即将开放",
+    "unknownStatus": "未知状态",
     "you": "你"
   },
   "notifications": {

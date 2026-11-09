@@ -104,26 +104,28 @@ const statItems = computed(() => {
     {
       key: 'queued',
       label: $t('gainos.reviews.statQueued'),
-      value: String(data?.byStatus?.queued ?? 0),
+      // 概况拉取失败时显示 —，不能把「未知」渲染成 0（会误报队列已清空）。
+      value: data ? String(data.byStatus?.queued ?? 0) : '—',
       tone: 'gs-badge--warning',
     },
     {
       key: 'in_review',
       label: $t('gainos.reviews.statInReview'),
-      value: String(data?.byStatus?.in_review ?? 0),
+      value: data ? String(data.byStatus?.in_review ?? 0) : '—',
       tone: 'gs-badge--processing',
     },
     {
       key: 'resolved',
       label: $t('gainos.reviews.statResolved', { days: data?.windowDays ?? 7 }),
-      value: String(data?.overturn?.resolved ?? 0),
+      value: data ? String(data.overturn?.resolved ?? 0) : '—',
       tone: 'gs-badge--success',
     },
     {
       key: 'overturn',
       label: $t('gainos.reviews.statOverturn'),
-      value:
-        data && data.overturn.rate !== null
+      value: !data
+        ? '—'
+        : data.overturn.rate !== null
           ? $t('gainos.reviews.statOverturnValue', {
               overturned: data.overturn.overturned,
               rate: Math.round(data.overturn.rate * 100),
@@ -184,12 +186,28 @@ const detailError = ref<ErrorCopy | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
 let lastFocused: HTMLElement | null = null;
 
+/** 证据链接只放行 http(s)：引擎抓取到的 URL 来自第三方页面，不能让其它 scheme 直接可点。 */
+function safeHref(url: unknown): string | null {
+  if (typeof url !== 'string' || url.length === 0) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 const criteriaRows = computed(() =>
   (Array.isArray(detail.value?.criteria) ? (detail.value.criteria as JudgmentCriterion[]) : []).map(
     (criterion: JudgmentCriterion) => ({
       criterion,
       label: entry('criterionLabel', criterion.label),
       name: criterionName(criterion.id),
+      evidence: (Array.isArray(criterion.evidence) ? criterion.evidence : []).map((item) => ({
+        href: safeHref(item.url),
+        kind: item.kind,
+        text: item.span || item.url,
+      })),
     }),
   ),
 );
@@ -400,12 +418,12 @@ onBeforeUnmount(() => {
               <td>{{ row.reason?.label ?? '—' }}</td>
               <td>
                 <span class="gs-badge" :class="toneOf('reviewVerdict', row.task.verdictAtJudge)">
-                  {{ row.verdict?.label ?? row.task.verdictAtJudge }}
+                  {{ row.verdict?.label ?? $t('gainos.common.unknownStatus') }}
                 </span>
               </td>
               <td>
                 <span class="gs-badge" :class="toneOf('reviewTask', row.task.status)">
-                  {{ row.status?.label ?? row.task.status }}
+                  {{ row.status?.label ?? $t('gainos.common.unknownStatus') }}
                 </span>
               </td>
               <td>
@@ -466,7 +484,7 @@ onBeforeUnmount(() => {
             <dt>{{ $t('gainos.reviews.colStatus') }}</dt>
             <dd>
               <span class="gs-badge" :class="toneOf('reviewTask', selected.status)">
-                {{ labelOf('reviewTask', selected.status, selected.status) }}
+                {{ labelOf('reviewTask', selected.status, $t('gainos.common.unknownStatus')) }}
               </span>
             </dd>
           </div>
@@ -474,7 +492,7 @@ onBeforeUnmount(() => {
             <dt>{{ $t('gainos.reviews.colJudgeVerdict') }}</dt>
             <dd>
               <span class="gs-badge" :class="toneOf('reviewVerdict', selected.verdictAtJudge)">
-                {{ labelOf('reviewVerdict', selected.verdictAtJudge, selected.verdictAtJudge) }}
+                {{ labelOf('reviewVerdict', selected.verdictAtJudge, $t('gainos.common.unknownStatus')) }}
               </span>
             </dd>
           </div>
@@ -506,7 +524,7 @@ onBeforeUnmount(() => {
               <div class="rv__criterion-head">
                 <span class="rv__criterion-name">{{ row.name }}</span>
                 <span class="gs-badge" :class="row.label ? statusClass(row.label.tone) : 'gs-badge--neutral'">
-                  {{ row.label?.label ?? row.criterion.label }}
+                  {{ row.label?.label ?? $t('gainos.common.unknownStatus') }}
                 </span>
                 <span class="rv__criterion-score">
                   {{
@@ -517,11 +535,12 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="rv__criterion-rationale">{{ row.criterion.rationale }}</p>
-              <ul v-if="row.criterion.evidence?.length" class="rv__evidence">
-                <li v-for="(item, index) in row.criterion.evidence" :key="`${row.criterion.id}-${index}`">
-                  <a :href="item.url" rel="noopener noreferrer" target="_blank">
-                    {{ item.span || item.url }}
+              <ul v-if="row.evidence.length" class="rv__evidence">
+                <li v-for="(item, index) in row.evidence" :key="`${row.criterion.id}-${index}`">
+                  <a v-if="item.href" :href="item.href" rel="noopener noreferrer" target="_blank">
+                    {{ item.text }}
                   </a>
+                  <span v-else>{{ item.text }}</span>
                   <span v-if="item.kind" class="rv__evidence-kind">{{ item.kind }}</span>
                 </li>
               </ul>
