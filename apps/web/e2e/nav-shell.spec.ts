@@ -53,7 +53,7 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   await page.waitForURL((url) => url.pathname === '/reports');
 });
 
-test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', async ({ page }, testInfo) => {
+test('商机与触达：多 tab 内嵌真实页面、影子语义与词表', async ({ page }, testInfo) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
@@ -63,9 +63,9 @@ test('商机与触达：三 tab 内嵌真实页面、影子语义与词表', asy
   await expect(page.getByRole('heading', { level: 1, name: '商机与触达', exact: true })).toBeVisible();
   await expect(page.getByText('影子期 · 将执行但不执行')).toBeVisible();
 
-  // 三 tab：战役计划 / 商机 / 触达（术语取自 glossary）
+  // 六个 tab：战役计划 / 商机 / 触达 / 回复 + 判定复核 / 度量（术语取自 glossary）
   const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveText(['战役计划', '商机', '触达', '回复']);
+  await expect(tabs).toHaveText(['战役计划', '商机', '触达', '回复', '判定复核', '度量']);
 
   // tab 1：内嵌真实战役计划列表（M2.1）——父页已给标题，内嵌页不再渲染自己的 H1（F0：双页头消除）
   await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toHaveCount(0);

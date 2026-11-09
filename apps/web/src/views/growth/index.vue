@@ -1,8 +1,10 @@
 <script lang="ts" setup>
 /**
- * 「商机与触达」合并入口（P6 设计 D-14-a）：一个一级导航，页内三 tab。
+ * 「商机与触达」合并入口（P6 设计 D-14-a）：一个一级导航，页内多个 tab。
  * 14-2：战役计划 / 商机两个 tab 直接内嵌各自真实页面（M2.1 审批列表、步 10 QGO 管线），
  * 触达 tab 在步 11 落地上线前保持如实占位（不提供假交互）。
+ * v3.0 起新增「判定复核」「度量」两个 tab：引擎的复核队列与度量 API 有页面后，
+ * 收编进同一入口而不扩一级导航（P6 钉死的六项导航维持不变）。
  * tab 与 URL `?tab=` 同步，可深链；独立路由 /campaigns、/qgos 仍保留给通知与线索页的深链。
  */
 import { computed, defineAsyncComponent } from 'vue';
@@ -15,11 +17,13 @@ import { $t } from '#/locales';
 
 defineOptions({ name: 'Growth' });
 
-// 内嵌的真实页面按 tab 懒加载：切换 tab 才拉数据，首屏不付出两份页面的代价。
+// 内嵌的真实页面按 tab 懒加载：切换 tab 才拉数据，首屏不付出多份页面的代价。
 const CampaignsList = defineAsyncComponent(() => import('#/views/campaigns/index.vue'));
 const QgosList = defineAsyncComponent(() => import('#/views/qgos/index.vue'));
 const OutreachBatches = defineAsyncComponent(() => import('#/views/outreach/index.vue'));
 const OutreachReplies = defineAsyncComponent(() => import('#/views/outreach/replies.vue'));
+const JudgmentReviews = defineAsyncComponent(() => import('#/views/reviews/index.vue'));
+const MetricsView = defineAsyncComponent(() => import('#/views/metrics/index.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -29,9 +33,11 @@ const TABS = computed(() => [
   { key: 'opportunities', label: glossaryTerm('qgo', preferences.app.locale) },
   { key: 'outreach', label: glossaryTerm('outreach', preferences.app.locale) },
   { key: 'replies', label: $t('gainos.replies.tab') },
+  { key: 'reviews', label: $t('gainos.reviews.tab') },
+  { key: 'metrics', label: $t('gainos.metrics.tab') },
 ]);
 
-const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach', 'replies']);
+const TAB_KEYS = new Set(['campaigns', 'opportunities', 'outreach', 'replies', 'reviews', 'metrics']);
 const active = computed(() => {
   const tab = route.query.tab;
   return typeof tab === 'string' && TAB_KEYS.has(tab) ? tab : 'campaigns';
@@ -82,8 +88,16 @@ function select(key: string): void {
       <OutreachBatches embedded />
     </section>
 
-    <section v-else class="gr__panel" role="tabpanel">
+    <section v-else-if="active === 'replies'" class="gr__panel" role="tabpanel">
       <OutreachReplies embedded />
+    </section>
+
+    <section v-else-if="active === 'reviews'" class="gr__panel" role="tabpanel">
+      <JudgmentReviews embedded />
+    </section>
+
+    <section v-else class="gr__panel" role="tabpanel">
+      <MetricsView embedded />
     </section>
   </div>
 </template>
@@ -170,6 +184,17 @@ function select(key: string): void {
   margin: 0 auto;
   padding: 18px 24px 48px;
   box-sizing: border-box;
+}
+
+/* 六个 tab 在窄屏放不下一行：换行而不是把文档撑出横向滚动 */
+@media (max-width: 720px) {
+  .gr__tabs {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .gr__tab {
+    flex: 1 1 auto;
+  }
 }
 
 /* 触达占位不是整页组件，自己补齐与页面一致的容器 */
