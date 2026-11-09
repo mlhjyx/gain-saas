@@ -16,12 +16,15 @@
 
 ## 1. 域名（购买项）
 
-| 用途 | 命名建议（待核可用性） | 备注 |
+| 用途 | 命名建议 | 备注 |
 | --- | --- | --- |
 | D1 US/FR 生产主域 | `try-gainos.com` | 不用主域；从零 warmup |
 | D2 第二生产域 | `gainos-outreach.com` | 独立 SPF/DKIM/DMARC |
 | D3 catch-all 灰度域 | `gainos-test-mail.com` | 每域 ≤5 封/天、50–100 条小批 |
-| D4/D5 备用 | — | 扩容或声誉受损时启用 |
+| D4/D5 备用 | `gainos-mail.com` / `trygainos.com` / `get-gainos.com` | 扩容或声誉受损时启用 |
+
+> 可用性（2026-11-09，Verisign RDAP 只读查询）：以上六个候选**全部 AVAILABLE**。
+> 可用性随时间变化，注册前当日复查（`https://rdap.verisign.com/com/v1/domain/<domain>`，404=可用）。
 
 ## 2. DNS 记录（每域一份，精确值）
 
@@ -40,12 +43,13 @@ _dmarc.<domain>.     TXT   "v=DMARC1; p=none; rua=mailto:dmarc@<domain>; ruf=mai
 <domain>.            MX    1 smtp.google.com.
 ```
 
-核对命令（自助）：
+核对命令（自助，只读，四项 `ready=true` 才算就绪）：
 
 ```bash
-dig +short TXT <domain> | grep spf1
-dig +short TXT google._domainkey.<domain>
-dig +short TXT _dmarc.<domain>
+# cwd=apps/server；检查 SPF/DKIM/DMARC/MX 并输出 JSON（任一域未就绪退出码 2）
+pnpm exec tsx src/scripts/outreach-domain-dns-check.ts try-gainos.com gainos-outreach.com
+# 生成可直接粘贴到 DNS 服务商的记录模板（按本清单 §2，DMARC 阶段 1 生效）
+pnpm exec tsx src/scripts/outreach-domain-dns-check.ts --template try-gainos.com
 ```
 
 ## 3. 信箱与暖场阶梯
