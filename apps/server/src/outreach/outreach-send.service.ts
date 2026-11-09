@@ -25,6 +25,7 @@ import {
   normalizeCountry,
   outreachJurisdictionPolicy,
 } from './outreach-jurisdiction.js';
+import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
@@ -127,6 +128,7 @@ export class OutreachSendService {
     private readonly authorization: OutreachAuthorizationConsumer,
     private readonly mailboxes: OutreachMailboxService,
     private readonly health: OutreachHealthService,
+    private readonly experiments: OutreachExperimentsService,
   ) {}
 
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
@@ -339,9 +341,21 @@ export class OutreachSendService {
     });
 
     // 逐封预检：法域同意 → DNC（控制面在发送循环内逐封评估，见下方 checkDraft）。
+    // P4-09：运行中实验的 holdout 联系人在实验窗口内不得触达（含手工发送路径）。
+    const holdout =
+      batch.campaignId !== null
+        ? await this.experiments
+            .holdoutContacts(
+              tenant,
+              batch.campaignId,
+              pending.map((draft) => draft.contactRef),
+            )
+            .catch(() => new Set<string>())
+        : new Set<string>();
+
     let preflight!: Map<string, DraftPreflight>;
     try {
-      preflight = await this.preflightDrafts(tenant, pending);
+      preflight = await this.preflightDrafts(tenant, pending, holdout);
     } catch (error) {
       await this.rejectBatch(
         tenant,
@@ -742,6 +756,7 @@ export class OutreachSendService {
   private async preflightDrafts(
     tenant: OutreachTenant,
     drafts: ReadonlyArray<PreflightDraft>,
+    holdout: ReadonlySet<string> = new Set(),
   ): Promise<Map<string, DraftPreflight>> {
     const result = new Map<string, DraftPreflight>();
     if (drafts.length === 0) return result;
@@ -760,6 +775,18 @@ export class OutreachSendService {
       if (!latest.has(consent.contactRef)) latest.set(consent.contactRef, consent);
     }
     for (const draft of drafts) {
+      if (holdout.has(draft.contactRef)) {
+        result.set(draft.id, {
+          skip: {
+            code: 'OUTREACH_HOLDOUT',
+            message: '该联系人属于运行中实验的 holdout 组，实验窗口内不得触达',
+            countryCode: normalizeCountry(draft.countryCode),
+            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+          },
+          footerLines: [],
+        });
+        continue;
+      }
       const decision = evaluateEmailJurisdiction({
         countryCode: draft.countryCode,
         consentStatus: latest.get(draft.contactRef)?.status ?? 'MISSING',

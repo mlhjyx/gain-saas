@@ -170,6 +170,15 @@ const schema = z.object({
     .default(3_600_000),
   // HALF_OPEN 复核小批上限（ch05 §5.3.5.6：人工恢复后先发 ≤10 封）。
   OUTREACH_HALF_OPEN_BATCH_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
+  // 指标与成本报表（P4-09）：默认窗口 4 周；周快照 worker 默认关闭（可由 API 手动触发）。
+  OUTREACH_METRICS_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(28),
+  OUTREACH_METRICS_SNAPSHOT_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_METRICS_SNAPSHOT_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(3_600_000)
+    .max(2_592_000_000)
+    .default(604_800_000),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；

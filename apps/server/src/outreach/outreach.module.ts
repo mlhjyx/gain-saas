@@ -11,9 +11,14 @@ import {
   OUTREACH_BATCH_LOCK,
   PostgresAdvisoryBatchLock,
 } from './outreach-batch-lock.js';
+import { OutreachExperimentsController } from './outreach-experiments.controller.js';
+import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachHealthController } from './outreach-health.controller.js';
 import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachHealthWorker } from './outreach-health.worker.js';
+import { OutreachMetricsController } from './outreach-metrics.controller.js';
+import { OutreachMetricsService } from './outreach-metrics.service.js';
+import { OutreachMetricsWorker } from './outreach-metrics.worker.js';
 import { OutreachIngestService } from './outreach-ingest.service.js';
 import { OutreachSendJobsService } from './outreach-send-jobs.service.js';
 import { OutreachSenderWorker } from './outreach-sender.worker.js';
@@ -63,6 +68,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachSeedTestController,
     OutreachWarmupController,
     OutreachHealthController,
+    OutreachExperimentsController,
+    OutreachMetricsController,
   ],
   providers: [
     OutreachConsentService,
@@ -84,6 +91,9 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachSenderWorker,
     OutreachHealthService,
     OutreachHealthWorker,
+    OutreachExperimentsService,
+    OutreachMetricsService,
+    OutreachMetricsWorker,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,

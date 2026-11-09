@@ -534,6 +534,75 @@ model OutreachSendJob {
   @@map("outreach_send_job")
 }
 
+// ─── P4-09：实验（holdout/AB）与指标快照 ──────────────────────────────────────
+
+/// 实验：分配盐与策略在创建时冻结，任何人可用同一函数复算分配（ch05 §5.3.7）。
+model OutreachExperiment {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  campaignId     String?   @map("campaign_id") @db.Uuid
+  name           String    @db.VarChar(200)
+  hypothesis     String
+  primaryMetric  String    @map("primary_metric") @db.VarChar(64)
+  /// holdout | ab
+  design         String    @default("holdout") @db.VarChar(16)
+  holdoutRatio   Float     @default(0.1) @map("holdout_ratio")
+  strata         Json?
+  assignmentSalt String    @map("assignment_salt") @db.Char(64)
+  analysisPlan   Json?     @map("analysis_plan")
+  /// DRAFT | RUNNING | ANALYZED | ARCHIVED
+  state          String    @default("DRAFT") @db.VarChar(16)
+  startedAt      DateTime? @map("started_at")
+  endedAt        DateTime? @map("ended_at")
+  createdBy      String    @map("created_by") @db.VarChar(200)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  assignments OutreachExperimentAssignment[]
+
+  @@index([workspaceId, state])
+  @@map("outreach_experiment")
+}
+
+/// 确定性分配：bucket = first8bits(sha256(salt|experimentId|subjectRef))；holdout 当 bucket < floor(ratio*256)。
+model OutreachExperimentAssignment {
+  id           String   @id @default(uuid()) @db.Uuid
+  experimentId String   @map("experiment_id") @db.Uuid
+  /// account | contact（v1 发送路径按 contact 排除；account 需草稿携带账户引用后启用）
+  subjectType  String   @default("account") @map("subject_type") @db.VarChar(16)
+  subjectRef   String   @map("subject_ref") @db.Uuid
+  /// treatment | holdout
+  arm          String   @db.VarChar(8)
+  bucket       Int
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  experiment OutreachExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, subjectType, subjectRef])
+  @@index([experimentId, arm])
+  @@map("outreach_experiment_assignment")
+}
+
+/// 指标快照（周报只读）：渠道×arm×窗口×指标；口径版本化（definitionVersion）。
+model OutreachMetricSnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  experimentId      String?  @map("experiment_id") @db.Uuid
+  channel           String   @db.VarChar(16)
+  arm               String?  @db.VarChar(8)
+  metric            String   @db.VarChar(64)
+  numerator         Int
+  denominator       Int
+  windowStart       DateTime @map("window_start")
+  windowEnd         DateTime @map("window_end")
+  definitionVersion String   @map("definition_version") @db.VarChar(16)
+  laborHours        Float?   @map("labor_hours")
+  costMicros        Int?     @map("cost_micros")
+  computedAt        DateTime @default(now()) @map("computed_at")
+
+  @@index([workspaceId, channel, windowEnd])
+  @@map("outreach_metric_snapshot")
+}
+
 // ─── P4-08：健康事件与熔断器持久态 ────────────────────────────────────────────
 
 /// 健康/熔断事件（append-only + 解除留痕）：指标、阈值、动作（WARN/PAUSE/HALT/RECOVER/CLOSE）。

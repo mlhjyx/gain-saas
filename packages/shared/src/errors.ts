@@ -821,6 +821,56 @@ export const ENGINE_ERROR_COPY = {
       next: "Refresh the health panel and retry when it is HALF_OPEN.",
     },
   },
+  OUTREACH_HOLDOUT: {
+    title: '该联系人属于实验对照组',
+    why: '运行中的实验把该联系人划入 holdout（不触达）组，用来衡量触达的真实增量；实验窗口内任何批次都不会给他发信。',
+    next: '无需操作：这是实验设计的一部分；实验归档后该联系人恢复正常处理。',
+    en: {
+      title: "This contact is in an experiment holdout",
+      why: "A running experiment assigned this contact to the holdout arm to measure true incremental lift; no batch will contact them during the experiment window.",
+      next: "No action needed: this is part of the experiment design; the contact returns to normal handling once the experiment is archived.",
+    },
+  },
+  OUTREACH_EXPERIMENT_NOT_FOUND: {
+    title: '实验不存在',
+    why: '该实验可能已被删除，或不属于当前工作空间。',
+    next: '刷新实验列表后重试。',
+    en: {
+      title: "The experiment does not exist",
+      why: "It may have been deleted or belong to another workspace.",
+      next: "Refresh the experiment list and retry.",
+    },
+  },
+  OUTREACH_EXPERIMENT_NOT_DRAFT: {
+    title: '只有草稿状态的实验可以启动',
+    why: '实验一旦启动，分配盐与口径即冻结；已启动/已归档的实验不能再次启动。',
+    next: '刷新实验状态；需要新实验时请新建一个。',
+    en: {
+      title: "Only a draft experiment can be started",
+      why: "Starting an experiment freezes its salt and definitions; started or archived experiments cannot be started again.",
+      next: "Refresh the experiment state, or create a new experiment.",
+    },
+  },
+  OUTREACH_EXPERIMENT_NOT_RUNNING: {
+    title: '实验未在运行中',
+    why: '对象分配只对 RUNNING 状态的实验开放，保证分配发生在观察窗口内。',
+    next: '先启动实验，再分配对象。',
+    en: {
+      title: "The experiment is not running",
+      why: "Assignments are only accepted while the experiment is RUNNING, so they fall inside the observation window.",
+      next: "Start the experiment first, then assign subjects.",
+    },
+  },
+  OUTREACH_EXPERIMENT_ARCHIVED: {
+    title: '实验已归档',
+    why: '归档后的实验只读，不能再变更状态或分配对象。',
+    next: '需要继续试验时请新建实验。',
+    en: {
+      title: "The experiment is archived",
+      why: "Archived experiments are read-only; states and assignments can no longer change.",
+      next: "Create a new experiment to continue testing.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;
