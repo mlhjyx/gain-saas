@@ -19,6 +19,7 @@ import AsyncSection from '#/components/gainos/async-section.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
+import { usePendingAction } from '#/composables/use-pending-action';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
 
@@ -79,7 +80,7 @@ const decision = ref<'accept' | 'reject' | null>(null);
 const reasonCode = ref('');
 const reasonNote = ref('');
 const actionError = ref<{ next?: string; title: string } | null>(null);
-const submitting = ref(false);
+const { pending: submitting, run: runDecision } = usePendingAction();
 
 const promoteOpen = ref(false);
 const promoteEvidence = ref<Array<{ support: string; type: string; url: string }>>([
@@ -263,28 +264,29 @@ function openDecision(kind: 'accept' | 'reject'): void {
 }
 
 async function submitDecision(): Promise<void> {
-  if (!decision.value || submitting.value) return;
+  if (!decision.value) return;
   if (decision.value === 'reject' && !reasonCode.value) return;
-  submitting.value = true;
   actionError.value = null;
   const input: LeadDecisionInput = {
     ...(reasonCode.value ? { reasonCode: reasonCode.value } : {}),
     ...(reasonNote.value.trim() ? { reason: reasonNote.value.trim() } : {}),
   };
+  const kind = decision.value;
   try {
-    if (decision.value === 'accept') {
-      await gainosApi.acceptLead(leadId.value, input);
-      notice.value = $t('gainos.leads.acceptedNotice');
-    } else {
-      await gainosApi.rejectLead(leadId.value, input);
-      notice.value = $t('gainos.leads.rejectedNotice');
-    }
+    // 幂等键由 usePendingAction 管理：双击/重试沿用同键，服务端按幂等重放而非重复执行。
+    await runDecision(async (idempotencyKey) => {
+      if (kind === 'accept') {
+        await gainosApi.acceptLead(leadId.value, input, idempotencyKey);
+        notice.value = $t('gainos.leads.acceptedNotice');
+      } else {
+        await gainosApi.rejectLead(leadId.value, input, idempotencyKey);
+        notice.value = $t('gainos.leads.rejectedNotice');
+      }
+    });
     decision.value = null;
     await load();
   } catch (err) {
     actionError.value = failureText(err);
-  } finally {
-    submitting.value = false;
   }
 }
 

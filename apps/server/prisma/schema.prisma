@@ -1428,3 +1428,24 @@ model OpportunityOutcome {
   @@index([workspaceId, occurredAt], map: "opportunity_outcome_workspace_id_occurred_at_idx")
   @@map("opportunity_outcome")
 }
+
+/// 幂等键记录（P5b-05）：BFF 变更请求携带 Idempotency-Key 时，同一(租户,路由,键)
+/// 只执行一次；重放返回首次响应。TTL 24h（expiresAt 到期后由维护任务清理，
+/// 到期前同一键重放仍返回原响应）。
+model IdempotencyRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  /// 归一化路由标识："POST /api/v1/companies/:id/accept" 形态的 scope。
+  scope          String
+  key            String
+  /// sha256(规范化请求体)；同键不同体 = 误用，返回 409。
+  requestHash    String   @map("request_hash") @db.Char(64)
+  responseStatus Int      @map("response_status")
+  responseBody   Json     @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiresAt      DateTime @map("expires_at")
+
+  @@unique([workspaceId, scope, key], map: "idempotency_record_workspace_id_scope_key_key")
+  @@index([expiresAt], map: "idempotency_record_expires_at_idx")
+  @@map("idempotency_record")
+}

@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { IdempotencyInterceptor } from './shared/idempotency.interceptor.js';
+import { IdempotencyService } from './shared/idempotency.service.js';
 import { ConfigModule } from './shared/config.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaService } from './shared/prisma.service.js';
@@ -22,6 +25,10 @@ import { R4Module } from './r4/r4.module.js';
 @Module({
   imports: [ConfigModule, TenantModule, OpsModule, ServiceModule, BffModule, CampaignModule, OutreachModule, ModelGatewayModule, R4Module],
   controllers: [HealthController],
-  providers: [PrismaService],
+  providers: [
+    PrismaService,
+    IdempotencyService,
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
+  ],
 })
 export class AppModule {}

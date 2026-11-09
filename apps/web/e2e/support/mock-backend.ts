@@ -10,6 +10,8 @@ import type { Page, Route } from '@playwright/test';
 
 export interface RecordedCall {
   body: unknown;
+  /** 请求头（小写键），供幂等键等断言使用。 */
+  headers: Record<string, string>;
   method: string;
   path: string;
   query: Record<string, string>;
@@ -141,6 +143,7 @@ export async function installMockBackend(
     }
     const call: RecordedCall = {
       body,
+      headers: request.headers(),
       method: request.method(),
       path,
       query: Object.fromEntries(url.searchParams.entries()),

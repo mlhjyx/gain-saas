@@ -6,6 +6,7 @@ import { glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
+import { usePendingAction } from '#/composables/use-pending-action';
 
 import {
   failureText,
@@ -153,7 +154,7 @@ const target = ref<Lead | null>(null);
 const reasonCode = ref('');
 const reasonNote = ref('');
 const actionError = ref<{ title: string; next?: string } | null>(null);
-const submitting = ref(false);
+const { pending: submitting, run: runDecision } = usePendingAction();
 
 const reasonOptions = computed(() =>
   (modal.value === 'accept' ? ACCEPT_CODES : REJECT_CODES).map((code) => ({
@@ -314,7 +315,6 @@ function closeModal(): void {
   reasonCode.value = '';
   reasonNote.value = '';
   actionError.value = null;
-  submitting.value = false;
 }
 
 async function submitDecision(): Promise<void> {
@@ -323,27 +323,29 @@ async function submitDecision(): Promise<void> {
     actionError.value = { title: $t('gainos.leads.reasonRequired'), next: $t('gainos.leads.rejectDesc') };
     return;
   }
-  submitting.value = true;
   actionError.value = null;
+  const leadId = target.value.id;
+  const kind = modal.value;
   const input: LeadDecisionInput = {
     ...(reasonCode.value ? { reasonCode: reasonCode.value } : {}),
     ...(reasonNote.value.trim() ? { reason: reasonNote.value.trim() } : {}),
   };
   try {
-    if (modal.value === 'accept') {
-      await gainosApi.acceptLead(target.value.id, input);
-      notice.value = $t('gainos.leads.acceptedNotice');
-    } else {
-      await gainosApi.rejectLead(target.value.id, input);
-      notice.value = $t('gainos.leads.rejectedNotice');
-    }
+    // 幂等键由 usePendingAction 管理：双击/失败重试沿用同键，服务端按幂等重放。
+    await runDecision(async (idempotencyKey) => {
+      if (kind === 'accept') {
+        await gainosApi.acceptLead(leadId, input, idempotencyKey);
+        notice.value = $t('gainos.leads.acceptedNotice');
+      } else {
+        await gainosApi.rejectLead(leadId, input, idempotencyKey);
+        notice.value = $t('gainos.leads.rejectedNotice');
+      }
+    });
     closeModal();
     await load();
     setTimeout(() => { notice.value = null; }, 5000);
   } catch (error) {
     actionError.value = failureText(error);
-  } finally {
-    submitting.value = false;
   }
 }
 
