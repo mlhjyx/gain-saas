@@ -47,5 +47,8 @@
     "pinia": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0"
   }
 }

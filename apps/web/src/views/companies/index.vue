@@ -958,7 +958,7 @@ onUnmounted(() => {
 
     <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
-      <div v-if="wizardOpen" class="cp__modal" :aria-label="$t('gainos.companies.wizardTitle')">
+      <div v-if="wizardOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.wizardTitle')">
         <div class="cp__modal-mask" @click="wizardOpen = false"></div>
         <div class="cp__modal-body">
           <header>
