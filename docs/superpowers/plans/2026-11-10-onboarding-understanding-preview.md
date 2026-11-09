@@ -36,14 +36,14 @@
 - **草稿公司即档案**（注册即建档）：点「开始理解」时创建 DRAFT 并把 id 记到 `workspace.onboardingCompanyId`（不改 completedAt）。客户确认后把事实写回同一档案，不重复理解、不产生废弃副本。放弃的用户留下的 DRAFT 可被现有 DELETE 清理（后续可加定时清理，不属本步）。
 - **行业建议在读取时归一**：预览端点把 `profile.industry`（自由文本）先按 `term_alias` 精确匹配、再做别名子串匹配到 `canonical_taxonomy` 节点；匹配不到就只展示原文并让客户从受控词表选择。受控选择以 `industryCode` 持久化（新增可空列），`industry` 继续存标签文本供下游 NACE 映射与旧界面使用。
 - **市场建议只给证据**：扫描 claims 陈述/摘要中的国家名（中英德别名），命中才建议并附原句；不按「总部国家 + 邻国」编造候选。
-- **理解未完成不写事实**：完成端点只接受 DRAFT（无官网/失败后手填）或 REVIEW（预览就绪），ENRICHING 返回 409，避免 `extract_profile` 稍后覆盖客户选择。
+- **理解未完成不写事实**：完成端点只接受 DRAFT（无官网/失败后手填）或 REVIEW（预览就绪）；ENRICHING 与「DRAFT + 官网 + 无失败标记」（已排队/刚接受重试）都返回 409，避免 `extract_profile` 稍后覆盖客户选择。引擎接受重试时立即清空失败标记，预览从 failed 变为 queued，重复点击命中「已排队」守卫。
 
 ### 3.3 接口契约
 
 引擎（`/global/backend`，新 PR）：
 
 - `GET /api/v1/companies/:companyId/understanding-preview`（acquisition:read）
-  - `state`: `not_started | queued | running | ready | failed`；`failure: {stage, code}`；`pagesAnalyzed`；`industry.options[]`（受控词表：code/labelEn/labels/parentCode/nace）、`industry.suggested`（code/label/raw/matched）；`products[]`（name/sourceUrl/evidence）；`markets[]`（code/name/evidence）。
+  - `state`: `not_started | queued | running | ready | failed`；`failure: {stage, code}`；`pagesAnalyzed`（按 URI 去重、只算当前官网同站）；`industry.options[]`（受控词表：code/labelEn/labels/parentCode/nace）、`industry.suggested`（code/label/raw/matched）；`products[]`（name/sourceUrl/evidence，只收当前官网同站）；`markets[]`（code/name/labelEn/labels/evidence；国家名只认词边界，罗马尼亚不会顺带命中阿曼/尼日尔/马里）。
 - `POST /api/v1/companies/:companyId/onboarding-facts`（acquisition:write，无 Grant）
   - body `{name?, industry?, industryCode?, targetMarkets?, products?, businessEmail?}`；DRAFT/REVIEW 可写；校验 industryCode 存在；产品 upsert 为 Offering（source=onboarding，名称不在列表中的 onboarding 来源行删除）；同事务补注册引导 Claim 草稿（复用 `synthesizeProfileClaimDrafts`）。返回 CompanyDto。
 - `CreateCompanyDto` 增加可选 `industryCode`（无官网手填路径直接落库）。
