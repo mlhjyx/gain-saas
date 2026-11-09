@@ -711,7 +711,14 @@ export interface OnboardingPreview {
     sourceUrl?: string | null;
     evidence?: string | null;
   }>;
-  markets: Array<{ code: string; name: string; evidence: string; sourceUrl?: string | null }>;
+  markets: Array<{
+    code: string;
+    name: string;
+    labelEn?: string;
+    labels?: Record<string, string>;
+    evidence: string;
+    sourceUrl?: string | null;
+  }>;
   updatedAt?: string;
 }
 
@@ -1078,7 +1085,7 @@ export const gainosApi = {
   completeOnboarding: (input: OnboardingCompanyInput) =>
     requestClient.post<CompanyProfile>('/onboarding/company', input),
   /** 注册即建档：先官网（或名称）建草稿档案并触发理解，返回可轮询的预览。 */
-  startOnboardingPreview: (input: { website?: string; name?: string; businessEmail?: string }) =>
+  startOnboardingPreview: (input: { website?: string; name?: string }) =>
     requestClient.post<{ started: true; preview: OnboardingPreview }>('/onboarding/preview', input),
   /** 恢复进行中的理解预览；未开始时返回 { started: false }。 */
   onboardingPreview: () => requestClient.get<OnboardingPreviewState>('/onboarding/preview'),

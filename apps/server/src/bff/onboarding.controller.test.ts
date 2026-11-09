@@ -205,7 +205,10 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
       'POST',
       '/companies',
       expect.objectContaining({
-        headers: expect.objectContaining({ 'x-execution-budget-grant': 'grant.jws.sig' }),
+        headers: expect.objectContaining({
+          'x-execution-budget-grant': 'grant.jws.sig',
+          'idempotency-key': expect.stringMatching(/^onboarding-preview:[0-9a-f]{64}$/),
+        }),
       }),
     );
     expect(auditRecord).toHaveBeenCalledWith(
@@ -352,6 +355,79 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
     await expect(
       controller.createCompany(req, res, { name: 'Acme', industryCode: 'bad code!' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('完成建档：已排队（DRAFT + 官网 + 无失败标记）409，不写事实', async () => {
+    const { controller, req, res, call } = fixture({
+      tenant: { onboardingCompanyId: 'engine-company-1' },
+      engineImpl: (method, path) => {
+        if (method === 'GET' && path === '/companies/engine-company-1') {
+          return {
+            status: 200,
+            body: {
+              data: {
+                id: 'engine-company-1',
+                status: 'DRAFT',
+                website: 'https://acme.test',
+                understandingFailedAt: null,
+              },
+            },
+          };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    const error = await controller
+      .createCompany(req, res, { name: '具安科技', products: ['A'], targetMarkets: ['DE'] })
+      .catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      error: { code: 'ONBOARDING_UNDERSTANDING_IN_PROGRESS' },
+    });
+    expect(call).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'POST',
+      '/companies/engine-company-1/onboarding-facts',
+      expect.anything(),
+    );
+  });
+
+  it('启动预览：理解排队中改官网 409（旧网址已写进 outbox，改了也不会生效）', async () => {
+    const { controller, req } = fixture({
+      tenant: { onboardingCompanyId: 'engine-company-1' },
+      engineImpl: (method, path) => {
+        if (method === 'GET' && path === '/companies/engine-company-1') {
+          return {
+            status: 200,
+            body: {
+              data: {
+                id: 'engine-company-1',
+                name: '具安科技',
+                website: 'https://acme.test',
+                status: 'DRAFT',
+                understandingFailedAt: null,
+              },
+            },
+          };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    const error = await controller
+      .startPreview(req, { website: 'https://other.test', name: '具安科技' })
+      .catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      error: { code: 'ONBOARDING_UNDERSTANDING_IN_PROGRESS' },
+    });
+  });
+
+  it('旧的一次性建档路径不接受 industryCode（引擎 quote 作用域不含该字段）', async () => {
+    const { controller, req, res, issue } = fixture();
+    await expect(
+      controller.createCompany(req, res, { name: 'Acme', industryCode: '25' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(issue).not.toHaveBeenCalled();
   });
 });
 

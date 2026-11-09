@@ -11,7 +11,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -233,11 +233,16 @@ export class OnboardingController {
     this.assertAdmin(tenant);
     this.assertNotCompleted(tenant);
     const input = parsePreviewBody(raw);
+    // 同一工作空间 + 同一官网/名称的重复/并发启动复用同一次建档（引擎幂等键），
+    // 避免超时重试或双击建出第二份草稿与第二条理解事件。
+    const previewIdempotencyKey = `onboarding-preview:${createHash('sha256')
+      .update(`${tenant.workspaceId}|${input.website ?? ''}|${input.name ?? ''}`)
+      .digest('hex')}`;
 
     let companyId = tenant.onboardingCompanyId;
     let existing: EngineCompany | null = null;
     if (companyId) {
-      const fetched = await this.engine.call(tenant, 'GET', `/companies/${companyId}`);
+      const fetched = await this.callEngine(tenant, 'GET', `/companies/${companyId}`);
       if (fetched.status === 404) {
         companyId = null;
         await this.clearCompanyId(tenant.workspaceId);
@@ -250,11 +255,26 @@ export class OnboardingController {
 
     if (companyId && existing) {
       if (existing.status === 'DRAFT') {
+        // 理解已排队/进行中（有官网、无失败标记）时改官网不会生效：outbox 事件里是旧网址。
+        // 直接给可执行的 409，等本轮结束后再改。
+        const pending = Boolean(existing.website) && !existing.understandingFailedAt;
+        if (
+          pending &&
+          input.website !== undefined &&
+          input.website !== existing.website
+        ) {
+          throw new ConflictException({
+            error: {
+              code: 'ONBOARDING_UNDERSTANDING_IN_PROGRESS',
+              message: '官网理解正在进行中，暂不能修改官网；等本轮结束后再改',
+            },
+          });
+        }
         const patch: Record<string, string> = {};
         if (input.name !== undefined && input.name !== existing.name) patch.name = input.name;
         if (input.website !== undefined && input.website !== existing.website) patch.website = input.website;
         if (Object.keys(patch).length > 0) {
-          const patched = await this.engine.call(tenant, 'PATCH', `/companies/${companyId}`, { body: patch });
+          const patched = await this.callEngine(tenant, 'PATCH', `/companies/${companyId}`, { body: patch });
           if (patched.status >= 400) throw this.engineHttpError(patched.status, patched.body);
         }
         const shouldStart =
@@ -268,9 +288,9 @@ export class OnboardingController {
         ...(input.name === undefined ? {} : { name: input.name }),
       };
       const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: createBody });
-      const result = await this.engine.call(tenant, 'POST', '/companies', {
+      const result = await this.callEngine(tenant, 'POST', '/companies', {
         body: createBody,
-        headers: { 'x-execution-budget-grant': grant },
+        headers: { 'x-execution-budget-grant': grant, 'idempotency-key': previewIdempotencyKey },
       });
       if (result.status >= 400) throw this.engineHttpError(result.status, result.body);
       const createdId = (result.body as { data?: { id?: unknown } } | null)?.data?.id;
@@ -312,7 +332,7 @@ export class OnboardingController {
     }
     const companyId = tenant.onboardingCompanyId;
     if (!companyId) return { data: { started: false } };
-    const fetched = await this.engine.call(tenant, 'GET', `/companies/${companyId}`);
+    const fetched = await this.callEngine(tenant, 'GET', `/companies/${companyId}`);
     if (fetched.status === 404) {
       await this.clearCompanyId(tenant.workspaceId);
       return { data: { started: false } };
@@ -337,7 +357,7 @@ export class OnboardingController {
 
     let companyId = tenant.onboardingCompanyId;
     if (companyId) {
-      const fetched = await this.engine.call(tenant, 'GET', `/companies/${companyId}`);
+      const fetched = await this.callEngine(tenant, 'GET', `/companies/${companyId}`);
       if (fetched.status === 404) {
         companyId = null;
         await this.clearCompanyId(tenant.workspaceId);
@@ -345,7 +365,12 @@ export class OnboardingController {
         throw this.engineHttpError(fetched.status, fetched.body);
       } else {
         const company = (fetched.body as { data?: EngineCompany } | null)?.data ?? null;
-        if (company?.status === 'ENRICHING') {
+        // ENRICHING，或 DRAFT + 有官网 + 无失败标记（已排队/刚接受重试）都不能写事实：
+        // 后者虽然还是 DRAFT，但 understanding 的 extract_profile 稍后会改写 industry。
+        const understandingPending =
+          company?.status === 'ENRICHING' ||
+          (company?.status === 'DRAFT' && Boolean(company.website) && !company.understandingFailedAt);
+        if (understandingPending) {
           throw new ConflictException({
             error: {
               code: 'ONBOARDING_UNDERSTANDING_IN_PROGRESS',
@@ -366,7 +391,7 @@ export class OnboardingController {
         ...(body.businessEmail === undefined ? {} : { businessEmail: body.businessEmail as string }),
       };
       const before = await this.fetchPreviewSafe(tenant, companyId);
-      const result = await this.engine.call(tenant, 'POST', `/companies/${companyId}/onboarding-facts`, {
+      const result = await this.callEngine(tenant, 'POST', `/companies/${companyId}/onboarding-facts`, {
         body: facts,
       });
       if (result.status >= 400) throw this.engineHttpError(result.status, result.body);
@@ -391,13 +416,23 @@ export class OnboardingController {
         error: { code: 'VALIDATION_ERROR', message: '企业名称与官网至少提供一个' },
       });
     }
+    // 引擎 POST /companies 的 quote 作用域不认 industryCode（避免为此扩预算 schema）；
+    // 受控行业必须走预览草稿 + onboarding-facts。
+    if (body.industryCode !== undefined) {
+      throw new BadRequestException({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'industryCode 只能通过理解预览完成建档提交，请先启动预览',
+        },
+      });
+    }
     const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body });
     const headers: Record<string, string> = { 'x-execution-budget-grant': grant };
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
 
     let result;
     try {
-      result = await this.engine.call(tenant, 'POST', '/companies', { body, headers });
+      result = await this.callEngine(tenant, 'POST', '/companies', { body, headers });
     } catch (err) {
       throw new HttpException(
         this.engine.toClientError(502, { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } }),
@@ -491,7 +526,7 @@ export class OnboardingController {
       companyId,
       body: { attemptId },
     });
-    const result = await this.engine.call(tenant, 'POST', `/companies/${companyId}/understanding/retry`, {
+    const result = await this.callEngine(tenant, 'POST', `/companies/${companyId}/understanding/retry`, {
       body: { attemptId },
       headers: { 'x-execution-budget-grant': grant },
     });
@@ -502,8 +537,30 @@ export class OnboardingController {
     }
   }
 
+  /** 网络/连接失败统一折算成 502 三层文案（与旧建档路径一致），不让 Nest 抛裸 500。 */
+  private async callEngine(
+    tenant: TenantRequestContext,
+    method: 'GET' | 'POST' | 'PATCH',
+    path: string,
+    options: Parameters<EngineHttp['call']>[3] = {},
+  ) {
+    try {
+      return await this.engine.call(tenant, method, path, options);
+    } catch (err) {
+      throw new HttpException(
+        this.engine.toClientError(502, {
+          error: {
+            code: 'MODEL_UPSTREAM_UNUSABLE',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        }),
+        502,
+      );
+    }
+  }
+
   private async fetchPreview(tenant: TenantRequestContext, companyId: string): Promise<EnginePreview> {
-    const result = await this.engine.call(tenant, 'GET', `/companies/${companyId}/understanding-preview`);
+    const result = await this.callEngine(tenant, 'GET', `/companies/${companyId}/understanding-preview`);
     if (result.status >= 400) throw this.engineHttpError(result.status, result.body);
     const preview = (result.body as { data?: EnginePreview } | null)?.data;
     if (!preview || typeof preview !== 'object') {

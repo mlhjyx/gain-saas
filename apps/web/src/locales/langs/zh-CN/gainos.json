@@ -1315,7 +1315,7 @@
     "startHint": "理解需要 1–3 分钟，完成后可以勾选确认",
     "noWebsite": "没有官网，手动填写",
     "progressTitle": "正在阅读你的官网…",
-    "progressPages": "已分析 {count} 个页面",
+    "progressPages": "已从 {count} 个页面提取到内容",
     "progressHint": "通常需要 1–3 分钟，请保持页面打开；完成后会自动显示可勾选的信息",
     "failureTitle": "官网理解没有完成",
     "failureDefault": "这次理解没有完成，可以重试或改为手动填写",

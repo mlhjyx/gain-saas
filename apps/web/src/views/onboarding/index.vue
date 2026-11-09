@@ -60,14 +60,39 @@ const regionNames = computed(() => {
   }
 });
 
+/** 词表标签按当前语言取：labels[locale] → labels[短语言] → 英文标签 → 中文标签。 */
+function labelFor(row: {
+  label?: string;
+  labelEn?: string;
+  labels?: Record<string, string>;
+}): string {
+  const lang = locale.value ?? 'zh-CN';
+  const short = lang.split('-')[0] ?? 'zh';
+  return (
+    row.labels?.[lang] ??
+    row.labels?.[short] ??
+    (short === 'en' ? row.labelEn : undefined) ??
+    row.label ??
+    row.labelEn ??
+    ''
+  );
+}
+
 const industryOptions = computed(() => {
   const rows = preview.value?.industry.options ?? [];
   return rows.map((row) => {
     const codeHint = row.nace?.[0] ?? row.code;
-    return { value: row.code, label: `${row.label}（${codeHint}）` };
+    return { value: row.code, raw: row, label: `${labelFor(row)}（${codeHint}）` };
   });
 });
 const industrySuggested = computed(() => preview.value?.industry.suggested ?? null);
+const industrySuggestedLabel = computed(() => {
+  const suggested = industrySuggested.value;
+  if (!suggested) return null;
+  const option = preview.value?.industry.options.find((row) => row.code === suggested.code);
+  if (option) return labelFor(option);
+  return suggested.label ?? suggested.labelEn ?? null;
+});
 const marketOptions = computed(() => {
   const base = MARKET_CODES.map((code) => ({
     value: code as string,
@@ -76,12 +101,17 @@ const marketOptions = computed(() => {
   const known = new Set<string>(base.map((option) => option.value));
   const extra = (preview.value?.markets ?? [])
     .filter((item) => !known.has(item.code))
-    .map((item) => ({ value: item.code, label: `${item.name} (${item.code})` }));
+    .map((item) => ({
+      value: item.code,
+      label: `${labelFor({ label: item.name, labelEn: item.labelEn, labels: item.labels })} (${item.code})`,
+    }));
   return [...base, ...extra];
 });
 
 const suggestedMarketNames = computed(() =>
-  (preview.value?.markets ?? []).map((item) => item.name).join('、'),
+  (preview.value?.markets ?? [])
+    .map((item) => labelFor({ label: item.name, labelEn: item.labelEn, labels: item.labels }))
+    .join('、'),
 );
 
 const FREE_MAIL_DOMAINS = new Set([
@@ -286,7 +316,15 @@ async function retryUnderstanding() {
       website: website.value.trim(),
       name: name.value.trim(),
     });
-    applyPreview(state.preview);
+    if (state.preview.state === 'failed') {
+      // 重试已被接受，但工作流要异步置 ENRICHING；本次响应可能仍是旧失败态。
+      // 先进入等待并轮询，避免停在失败页、连点重复消费预算。
+      preview.value = state.preview;
+      view.value = 'waiting';
+      startPolling();
+    } else {
+      applyPreview(state.preview);
+    }
   } catch (error) {
     handleError(error);
   } finally {
@@ -299,7 +337,10 @@ function buildPayload(): OnboardingCompanyInput {
   return {
     name: name.value.trim(),
     ...(industryCode.value
-      ? { industryCode: industryCode.value, industry: option?.label ?? industryText.value.trim() }
+      ? {
+          industryCode: industryCode.value,
+          industry: option ? labelFor(option) : industryText.value.trim(),
+        }
       : industryText.value.trim()
         ? { industry: industryText.value.trim() }
         : {}),
@@ -478,10 +519,10 @@ onBeforeUnmount(stopPolling);
               :placeholder="$t('gainos.onboarding.industryPlaceholder')"
             />
             <span
-              v-if="view === 'preview' && industrySuggested?.matched && industrySuggested.label"
+              v-if="view === 'preview' && industrySuggested?.matched && industrySuggestedLabel"
               class="field-hint hint-accent"
             >
-              {{ $t('gainos.onboarding.industrySuggested', { name: industrySuggested.label }) }}
+              {{ $t('gainos.onboarding.industrySuggested', { name: industrySuggestedLabel }) }}
             </span>
             <span
               v-else-if="view === 'preview' && preview?.industry.raw"
