@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 
+import { Alert, Button, Select, Spin, Table, Upload } from 'ant-design-vue';
+
 import { $t } from '#/locales';
 
 import SettingsShell from '#/components/gainos/settings-shell.vue';
@@ -107,17 +109,14 @@ function autoGuessMapping(): void {
   };
 }
 
-async function onFile(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
+async function onFile(file: File): Promise<boolean> {
   resetImport();
   csvText.value = await file.text();
   const firstLine = csvText.value.replace(/^\uFEFF/u, '').split(/\r?\n/u)[0] ?? '';
   const delimiter = (firstLine.match(/;/gu) ?? []).length > (firstLine.match(/,/gu) ?? []).length ? ';' : ',';
   headers.value = firstLine.split(delimiter).map((value) => value.trim()).filter(Boolean);
   autoGuessMapping();
-  input.value = '';
+  return false; // 阻止 antd Upload 自动上传
 }
 
 async function doPreview(): Promise<void> {
@@ -184,21 +183,29 @@ async function downloadTemplate(): Promise<void> {
   }
 }
 
+const headerOptions = computed(() =>
+  headers.value.map((header) => ({ value: header, label: header })),
+);
+
+const previewColumns = [
+  { key: 'rowNumber', dataIndex: 'rowNumber', title: '#', width: 70 },
+  { key: 'name', dataIndex: 'name', title: $t('gainos.sources.mapName') },
+  { key: 'domain', dataIndex: 'domain', title: $t('gainos.sources.mapWebsite') },
+  { key: 'country', dataIndex: 'country', title: $t('gainos.sources.mapCountry'), width: 120 },
+];
+
 onMounted(load);
 </script>
 
 <template>
   <SettingsShell :subtitle="$t('gainos.sources.subtitle')" :title="$t('gainos.sources.title')">
     <template #actions>
-      <button class="src__action" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
+      <Button :loading="loading" @click="load">{{ $t('gainos.common.refresh') }}</Button>
     </template>
 
-    <p v-if="notice" class="src__notice" :class="`is-${notice.tone}`">{{ notice.text }}</p>
-    <p v-if="loading" class="src__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="src__error" role="alert">
-      <h2>{{ error.title }}</h2>
-      <p v-if="error.next">{{ error.next }}</p>
-    </div>
+    <Alert v-if="notice" :message="notice.text" show-icon :type="notice.tone === 'ok' ? 'success' : 'warning'" />
+    <div v-if="loading" class="src__state"><Spin /></div>
+    <Alert v-else-if="error" :message="error.title" :description="error.next" role="alert" show-icon type="warning" />
 
     <template v-else>
       <section class="src__card">
@@ -211,15 +218,15 @@ onMounted(load);
               <span class="src__muted">{{ categoryLabel(channel.category) }} · {{ modeLabel(channel.mode) }}</span>
             </div>
             <div class="src__row-actions">
-              <button
-                class="src__action"
-                :class="{ 'src__action--on': channel.enabled }"
-                type="button"
+              <Button
+                :type="channel.enabled ? 'primary' : 'default'"
+                size="small"
                 :disabled="busyChannel === channel.id"
+                :loading="busyChannel === channel.id"
                 @click="toggleChannel(channel)"
               >
                 {{ channel.enabled ? $t('gainos.sources.enabled') : $t('gainos.sources.enable') }}
-              </button>
+              </Button>
             </div>
           </li>
         </ul>
@@ -231,53 +238,50 @@ onMounted(load);
         <h2>{{ $t('gainos.sources.importTitle') }}</h2>
         <p class="src__muted">{{ $t('gainos.sources.importDesc') }}</p>
         <div class="src__import-actions">
-          <label class="src__file">
-            <input type="file" accept=".csv,text/csv" @change="onFile" />
-            <span>{{ $t('gainos.sources.chooseFile') }}</span>
-          </label>
-          <button class="src__action" type="button" @click="downloadTemplate">{{ $t('gainos.sources.downloadTemplate') }}</button>
+          <Upload
+            :before-upload="onFile"
+            :show-upload-list="false"
+            accept=".csv,text/csv"
+          >
+            <Button>{{ $t('gainos.sources.chooseFile') }}</Button>
+          </Upload>
+          <Button @click="downloadTemplate">{{ $t('gainos.sources.downloadTemplate') }}</Button>
         </div>
 
         <div v-if="headers.length" class="src__mapping">
           <label class="src__field">
             <span>{{ $t('gainos.sources.mapName') }} *</span>
-            <select v-model="mapping.name">
-              <option value="">—</option>
-              <option v-for="header in headers" :key="header" :value="header">{{ header }}</option>
-            </select>
+            <Select v-model:value="mapping.name" :options="headerOptions" allow-clear placeholder="—" style="width: 100%" />
           </label>
           <label class="src__field">
             <span>{{ $t('gainos.sources.mapWebsite') }}</span>
-            <select v-model="mapping.website">
-              <option value="">—</option>
-              <option v-for="header in headers" :key="header" :value="header">{{ header }}</option>
-            </select>
+            <Select v-model:value="mapping.website" :options="headerOptions" allow-clear placeholder="—" style="width: 100%" />
           </label>
           <label class="src__field">
             <span>{{ $t('gainos.sources.mapCountry') }}</span>
-            <select v-model="mapping.country">
-              <option value="">—</option>
-              <option v-for="header in headers" :key="header" :value="header">{{ header }}</option>
-            </select>
+            <Select v-model:value="mapping.country" :options="headerOptions" allow-clear placeholder="—" style="width: 100%" />
           </label>
           <label class="src__field">
             <span>{{ $t('gainos.sources.mapIndustry') }}</span>
-            <select v-model="mapping.industry">
-              <option value="">—</option>
-              <option v-for="header in headers" :key="header" :value="header">{{ header }}</option>
-            </select>
+            <Select v-model:value="mapping.industry" :options="headerOptions" allow-clear placeholder="—" style="width: 100%" />
           </label>
         </div>
 
-        <p v-if="importError" class="src__error-text" role="alert">{{ importError.title }}<span v-if="importError.next"> · {{ importError.next }}</span></p>
+        <Alert
+          v-if="importError"
+          :message="`${importError.title}${importError.next ? ' · ' + importError.next : ''}`"
+          role="alert"
+          show-icon
+          type="warning"
+        />
 
         <div v-if="headers.length" class="src__import-actions">
-          <button class="src__action" type="button" :disabled="!canPreview || importBusy !== null" @click="doPreview">
+          <Button :disabled="!canPreview || importBusy !== null" :loading="importBusy === 'preview'" @click="doPreview">
             {{ importBusy === 'preview' ? $t('gainos.common.loading') : $t('gainos.sources.preview') }}
-          </button>
-          <button class="src__action src__action--on" type="button" :disabled="!canPreview || importBusy !== null" @click="doCommit">
+          </Button>
+          <Button type="primary" :disabled="!canPreview || importBusy !== null" :loading="importBusy === 'commit'" @click="doCommit">
             {{ importBusy === 'commit' ? $t('gainos.common.loading') : $t('gainos.sources.commit') }}
-          </button>
+          </Button>
         </div>
 
         <div v-if="preview" class="src__preview">
@@ -290,17 +294,18 @@ onMounted(load);
               invalid: preview.invalidCount,
             }) }}
           </p>
-          <table class="src__table">
-            <thead><tr><th>#</th><th>{{ $t('gainos.sources.mapName') }}</th><th>{{ $t('gainos.sources.mapWebsite') }}</th><th>{{ $t('gainos.sources.mapCountry') }}</th></tr></thead>
-            <tbody>
-              <tr v-for="row in preview.sample" :key="row.rowNumber">
-                <td>{{ row.rowNumber }}</td>
-                <td>{{ row.name }}</td>
-                <td>{{ row.domain ?? '—' }}</td>
-                <td>{{ row.country ?? '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <Table
+            :columns="previewColumns"
+            :data-source="preview.sample"
+            :pagination="false"
+            row-key="rowNumber"
+            size="small"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'domain'">{{ record.domain ?? '—' }}</template>
+              <template v-else-if="column.key === 'country'">{{ record.country ?? '—' }}</template>
+            </template>
+          </Table>
         </div>
 
         <p v-if="result" class="src__muted">
@@ -320,15 +325,8 @@ onMounted(load);
 </template>
 
 <style scoped>
-.src { padding: clamp(18px, 2.4vw, 32px); max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
-.src__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.src__head h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--gs-fg); }
+.src__state { display: grid; place-items: center; padding: 32px; background: var(--gs-surface); border: 1px dashed var(--gs-border-dashed); border-radius: 14px; }
 .src__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
-.src__notice { margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; }
-.src__notice.is-ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.src__notice.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
-.src__error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; }
-.src__error-text { color: var(--gs-warn); font-size: 12.5px; }
 .src__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 16px 18px; display: grid; gap: 10px; }
 .src__card h2 { margin: 0; font-size: 15px; font-weight: 650; color: var(--gs-fg); }
 .src__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -338,15 +336,4 @@ onMounted(load);
 .src__import-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .src__mapping { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .src__field { display: grid; gap: 4px; font-size: 12.5px; color: var(--gs-fg-muted); }
-.src__field select, .src__input { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; background: var(--gs-surface); color: var(--gs-fg); }
-.src__file { position: relative; overflow: hidden; display: inline-flex; }
-.src__file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.src__file span, .src__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; }
-.src__action--on { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
-.src__action:disabled { opacity: .45; cursor: not-allowed; }
-.src__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.src__table th, .src__table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gs-border); }
-.src__table th { color: var(--gs-fg-muted); font-weight: 600; }
-.src__create { border-top: 1px dashed var(--gs-border); padding-top: 10px; display: grid; gap: 8px; }
-.src__create h3 { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--gs-fg); }
 </style>

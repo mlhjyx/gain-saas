@@ -2,9 +2,14 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { Alert, Button, Form, Input, Modal, Table } from 'ant-design-vue';
+
 import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
+
+import PageContainer from '#/components/gainos/page-container.vue';
+import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi, type CampaignSummary } from '#/api/gainos';
 
@@ -99,119 +104,124 @@ function open(campaign: CampaignSummary): void {
 
 const hasCampaigns = computed(() => campaigns.value.length > 0);
 
+const columns = [
+  { key: 'name', dataIndex: 'name', title: $t('gainos.campaigns.colName') },
+  { key: 'status', dataIndex: 'status', title: $t('gainos.campaigns.colStatus'), width: 130 },
+  { key: 'plan', dataIndex: 'plan', title: $t('gainos.campaigns.colPlan'), width: 220 },
+  { key: 'updatedAt', dataIndex: 'updatedAt', title: $t('gainos.campaigns.colUpdated'), width: 170 },
+  { key: 'actions', dataIndex: 'actions', title: '', width: 120 },
+];
+
 onMounted(load);
 </script>
 
 <template>
-  <div class="cp" :class="{ 'is-embedded': embedded }">
-    <header class="cp__head">
-      <div v-if="!embedded">
-        <span class="cp__stage">{{ $t('gainos.campaigns.stage') }}</span>
-        <h1>{{ $t('gainos.campaigns.title') }}</h1>
-        <p>{{ $t('gainos.campaigns.subtitle') }}</p>
-      </div>
-      <button class="cp__primary" type="button" @click="showCreate = true">
+  <PageContainer :compact="embedded" :class="{ 'cm--embedded': embedded }">
+    <PageHeader
+      v-if="!embedded"
+      :subtitle="$t('gainos.campaigns.subtitle')"
+      :title="$t('gainos.campaigns.title')"
+    >
+      <template #actions>
+        <Button type="primary" @click="showCreate = true">
+          {{ $t('gainos.campaigns.newCampaign') }}
+        </Button>
+      </template>
+    </PageHeader>
+    <div v-else class="cm__embedded-head">
+      <Button type="primary" @click="showCreate = true">
         {{ $t('gainos.campaigns.newCampaign') }}
-      </button>
-    </header>
-
-    <p class="cp__banner" role="note">{{ $t('gainos.campaigns.shadowBanner') }}</p>
-
-    <p v-if="loading" class="cp__hint">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="cp__error" role="alert">
-      <strong>{{ error.title }}</strong>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </div>
-    <div v-else-if="!hasCampaigns" class="cp__empty">
-      <p>{{ $t('gainos.campaigns.empty') }}</p>
-      <button class="cp__primary" type="button" @click="showCreate = true">{{ $t('gainos.campaigns.newCampaign') }}</button>
+      </Button>
     </div>
 
-    <table v-else class="cp__table">
-      <thead>
-        <tr>
-          <th>{{ $t('gainos.campaigns.colName') }}</th>
-          <th>{{ $t('gainos.campaigns.colStatus') }}</th>
-          <th>{{ $t('gainos.campaigns.colPlan') }}</th>
-          <th>{{ $t('gainos.campaigns.colUpdated') }}</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="campaign in campaigns" :key="campaign.id" class="cp__row" @click="open(campaign)">
-          <td>
-            <strong>{{ campaign.name }}</strong>
-            <p class="cp__objective">{{ campaign.objective }}</p>
-          </td>
-          <td><span class="gs-badge" :class="campaignBadgeClass(campaign.status)">{{ campaignStatusLabel(campaign.status) }}</span></td>
-          <td>
-            <template v-if="campaign.latestRevision">
-              {{ $t('gainos.campaigns.revision', { no: campaign.latestRevision.revisionNo }) }}
-              · {{ revisionStateLabel(campaign.latestRevision.state) }}
+    <Alert
+      :message="$t('gainos.campaigns.shadowBanner')"
+      banner
+      role="note"
+      type="warning"
+    />
+
+    <AsyncSection
+      :error="error"
+      :empty="!loading && !error && !hasCampaigns"
+      :loading="loading"
+      :loading-text="$t('gainos.common.loading')"
+      :retry-text="$t('gainos.common.retry')"
+      @retry="load"
+    >
+      <template #empty>
+        <div class="cm__empty-body">
+          <p>{{ $t('gainos.campaigns.empty') }}</p>
+          <Button type="primary" @click="showCreate = true">{{ $t('gainos.campaigns.newCampaign') }}</Button>
+        </div>
+      </template>
+      <Table
+        :columns="columns"
+        :data-source="campaigns"
+        :pagination="false"
+        :scroll="{ x: 760 }"
+        :custom-row="(record: unknown) => ({ style: { cursor: 'pointer' }, onClick: () => open(record as CampaignSummary) })"
+        row-key="id"
+        size="middle"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'">
+            <strong>{{ record.name }}</strong>
+            <p v-if="record.objective" class="cm__objective">{{ record.objective }}</p>
+          </template>
+          <template v-else-if="column.key === 'status'">
+            <span class="gs-badge" :class="campaignBadgeClass(record.status)">{{ campaignStatusLabel(record.status) }}</span>
+          </template>
+          <template v-else-if="column.key === 'plan'">
+            <template v-if="record.latestRevision">
+              {{ $t('gainos.campaigns.revision', { no: record.latestRevision.revisionNo }) }}
+              · {{ revisionStateLabel(record.latestRevision.state) }}
             </template>
             <template v-else>{{ $t('gainos.campaigns.noRevision') }}</template>
-          </td>
-          <td>{{ formatDateTime(campaign.updatedAt) }}</td>
-          <td>
-            <button class="cp__link" type="button" @click.stop="open(campaign)">
-              {{ ctaOf(campaign.status) }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+          </template>
+          <template v-else-if="column.key === 'updatedAt'">
+            {{ formatDateTime(record.updatedAt) }}
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <Button type="link" size="small" @click.stop="open(record as CampaignSummary)">
+              {{ ctaOf(record.status) }}
+            </Button>
+          </template>
+        </template>
+      </Table>
+    </AsyncSection>
 
-    <div v-if="showCreate" class="cp__modal" role="dialog" aria-modal="true">
-      <div class="cp__card">
-        <h2>{{ $t('gainos.campaigns.newCampaign') }}</h2>
-        <label>
-          {{ $t('gainos.campaigns.nameLabel') }}
-          <input v-model="name" type="text" maxlength="200" />
-        </label>
-        <label>
-          {{ $t('gainos.campaigns.objectiveLabel') }}
-          <textarea v-model="objective" rows="3" maxlength="500" />
-        </label>
-        <p v-if="createError" class="cp__error-inline" role="alert">{{ createError }}</p>
-        <div class="cp__actions">
-          <button type="button" :disabled="creating" @click="create">
-            {{ $t('gainos.campaigns.create') }}
-          </button>
-          <button type="button" class="cp__ghost" @click="showCreate = false">
-            {{ $t('gainos.common.cancel') }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+    <Modal
+      v-model:open="showCreate"
+      :confirm-loading="creating"
+      :ok-text="$t('gainos.campaigns.create')"
+      :title="$t('gainos.campaigns.newCampaign')"
+      :width="480"
+      @ok="create"
+    >
+      <Form layout="vertical">
+        <Form.Item :label="$t('gainos.campaigns.nameLabel')">
+          <Input v-model:value="name" :maxlength="200" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.campaigns.objectiveLabel')">
+          <Input.TextArea v-model:value="objective" :maxlength="500" :rows="3" />
+        </Form.Item>
+      </Form>
+      <Alert
+        v-if="createError"
+        :message="createError"
+        role="alert"
+        show-icon
+        type="error"
+      />
+    </Modal>
+  </PageContainer>
 </template>
 
 <style scoped>
-.cp { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
-.cp.is-embedded { padding: 0; max-width: none; margin: 0; }
-.cp__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.cp__stage { display: inline-block; font-size: 12px; letter-spacing: 0.08em; color: var(--gs-fg-muted); text-transform: uppercase; }
-.cp h1 { margin: 6px 0; font-size: 26px; }
-.cp__head p { margin: 0; color: var(--gs-fg-muted); max-width: 640px; }
-.cp__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface); padding: 40px 24px; display: grid; place-items: center; gap: 12px; color: var(--gs-fg-muted); font-size: 13.5px; }
-.cp__empty p { margin: 0; }
-.cp__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
-.cp__banner { margin: 18px 0; padding: 10px 14px; border-radius: 8px; background: var(--gs-warn-bg); color: var(--gs-warn); }
-.cp__hint { color: var(--gs-fg-muted); }
-.cp__error { background: var(--gs-danger-bg); color: var(--gs-danger); padding: 12px 16px; border-radius: 8px; }
-.cp__table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-.cp__table th, .cp__table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--gs-divider); vertical-align: top; }
-.cp__row { cursor: pointer; }
-.cp__row:hover td { background: var(--gs-surface-2); }
-.cp__objective { margin: 4px 0 0; color: var(--gs-fg-muted); font-size: 13px; }
-.cp__link { border: none; background: none; color: var(--gs-accent-strong); cursor: pointer; text-decoration: underline; }
-.cp__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
-.cp__card { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; gap: 12px; }
-.cp__card label { display: grid; gap: 6px; font-size: 14px; }
-.cp__card input, .cp__card textarea { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }
-.cp__actions { display: flex; gap: 8px; justify-content: flex-end; }
-.cp__actions button { border-radius: 8px; padding: 8px 14px; border: none; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; }
-.cp__ghost { background: var(--gs-surface-2) !important; color: var(--gs-fg-muted) !important; }
-.cp__error-inline { color: var(--gs-danger); margin: 0; }
+.cm--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
+.cm__embedded-head { display: flex; justify-content: flex-end; }
+.cm__objective { margin: 4px 0 0; color: var(--gs-fg-muted); font-size: 13px; }
+.cm__empty-body { display: grid; place-items: center; gap: 12px; color: var(--gs-fg-muted); font-size: 13.5px; padding: 24px 0; }
+.cm__empty-body p { margin: 0; }
 </style>

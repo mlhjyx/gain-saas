@@ -11,7 +11,11 @@ import { useRouter } from 'vue-router';
 
 import { preferences } from '@vben/preferences';
 
+import { Alert, Button } from 'ant-design-vue';
+
 import { $t } from '#/locales';
+
+import PageContainer from '#/components/gainos/page-container.vue';
 
 import { formatDateTime } from '@gain-saas/shared';
 
@@ -134,37 +138,36 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="nt">
+  <PageContainer>
     <PageHeader
       :subtitle="$t('gainos.notifications.pageSubtitle')"
       :title="$t('gainos.notifications.pageTitle')"
     >
       <template #actions>
-        <button class="nt__ghost" type="button" @click="load">
+        <Button :loading="loading && marking" @click="load">
           {{ $t('gainos.common.refresh') }}
-        </button>
+        </Button>
         <template v-if="confirming">
-          <button class="nt__danger" type="button" :disabled="marking" @click="markAllRead">
+          <Button danger :disabled="marking" :loading="marking" @click="markAllRead">
             {{ $t('gainos.notifications.markAllConfirm') }}
-          </button>
-          <button class="nt__ghost" type="button" :disabled="marking" @click="confirming = false">
+          </Button>
+          <Button :disabled="marking" @click="confirming = false">
             {{ $t('gainos.common.cancel') }}
-          </button>
+          </Button>
         </template>
-        <button
+        <Button
           v-else
-          class="nt__primary"
-          type="button"
+          type="primary"
           :disabled="unreadCount === 0"
           @click="confirming = true"
         >
           {{ $t('gainos.notifications.markAll') }}
           <span v-if="unreadCount > 0" class="nt__count">{{ unreadCount }}</span>
-        </button>
+        </Button>
       </template>
     </PageHeader>
 
-    <p v-if="notice" class="nt__notice" role="status">{{ notice }}</p>
+    <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
 
     <AsyncSection
       :empty="!loading && !error && groups.length === 0"
@@ -202,59 +205,16 @@ onMounted(load);
         </li>
       </ol>
     </AsyncSection>
-  </div>
+  </PageContainer>
 </template>
 
 <style scoped>
-.nt {
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
-}
-.nt__primary,
-.nt__danger,
-.nt__ghost {
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.nt__primary {
-  border: none;
-  background: var(--gs-accent-cta);
-  color: var(--gs-accent-cta-fg);
-  font-weight: 600;
-}
-.nt__primary:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.nt__danger {
-  border: 1px solid var(--gs-danger-border);
-  background: var(--gs-danger-bg);
-  color: var(--gs-danger);
-}
-.nt__ghost {
-  border: 1px solid var(--gs-border-strong);
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-}
 .nt__count {
   margin-left: 6px;
   border-radius: 999px;
   padding: 0 7px;
   font-size: 11.5px;
   background: rgba(255, 255, 255, 0.22);
-}
-.nt__notice {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--gs-accent-soft);
-  color: var(--gs-accent-strong);
-  font-size: 13px;
 }
 .nt__list {
   list-style: none;

@@ -3,9 +3,15 @@ import type { OutreachReplyView } from '#/api/gainos';
 
 import { onMounted, ref } from 'vue';
 
+import { Button, Table } from 'ant-design-vue';
+
 import { $t } from '#/locales';
 
 import { formatDateTime } from '@gain-saas/shared';
+
+import AsyncSection from '#/components/gainos/async-section.vue';
+import PageContainer from '#/components/gainos/page-container.vue';
+import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
@@ -64,70 +70,61 @@ function kindLabel(value?: string | null): string {
 function fmtTime(ts?: string | null): string {
   return formatDateTime(ts) || '—';
 }
+
+const columns = [
+  { key: 'receivedAt', dataIndex: 'receivedAt', title: $t('gainos.replies.colTime'), width: 170 },
+  { key: 'recipientEmail', dataIndex: 'recipientEmail', title: $t('gainos.replies.colRecipient'), width: 240 },
+  { key: 'classification', dataIndex: 'classification', title: $t('gainos.replies.colClass'), width: 190 },
+  { key: 'subject', dataIndex: 'subject', title: $t('gainos.replies.colSubject') },
+];
 </script>
 
 <template>
-  <div class="rpl" :class="{ 'is-embedded': embedded }">
-    <header class="rpl__head">
-      <div>
-        <h2>{{ $t('gainos.replies.title') }}</h2>
-        <p class="rpl__sub">{{ $t('gainos.replies.subtitle') }}</p>
-      </div>
-      <button class="rpl__refresh" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
-    </header>
+  <PageContainer :compact="embedded" :class="{ 'rpl--embedded': embedded }">
+    <PageHeader :subtitle="$t('gainos.replies.subtitle')" :title="$t('gainos.replies.title')">
+      <template #actions>
+        <Button :loading="loading" @click="load">{{ $t('gainos.common.refresh') }}</Button>
+      </template>
+    </PageHeader>
 
-    <p v-if="loading" class="rpl__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="rpl__error" role="alert">
-      <strong>{{ error.title }}</strong>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </div>
-    <section v-else-if="rows.length === 0" class="rpl__empty">
-      <p>{{ $t('gainos.replies.empty') }}</p>
-    </section>
-    <table v-else class="rpl__table">
-      <thead>
-        <tr>
-          <th>{{ $t('gainos.replies.colTime') }}</th>
-          <th>{{ $t('gainos.replies.colRecipient') }}</th>
-          <th>{{ $t('gainos.replies.colClass') }}</th>
-          <th>{{ $t('gainos.replies.colSubject') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="row in rows" :key="row.id">
-          <td>{{ fmtTime(row.receivedAt) }}</td>
-          <td>{{ row.recipientEmail ?? '—' }}</td>
-          <td>
-            <span class="gs-badge" :class="classBadge(row.classification)">{{ classLabel(row.classification) }}</span>
-            <span class="rpl__kind">{{ kindLabel(row.kind) }}</span>
-          </td>
-          <td>
-            <span>{{ row.subject ?? '—' }}</span>
-            <small v-if="row.snippet" class="rpl__snippet">{{ row.snippet }}</small>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+    <AsyncSection
+      :error="error"
+      :empty="!loading && !error && rows.length === 0"
+      :loading="loading"
+      :loading-text="$t('gainos.common.loading')"
+      :retry-text="$t('gainos.common.retry')"
+      @retry="load"
+    >
+      <template #empty>
+        <p>{{ $t('gainos.replies.empty') }}</p>
+      </template>
+      <Table
+        :columns="columns"
+        :data-source="rows"
+        :pagination="false"
+        :scroll="{ x: 720 }"
+        row-key="id"
+        size="middle"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'receivedAt'">{{ fmtTime(record.receivedAt) }}</template>
+          <template v-else-if="column.key === 'recipientEmail'">{{ record.recipientEmail ?? '—' }}</template>
+          <template v-else-if="column.key === 'classification'">
+            <span class="gs-badge" :class="classBadge(record.classification)">{{ classLabel(record.classification) }}</span>
+            <span class="rpl__kind">{{ kindLabel(record.kind) }}</span>
+          </template>
+          <template v-else-if="column.key === 'subject'">
+            <span>{{ record.subject ?? '—' }}</span>
+            <small v-if="record.snippet" class="rpl__snippet">{{ record.snippet }}</small>
+          </template>
+        </template>
+      </Table>
+    </AsyncSection>
+  </PageContainer>
 </template>
 
 <style scoped>
-.rpl { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
-.rpl.is-embedded { padding: 0; max-width: none; margin: 0; }
-.rpl__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.rpl__head h2 { margin: 0; font-size: 22px; font-weight: 600; color: var(--gs-fg); }
-.rpl__sub { margin: 6px 0 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-muted); }
-.rpl__refresh { flex: none; border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 10px; padding: 8px 16px; font-size: 13px; color: var(--gs-fg-2); cursor: pointer; }
-.rpl__muted { color: var(--gs-fg-subtle); font-size: 13px; }
-.rpl__error { border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; color: var(--gs-danger); }
-.rpl__error button { justify-self: start; border: 1px solid var(--gs-danger-border); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger); }
-.rpl__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface); padding: 40px 24px; text-align: center; color: var(--gs-fg-muted); font-size: 13.5px; }
-.rpl__empty p { margin: 0; }
-.rpl__table { width: 100%; border-collapse: collapse; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; overflow: hidden; }
-.rpl__table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--gs-fg-muted); background: var(--gs-surface-2); padding: 10px 14px; border-bottom: 1px solid var(--gs-border); }
-.rpl__table td { padding: 12px 14px; border-bottom: 1px solid var(--gs-divider); font-size: 13.5px; color: var(--gs-fg-2); vertical-align: top; }
-.rpl__table tr:last-child td { border-bottom: none; }
+.rpl--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
 .rpl__kind { margin-left: 8px; font-size: 12px; color: var(--gs-fg-subtle); }
 .rpl__snippet { display: block; margin-top: 4px; color: var(--gs-fg-subtle); font-size: 12.5px; }
 </style>
