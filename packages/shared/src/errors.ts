@@ -931,6 +931,66 @@ export const ENGINE_ERROR_COPY = {
       next: "Bind a review whose kind matches the template.",
     },
   },
+  OUTREACH_CALL_BASIS_NOT_FOUND: {
+    title: '拨号依据不存在',
+    why: '没有依据就没有拨号：每条依据要能回答「为什么打给这个人」并附证据。',
+    next: '先在「电话依据」里为该联系人建立依据，再记录拨号。',
+    en: {
+      title: "The call basis does not exist",
+      why: "No basis, no call: each basis must answer why this person is being called, with evidence.",
+      next: "Create a call basis for this contact before recording any call.",
+    },
+  },
+  OUTREACH_CALL_BASIS_EXPIRED: {
+    title: '拨号依据已过期',
+    why: '德国法下推定同意需要时效内的具体事实（默认 90 天）；过期依据不能再用于拨号。',
+    next: '重新采集展会/询盘等事实证据并建立新依据后再拨号。',
+    en: {
+      title: "The call basis has expired",
+      why: "Presumed consent under German law needs fresh, specific facts (90 days by default); expired bases cannot support calls.",
+      next: "Collect fresh evidence (fair visit, inquiry, etc.) and create a new basis before calling.",
+    },
+  },
+  OUTREACH_CALL_SCRIPT_NOT_APPROVED: {
+    title: '拨号话术尚未通过法审并激活',
+    why: '只有 ACTIVE 的 phone_script 模板版本才能用于拨号；话术必须先完成法审。',
+    next: '联系运营完成话术法审与激活（模板 → 提交法审 → 批准 → 激活）。',
+    en: {
+      title: "The call script is not legally approved and active",
+      why: "Only an ACTIVE phone_script template can back calls; the script must pass legal review first.",
+      next: "Ask operations to complete legal review and activate the script.",
+    },
+  },
+  OUTREACH_CALL_LEGAL_REVIEW_REQUIRED: {
+    title: '拨号依据缺少通过的书面意见',
+    why: '每条拨号依据必须引用 APPROVED 的 phone_script 书面意见（外部律师意见，或负责人内部风险接受记录）。',
+    next: '先录入书面意见/风险接受记录，再建立拨号依据。',
+    en: {
+      title: "The call basis lacks an approved written opinion",
+      why: "Every call basis must reference an APPROVED phone_script review — either outside counsel's opinion or the owner's documented risk acceptance.",
+      next: "Record the opinion or risk acceptance first, then create the basis.",
+    },
+  },
+  OUTREACH_LEGAL_COUNSEL_REQUIRED: {
+    title: '当前要求外部律师书面意见',
+    why: '环境开关要求外部律师意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true）；负责人风险接受记录不能替代。',
+    next: '取得并录入律师书面意见，或由负责人调整该开关。',
+    en: {
+      title: "Outside counsel is required in this environment",
+      why: "OUTREACH_LEGAL_REQUIRE_COUNSEL=true requires a lawyer's written opinion; owner risk acceptance cannot substitute.",
+      next: "Record counsel's written opinion, or have the owner change the switch.",
+    },
+  },
+  OUTREACH_CALL_OBJECTED: {
+    title: '该联系人已在电话渠道明确反对联系',
+    why: '对方在通话中拒绝或要求不再来电（OPT_OUT），任何后续拨号都会被拦下。',
+    next: '尊重反对：不再拨打；如需联系只能走对方另行同意的渠道。',
+    en: {
+      title: "This contact has opted out of phone contact",
+      why: "They objected during a call or asked not to be called again (OPT_OUT); further calls are blocked.",
+      next: "Respect the objection: do not call again; use another channel only with fresh consent.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

@@ -18,6 +18,8 @@ import { OutreachTemplatesService } from './outreach-templates.service.js';
 
 const legalReviewBody = z.object({
   subjectKind: z.enum(['email_template', 'phone_script', 'consent_wording', 'lia_letter']),
+  /** LAWYER（默认，外部律师书面意见）| OWNER_RISK_ACCEPTANCE（负责人内部风险接受，审计如实记录）。 */
+  reviewerKind: z.enum(['LAWYER', 'OWNER_RISK_ACCEPTANCE']).optional(),
   documentHash: z.string().trim().regex(/^[0-9a-fA-F]{64}$/),
   reviewerName: z.string().trim().min(1).max(200),
   reviewerFirm: z.string().trim().min(1).max(200),

@@ -31,6 +31,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
+    "imapflow": "2.11.0",
     "jose": "^6.1.0",
     "pg": "^8.13.0",
     "reflect-metadata": "^0.2.2",

@@ -8,9 +8,12 @@ const UUID_RE =
 const HASH_RE = /^[0-9a-f]{64}$/;
 const SUBJECT_KINDS = ['email_template', 'phone_script', 'consent_wording', 'lia_letter'] as const;
 const VERDICTS = ['APPROVED', 'CONDITIONS', 'REJECTED'] as const;
+/** LAWYER = 外部律师书面意见；OWNER_RISK_ACCEPTANCE = 负责人内部风险接受（用户 2026-11-09 决定允许）。 */
+export const REVIEWER_KINDS = ['LAWYER', 'OWNER_RISK_ACCEPTANCE'] as const;
 
 export interface LegalReviewInput {
   subjectKind: unknown;
+  reviewerKind?: unknown;
   documentHash: unknown;
   reviewerName: unknown;
   reviewerFirm: unknown;
@@ -41,6 +44,11 @@ export class OutreachLegalReviewsService {
     if (!(SUBJECT_KINDS as readonly string[]).includes(subjectKind)) {
       invalid('subjectKind 必须是 email_template/phone_script/consent_wording/lia_letter');
     }
+    const reviewerKind =
+      input.reviewerKind === undefined ? 'LAWYER' : String(input.reviewerKind);
+    if (!(REVIEWER_KINDS as readonly string[]).includes(reviewerKind)) {
+      invalid('reviewerKind 必须是 LAWYER 或 OWNER_RISK_ACCEPTANCE');
+    }
     const documentHash =
       typeof input.documentHash === 'string' ? input.documentHash.trim().toLowerCase() : '';
     if (!HASH_RE.test(documentHash)) invalid('documentHash 必须是 64 位十六进制');
@@ -68,6 +76,7 @@ export class OutreachLegalReviewsService {
       data: {
         workspaceId: tenant.workspaceId,
         subjectKind,
+        reviewerKind,
         documentHash,
         reviewerName,
         reviewerFirm,
@@ -84,7 +93,7 @@ export class OutreachLegalReviewsService {
       actorId: tenant.userId,
       action: 'outreach.legal_review.recorded',
       target: row.id,
-      detail: { subjectKind, verdict },
+      detail: { subjectKind, reviewerKind, verdict },
     });
     return row;
   }

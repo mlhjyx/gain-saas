@@ -27,9 +27,10 @@ packages/shared：5 files / 39 tests 绿
 
 **打开 `OUTREACH_IMAP_ENABLED=true` 之前必须完成以下三项，否则轮询不可用（配置默认 false，不会静默假装工作）：**
 
-1. 安装依赖 `imapflow`（本环境 registry 经代理超时，本轮安装失败并已回滚 lockfile）；
+1. ~~安装依赖 `imapflow`~~ **已完成（2026-11-10）**：`imapflow@2.11.0` 已入 `apps/server/package.json` 与 pnpm-lock，
+   适配器改为静态类型导入（P4-10 分支）；
 2. 配置 `OUTREACH_IMAP_HOST/PORT/USER/PASSWORD` 并用真实信箱做一次「取未读 → ingest → 标记已读」验收，
-   把验收用的 Message-ID 与 ingest 结果记录在本目录；
+   把验收用的 Message-ID 与 ingest 结果记录在本目录（**待真实信箱凭据**）；
 3. 多信箱投产前把凭据从进程级 env 改为按 `outreach_mailbox.secret_ref` 引用。
 
 ## 不能证明什么
