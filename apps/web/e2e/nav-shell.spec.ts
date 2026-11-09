@@ -53,15 +53,15 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   await page.waitForURL((url) => url.pathname === '/reports');
 });
 
-test('商机与触达：多 tab 内嵌真实页面、影子语义与词表', async ({ page }, testInfo) => {
+test('商机与触达：多 tab 内嵌真实页面、运行期语义与词表', async ({ page }, testInfo) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
 
-  // 枢纽页头与影子期徽标（全站统一的「将执行但不执行」语义）
+  // 枢纽页头与运行期徽标（2026-11-10 起取消影子期：按授权执行）
   await settle(page);
   await expect(page.getByRole('heading', { level: 1, name: '商机与触达', exact: true })).toBeVisible();
-  await expect(page.getByText('影子期 · 将执行但不执行')).toBeVisible();
+  await expect(page.getByText('运行期 · 按授权执行')).toBeVisible();
 
   // 六个 tab：战役计划 / 商机 / 触达 / 回复 + 判定复核 / 度量（术语取自 glossary）
   const tabs = page.getByRole('tab');
