@@ -157,9 +157,11 @@ describe('SmtpOutreachTransport（TEST-only 进程内 sink）', () => {
       body: 'Dies ist ein TEST. Keine echte Mail.',
     });
 
-    expect(result.messageId).toMatch(/^[0-9a-f-]{36}$/);
+    // 台账 messageId 必须与线上 Message-ID 头一致（含 @发件域），否则真实回信无法归因。
+    expect(result.messageId).toMatch(/^[0-9a-f-]{36}@mail\.gainos\.test$/);
     expect(sink.received).toHaveLength(1);
     const raw = sink.received[0];
+    expect(raw).toContain(`Message-ID: <${result.messageId}>`);
     expect(raw).toContain('To: <buyer@example.test>');
     expect(raw).toContain('Subject: =?UTF-8?B?');
     expect(raw).toContain('DKIM-Signature: v=1');
