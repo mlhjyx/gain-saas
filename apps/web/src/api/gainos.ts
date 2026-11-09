@@ -859,10 +859,22 @@ export const gainosApi = {
     requestClient.post<Record<string, unknown>>(`/leads/${leadId}/outcomes`, input),
   leadQueues: (icpId: string) =>
     requestClient.get<LeadQueueCounts>(`/icps/${icpId}/lead-queues`),
-  acceptLead: (leadId: string, input: LeadDecisionInput = {}) =>
-    requestClient.post<{ accepted: boolean; eventId: string }>(`/leads/${leadId}/accept`, input),
-  rejectLead: (leadId: string, input: LeadDecisionInput) =>
-    requestClient.post<Lead>(`/leads/${leadId}/reject`, input),
+  acceptLead: (
+    leadId: string,
+    input: LeadDecisionInput = {},
+    idempotencyKey?: string,
+  ) =>
+    requestClient.post<{ accepted: boolean; eventId: string }>(
+      `/leads/${leadId}/accept`,
+      input,
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
+  rejectLead: (leadId: string, input: LeadDecisionInput, idempotencyKey?: string) =>
+    requestClient.post<Lead>(
+      `/leads/${leadId}/reject`,
+      input,
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    ),
   sanctionsReview: (
     leadId: string,
     decision: 'cleared_false_positive' | 'confirmed_true_hit',
