@@ -34,6 +34,8 @@ export interface MockBackend {
   calls: RecordedCall[];
   callsTo(method: string, pathPrefix: string): RecordedCall[];
   onboardingComplete: boolean;
+  /** 已启动理解预览（POST /onboarding/preview 之后 GET 返回 started=true）。 */
+  onboardingPreviewStarted: boolean;
   /** 精确路径覆盖：data 直接作为 data 返回；handler 返回 false 表示未处理、继续默认逻辑。 */
   set(method: string, path: string, dataOrHandler: MockHandler | unknown): void;
   session: SessionShape;
@@ -76,6 +78,43 @@ export function defaultSession(options: MockBackendOptions = {}): SessionShape {
   };
 }
 
+/** 理解预览（与引擎 GET /companies/:id/understanding-preview 同形，注册即建档第 1 步）。 */
+const ONBOARDING_PREVIEW = {
+  companyId: 'company-e2e',
+  name: 'E2E 测试公司',
+  website: 'https://example.org',
+  status: 'REVIEW',
+  state: 'ready',
+  failure: null,
+  pagesAnalyzed: 4,
+  industry: {
+    raw: '精密机械制造',
+    suggested: {
+      raw: '精密机械制造',
+      code: '28',
+      label: '通用及专用设备制造',
+      labelEn: 'Manufacture of machinery',
+      matched: true,
+    },
+    options: [
+      { code: '28', label: '通用及专用设备制造', labelEn: 'Manufacture of machinery', nace: ['28'] },
+      { code: '25', label: '金属制品制造', labelEn: 'Fabricated metal products', nace: ['25'] },
+    ],
+  },
+  products: [
+    {
+      name: 'LED 灯具',
+      source: 'understanding',
+      sourceUrl: 'https://example.org/products',
+      evidence: 'LED lighting',
+    },
+  ],
+  markets: [
+    { code: 'DE', name: '德国', evidence: 'Export to Germany', sourceUrl: 'https://example.org/about' },
+  ],
+  updatedAt: '2026-11-10T08:00:00Z',
+};
+
 /** 失败信封：模拟 BFF 的三层文案错误（PRD §14.4）。 */
 export function errorPayload(
   code: string,
@@ -95,6 +134,7 @@ export async function installMockBackend(
       return this.calls.filter((call) => call.method === method && call.path.startsWith(pathPrefix));
     },
     onboardingComplete: options.onboardingComplete ?? true,
+    onboardingPreviewStarted: false,
     session,
     set(method, path, dataOrHandler) {
       overrides.set(`${method} ${path}`, dataOrHandler);
@@ -166,6 +206,14 @@ export async function installMockBackend(
       if (path === '/auth/session') return fulfill(route, session);
       if (path === '/auth/registration-policy') return fulfill(route, { inviteCodeRequired: false });
       if (path === '/onboarding/status') return fulfill(route, { complete: backend.onboardingComplete });
+      if (path === '/onboarding/preview') {
+        return fulfill(
+          route,
+          backend.onboardingPreviewStarted
+            ? { started: true, preview: ONBOARDING_PREVIEW }
+            : { started: false },
+        );
+      }
       if (path === '/workspace/context') {
         return fulfill(route, {
           user: session.user,
@@ -181,6 +229,10 @@ export async function installMockBackend(
       return fulfill(route, null);
     }
 
+    if (path === '/onboarding/preview') {
+      backend.onboardingPreviewStarted = true;
+      return fulfill(route, { started: true, preview: ONBOARDING_PREVIEW });
+    }
     if (path === '/onboarding/company') backend.onboardingComplete = true;
     return fulfill(route, {});
   });

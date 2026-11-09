@@ -70,28 +70,33 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
 
-  // 注册 → 会话 → 引导未完成 → 强制进入向导
+  // 注册 → 会话 → 引导未完成 → 强制进入向导（注册即建档：先官网，再确认预览）
   await page.waitForURL(/\/onboarding/);
-  await expect(page.getByRole('heading', { name: '完善企业档案' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '完善公司档案' })).toBeVisible();
   await page.locator('input[placeholder*="https://"]').fill('https://example.org');
+  await page.getByRole('button', { name: '开始理解' }).click();
 
-  await page.getByRole('button', { name: '下一步' }).click();
-  await page.locator('.product-row input').fill('LED 灯具');
-  // antd 会在两个汉字的按钮文本中插入空格（“添 加”），按行定位规避
-  await page.locator('.product-row button').click();
-  await page.getByRole('button', { name: '下一步' }).click();
-  await page.locator('.onboarding-section .ant-select').click();
-  await page.locator('.ant-select-item-option').first().click();
-  await page.keyboard.press('Escape'); // 收起下拉，避免遮挡提交按钮
+  // 理解预览：行业/产品/市场候选默认勾选，客户确认后提交。
+  await expect(page.getByText('我们读完了官网')).toBeVisible();
+  await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.getByRole('button', { name: '完成建档' }).click();
 
   await page.waitForURL(/\/workspace/);
   const call = backend.take('POST', '/onboarding/company');
   expect(call, '应向 BFF 提交建档').toBeTruthy();
-  const body = call!.body as { name?: string; products?: string[]; targetMarkets?: string[] };
+  const body = call!.body as {
+    name?: string;
+    industryCode?: string;
+    products?: string[];
+    targetMarkets?: string[];
+  };
   expect(body.name).toBe('E2E 测试公司');
+  expect(body.industryCode).toBe('28');
   expect(body.products).toEqual(['LED 灯具']);
-  expect(body.targetMarkets?.length).toBe(1);
+  expect(body.targetMarkets).toEqual(['DE']);
 });
 
 test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
