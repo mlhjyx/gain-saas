@@ -170,6 +170,11 @@ const schema = z.object({
     .default(3_600_000),
   // HALF_OPEN 复核小批上限（ch05 §5.3.5.6：人工恢复后先发 ≤10 封）。
   OUTREACH_HALF_OPEN_BATCH_LIMIT: z.coerce.number().int().min(1).max(50).default(10),
+  // 触达授权签发（P4-03 签发侧）：默认不自动签发（批次批准后由管理员端点手动签发）；
+  // 授权 TTL 默认 7 天且不超过计划窗口 notAfter；计划窗口默认 7 天。
+  OUTREACH_AUTHORIZATION_AUTO_ISSUE: z.string().default('false').transform((v) => v === 'true'),
+  OUTREACH_AUTHZ_TTL_MINUTES: z.coerce.number().int().min(5).max(43200).default(10080),
+  OUTREACH_AUTHZ_SCHEDULE_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   // 指标与成本报表（P4-09）：默认窗口 4 周；周快照 worker 默认关闭（可由 API 手动触发）。
   OUTREACH_METRICS_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(28),
   OUTREACH_METRICS_SNAPSHOT_ENABLED: z.string().default('false').transform((v) => v === 'true'),

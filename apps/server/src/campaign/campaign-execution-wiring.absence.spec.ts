@@ -45,6 +45,7 @@ describe('campaign execution wiring（P4 首波接线后的结构断言）', () 
     // outreach 侧的 OutreachAuthorizationConsumer 是执行器唯一的只读消费点。
     expect(referencing).toEqual([
       'campaign/campaign.service.ts',
+      'campaign/outreach-authorization.issuer.ts',
       'ops/ops.service.ts',
       'outreach/outreach-authorization.consumer.ts',
     ]);

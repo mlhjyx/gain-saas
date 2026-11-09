@@ -628,7 +628,11 @@ export class CampaignService {
   }): Promise<AuthorizationVerifyResult> {
     const token = typeof input.token === 'string' ? input.token : '';
     const planHash = typeof input.planHash === 'string' ? input.planHash : '';
-    const action = input.action as { type?: unknown; icpIds?: unknown } | undefined;
+    const action = input.action as {
+      type?: unknown;
+      icpIds?: unknown;
+      batchId?: unknown;
+    } | undefined;
     if (!token || !planHash || typeof action?.type !== 'string') {
       return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
     }
@@ -653,11 +657,20 @@ export class CampaignService {
       return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_REVOKED' };
     }
     const scope = authorization.scope as {
-      actions?: Array<{ type?: string; icpIds?: string[] }>;
+      schemaVersion?: unknown;
+      actions?: Array<{ type?: string; icpIds?: string[]; batchId?: string }>;
     };
     const matched = (scope.actions ?? []).find((item) => item.type === action.type);
     if (!matched) return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
-    if (Array.isArray(action.icpIds) && action.icpIds.length > 0) {
+    if (scope.schemaVersion === 'campaign-authz/v2') {
+      // v2（触达批次）按 batchId 绑定校验；调用方给出 batchId 时必须一致。
+      if (
+        action.batchId !== undefined &&
+        (typeof action.batchId !== 'string' || matched.batchId !== action.batchId)
+      ) {
+        return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
+      }
+    } else if (Array.isArray(action.icpIds) && action.icpIds.length > 0) {
       const allowed = new Set(matched.icpIds ?? []);
       for (const icpId of action.icpIds) {
         if (typeof icpId !== 'string' || !allowed.has(icpId)) {

@@ -23,6 +23,8 @@ const verifyBody = z.object({
   action: z.object({
     type: z.string().min(1).max(64),
     icpIds: z.array(z.string().uuid()).max(20).optional(),
+    /** campaign-authz/v2（触达批次）绑定校验用。 */
+    batchId: z.string().uuid().optional(),
   }),
 });
 

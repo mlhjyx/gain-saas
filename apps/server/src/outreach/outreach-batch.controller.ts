@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
+import { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.issuer.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { OutreachBatchService } from './outreach-batch.service.js';
@@ -49,7 +50,20 @@ function invalid(message: string): never {
 @Controller('api/outreach/batches')
 @UseGuards(TenantGuard)
 export class OutreachBatchController {
-  constructor(private readonly batches: OutreachBatchService) {}
+  constructor(
+    private readonly batches: OutreachBatchService,
+    private readonly authorizations: OutreachAuthorizationIssuer,
+  ) {}
+
+  /**
+   * 手动签发/绑定 ExecutionAuthorization v2（P4-03 签发侧）。幂等：已绑定未过期授权时原样返回。
+   * 真实发送仍受 OUTREACH_SEND_ENABLED / 影子 / 授权校验多重门保护。
+   */
+  @Post(':batchId/authorize')
+  @UseGuards(AdminGuard)
+  async authorize(@Req() req: Request, @Param('batchId') batchId: string) {
+    return { data: await this.authorizations.issue(req.tenant!, batchId) };
+  }
 
   @Get()
   async list(@Req() req: Request) {

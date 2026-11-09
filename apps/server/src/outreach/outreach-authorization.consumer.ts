@@ -1,11 +1,13 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { hashOutreachAudience, hashOutreachDraftSet } from './outreach-content.js';
 import { normalizeCountry } from './outreach-jurisdiction.js';
+
+export { hashOutreachAudience, hashOutreachDraftSet } from './outreach-content.js';
 
 /**
  * ExecutionAuthorization v2 的只读消费（第 5 章 D5-4 / P4-03）。
@@ -102,27 +104,6 @@ export interface OutreachAuthorizationGrant {
   action: OutreachAuthorizationAction;
 }
 
-
-/** 收件人集合哈希：sha256(sorted(contactRefs).join('\n'))，与签发方同构。 */
-export function hashOutreachAudience(contactRefs: readonly string[]): string {
-  return createHash('sha256')
-    .update([...contactRefs].sort().join('\n'))
-    .digest('hex');
-}
-
-/** 草稿集哈希：sha256(sorted(`${draftId}:${contentHash}`).join('\n'))，防替换单封。 */
-export function hashOutreachDraftSet(
-  drafts: ReadonlyArray<{ id: string; contentHash?: string | null }>,
-): string {
-  return createHash('sha256')
-    .update(
-      drafts
-        .map((draft) => `${draft.id}:${draft.contentHash ?? ''}`)
-        .sort()
-        .join('\n'),
-    )
-    .digest('hex');
-}
 
 function reject(code: string, message: string): never {
   throw new ConflictException({ error: { code, message } });

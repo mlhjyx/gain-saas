@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.issuer.js';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -13,6 +14,11 @@ import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import { hashOutreachDrafts } from './outreach-content.js';
 import { sendJobKey } from './outreach-send-jobs.service.js';
+
+function authorizationErrorCode(error: unknown): string {
+  const code = (error as { response?: { error?: { code?: unknown } } })?.response?.error?.code;
+  return typeof code === 'string' ? code : 'AUTHORIZATION_ISSUE_FAILED';
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -87,7 +93,8 @@ export class OutreachBatchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    @Inject(APP_CONFIG) config: AppConfig,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly authorizationIssuer: OutreachAuthorizationIssuer,
   ) {
     this.approvalTtlMs = config.OUTREACH_APPROVAL_TTL_HOURS * 3600_000;
     // 单批收件人上限（M2 D-11-d：≤50），建草稿与提交两个入口都拦。
@@ -385,6 +392,15 @@ export class OutreachBatchService {
         target: batchId,
         detail: { approvalId, selfApproval: approval.requestedBy === tenant.userId },
       });
+      // P4-03 签发侧：默认不自动签发（OUTREACH_AUTHORIZATION_AUTO_ISSUE=false）；
+      // 开启后审批即签发 v2 授权并绑定批次，失败只落事件、不回滚审批本身。
+      if (this.config.OUTREACH_AUTHORIZATION_AUTO_ISSUE) {
+        await this.authorizationIssuer.issue(tenant, batchId).catch(async (error) => {
+          await this.event(tenant, batchId, 'AUTHORIZATION_ISSUE_FAILED', {
+            code: authorizationErrorCode(error),
+          });
+        });
+      }
     } else {
       await this.prisma.$transaction(async (tx) => {
         await tx.outreachBatchApproval.update({
