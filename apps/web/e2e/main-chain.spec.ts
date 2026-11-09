@@ -70,28 +70,33 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
 
-  // 注册 → 会话 → 引导未完成 → 强制进入向导
+  // 注册 → 会话 → 引导未完成 → 强制进入向导（注册即建档：先官网，再确认预览）
   await page.waitForURL(/\/onboarding/);
-  await expect(page.getByRole('heading', { name: '完善企业档案' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '完善公司档案' })).toBeVisible();
   await page.locator('input[placeholder*="https://"]').fill('https://example.org');
+  await page.getByRole('button', { name: '开始理解' }).click();
 
-  await page.getByRole('button', { name: '下一步' }).click();
-  await page.locator('.product-row input').fill('LED 灯具');
-  // antd 会在两个汉字的按钮文本中插入空格（“添 加”），按行定位规避
-  await page.locator('.product-row button').click();
-  await page.getByRole('button', { name: '下一步' }).click();
-  await page.locator('.onboarding-section .ant-select').click();
-  await page.locator('.ant-select-item-option').first().click();
-  await page.keyboard.press('Escape'); // 收起下拉，避免遮挡提交按钮
+  // 理解预览：行业/产品/市场候选默认勾选，客户确认后提交。
+  await expect(page.getByText('我们读完了官网')).toBeVisible();
+  await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.getByRole('button', { name: '完成建档' }).click();
 
   await page.waitForURL(/\/workspace/);
   const call = backend.take('POST', '/onboarding/company');
   expect(call, '应向 BFF 提交建档').toBeTruthy();
-  const body = call!.body as { name?: string; products?: string[]; targetMarkets?: string[] };
+  const body = call!.body as {
+    name?: string;
+    industryCode?: string;
+    products?: string[];
+    targetMarkets?: string[];
+  };
   expect(body.name).toBe('E2E 测试公司');
+  expect(body.industryCode).toBe('28');
   expect(body.products).toEqual(['LED 灯具']);
-  expect(body.targetMarkets?.length).toBe(1);
+  expect(body.targetMarkets).toEqual(['DE']);
 });
 
 test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
@@ -289,7 +294,7 @@ test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
   expect(body.nextStep).toBe('已收到客户回复，约下周电话');
 });
 
-test('主链路 5：战役计划审批 → 已批准 → 影子横幅（不执行）', async ({ page }) => {
+test('主链路 5：战役计划审批 → 已批准 → 运行期横幅（按授权执行）', async ({ page }) => {
   const backend = await installMockBackend(page);
   const detail = {
     authorizations: [],
@@ -366,11 +371,11 @@ test('主链路 5：战役计划审批 → 已批准 → 影子横幅（不执�
   await page.waitForURL(/\/campaigns\/camp-1/);
   await settle(page);
   await expect(page.getByRole('heading', { name: '待审批' })).toBeVisible();
-  await expect(page.getByText('影子期：批准不会真的执行；我们只记录决策与指标。')).toBeVisible();
+  await expect(page.getByText('批准后将签发执行授权并进入执行；发送仍受国家合规门与渠道授权约束。')).toBeVisible();
   await page.getByRole('button', { name: '批准' }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: '批准' }).click();
-  await expect(page.getByText('已批准，系统已签发执行授权（影子期不会真的执行）。')).toBeVisible();
-  // 影子期没有任何“执行”动作入口
+  await expect(page.getByText('已批准，系统已签发执行授权。')).toBeVisible();
+  // 批准即签发授权：页面不额外暴露手动“执行”入口
   await expect(page.getByRole('button', { name: /执行/ })).toHaveCount(0);
 });
 
@@ -510,7 +515,7 @@ test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发
   await loginAs(page);
   await page.goto('/growth?tab=outreach');
   await settle(page);
-  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与影子语义仍需可见
+  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与「批准入队、发送受开关约束」语义仍需可见
   await expect(page.getByText('草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。')).toBeVisible();
   await expect(page.getByText('einkauf@muster.de')).toBeVisible();
   await expect(page.getByText('关于工业泵供应的合作')).toBeVisible();

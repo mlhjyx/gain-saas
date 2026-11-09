@@ -11,6 +11,8 @@ export interface CompanyProfile {
   domain?: string | null;
   status?: string;
   industry?: string | null;
+  /** 受控行业码（canonical_taxonomy kind=industry 的 ISIC code；自由文本行业时为空）。 */
+  industryCode?: string | null;
   /** 目标市场（ISO 3166-1 alpha-2；注册引导填写的卖家事实）。 */
   targetMarkets?: string[];
   /** 公司级询盘接收缺省邮箱（注册引导填写）。 */
@@ -664,10 +666,66 @@ export interface OnboardingCompanyInput {
   name?: string;
   website?: string;
   industry?: string;
+  /** 受控行业码（理解预览确认时提交；引擎以词表校验并回填 industry 标签）。 */
+  industryCode?: string;
   targetMarkets?: string[];
   products?: string[];
   businessEmail?: string;
 }
+
+/** 理解预览：受控行业词表节点。 */
+export interface OnboardingIndustryOption {
+  code: string;
+  label: string;
+  labelEn: string;
+  labels?: Record<string, string>;
+  parentCode?: string | null;
+  nace?: string[];
+}
+
+export interface OnboardingIndustrySuggestion {
+  raw: string | null;
+  code: string | null;
+  label: string | null;
+  labelEn: string | null;
+  matched: boolean;
+}
+
+/** 理解预览（BFF 透传引擎 GET /companies/:id/understanding-preview）。 */
+export interface OnboardingPreview {
+  companyId: string;
+  name: string;
+  website: string | null;
+  status: string;
+  state: 'not_started' | 'queued' | 'running' | 'ready' | 'failed';
+  failure: { stage: string; code: string } | null;
+  pagesAnalyzed: number;
+  industry: {
+    raw: string | null;
+    suggested: OnboardingIndustrySuggestion;
+    options: OnboardingIndustryOption[];
+  };
+  products: Array<{
+    name: string;
+    source?: string | null;
+    sourceUrl?: string | null;
+    evidence?: string | null;
+  }>;
+  markets: Array<{
+    code: string;
+    name: string;
+    labelEn?: string;
+    labels?: Record<string, string>;
+    evidence: string;
+    sourceUrl?: string | null;
+  }>;
+  updatedAt?: string;
+}
+
+/** 预览查询结果：未开始（无草稿档案）或已开始。 */
+export type OnboardingPreviewState =
+  | { started: false }
+  | { started: true; preview: OnboardingPreview };
 
 /** 企业档案建档入参（官网可选；无官网时必须给名称）。 */
 export interface UpdateCompanyInput {
@@ -1026,6 +1084,11 @@ export const gainosApi = {
     requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),
   completeOnboarding: (input: OnboardingCompanyInput) =>
     requestClient.post<CompanyProfile>('/onboarding/company', input),
+  /** 注册即建档：先官网（或名称）建草稿档案并触发理解，返回可轮询的预览。 */
+  startOnboardingPreview: (input: { website?: string; name?: string }) =>
+    requestClient.post<{ started: true; preview: OnboardingPreview }>('/onboarding/preview', input),
+  /** 恢复进行中的理解预览；未开始时返回 { started: false }。 */
+  onboardingPreview: () => requestClient.get<OnboardingPreviewState>('/onboarding/preview'),
   // ── M2.1 Campaign 控制面（docs/superpowers/plans/2026-11-08-campaign-planner-m2-1.md）──
   campaigns: () => requestClient.get<CampaignSummary[]>('/campaigns'),
   campaign: (campaignId: string) => requestClient.get<CampaignDetail>(`/campaigns/${campaignId}`),

@@ -379,6 +379,36 @@ export const ENGINE_ERROR_COPY = {
       next: "Complete the guided setup (company, products, target markets).",
     },
   },
+  ONBOARDING_UNDERSTANDING_IN_PROGRESS: {
+    title: '官网还在理解中',
+    why: '系统正在阅读企业官网，理解结束前写入信息会被稍后的结果覆盖。',
+    next: '等预览结果出现后再勾选确认；通常只需要 1–3 分钟。',
+    en: {
+      title: "Your website is still being read",
+      why: "We are still reading the company website; details written now would be overwritten when it finishes.",
+      next: "Confirm once the preview appears — it usually takes 1–3 minutes.",
+    },
+  },
+  ONBOARDING_FACTS_NOT_ALLOWED: {
+    title: '当前档案状态不能完成建档',
+    why: '档案已进入不可编辑的状态（例如正在理解或已生效）。',
+    next: '刷新页面查看最新状态；如仍失败，请到公司档案页处理或联系运营。',
+    en: {
+      title: "The profile cannot take these details right now",
+      why: "The profile is in a state that is not editable (for example, still being read or already active).",
+      next: "Refresh to see the latest state; if it persists, use the company profile page or contact operations.",
+    },
+  },
+  UNKNOWN_INDUSTRY_CODE: {
+    title: '所选行业不在行业词表中',
+    why: '行业使用受控词表，客户端提交了词表之外的代码。',
+    next: '刷新页面后重新选择行业；若仍失败请联系运营。',
+    en: {
+      title: "That industry is not in the list",
+      why: "Industry uses a controlled list; the submitted code is not part of it.",
+      next: "Refresh and pick the industry again; contact operations if it keeps failing.",
+    },
+  },
   RATE_LIMITED: {
     title: '操作太频繁，请稍后再试',
     why: '登录与敏感操作有频率限制，用于保护账号安全。',
