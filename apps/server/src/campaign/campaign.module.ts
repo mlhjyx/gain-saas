@@ -11,6 +11,7 @@ import { CampaignPlanJobService } from './campaign-plan-job.service.js';
 import { CampaignReplanService } from './campaign-replan.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignTokenSigner } from './campaign-token.signer.js';
+import { OutreachAuthorizationIssuer } from './outreach-authorization.issuer.js';
 
 /**
  * M2.0/M2.1 Campaign 控制面（docs/technical/campaign-control-plane-m2-0.md、
@@ -33,7 +34,8 @@ import { CampaignTokenSigner } from './campaign-token.signer.js';
     CampaignPlanEngineClient,
     CampaignPlanJobService,
     CampaignReplanService,
+    OutreachAuthorizationIssuer,
   ],
-  exports: [CampaignService],
+  exports: [CampaignService, OutreachAuthorizationIssuer],
 })
 export class CampaignModule {}

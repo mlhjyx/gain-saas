@@ -315,9 +315,11 @@ class FakePrisma {
 function build(prisma = new FakePrisma(), configOverrides: Partial<AppConfig> = {}) {
   const audit = { record: vi.fn(async () => undefined) } as never;
   const config = { OUTREACH_APPROVAL_TTL_HOURS: 72, ...configOverrides } as AppConfig;
+  const issuer = { issue: vi.fn(async () => ({ authorization: { id: 'auth-1' }, created: true })) };
   return {
     prisma,
-    service: new OutreachBatchService(prisma as never, audit, config),
+    issuer,
+    service: new OutreachBatchService(prisma as never, audit, config, issuer as never),
   };
 }
 
@@ -405,6 +407,46 @@ describe('OutreachBatchService', () => {
     await expect(service.getBatch(tenantB, batch.id)).rejects.toMatchObject({
       response: { error: { code: 'OUTREACH_BATCH_NOT_FOUND' } },
     });
+  });
+
+  it('授权签发开关：默认关（批准不签发）；开启后批准即签发并绑定', async () => {
+    const off = build();
+    const batchOff = await off.service.createBatch(tenantA, { name: '默认关' });
+    await off.service.addDraft(tenantA, batchOff.id, draftInput());
+    const approvalOff = await off.service.submitBatch(tenantA, batchOff.id);
+    await off.service.decideApproval(tenantA, batchOff.id, approvalOff.id, {
+      decision: 'approve',
+    });
+    expect(off.issuer.issue).not.toHaveBeenCalled();
+
+    const on = build(new FakePrisma(), { OUTREACH_AUTHORIZATION_AUTO_ISSUE: true });
+    const batchOn = await on.service.createBatch(tenantA, { name: '自动签发' });
+    await on.service.addDraft(tenantA, batchOn.id, draftInput());
+    const approvalOn = await on.service.submitBatch(tenantA, batchOn.id);
+    await on.service.decideApproval(tenantA, batchOn.id, approvalOn.id, {
+      decision: 'approve',
+    });
+    expect(on.issuer.issue).toHaveBeenCalledTimes(1);
+    expect(on.issuer.issue).toHaveBeenCalledWith(tenantA, batchOn.id);
+  });
+
+  it('自动签发失败不回滚审批：落 AUTHORIZATION_ISSUE_FAILED 事件', async () => {
+    const { service, issuer, prisma } = build(new FakePrisma(), {
+      OUTREACH_AUTHORIZATION_AUTO_ISSUE: true,
+    });
+    issuer.issue.mockRejectedValueOnce({
+      response: { error: { code: 'OUTREACH_APPROVAL_EXPIRED' } },
+    });
+    const batch = await service.createBatch(tenantA, { name: '签发失败' });
+    await service.addDraft(tenantA, batch.id, draftInput());
+    const approval = await service.submitBatch(tenantA, batch.id);
+    const result = await service.decideApproval(tenantA, batch.id, approval.id, {
+      decision: 'approve',
+    });
+    expect(result.status).toBe('QUEUED');
+    const failed = prisma.events.find((event) => event.type === 'AUTHORIZATION_ISSUE_FAILED');
+    expect(failed).toBeTruthy();
+    expect(failed!.detail).toMatchObject({ code: 'OUTREACH_APPROVAL_EXPIRED' });
   });
 
   it('records self-approval in the event detail', async () => {

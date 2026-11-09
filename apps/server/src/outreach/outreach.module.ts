@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CampaignModule } from '../campaign/campaign.module.js';
 import { ConfigModule } from '../shared/config.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { OutreachBatchController } from './outreach-batch.controller.js';
@@ -57,7 +58,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
  * 11-2/11-3 复用 OutreachConsentService；审批链仍走 M2.0 CampaignModule。
  */
 @Module({
-  imports: [ConfigModule, TenantModule],
+  imports: [ConfigModule, TenantModule, CampaignModule],
   controllers: [
     OutreachController,
     OutreachBatchController,

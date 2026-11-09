@@ -33,3 +33,28 @@ export function hashDraftField(value: string): string {
 export function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
+
+/**
+ * 授权 v2 的收件人集合哈希：sha256(sorted(contactRefs).join('\n'))。
+ * 签发端（campaign/outreach-authorization.issuer）与消费端（outreach-authorization.consumer）
+ * 必须使用同一实现——放在本文件以避免两侧漂移。
+ */
+export function hashOutreachAudience(contactRefs: readonly string[]): string {
+  return createHash('sha256')
+    .update([...contactRefs].sort().join('\n'))
+    .digest('hex');
+}
+
+/** 草稿集哈希：sha256(sorted(`${draftId}:${contentHash}`).join('\n'))，防替换单封。 */
+export function hashOutreachDraftSet(
+  drafts: ReadonlyArray<{ id: string; contentHash?: string | null }>,
+): string {
+  return createHash('sha256')
+    .update(
+      drafts
+        .map((draft) => `${draft.id}:${draft.contentHash ?? ''}`)
+        .sort()
+        .join('\n'),
+    )
+    .digest('hex');
+}
