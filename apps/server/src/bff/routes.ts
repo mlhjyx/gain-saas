@@ -125,6 +125,22 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // ── 数据主体删除请求(DSR,A6)──
   { method: 'POST', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },
   { method: 'GET', saasPath: 'deletion-requests/:id', enginePath: '/deletion-requests/:id', access: 'admin' },
+
+  // ── 判定复核队列(引擎 P3 J17;scope acquisition:review / acquisition:read)──
+  // 两个 scope 都映射给 saas-admin 与 saas-member,队列与裁决对成员开放
+  // (与 leads accept/reject 的裁决面同一授权口径)。
+  { method: 'GET', saasPath: 'judgment-reviews', enginePath: '/judgment-reviews', access: 'member' },
+  { method: 'POST', saasPath: 'judgment-reviews/:id/claim', enginePath: '/judgment-reviews/:id/claim', access: 'member' },
+  { method: 'POST', saasPath: 'judgment-reviews/:id/resolve', enginePath: '/judgment-reviews/:id/resolve', access: 'member' },
+  // 统计必须先于 :id 注册:BFF 按表顺序匹配,否则 GET /judgments/stats 会被当成判定明细。
+  { method: 'GET', saasPath: 'judgments/stats', enginePath: '/judgments/stats', access: 'member' },
+  { method: 'GET', saasPath: 'judgments/:id', enginePath: '/judgments/:id', access: 'member' },
+
+  // ── 度量(ch01 PR-04;只读,scope acquisition:read,成员可用)──
+  { method: 'GET', saasPath: 'metrics/vric', enginePath: '/metrics/vric', access: 'member' },
+  { method: 'GET', saasPath: 'metrics/catalog', enginePath: '/metrics/catalog', access: 'member' },
+  { method: 'GET', saasPath: 'metrics/observations', enginePath: '/metrics/observations', access: 'member' },
+  { method: 'GET', saasPath: 'metrics/rollups', enginePath: '/metrics/rollups', access: 'member' },
 ];
 
 export interface BudgetQuoteOptions {

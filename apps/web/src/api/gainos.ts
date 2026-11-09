@@ -1101,6 +1101,34 @@ export const gainosApi = {
     ),
   reopenOutreachBatch: (batchId: string) =>
     requestClient.post<OutreachBatchDetail>(`/outreach/batches/${batchId}/reopen`, {}),
+  // ── 判定复核队列（引擎 P3 J17；requestClient 已解一层 {data}，列表值是 {items,nextCursor}）──
+  judgmentReviews: (
+    params: { cursor?: string; limit?: number; priority?: number; status?: string } = {},
+  ) => requestClient.get<JudgmentReviewTaskPage>('/judgment-reviews', { params }),
+  claimJudgmentReview: (reviewId: string) =>
+    requestClient.post<{ status: string }>(`/judgment-reviews/${reviewId}/claim`, {}),
+  resolveJudgmentReview: (
+    reviewId: string,
+    input: { verdict: ReviewVerdict; note?: string; criterionOverrides?: Array<{ id: string; score?: number | null; label?: string }> },
+  ) =>
+    requestClient.post<{ recordId: string; goldenLabelId: string }>(
+      `/judgment-reviews/${reviewId}/resolve`,
+      input,
+    ),
+  judgment: (judgmentId: string) => requestClient.get<JudgmentDetail>(`/judgments/${judgmentId}`),
+  judgmentStats: (window = 7) =>
+    requestClient.get<JudgmentReviewStats>('/judgments/stats', { params: { window } }),
+  // ── 度量（ch01 PR-04）：分页端点保留引擎 page 信封（游标/截断）──
+  vricSeries: (
+    params: { from?: string; granularity?: 'daily' | 'weekly'; limit?: number; to?: string } = {},
+  ) => pagedGet<VricBucket>('/metrics/vric', params),
+  metricCatalog: () => pagedGet<MetricCatalogItem>('/metrics/catalog'),
+  metricObservations: (
+    params: { cursor?: string; from?: string; limit?: number; metricId?: string; to?: string } = {},
+  ) => pagedGet<MetricObservation>('/metrics/observations', params),
+  metricRollups: (
+    params: { cursor?: string; from?: string; granularity?: 'daily' | 'weekly'; limit?: number; metricId?: string; to?: string } = {},
+  ) => pagedGet<MetricRollup>('/metrics/rollups', params),
 };
 
 export interface OutreachDraftInput {
@@ -1216,6 +1244,144 @@ export interface PromoteQgoInput {
   evidence: QgoEvidenceItem[];
   nextStep: string;
   campaignId?: string;
+}
+
+// ── 判定复核队列（引擎 P3 J17，BFF /judgment-reviews 与 /judgments）────────────
+export type ReviewVerdict = 'FIT' | 'NOT_FIT' | 'UNKNOWN';
+
+export interface JudgmentReviewTask {
+  id: string;
+  judgmentRecordId: string;
+  reason: string;
+  /** 0=P0 … 3=P3；展示前经 glossaryStatus('reviewPriority', String(priority))。 */
+  priority: number;
+  status: string;
+  dueAt: string | null;
+  verdictAtJudge: string;
+  companyName: string | null;
+}
+
+export interface JudgmentReviewTaskPage {
+  items: JudgmentReviewTask[];
+  nextCursor: string | null;
+}
+
+export interface JudgmentCriterionEvidence {
+  kind: string;
+  url: string;
+  span: string;
+  fetched_at?: string;
+}
+
+export interface JudgmentCriterion {
+  id: string;
+  applicable: boolean;
+  score: number | null;
+  label: string;
+  evidence: JudgmentCriterionEvidence[];
+  rationale: string;
+}
+
+/** 单条判定明细（引擎 getJudgment：criteria/verdict/model/failureCode）。 */
+export interface JudgmentDetail {
+  id: string;
+  verdict: string;
+  criteria: JudgmentCriterion[];
+  canonicalCompanyId: string;
+  modelRequested: string | null;
+  failureCode: string | null;
+  createdAt: string;
+}
+
+export interface JudgmentReviewStats {
+  windowDays: number;
+  byStatus: Record<string, number>;
+  byReason: Record<string, number>;
+  byPriority: Record<string, number>;
+  overturn: { resolved: number; overturned: number; rate: number | null };
+}
+
+// ── 度量（引擎 ch01 PR-04：catalog / observations / rollups / vric）────────────
+/** 一桶一侧的口径值（STRICT=T0-001 / PLUS=T0-002）。 */
+export interface VricValue {
+  metricVersion: number;
+  numerator: number;
+  denominator: number | null;
+  value: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  sampleN: number | null;
+  refreshedAt: string;
+}
+
+/** VRIC 成对桶：同一 bucket + stratum 下 STRICT/PLUS 并排；缺哪侧哪侧为 null。 */
+export interface VricBucket {
+  bucket: string;
+  stratumKey: string;
+  strict: VricValue | null;
+  plus: VricValue | null;
+}
+
+export interface MetricCatalogItem {
+  metricId: string;
+  version: number;
+  name: string;
+  tier: string;
+  unit: string;
+  status: string;
+  owner: string;
+  effectiveFrom: string;
+  definition: string;
+}
+
+export interface MetricObservation {
+  id: string;
+  metricId: string;
+  metricVersion: number;
+  stratum: unknown;
+  windowStart: string;
+  windowEnd: string;
+  numerator: number;
+  denominator: number | null;
+  value: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  sampleN: number | null;
+  computedAt: string;
+}
+
+export interface MetricRollup {
+  bucket: string;
+  metricId: string;
+  metricVersion: number;
+  stratum: unknown;
+  stratumKey: string;
+  numerator: number;
+  denominator: number | null;
+  value: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  sampleN: number | null;
+  refreshedAt: string;
+}
+
+/** 引擎分页信封 `{data, page:{next_cursor,has_more}}`（requestClient 只解 data，会丢 page）。 */
+export interface PagedResult<T> {
+  data: T[];
+  page?: { next_cursor?: string | null; has_more?: boolean };
+}
+
+/**
+ * 分页只读端点的原样信封：用 baseRequestClient 保留 `page`（游标/截断标记）。
+ * 返回 `response.data`——即 BFF 透传的引擎信封本体。
+ */
+async function pagedGet<T>(
+  url: string,
+  params: Record<string, unknown> = {},
+): Promise<PagedResult<T>> {
+  const response = await baseRequestClient.get<unknown>(url, { params });
+  const body = (response as { data?: PagedResult<T> }).data;
+  return { data: body?.data ?? [], ...(body?.page ? { page: body.page } : {}) };
 }
 
 export type QgoOutcomeValue =
