@@ -871,6 +871,66 @@ export const ENGINE_ERROR_COPY = {
       next: "Create a new experiment to continue testing.",
     },
   },
+  OUTREACH_TEMPLATE_NOT_FOUND: {
+    title: '模板版本不存在',
+    why: '该模板可能已被删除，或不属于当前工作空间。',
+    next: '刷新模板列表后重试。',
+    en: {
+      title: "The template version does not exist",
+      why: "It may have been deleted or belong to another workspace.",
+      next: "Refresh the template list and retry.",
+    },
+  },
+  OUTREACH_TEMPLATE_STATE_INVALID: {
+    title: '模板当前状态不允许该操作',
+    why: '模板要按 草稿→法审→已批准→已生效 的顺序流转，跳步会被拒绝。',
+    next: '刷新模板状态，按流程完成上一步后再试。',
+    en: {
+      title: "The template state does not allow this action",
+      why: "Templates move draft → legal review → approved → active; skipping steps is rejected.",
+      next: "Refresh the state and complete the previous step first.",
+    },
+  },
+  OUTREACH_TEMPLATE_REVIEW_MISMATCH: {
+    title: '法审内容与当前模板不一致',
+    why: '模板内容在法审之后被修改过；法审哈希只对当时审阅的版本有效。',
+    next: '重新提交当前版本做法审，用新的法审记录激活。',
+    en: {
+      title: "The legal review does not match this template",
+      why: "The template changed after review; a review hash only covers the version that was reviewed.",
+      next: "Send the current version for review again and approve with the new review.",
+    },
+  },
+  OUTREACH_LEGAL_REVIEW_NOT_FOUND: {
+    title: '法审记录不存在',
+    why: '该记录可能已被删除，或不属于当前工作空间。',
+    next: '刷新法审列表后重试。',
+    en: {
+      title: "The legal review record does not exist",
+      why: "It may have been deleted or belong to another workspace.",
+      next: "Refresh the legal review list and retry.",
+    },
+  },
+  OUTREACH_LEGAL_REVIEW_NOT_APPROVED: {
+    title: '法审结论不是通过',
+    why: '只有 APPROVED 的法审记录可以激活模板；CONDITIONS 需要按意见修改后重新送审。',
+    next: '按法审意见修改模板并重新送审，取得 APPROVED 记录后再激活。',
+    en: {
+      title: "The legal review is not approved",
+      why: "Only an APPROVED review can activate a template; CONDITIONS require changes and a new review.",
+      next: "Apply the review's conditions, re-submit, and activate once an APPROVED review exists.",
+    },
+  },
+  OUTREACH_LEGAL_REVIEW_KIND_MISMATCH: {
+    title: '法审类型与模板类型不匹配',
+    why: '邮件模板需要 email_template 法审；电话话术/同意措辞各自需要对应类型的法审。',
+    next: '用与模板类型匹配的法审记录重新绑定。',
+    en: {
+      title: "The legal review kind does not match the template",
+      why: "Email templates need an email_template review; phone scripts and consent wording need their own kinds.",
+      next: "Bind a review whose kind matches the template.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

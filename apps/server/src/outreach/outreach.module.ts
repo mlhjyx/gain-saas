@@ -17,9 +17,15 @@ import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachHealthController } from './outreach-health.controller.js';
 import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachHealthWorker } from './outreach-health.worker.js';
+import { OutreachLegalReviewsService } from './outreach-legal-reviews.service.js';
 import { OutreachMetricsController } from './outreach-metrics.controller.js';
 import { OutreachMetricsService } from './outreach-metrics.service.js';
 import { OutreachMetricsWorker } from './outreach-metrics.worker.js';
+import {
+  OutreachLegalReviewsController,
+  OutreachTemplatesController,
+} from './outreach-templates.controller.js';
+import { OutreachTemplatesService } from './outreach-templates.service.js';
 import { OutreachIngestService } from './outreach-ingest.service.js';
 import { OutreachSendJobsService } from './outreach-send-jobs.service.js';
 import { OutreachSenderWorker } from './outreach-sender.worker.js';
@@ -71,6 +77,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachHealthController,
     OutreachExperimentsController,
     OutreachMetricsController,
+    OutreachLegalReviewsController,
+    OutreachTemplatesController,
   ],
   providers: [
     OutreachConsentService,
@@ -95,6 +103,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachExperimentsService,
     OutreachMetricsService,
     OutreachMetricsWorker,
+    OutreachLegalReviewsService,
+    OutreachTemplatesService,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,

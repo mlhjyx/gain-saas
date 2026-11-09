@@ -534,6 +534,56 @@ model OutreachSendJob {
   @@map("outreach_send_job")
 }
 
+// ─── P4-05：法审记录与模板版本化（序列/话术/页脚的内容底座）───────────────────
+
+/// 法审记录（占位，等律师书面意见）：模板/话术/同意措辞/合法利益评估的审阅回执。
+/// verdict=APPROVED|CONDITIONS|REJECTED；只有 APPROVED 才能被模板版本引用激活（D5-11 发布门）。
+model LegalReview {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  /// email_template | phone_script | consent_wording | lia_letter
+  subjectKind  String   @map("subject_kind") @db.VarChar(32)
+  /// 被审文档内容哈希（与模板 contentHash 同构，激活时必须一致）。
+  documentHash String   @map("document_hash") @db.Char(64)
+  reviewerName String   @map("reviewer_name") @db.VarChar(200)
+  reviewerFirm String   @map("reviewer_firm") @db.VarChar(200)
+  reviewedAt   DateTime @map("reviewed_at") @db.Date
+  scope        String   @db.VarChar(500)
+  verdict      String   @db.VarChar(16)
+  conditions   String?
+  documentRef  String   @map("document_ref") @db.VarChar(256)
+  createdBy    String   @map("created_by") @db.VarChar(200)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([workspaceId, subjectKind])
+  @@map("legal_review")
+}
+
+/// 模板版本（P4-05）：每次修改=新版本；新版本默认 DRAFT（不生效）；
+/// 激活需绑定 APPROVED 且哈希一致的法审记录（LEGAL_REVIEW→APPROVED→ACTIVE→RETIRED）。
+model OutreachTemplateVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  /// email_first | email_followup | email_footer | phone_script | consent_wording
+  kind          String   @db.VarChar(32)
+  /// ISO 3166-1 alpha-2，或 ALL（未限定法域）。
+  jurisdiction  String   @default("ALL") @db.VarChar(3)
+  language      String   @db.VarChar(8)
+  version       Int
+  subject       String?  @db.VarChar(300)
+  body          String
+  contentHash   String   @map("content_hash") @db.Char(64)
+  legalReviewId String?  @map("legal_review_id") @db.Uuid
+  /// DRAFT | LEGAL_REVIEW | APPROVED | ACTIVE | RETIRED
+  state         String   @default("DRAFT") @db.VarChar(16)
+  createdBy     String   @map("created_by") @db.VarChar(200)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([workspaceId, kind, jurisdiction, language, version])
+  @@index([workspaceId, kind, state])
+  @@map("outreach_template_version")
+}
+
 // ─── P4-09：实验（holdout/AB）与指标快照 ──────────────────────────────────────
 
 /// 实验：分配盐与策略在创建时冻结，任何人可用同一函数复算分配（ch05 §5.3.7）。
