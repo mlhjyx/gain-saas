@@ -781,6 +781,46 @@ export const ENGINE_ERROR_COPY = {
       next: "Create a mailbox on this domain first, or check the spelling.",
     },
   },
+  OUTREACH_HALF_OPEN_CAP: {
+    title: '熔断复核期只允许小批发送',
+    why: '该发件资产因退信/投诉熔断后刚恢复，复核期先发不超过 10 封验证情况，其余邮件已顺延。',
+    next: '无需操作：草稿保留在批次里；复核通过（运营关闭熔断）后可继续发送。',
+    en: {
+      title: "Only a small batch is allowed during breaker review",
+      why: "This sending asset tripped the bounce/complaint breaker and is now under HALF_OPEN review; at most 10 messages go out and the rest are deferred.",
+      next: "No action needed: drafts stay in the batch; sending resumes after operations close the breaker.",
+    },
+  },
+  OUTREACH_BREAKER_NOT_FOUND: {
+    title: '熔断器记录不存在',
+    why: '该发件资产没有熔断记录，可能从未触发过熔断。',
+    next: '刷新健康面板核对发件资产的范围与引用名。',
+    en: {
+      title: "No breaker record found",
+      why: "This sending asset has no breaker record; it may never have tripped.",
+      next: "Refresh the health panel and check the scope and reference name.",
+    },
+  },
+  OUTREACH_BREAKER_NOT_OPEN: {
+    title: '该熔断器不处于熔断态',
+    why: '只有 OPEN（已熔断）的记录可以执行「恢复复核」。',
+    next: '刷新健康面板确认当前状态（CLOSED / OPEN / HALF_OPEN）。',
+    en: {
+      title: "This breaker is not open",
+      why: "Only an OPEN breaker can move to review (HALF_OPEN).",
+      next: "Refresh the health panel to see the current state (CLOSED / OPEN / HALF_OPEN).",
+    },
+  },
+  OUTREACH_BREAKER_NOT_HALF_OPEN: {
+    title: '该熔断器不处于复核态',
+    why: '只有 HALF_OPEN（复核中）的记录可以执行「复核通过、恢复发送」。',
+    next: '刷新健康面板确认当前状态后再操作。',
+    en: {
+      title: "This breaker is not under review",
+      why: "Only a HALF_OPEN breaker can be closed back to normal sending.",
+      next: "Refresh the health panel and retry when it is HALF_OPEN.",
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

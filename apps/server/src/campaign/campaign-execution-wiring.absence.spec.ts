@@ -108,7 +108,11 @@ describe('campaign execution wiring（P4 首波接线后的结构断言）', () 
       .filter((source) => source.text.includes('CAMPAIGN_EXECUTION_SHADOW'))
       .map((source) => source.rel)
       .sort();
-    expect(references).toEqual(['config/configuration.ts', 'outreach/outreach-send.service.ts']);
+    expect(references).toEqual([
+      'config/configuration.ts',
+      'outreach/outreach-send.service.ts',
+      'outreach/outreach-sender.worker.ts',
+    ]);
     const config = sources.find((source) => source.rel === 'config/configuration.ts')!;
     expect(config.text).toContain("CAMPAIGN_EXECUTION_SHADOW: z.string().default('true')");
   });

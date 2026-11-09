@@ -7,7 +7,16 @@ import { OutreachPublicController } from './outreach-public.controller.js';
 import { OutreachReplyController } from './outreach-reply.controller.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
 import { OutreachAuthorizationConsumer } from './outreach-authorization.consumer.js';
+import {
+  OUTREACH_BATCH_LOCK,
+  PostgresAdvisoryBatchLock,
+} from './outreach-batch-lock.js';
+import { OutreachHealthController } from './outreach-health.controller.js';
+import { OutreachHealthService } from './outreach-health.service.js';
+import { OutreachHealthWorker } from './outreach-health.worker.js';
 import { OutreachIngestService } from './outreach-ingest.service.js';
+import { OutreachSendJobsService } from './outreach-send-jobs.service.js';
+import { OutreachSenderWorker } from './outreach-sender.worker.js';
 import {
   ImapFlowClient,
   OUTREACH_IMAP_CLIENT,
@@ -53,6 +62,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachMailboxController,
     OutreachSeedTestController,
     OutreachWarmupController,
+    OutreachHealthController,
   ],
   providers: [
     OutreachConsentService,
@@ -68,6 +78,12 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     ImapFlowClient,
     { provide: OUTREACH_IMAP_CLIENT, useExisting: ImapFlowClient },
     OutreachImapPoller,
+    OutreachSendJobsService,
+    PostgresAdvisoryBatchLock,
+    { provide: OUTREACH_BATCH_LOCK, useExisting: PostgresAdvisoryBatchLock },
+    OutreachSenderWorker,
+    OutreachHealthService,
+    OutreachHealthWorker,
     OutreachSendService,
     OutreachReplyService,
     EngineOutreachDncChecker,

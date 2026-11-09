@@ -25,6 +25,7 @@ import {
   normalizeCountry,
   outreachJurisdictionPolicy,
 } from './outreach-jurisdiction.js';
+import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import { OutreachSendControls } from './outreach-send-controls.js';
@@ -125,6 +126,7 @@ export class OutreachSendService {
     private readonly controls: OutreachSendControls,
     private readonly authorization: OutreachAuthorizationConsumer,
     private readonly mailboxes: OutreachMailboxService,
+    private readonly health: OutreachHealthService,
   ) {}
 
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
@@ -309,6 +311,22 @@ export class OutreachSendService {
         `发件信箱 ${mailboxAsset.address} 处于 ${mailboxAsset.state}，整批停发`,
       );
     }
+    // P4-08：持久化熔断器（OPEN 整批停发；HALF_OPEN 限制小批复核），先于逐封循环检查。
+    let halfOpenCap: number | undefined;
+    try {
+      const verdict = await this.health.assertBatchAllowed(tenant, {
+        mailboxAddress: this.config.OUTREACH_SMTP_FROM_ADDRESS,
+        domain: this.config.OUTREACH_SMTP_FROM_ADDRESS?.split('@')[1],
+      });
+      halfOpenCap = verdict.maxSend;
+    } catch (error) {
+      await this.rejectBatch(
+        tenant,
+        batchId,
+        errorCodeOf(error, 'OUTREACH_MAILBOX_PAUSED'),
+        errorMessageOf(error, '发送已熔断，等待运营复核'),
+      );
+    }
     const mailboxUsage = mailboxAsset
       ? await this.mailboxes.usage(mailboxAsset.id, now).catch(() => undefined)
       : undefined;
@@ -423,6 +441,19 @@ export class OutreachSendService {
         });
         shadowedCount += 1;
         results.push({ draftId: draft.id, status: 'SHADOWED' });
+        continue;
+      }
+      if (
+        halfOpenCap !== undefined &&
+        results.filter((result) => result.status === 'SENT').length >= halfOpenCap
+      ) {
+        // 熔断 HALF_OPEN 复核期：只允许小批（默认 ≤10 封），其余顺延到复核通过之后。
+        await this.recordDraftEvent(tenant, batchId, draft, 'DRAFT_DEFERRED', {
+          code: 'OUTREACH_HALF_OPEN_CAP',
+          reason: '熔断半开复核期限制小批发送，顺延到复核通过后',
+        });
+        deferredCount += 1;
+        results.push({ draftId: draft.id, status: 'DEFERRED', error: 'OUTREACH_HALF_OPEN_CAP' });
         continue;
       }
 

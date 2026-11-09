@@ -213,6 +213,10 @@ class FakePrisma {
       }
       return { count };
     },
+    findMany: async ({ where }: { where: Record<string, unknown> }) =>
+      this.drafts
+        .filter((draft) => !where.batchId || draft.batchId === where.batchId)
+        .map((draft) => ({ id: draft.id })),
     deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
       const before = this.drafts.length;
       this.drafts = this.drafts.filter(
@@ -224,6 +228,31 @@ class FakePrisma {
           ),
       );
       return { count: before - this.drafts.length };
+    },
+  };
+
+  jobs: Row[] = [];
+
+  readonly outreachSendJob = {
+    createMany: async ({
+      data,
+      skipDuplicates,
+    }: {
+      data: Array<Record<string, unknown>>;
+      skipDuplicates?: boolean;
+    }) => {
+      let count = 0;
+      for (const row of data) {
+        if (
+          skipDuplicates &&
+          this.jobs.some((job) => job.idempotencyKey === row.idempotencyKey)
+        ) {
+          continue;
+        }
+        this.jobs.push({ id: id(), state: 'PENDING', attempts: 0, ...row });
+        count += 1;
+      }
+      return { count };
     },
   };
 
@@ -386,6 +415,15 @@ describe('OutreachBatchService', () => {
     await service.decideApproval(tenantA, batch.id, approval.id, { decision: 'approve' });
     const approved = prisma.events.find((event) => event.type === 'BATCH_APPROVED')!;
     expect(approved.detail).toMatchObject({ selfApproval: true });
+    // P4-04：批准即入队发送 job（一封草稿一条，幂等键唯一）。
+    expect(prisma.jobs).toHaveLength(1);
+    expect(prisma.jobs[0]).toMatchObject({
+      workspaceId: WS_A,
+      batchId: batch.id,
+      draftId: prisma.drafts[0].id,
+      state: 'PENDING',
+    });
+    expect(typeof prisma.jobs[0].idempotencyKey).toBe('string');
   });
 
   it('draft countryCode：小写归一化为大写入库，非法国家代码拒绝（法域门输入）', async () => {

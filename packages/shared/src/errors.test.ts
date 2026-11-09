@@ -62,6 +62,10 @@ describe('copyForError', () => {
       'OUTREACH_MAILBOX_NOT_FOUND',
       'OUTREACH_MAILBOX_DUPLICATE',
       'OUTREACH_DOMAIN_NOT_FOUND',
+      'OUTREACH_HALF_OPEN_CAP',
+      'OUTREACH_BREAKER_NOT_FOUND',
+      'OUTREACH_BREAKER_NOT_OPEN',
+      'OUTREACH_BREAKER_NOT_HALF_OPEN',
     ] as const;
     for (const code of sendGateCodes) {
       expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);
