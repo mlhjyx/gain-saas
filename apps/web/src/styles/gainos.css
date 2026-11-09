@@ -8,6 +8,14 @@
  * 深色切换由 vben 在 html 上打 .dark 类(update-css-variables.ts)。
  */
 
+/* 统一盒模型（2026-11-09）：自定义 input/select/textarea 等控件在网格/弹性轨道里
+   按 border-box 计算，避免 padding+border 把控件撑出容器（模态框输入框右侧溢出即此因）。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   /* 文字层级（AA：muted 7.6:1、subtle 4.8:1 on white；2026-11-09 审计修复） */
   --gs-fg: #0f172a;
