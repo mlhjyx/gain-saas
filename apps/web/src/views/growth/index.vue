@@ -162,9 +162,14 @@ function select(key: string): void {
 }
 
 .gr__panel {
-  /* 块级流：内嵌页面（max-width + margin:auto）在块级父容器里才会撑满到 1080；
-     若这里是 grid，auto 外边距会让页面收缩成 fit-content，与页头/tab 对不齐。 */
+  /* 块级流：内嵌页面在 embedded 模式下已去掉自身容器（is-embedded 置 padding:0 / max-width:none），
+     由本容器统一提供 1280 规范宽度与内边距，避免内容贴边、左右两栏错位。 */
   display: block;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+  box-sizing: border-box;
 }
 
 /* 触达占位不是整页组件，自己补齐与页面一致的容器 */
