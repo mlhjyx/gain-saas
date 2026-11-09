@@ -66,7 +66,7 @@ SaaS（本仓）：
 | 建议修正率 | 行业/产品/市场：选择与建议不一致的项 / 建议项 | `onboarding.complete` 审计 detail |
 | 首个有效 ICP 时长 | 工作空间创建 → 第一条 ACTIVE ICP | 引擎 `icp_definition` × SaaS `workspace` |
 
-报告随第 1 步 PR 给出查询 SQL 与当时真实数据量；本地库无客户数据时如实写「样本不足」，不填演示数。
+报告随第 1 步 PR 给出查询 SQL 与当时真实数据量；本地库无客户数据时如实写「样本不足」，不填演示数。已落地：`docs/evidence/onboarding-understanding-preview-20261110/README.md`。
 
 ## 4. 第 2–4 步路线（交付形式：PR 列表 + 本文档更新）
 
