@@ -213,14 +213,26 @@ describe('OutreachExperimentsService（P4-09）', () => {
 
   it('holdoutContacts：只认 RUNNING + contact 级 + 指定 campaign', async () => {
     const { prisma, service } = build();
+    // 盐是随机的（assignmentSalt = randomBytes），bucket 因实验而异：从候选里挑
+    // 实际落在 holdout 桶的那个作为「被分配的联系人」，断言与实现无关且确定。
     const created = await service.create(tenant, { ...baseInput, holdoutRatio: 0.99 });
     await service.start(tenant, created.id);
+    const candidates = [REF_A, REF_B, '88888888-8888-4888-8888-888888888888'];
+    const contactRef = candidates.find(
+      (ref) =>
+        decideArm(
+          assignmentBucket(created.assignmentSalt, created.id, ref),
+          0.99,
+        ) === 'holdout',
+    );
+    expect(contactRef, 'ratio 0.99 下三个候选至少一个进 holdout 桶').toBeTruthy();
+    const otherRef = candidates.find((ref) => ref !== contactRef)!;
     await service.assign(tenant, created.id, {
       subjectType: 'contact',
-      subjectRefs: [REF_A],
+      subjectRefs: [contactRef!],
     });
-    expect((await service.holdoutContacts(tenant, CAMPAIGN, [REF_A, REF_B]))).toEqual(
-      new Set([REF_A]),
+    expect((await service.holdoutContacts(tenant, CAMPAIGN, [contactRef!, otherRef]))).toEqual(
+      new Set([contactRef!]),
     );
     // 账户级分配不参与发送排除（草稿尚无账户引用）。
     const accountExperiment = await service.create(tenant, {
@@ -231,7 +243,7 @@ describe('OutreachExperimentsService（P4-09）', () => {
     await service.start(tenant, accountExperiment.id);
     await service.assign(tenant, accountExperiment.id, {
       subjectType: 'account',
-      subjectRefs: [REF_B],
+      subjectRefs: [otherRef],
     });
     expect((await service.holdoutContacts(tenant, CAMPAIGN, [REF_B]))).toEqual(
       new Set<string>(),
