@@ -66,6 +66,11 @@ describe('copyForError', () => {
       'OUTREACH_BREAKER_NOT_FOUND',
       'OUTREACH_BREAKER_NOT_OPEN',
       'OUTREACH_BREAKER_NOT_HALF_OPEN',
+      'OUTREACH_HOLDOUT',
+      'OUTREACH_EXPERIMENT_NOT_FOUND',
+      'OUTREACH_EXPERIMENT_NOT_DRAFT',
+      'OUTREACH_EXPERIMENT_NOT_RUNNING',
+      'OUTREACH_EXPERIMENT_ARCHIVED',
     ] as const;
     for (const code of sendGateCodes) {
       expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);

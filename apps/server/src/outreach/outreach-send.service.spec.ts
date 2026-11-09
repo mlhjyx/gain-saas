@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AppConfig } from '../config/configuration.js';
 import type { PrismaService } from '../shared/prisma.service.js';
 import type { AuditService } from '../shared/audit.service.js';
+import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import { SmtpProtocolError } from './outreach-smtp.transport.js';
@@ -221,6 +222,28 @@ class FakeSendPrisma {
   mailboxCounters: Row[] = [];
   domainCounters: Row[] = [];
   breakers: Row[] = [];
+  experiments: Row[] = [];
+  assignments: Row[] = [];
+
+  readonly outreachExperiment = {
+    findMany: async ({ where }: { where: Row }) =>
+      this.experiments.filter(
+        (row) =>
+          row.workspaceId === where.workspaceId &&
+          (!where.campaignId || row.campaignId === where.campaignId) &&
+          (!where.state || row.state === where.state),
+      ),
+  };
+  readonly outreachExperimentAssignment = {
+    findMany: async ({ where }: { where: Row }) =>
+      this.assignments.filter(
+        (row) =>
+          (where.experimentId as { in: string[] }).in.includes(row.experimentId as string) &&
+          (!where.subjectType || row.subjectType === where.subjectType) &&
+          (!where.arm || row.arm === where.arm) &&
+          (where.subjectRef as { in: string[] }).in.includes(row.subjectRef as string),
+      ),
+  };
 
   readonly outreachBreaker = {
     findUnique: async ({
@@ -609,6 +632,10 @@ function service(
     audit,
     config,
   );
+  const experiments = new OutreachExperimentsService(
+    prisma as unknown as PrismaService,
+    audit,
+  );
   return new OutreachSendService(
     prisma as unknown as PrismaService,
     audit,
@@ -621,6 +648,7 @@ function service(
     authorization,
     mailboxes,
     health,
+    experiments,
   );
 }
 
@@ -1433,6 +1461,58 @@ describe('OutreachSendService · 持久化熔断（P4-08）', () => {
     expect(transport.send).toHaveBeenCalledTimes(1);
     const deferred = prisma.events.find((event) => event.type === 'DRAFT_DEFERRED')!;
     expect((deferred.detail as Row).code).toBe('OUTREACH_HALF_OPEN_CAP');
+  });
+});
+
+describe('OutreachSendService · 实验 holdout 排除（P4-09）', () => {
+  it('运行中实验的 holdout 联系人被跳过（OUTREACH_HOLDOUT），其余照发', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.batches[0].campaignId = '77777777-7777-4777-8777-777777777777';
+    // 授权与批次同 campaign（否则授权 scope 校验会先整批拒绝）。
+    prisma.authorizations[0].campaignId = '77777777-7777-4777-8777-777777777777';
+    prisma.experiments.push({
+      id: 'experiment-1',
+      workspaceId: WS_A,
+      campaignId: '77777777-7777-4777-8777-777777777777',
+      state: 'RUNNING',
+    });
+    prisma.assignments.push({
+      experimentId: 'experiment-1',
+      subjectType: 'contact',
+      subjectRef: CONTACT_1,
+      arm: 'holdout',
+    });
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    expect(prisma.sends.find((send) => send.status === 'SKIPPED')!.error).toBe(
+      'OUTREACH_HOLDOUT',
+    );
+  });
+
+  it('无 campaign 的批次不做 holdout 排除（实验按 campaign 绑定）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    prisma.experiments.push({
+      id: 'experiment-1',
+      workspaceId: WS_A,
+      campaignId: '77777777-7777-4777-8777-777777777777',
+      state: 'RUNNING',
+    });
+    prisma.assignments.push({
+      experimentId: 'experiment-1',
+      subjectType: 'contact',
+      subjectRef: CONTACT_1,
+      arm: 'holdout',
+    });
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ status: 'SENT', sent: 2 });
   });
 });
 
