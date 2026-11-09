@@ -233,11 +233,11 @@ export function buildMimeMessage(input: {
   to: string;
   subject: string;
   body: string;
+  /** 完整 Message-ID（含 @domain，不带尖括号）：必须与台账 outreach_send.messageId 一致，回信归因依赖它。 */
   messageId: string;
   date: Date;
   headers?: Record<string, string>;
 }): string {
-  const domain = input.fromAddress.split('@')[1] || 'localhost';
   const from = input.fromName
     ? `${encodeHeaderValue(input.fromName)} <${sanitizeHeader(input.fromAddress)}>`
     : `<${sanitizeHeader(input.fromAddress)}>`;
@@ -252,7 +252,7 @@ export function buildMimeMessage(input: {
     `To: <${sanitizeHeader(input.to)}>`,
     `Subject: ${encodeHeaderValue(input.subject)}`,
     `Date: ${input.date.toUTCString()}`,
-    `Message-ID: <${input.messageId}@${domain}>`,
+    `Message-ID: <${input.messageId}>`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
     'Content-Transfer-Encoding: base64',
@@ -320,7 +320,8 @@ export class SmtpOutreachTransport implements OutreachTransport {
     const host = config.OUTREACH_SMTP_HOST!;
     const fromAddress = config.OUTREACH_SMTP_FROM_ADDRESS!;
     const timeoutMs = config.OUTREACH_SMTP_TIMEOUT_MS;
-    const messageId = randomUUID();
+    // 与线上 Message-ID 头同形（uuid@发件域）：回信 In-Reply-To/References 按此值归因到发送台账。
+    const messageId = `${randomUUID()}@${fromAddress.split('@')[1] || 'localhost'}`;
 
     let session = await SmtpSession.connect(
       host,
