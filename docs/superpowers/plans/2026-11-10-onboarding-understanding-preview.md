@@ -83,9 +83,9 @@ SaaS（本仓）：
 | 2a | backend | 注册库候选查询：公司名 + 国家 → GLEIF / Companies House / INPI（均已 ENABLED）候选（带注册号、地址、状态、来源），只读、无模型调用 | 候选命中率；端点单测；registry 单测；OpenAPI/治理门 |
 | 2b | backend | 理解进度投影：understanding run 的逐页抓取/失败事件落库（新表或 run stats JSON），预览端点补 `pages[]` 与 ETA 建议 | 事件与 Temporal 历史一致；失败页可解释；迁移与 RLS 基线 |
 | 2c | SaaS | 无官网分支：公司名 + 国家 → 候选选择 → 预填档案 → 完成建档；进度页展示逐页状态与预计时间 | e2e 主链路（mock）+ 真引擎冒烟；无官网建档成功率埋点 |
-| 3a | backend | 证据徽章读模型：T1 注册 / T2 展会新闻 / T3 官网，含抓取时间与跨源佐证（Evidence 已有 sourceUrl/fetchedAt，补 provider 分类与聚合端点） | 证据覆盖率；跨源冲突不静默覆盖；单测 |
-| 3b | SaaS | 公司档案 v2：证据徽章、跨源佐证、批量审批；修正触发重理解并打标回流 | 批量审批耗时；修正回流条数；e2e |
-| 4a | backend | 卖方画像 → ICP 草稿建议（industryCode + offerings + targetMarkets → 画像/排除项），人工审批后激活 | 建议采纳率；无审批不激活；预算与审计 |
+| 3a | backend | 证据徽章读模型：T1 注册 / T2 展会新闻 / T3 官网，含抓取时间与跨源佐证（Evidence 已有 sourceUrl/fetchedAt，补 provider 分类与聚合端点）；「触发信号」块直接消费 signal-ingest 的 `GET /api/v1/companies/{id}/signals`（sourceUrl/title/excerpt/providerKey/observedAt），端点未合时 feature-detect 空数组 | 证据覆盖率；跨源冲突不静默覆盖；单测 |
+| 3b | SaaS | 公司档案 v2：证据徽章、跨源佐证、批量审批、触发信号展示位；修正触发重理解并打标回流 | 批量审批耗时；修正回流条数；e2e |
+| 4a | backend | 卖方画像 → ICP 草稿建议（industryCode + offerings + targetMarkets → 画像/排除项），人工审批后激活；画像与证据结构直接消费 evidence-graph 的 `evidenceBundle`，不自造第二套结构 | 建议采纳率；无审批不激活；预算与审计 |
 | 4b | SaaS | ICP 建议卡与采纳/修改交互；首个有效 ICP 时长看板 | 采纳率与时长；e2e |
 
 发布顺序：每阶段后端先升级，SaaS 后上线；新增端点一律先补 operation-descriptions/OpenAPI 与治理门。
@@ -96,3 +96,4 @@ SaaS（本仓）：
 - **受控词表覆盖窄**（15 个制造节点）：先满足出海制造场景；扩词表走 seed-taxonomy + 迁移，不改本步接口。
 - **市场建议召回低**：只认官网明确提到的国家；召回低是诚实的结果，第 3 步用注册库/展会数据补。
 - **旧引擎镜像兼容**：BFF 调新端点前不探测版本；发布顺序必须是引擎先升级、SaaS 后上线（与既有 scope 上线顺序同向）。本地 mock 与 e2e 用假 BFF 覆盖。
+- **跨会话边界（2026-11-10 晚）**：档案 v2 的「触发信号」消费 signal-ingest 的 `GET /companies/{id}/signals`（字段 sourceUrl/title/excerpt/providerKey/observedAt，未合时 feature-detect 空数组）；第 3/4 步的证据与画像数据直接消费 evidence-graph 的 `evidenceBundle`/画像建议，不另造结构。
