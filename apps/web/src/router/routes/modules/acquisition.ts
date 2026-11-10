@@ -37,7 +37,10 @@ const routes: RouteRecordRaw[] = [
   },
   {
     // v3.0 P5b-08：线索档案包整页（?tab=package|people|draft|outcomes 可分享）。
+    // fullPathKey:false——tab 只是查询参数的视图状态：默认按 fullPath 作页面 key 会让
+    // 每次 tab 切换整页重挂载（重播路由过渡 + 重新拉档案包），观感是"闪一下"。
     meta: {
+      fullPathKey: false,
       hideInMenu: true,
       title: $t('gainos.leads.packageTitle'),
     },
