@@ -258,16 +258,7 @@ export const ENGINE_ERROR_COPY = {
       next: "Retry shortly; if it keeps failing, contact operations.",
     },
   },
-  WEEKLY_REPORT_TOO_LARGE: {
-    title: '本周导出条数超出上限',
-    why: '周报按周全量导出,单周条数有上限,系统拒绝截断以保数据完整。',
-    next: '本周先处理部分线索后重试,或联系运营分批导出。',
-    en: {
-      title: "This week's export exceeds the row limit",
-      why: "Weekly reports export whole weeks and have a per-week cap; the system refuses to truncate so data stays complete.",
-      next: "Process some leads first and retry, or ask operations for a split export.",
-    },
-  },
+
   MODEL_UPSTREAM_UNUSABLE: {
     title: '系统服务暂时不可用',
     why: '上游服务暂时故障,与你的操作无关。',
