@@ -9,7 +9,7 @@
 
 ## 1. 本仓差异
 
-- 文档根为 `docs/`，当前只有 `prd/`、`status/`、`technical/` 三个目录；没有 `modules/`、`shared/`、`archive/`。
+- 文档根为 `docs/`，入口为 `docs/README.md`。当前目录：`prd/`、`status/`、`technical/`（含 `technical/adr/`）、`engineering/`、`evidence/`、`changelog.d/`、`superpowers/plans/`；没有 `modules/`、`shared/`、`archive/`。
 - 发布顺序与阶段目标不在本仓维护；产品发布顺序的唯一来源是 backend 的 `docs/status/release-plan.md`，本仓不建 `roadmap/`。
 - 本仓暂无 `docs-verification` 机器政策；新增文档沿用 backend 规则的生命周期元数据约定（`> 文档 ID`、`> 生命周期`、`> 最后核验`）。
 
