@@ -421,6 +421,7 @@
     "claimsApproved": "Approved {count} facts.",
     "claimsRejected": "Set aside {count} facts.",
     "claimsPartialFail": "{count} facts could not be processed. The list was refreshed — please retry.",
+    "autoActivated": "This profile was auto-activated by claim approvals — no confirmation needed.",
     "claimSource": "View source",
     "approvedReady": "{count} approved facts — ready to design target customer profiles.",
     "approvedNeed": "Approve at least one fact to design target customer profiles.",

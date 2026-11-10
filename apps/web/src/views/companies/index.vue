@@ -374,6 +374,9 @@ async function reviewSelected(action: 'approve' | 'reject'): Promise<void> {
   claimBusy.value = null;
   claimProgress.value = '';
   await loadClaims();
+  // 审批达 3 条通过会把企业自动激活（REVIEW→ACTIVE）：列表状态必须跟上，
+  // 否则卡片仍显示「待确认」，再点「确认档案」会撞 INVALID_STATE。
+  if (action === 'approve' && failed < total) void load(true);
   if (failed > 0) {
     claimActionError.value = $t('gainos.companies.claimsPartialFail', { count: failed });
   } else {
@@ -761,7 +764,18 @@ async function confirmCompany(company: CompanyProfile): Promise<void> {
     await gainosApi.confirmCompany(companyId);
     await load();
   } catch (err) {
-    error.value = failureText(err).title;
+    // 事实审批达阈值会自动激活（引擎 claim 审批事务内 REVIEW→ACTIVE），
+    // 列表还停在旧的「待确认」时点确认会撞 INVALID_STATE——此时操作其实已完成。
+    const payload = (err as { response?: { data?: { error?: { code?: string; message?: string }; meta?: { engineCode?: string; engineMessage?: string } } } })?.response?.data;
+    const detail = payload?.error;
+    const code = detail?.code ?? payload?.meta?.engineCode;
+    const engineMessage = detail?.message ?? payload?.meta?.engineMessage ?? '';
+    if (code === 'INVALID_STATE' && engineMessage.includes('company is ACTIVE')) {
+      createdNotice.value = $t('gainos.companies.autoActivated');
+      await load();
+    } else {
+      error.value = failureText(err).title;
+    }
   } finally {
     confirmingId.value = null;
   }

@@ -421,6 +421,7 @@
     "claimsApproved": "已通过 {count} 条事实。",
     "claimsRejected": "已标记 {count} 条事实为未采用。",
     "claimsPartialFail": "有 {count} 条没有处理成功，列表已刷新，请重试。",
+    "autoActivated": "该档案已通过事实审批自动启用，无需再确认。",
     "claimSource": "查看来源",
     "approvedReady": "已通过 {count} 条事实，可以开始设计目标客户画像。",
     "approvedNeed": "至少通过一条事实后，才能设计目标客户画像。",
