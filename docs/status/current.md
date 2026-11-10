@@ -3,7 +3,12 @@
 > 文档 ID:`DOC-SAAS-STATUS-001`
 > 生命周期:`CURRENT`
 > 事实来源:本页为主;代码与 PRD/技术方案冲突时以代码 + 评审为准
-> 最后更新:2026-11-11(校对运行方式、R4 撤销状态与阻塞表;历史小节保留原日期)
+> 最后更新:2026-11-11(校对运行方式、R4 撤销状态与阻塞表;记录 CI 与文档入口治理)
+
+## 2026-11-11 CI 与文档入口治理(工程,无产品行为变化)
+
+- **CI(#155)**:纯文档 PR 走 `classify` 快通道——只跑改动分类与新增的 gitleaks 密钥扫描,跳过 build/test/E2E 与契约门;代码 PR 检查不变。引擎合同改为离线确定性校验:`packages/engine-client/engine-contract.lock.json` 固定合同的 SHA-256,CI 校验 `schema.d.ts` 与固定合同一致;合同变更的 PR 对 base 分支合同跑 oasdiff breaking(`engine-contract-breaking-approved` label 放行),CI 不再依赖运行中的引擎实例。
+- **文档(#154)**:README / AGENTS / `docs/README.md` 重建为当前产品现实的入口;UI 设计准则移入 [engineering/ui-design-guidelines.md](../engineering/ui-design-guidelines.md);运行方式以本文「当前运行中」的四个 systemd 单元为准。
 
 ## P9 平台撤销自动触发(2026-11-01,已实现,默认关闭)
 
