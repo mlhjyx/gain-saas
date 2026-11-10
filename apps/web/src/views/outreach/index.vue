@@ -308,6 +308,7 @@ onMounted(loadBatches);
       </template>
     </PageHeader>
     <div v-else class="ob__embedded-head">
+      <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
       <Button type="primary" @click="showCreate = !showCreate">
         {{ $t('gainos.outreach.newBatch') }}
       </Button>
@@ -495,7 +496,8 @@ onMounted(loadBatches);
 
 <style scoped>
 .ob--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
-.ob__embedded-head { display: flex; justify-content: flex-end; }
+.ob__embedded-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ob__sub { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .ob__create { margin-bottom: 4px; }
 .ob__grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
 .ob__list { display: grid; gap: 8px; }

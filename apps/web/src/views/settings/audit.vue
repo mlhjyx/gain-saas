@@ -7,7 +7,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { Alert, Button, DatePicker, Input, Table } from 'ant-design-vue';
+import { Alert, Button, DatePicker, Empty, Input, Table } from 'ant-design-vue';
 
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
@@ -256,7 +256,13 @@ onMounted(() => {
       <div class="au__meta">
         <span>{{ loadedLabel }}</span>
       </div>
+      <Empty
+        v-if="entries.length === 0"
+        :description="$t('gainos.audit.empty')"
+        :image="Empty.PRESENTED_IMAGE_SIMPLE"
+      />
       <Table
+        v-else
         :columns="columns"
         :data-source="entries"
         :pagination="false"

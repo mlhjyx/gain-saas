@@ -175,9 +175,9 @@ const runColumns = [
             </dd>
             <dt>{{ $t('gainos.tasks.icp') }}</dt>
             <dd>
-              <Button v-if="task.icpId" size="small" type="link" @click="router.push('/find-buyers')">
+              <RouterLink v-if="task.icpId" class="tkd__link" to="/find-buyers">
                 {{ task.icpId.slice(0, 8) }}
-              </Button>
+              </RouterLink>
               <span v-else>—</span>
             </dd>
             <dt>{{ $t('gainos.tasks.createdAt') }}</dt>
@@ -211,14 +211,13 @@ const runColumns = [
               <template v-else-if="column.key === 'startedAt'">{{ formatDateTime(record.startedAt) || '—' }}</template>
               <template v-else-if="column.key === 'finishedAt'">{{ formatDateTime(record.finishedAt) || '—' }}</template>
               <template v-else-if="column.key === 'actions'">
-                <Button
+                <RouterLink
                   v-if="record.runId"
-                  type="link"
-                  size="small"
-                  @click="router.push({ name: 'DiscoveryRun', params: { runId: record.runId } })"
+                  class="tkd__link"
+                  :to="{ name: 'DiscoveryRun', params: { runId: record.runId } }"
                 >
                   {{ $t('gainos.tasks.viewRun') }}
-                </Button>
+                </RouterLink>
                 <span v-else class="tkd__muted">—</span>
               </template>
             </template>

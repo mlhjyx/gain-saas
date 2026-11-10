@@ -126,14 +126,13 @@ const columns = [
             {{ fmtTime(record.lastRunAt) }}
           </template>
           <template v-else-if="column.key === 'actions'">
-            <Button
+            <RouterLink
               v-if="latestRun(record as AcquisitionTaskView)?.runId"
-              type="link"
-              size="small"
-              @click="router.push(`/runs/${latestRun(record as AcquisitionTaskView)!.runId}`)"
+              class="tk__link"
+              :to="`/runs/${latestRun(record as AcquisitionTaskView)!.runId}`"
             >
               {{ $t('gainos.tasks.viewRun') }}
-            </Button>
+            </RouterLink>
             <span v-else class="tk__muted">—</span>
           </template>
         </template>

@@ -228,7 +228,7 @@ onMounted(load);
     <section v-else-if="!loadError && rows.length === 0" class="qg__empty">
       <p class="qg__empty-title">{{ $t('gainos.qgos.emptyTitle') }}</p>
       <p class="qg__empty-desc">{{ $t('gainos.qgos.emptyDesc') }}</p>
-      <Button type="primary" @click="$router.push('/leads')">{{ $t('gainos.qgos.emptyCta') }}</Button>
+      <RouterLink class="qg__cta-link" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</RouterLink>
     </section>
 
     <ol v-else class="qg__list">
@@ -338,6 +338,13 @@ onMounted(load);
 </template>
 
 <style scoped>
+.qg__cta-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-top: 12px; padding: 8px 16px; border-radius: 10px;
+  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg);
+  font-size: 13.5px; font-weight: 600; text-decoration: none;
+}
+.qg__cta-link:hover { background: var(--gs-accent-cta-hover); color: var(--gs-accent-cta-fg); }
 .qg--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
 .qg__embedded-head { display: flex; justify-content: flex-end; }
 .qg__more { margin: 8px 0 0; text-align: center; }

@@ -424,8 +424,10 @@ test('主链路 6：商机接受（SAO）→ 登记 Outcome', async ({ page }) =
   // 接受后抽屉刷新为 SAO 已接受并出现结果登记表单（提示语会被随后的刷新清空，属既有行为）
   await expect(drawer.getByText('已接受 ·', { exact: false })).toBeVisible();
   await expect(drawer.getByRole('heading', { name: '结果登记' })).toBeVisible();
-  await drawer.getByRole('combobox').click();
-  await page.getByRole('option', { name: '赢单' }).click();
+  // antd-vue 4：combobox 是隐藏只读 search input，点选择器本体打开下拉
+  await page.locator('.ant-drawer .ant-select-selector').first().click();
+  // antd-vue 4 的下拉项不暴露 role=option，按列表项类名 + 文本定位
+  await page.locator('.ant-select-item-option').filter({ hasText: '赢单' }).click();
   await drawer.getByRole('button', { name: '登记结果' }).click();
   await expect(drawer.locator('.qg__outcome-badge').first()).toHaveText('赢单');
   const outcome = backend.take('POST', '/saos/sao-1/outcomes');

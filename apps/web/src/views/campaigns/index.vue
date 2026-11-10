@@ -8,6 +8,7 @@ import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
+import AsyncSection from '#/components/gainos/async-section.vue';
 import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
