@@ -309,6 +309,16 @@ function attributesOf(icp: Icp): Array<{ key: string; value: string }> {
 function canActivate(icp: Icp): boolean {
   return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(icp.status);
 }
+/** 静默刷新 ICP 列表：规则增删会改变卡片的规则数/版本号，不闪 loading。 */
+async function refreshIcpList(): Promise<void> {
+  try {
+    const icpData = await gainosApi.icps();
+    icps.value = Array.isArray(icpData) ? icpData : [];
+  } catch {
+    /* 列表刷新失败不打断弹窗流程，下次进页会重新加载 */
+  }
+}
+
 function parseRuleValue(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -578,6 +588,7 @@ async function saveRule(): Promise<void> {
     }
     ruleOpen.value = false;
     selected.value = await gainosApi.icp(selected.value.id);
+    void refreshIcpList();
     notice.value = $t('gainos.findBuyers.ruleSaved');
   } catch (error) {
     ruleError.value = failureText(error);
@@ -592,6 +603,7 @@ async function removeRule(rule: IcpRule): Promise<void> {
   try {
     await gainosApi.deleteIcpRule(rule.id);
     selected.value = await gainosApi.icp(selected.value.id);
+    void refreshIcpList();
     notice.value = $t('gainos.findBuyers.ruleDeleted');
   } catch (error) {
     ruleError.value = failureText(error);
