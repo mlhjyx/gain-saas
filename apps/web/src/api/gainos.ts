@@ -226,10 +226,23 @@ export interface LeadPackage {
   identifiers?: Record<string, string | null>;
   contact_points?: Array<{ kind: string; url: string; status: string }>;
   suggested_contact_path?: { kind: string; url: string; legal_note: string } | null;
-  signals?: Array<Record<string, unknown>>;
-  scores?: Record<string, unknown>;
-  fit?: Record<string, unknown>;
-  evidence?: Array<Record<string, unknown>>;
+  /** 意向信号（引擎 intent events，最多 3 条）：type 原样、at 为 ISO、url 仅 https。 */
+  signals?: Array<{ type: string; at: string; url: string | null }>;
+  /** 八维评分（引擎 snake_case，0–1）。 */
+  scores?: {
+    fit?: number | null;
+    role?: number | null;
+    intent?: number | null;
+    demand_proof?: number | null;
+    reachability?: number | null;
+    data_quality?: number | null;
+    engagement?: number | null;
+    total?: number | null;
+  };
+  /** 匹配判断：verdict 枚举 + 人话理由。 */
+  fit?: { verdict?: string | null; reason_codes?: string[]; reasons?: string[] };
+  /** 证据链（引擎形状 {field, source_url, fetched_at}）。 */
+  evidence?: Array<{ field: string; source_url: string; fetched_at: string }>;
   sanctions?: { status: string; screened_at: string | null };
   valid_until?: string | null;
 }

@@ -136,13 +136,25 @@ const profileRows = computed<Array<{ label: string; value: string }>>(() => {
   const push = (label: string, value: unknown): void => {
     if (typeof value === 'string' && value.trim()) rows.push({ label, value: value.trim() });
   };
-  push($t('gainos.leads.profileTradeRole'), record.trade_role);
-  push($t('gainos.leads.profileIndustry'), record.industry);
-  push($t('gainos.leads.profileEmployees'), record.employee_count ?? record.employees);
-  push($t('gainos.leads.profileFounded'), record.founded_year);
-  const brands = record.carried_brands;
-  if (Array.isArray(brands) && brands.length > 0) {
-    rows.push({ label: $t('gainos.leads.profileCarriedBrands'), value: brands.map(String).join(' · ') });
+  const role = typeof record.trade_role === 'string' && record.trade_role.trim()
+    ? record.trade_role.trim() : '';
+  const confidence = typeof record.trade_role_confidence === 'number' && Number.isFinite(record.trade_role_confidence)
+    ? $t('gainos.leads.profileConfidence', { percent: Math.round(record.trade_role_confidence * 100) })
+    : '';
+  push($t('gainos.leads.profileTradeRole'), role ? (confidence ? `${role} · ${confidence}` : role) : undefined);
+  // carried_brands 是 {name, country} 对象数组：逐个取 name（country 一并展示）
+  const brands = Array.isArray(record.carried_brands) ? record.carried_brands : [];
+  const brandNames = brands
+    .map((brand) => {
+      if (!brand || typeof brand !== 'object') return '';
+      const entry = brand as Record<string, unknown>;
+      const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+      const country = typeof entry.country === 'string' && entry.country.trim() ? entry.country.trim() : '';
+      return name ? (country ? `${name}（${country}）` : name) : '';
+    })
+    .filter(Boolean);
+  if (brandNames.length > 0) {
+    rows.push({ label: $t('gainos.leads.profileCarriedBrands'), value: brandNames.join(' · ') });
   }
   if (record.own_manufacturing === true) rows.push({ label: $t('gainos.leads.profileOwnManufacturing'), value: $t('gainos.leads.yes') });
   if (record.carries_chinese_brand === true) rows.push({ label: $t('gainos.leads.profileChineseBrand'), value: $t('gainos.leads.yes') });
@@ -150,29 +162,67 @@ const profileRows = computed<Array<{ label: string; value: string }>>(() => {
   return rows;
 });
 
+/** 引擎合同只回这四个标识键：翻译成业务语言，不把蛇形命名直接上屏。 */
+const IDENTIFIER_LABELS: Record<string, () => string> = {
+  register_key: () => $t('gainos.leads.identifierRegister'),
+  vat_id: () => $t('gainos.leads.identifierVat'),
+  lei: () => $t('gainos.leads.identifierLei'),
+  fda_reg: () => $t('gainos.leads.identifierFda'),
+};
+
 const identifierRows = computed<Array<{ label: string; value: string }>>(() => {
   const identifiers = pkg.value?.identifiers;
   if (!identifiers || typeof identifiers !== 'object') return [];
   return Object.entries(identifiers)
-    .filter(([, value]) => typeof value === 'string' && value)
-    .map(([key, value]) => ({ label: key, value: String(value) }));
+    .filter(([key, value]) => Boolean(IDENTIFIER_LABELS[key]) && typeof value === 'string' && value)
+    .map(([key, value]) => ({ label: IDENTIFIER_LABELS[key]!(), value: String(value) }));
 });
 
+/** 引擎 evidence 形状是 {field, source_url, fetched_at}（不是提升商机的 {type,url,support}）。 */
 const evidenceItems = computed(() => {
   const seen = new Set<string>();
-  const rows: Array<{ type: string; url: string; support: string }> = [];
+  const rows: Array<{ field: string; url: string; fetchedAt: string }> = [];
   for (const item of pkg.value?.evidence ?? []) {
     if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
-    const url = typeof record.url === 'string' ? record.url : '';
-    const support = typeof record.support === 'string' ? record.support : '';
-    const type = typeof record.type === 'string' ? record.type : 'other';
-    const key = `${url}|${support}|${type}`;
-    if (seen.has(key)) continue;
+    const field = typeof record.field === 'string' ? record.field.trim() : '';
+    const url = typeof record.source_url === 'string' ? record.source_url : '';
+    const fetchedAt = typeof record.fetched_at === 'string' ? record.fetched_at : '';
+    const key = `${field}|${url}`;
+    if (!field || seen.has(key)) continue;
     seen.add(key);
-    rows.push({ type, url, support });
+    rows.push({ field, url, fetchedAt });
   }
   return rows;
+});
+
+/** 匹配判断（引擎 fit：verdict + 人话理由），档案页此前完全没展示。 */
+const fitVerdictLabel = computed(() => {
+  const verdict = pkg.value?.fit?.verdict;
+  if (!verdict) return $t('gainos.leads.fit.unknown');
+  const key = `gainos.leads.fit.${verdict}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? verdict : translated;
+});
+
+const fitReasons = computed(() => pkg.value?.fit?.reasons ?? []);
+
+/** 八维评分（合同 snake_case），档案页此前完全没展示。 */
+const SCORE_DIMS = ['fit', 'role', 'intent', 'demand_proof', 'reachability', 'data_quality', 'engagement'] as const;
+
+const scoreRows = computed(() => {
+  const scores = pkg.value?.scores;
+  if (!scores || typeof scores !== 'object') return [];
+  const record = scores as Record<string, unknown>;
+  return SCORE_DIMS
+    .map((dim) => ({ dim, value: record[dim] }))
+    .filter((row): row is { dim: (typeof SCORE_DIMS)[number]; value: number } =>
+      typeof row.value === 'number' && Number.isFinite(row.value));
+});
+
+const totalScore = computed(() => {
+  const total = pkg.value?.scores?.total;
+  return typeof total === 'number' && Number.isFinite(total) ? total : null;
 });
 
 const contactPaths = computed(() =>
@@ -184,12 +234,6 @@ function sanctionLabel(value?: null | string): string {
   const key = `gainos.leads.sanctions.${value}` as Parameters<typeof $t>[0];
   const translated = $t(key);
   return translated === key ? value : translated;
-}
-
-function evidenceTypeLabel(type: string): string {
-  const key = `gainos.leads.evidenceType.${type}` as Parameters<typeof $t>[0];
-  const translated = $t(key);
-  return translated === key ? type : translated;
 }
 
 async function load(): Promise<void> {
@@ -409,6 +453,29 @@ watch(tab, (next) => {
     >
       <template v-if="pkg">
         <section v-if="tab === 'package'" class="lpd__grid">
+          <article class="lpd__card lpd__card--wide">
+            <h2>{{ $t('gainos.leads.fitTitle') }}</h2>
+            <p class="lpd__fit">{{ fitVerdictLabel }}</p>
+            <ul v-if="fitReasons.length" class="lpd__reasons">
+              <li v-for="(reason, index) in fitReasons" :key="index">{{ reason }}</li>
+            </ul>
+          </article>
+
+          <article class="lpd__card">
+            <h2>{{ $t('gainos.leads.scoresTitle') }}</h2>
+            <dl v-if="scoreRows.length || totalScore !== null" class="lpd__scores">
+              <div v-for="row in scoreRows" :key="row.dim">
+                <dt>{{ $t(`gainos.leads.dim.${row.dim}`) }}</dt>
+                <dd>{{ Math.round(row.value * 100) }}</dd>
+              </div>
+              <div v-if="totalScore !== null" class="lpd__score-total">
+                <dt>{{ $t('gainos.leads.dim.total') }}</dt>
+                <dd>{{ Math.round(totalScore * 100) }}</dd>
+              </div>
+            </dl>
+            <p v-else class="lpd__muted">{{ $t('gainos.leads.notScored') }}</p>
+          </article>
+
           <article class="lpd__card">
             <h2>{{ $t('gainos.leads.profileTitle') }}</h2>
             <dl class="lpd__facts">
@@ -416,11 +483,15 @@ watch(tab, (next) => {
                 <dt>{{ row.label }}</dt>
                 <dd>{{ row.value }}</dd>
               </template>
+              <template v-if="pkg.registered_address">
+                <dt>{{ $t('gainos.leads.address') }}</dt>
+                <dd>{{ pkg.registered_address }}</dd>
+              </template>
               <template v-for="row in identifierRows" :key="`id-${row.label}`">
                 <dt>{{ row.label }}</dt>
                 <dd class="lpd__mono">{{ row.value }}</dd>
               </template>
-              <template v-if="profileRows.length === 0 && identifierRows.length === 0">
+              <template v-if="profileRows.length === 0 && identifierRows.length === 0 && !pkg.registered_address">
                 <dt>{{ $t('gainos.leads.profileEmpty') }}</dt>
                 <dd>—</dd>
               </template>
@@ -445,12 +516,22 @@ watch(tab, (next) => {
             <h2>{{ $t('gainos.leads.evidenceTitle') }}</h2>
             <ul v-if="evidenceItems.length > 0" class="lpd__evidence">
               <li v-for="(item, index) in evidenceItems" :key="index">
-                <span class="lpd__chip">{{ evidenceTypeLabel(item.type) }}</span>
+                <span class="lpd__chip">{{ item.field }}</span>
                 <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.url }}</a>
-                <span v-if="item.support" class="lpd__muted">{{ item.support }}</span>
+                <span v-if="item.fetchedAt" class="lpd__muted">{{ formatDate(item.fetchedAt) }}</span>
               </li>
             </ul>
             <p v-else class="lpd__muted">{{ $t('gainos.leads.evidenceEmpty') }}</p>
+
+            <h2>{{ $t('gainos.leads.signalsTitle') }}</h2>
+            <ul v-if="(pkg.signals ?? []).length > 0" class="lpd__evidence">
+              <li v-for="(signal, index) in pkg.signals" :key="`sig-${index}`">
+                <span class="lpd__chip">{{ signal.type }}</span>
+                <a v-if="signal.url" :href="signal.url" target="_blank" rel="noreferrer">{{ signal.url }}</a>
+                <span class="lpd__muted">{{ formatDateTime(signal.at) }}</span>
+              </li>
+            </ul>
+            <p v-else class="lpd__muted">{{ $t('gainos.leads.noSignals') }}</p>
           </article>
 
           <article class="lpd__card" :class="{ 'is-warn': sanctionBlocked }">
@@ -886,6 +967,14 @@ watch(tab, (next) => {
   background: var(--gs-surface);
   color: var(--gs-fg-2);
 }
+.lpd__fit { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); }
+.lpd__reasons { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; color: var(--gs-fg-2); font-size: 13px; line-height: 1.7; }
+.lpd__scores { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.lpd__scores div { background: var(--gs-divider); border-radius: 9px; padding: 8px 10px; display: grid; gap: 3px; }
+.lpd__scores dt { font-size: 11px; color: var(--gs-fg-subtle); }
+.lpd__scores dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); font-variant-numeric: tabular-nums; }
+.lpd__score-total { background: var(--gs-accent-soft) !important; }
+.lpd__score-total dd { color: var(--gs-accent-strong); }
 .lpd__evidence-row {
   display: grid;
   grid-template-columns: 130px 1fr 1fr auto;
