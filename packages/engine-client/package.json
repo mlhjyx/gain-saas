@@ -12,6 +12,8 @@
   },
   "scripts": {
     "gen": "node scripts/gen.mjs && openapi-typescript src/openapi.json -o src/schema.d.ts",
+    "gen:types": "openapi-typescript src/openapi.json -o src/schema.d.ts",
+    "verify:pin": "node scripts/verify-pin.mjs",
     "typecheck": "echo 'types only package' && exit 0"
   },
   "devDependencies": {
