@@ -9,6 +9,7 @@ import { navTitle } from '../nav';
 const routes: RouteRecordRaw[] = [
   {
     meta: {
+      fullPathKey: false,
       icon: 'lucide:handshake',
       order: 6,
       title: navTitle('growth'),
