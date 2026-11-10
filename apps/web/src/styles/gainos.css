@@ -46,6 +46,13 @@
 
   /* 品牌绿 */
   --gs-accent: #00b96b;
+  /* 兼容别名：部分视图引用了 --gs-primary/--gs-muted/--gs-mono/--gs-fg-1/--gs-fg-3，
+     之前未定义导致回退成蓝(#2563eb)或继承错误色。统一在这里补齐，勿再新增引用。 */
+  --gs-primary: var(--gs-accent-cta);
+  --gs-muted: var(--gs-fg-muted);
+  --gs-mono: 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --gs-fg-1: var(--gs-fg);
+  --gs-fg-3: var(--gs-fg-subtle);
   --gs-accent-strong: #007a47;
   /* CTA（实心按钮）专用深绿：白字 5.4:1 达 AA；装饰仍用 --gs-accent */
   --gs-accent-cta: #007a47;

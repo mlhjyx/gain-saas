@@ -8,6 +8,8 @@
  */
 import { onMounted, reactive, ref } from 'vue';
 
+import { Alert, Button, Form, Input, Select, Spin, Table } from 'ant-design-vue';
+
 import { $t } from '#/locales';
 
 import SettingsShell from '#/components/gainos/settings-shell.vue';
@@ -121,122 +123,115 @@ async function release(row: SuppressionRecordView): Promise<void> {
   }
 }
 
+const typeOptions = TYPES.map((type) => ({ value: type, label: typeLabel(type) }));
+const reasonOptions = REASONS.map((reason) => ({ value: reason, label: reasonLabel(reason) }));
+
+const columns = [
+  { key: 'value', dataIndex: 'value', title: $t('gainos.suppressions.colValue') },
+  { key: 'type', dataIndex: 'type', title: $t('gainos.suppressions.colType'), width: 130 },
+  { key: 'reason', dataIndex: 'reason', title: $t('gainos.suppressions.colReason'), width: 130 },
+  { key: 'protectionClass', dataIndex: 'protectionClass', title: $t('gainos.suppressions.colProtection'), width: 140 },
+  { key: 'createdAt', dataIndex: 'createdAt', title: $t('gainos.suppressions.colCreated'), width: 130 },
+  { key: 'actions', dataIndex: 'actions', title: '', width: 110 },
+];
+
 onMounted(load);
 </script>
 
 <template>
   <SettingsShell :subtitle="$t('gainos.suppressions.subtitle')" :title="$t('gainos.suppressions.title')">
 
-    <p v-if="notice" class="sp__notice" role="status">{{ notice }}</p>
+    <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
 
     <section class="sp__card">
       <h2>{{ $t('gainos.suppressions.addTitle') }}</h2>
-      <div class="sp__form">
-        <label>
-          <span>{{ $t('gainos.suppressions.typeLabel') }}</span>
-          <select v-model="form.type">
-            <option v-for="type in TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
-          </select>
-        </label>
-        <label class="sp__grow">
-          <span>{{ $t('gainos.suppressions.valueLabel') }}</span>
-          <input
-            v-model="form.value"
+      <Form class="sp__form" layout="vertical" @submit.prevent="add">
+        <Form.Item :label="$t('gainos.suppressions.typeLabel')">
+          <Select v-model:value="form.type" :options="typeOptions" style="width: 140px" />
+        </Form.Item>
+        <Form.Item class="sp__grow" :label="$t('gainos.suppressions.valueLabel')">
+          <Input
+            v-model:value="form.value"
+            :maxlength="2048"
             :placeholder="$t(`gainos.suppressions.valuePlaceholder.${form.type}`)"
-            maxlength="2048"
-            @keyup.enter="add"
+            @press-enter="add"
           />
-        </label>
-        <label>
-          <span>{{ $t('gainos.suppressions.reasonLabel') }}</span>
-          <select v-model="form.reason">
-            <option v-for="reason in REASONS" :key="reason" :value="reason">{{ reasonLabel(reason) }}</option>
-          </select>
-        </label>
-        <button class="sp__cta" type="button" :disabled="adding" @click="add">
+        </Form.Item>
+        <Form.Item :label="$t('gainos.suppressions.reasonLabel')">
+          <Select v-model:value="form.reason" :options="reasonOptions" style="width: 160px" />
+        </Form.Item>
+        <Button type="primary" :disabled="adding" :loading="adding" style="margin-bottom: 22px" @click="add">
           {{ adding ? $t('gainos.common.loading') : $t('gainos.suppressions.add') }}
-        </button>
-      </div>
-      <p v-if="addError" class="sp__err" role="alert">{{ addError }}</p>
+        </Button>
+      </Form>
+      <Alert v-if="addError" :message="addError" role="alert" show-icon type="error" />
       <p class="sp__hint">{{ $t('gainos.suppressions.addHint') }}</p>
     </section>
 
-    <div v-if="loading" class="sp__state">{{ $t('gainos.common.loading') }}</div>
-    <div v-else-if="error" class="sp__state sp__state--err">
-      {{ error }}
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </div>
+    <div v-if="loading" class="sp__state"><Spin /></div>
+    <Alert
+      v-else-if="error"
+      :message="error"
+      show-icon
+      type="warning"
+    >
+      <template #action>
+        <Button size="small" @click="load">{{ $t('gainos.common.retry') }}</Button>
+      </template>
+    </Alert>
     <section v-else class="sp__card">
       <h2>{{ $t('gainos.suppressions.listTitle', { count: rows.length }) }}</h2>
       <p v-if="rows.length === 0" class="sp__empty">{{ $t('gainos.suppressions.empty') }}</p>
-      <table v-else class="sp__table">
-        <thead>
-          <tr>
-            <th>{{ $t('gainos.suppressions.colValue') }}</th>
-            <th>{{ $t('gainos.suppressions.colType') }}</th>
-            <th>{{ $t('gainos.suppressions.colReason') }}</th>
-            <th>{{ $t('gainos.suppressions.colProtection') }}</th>
-            <th>{{ $t('gainos.suppressions.colCreated') }}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.id">
-            <td class="sp__value">{{ row.value }}</td>
-            <td>{{ typeLabel(row.type) }}</td>
-            <td>{{ reasonLabel(row.reason) }}</td>
-            <td>
-              <span class="gs-badge" :class="row.protectionClass === 'LEGAL' ? 'gs-badge--warning' : 'gs-badge--neutral'">
-                {{ protectionLabel(row.protectionClass) }}
-              </span>
-            </td>
-            <td>{{ formatDate(row.createdAt) }}</td>
-            <td class="sp__row-actions">
-              <button
-                class="sp__link"
-                type="button"
-                :disabled="releasing === row.id"
-                @click="release(row)"
-              >
-                {{ $t('gainos.suppressions.release') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-        <p v-if="hasMore" class="sp__hint sp__more">
-          <button type="button" class="sp__link" @click="loadMore">{{ $t('gainos.suppressions.loadMore') }}</button>
-        </p>
+      <Table
+        v-else
+        :columns="columns"
+        :data-source="rows"
+        :pagination="false"
+        :scroll="{ x: 760 }"
+        row-key="id"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'value'"><span class="sp__value">{{ record.value }}</span></template>
+          <template v-else-if="column.key === 'type'">{{ typeLabel(record.type) }}</template>
+          <template v-else-if="column.key === 'reason'">{{ reasonLabel(record.reason) }}</template>
+          <template v-else-if="column.key === 'protectionClass'">
+            <span class="gs-badge" :class="record.protectionClass === 'LEGAL' ? 'gs-badge--warning' : 'gs-badge--neutral'">
+              {{ protectionLabel(record.protectionClass) }}
+            </span>
+          </template>
+          <template v-else-if="column.key === 'createdAt'">{{ formatDate(record.createdAt) }}</template>
+          <template v-else-if="column.key === 'actions'">
+            <Button
+              danger
+              type="link"
+              size="small"
+              :disabled="releasing === record.id"
+              :loading="releasing === record.id"
+              @click="release(record as SuppressionRecordView)"
+            >
+              {{ $t('gainos.suppressions.release') }}
+            </Button>
+          </template>
+        </template>
+      </Table>
+      <p v-if="hasMore" class="sp__hint sp__more">
+        <Button type="link" size="small" @click="loadMore">{{ $t('gainos.suppressions.loadMore') }}</Button>
+      </p>
       <p class="sp__hint">{{ $t('gainos.suppressions.releaseHint') }}</p>
     </section>
   </SettingsShell>
 </template>
 
 <style scoped>
-.sp { display: grid; gap: 16px; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); }
-.sp__head h1 { margin: 0; font-size: 20px; font-weight: 650; color: var(--gs-fg); }
-.sp__head p { margin: 6px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); line-height: 1.7; }
-.sp__notice { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; }
 .sp__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 12px; }
 .sp__card h2 { margin: 0; font-size: 15px; font-weight: 650; color: var(--gs-fg); }
-.sp__form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-.sp__form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--gs-fg-muted); }
-.sp__form select, .sp__form input { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 7px 10px; font-size: 13px; background: var(--gs-surface); color: var(--gs-fg); }
+.sp__form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+.sp__form :deep(.ant-form-item) { margin-bottom: 0; }
 .sp__grow { flex: 1 1 240px; }
-.sp__grow input { width: 100%; box-sizing: border-box; }
-.sp__cta { border: 1px solid var(--gs-accent); background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; border-radius: 9px; padding: 8px 16px; cursor: pointer; }
-.sp__cta:disabled { opacity: 0.6; cursor: progress; }
 .sp__hint { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
-.sp__err { margin: 0; font-size: 12.5px; color: var(--gs-danger); }
-.sp__state { color: var(--gs-fg-muted); font-size: 13px; }
-.sp__state--err { color: var(--gs-danger); display: flex; gap: 8px; align-items: center; }
+.sp__state { color: var(--gs-fg-muted); font-size: 13px; padding: 24px; display: grid; place-items: center; }
 .sp__more { text-align: center; }
 .sp__empty { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
-.sp__table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.sp__table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--gs-fg-subtle); padding: 6px 10px; border-bottom: 1px solid var(--gs-border); }
-.sp__table td { padding: 8px 10px; border-bottom: 1px solid var(--gs-divider); color: var(--gs-fg-2); }
 .sp__value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.sp__row-actions { text-align: right; }
-.sp__link { border: none; background: transparent; color: var(--gs-warn); font-size: 13px; cursor: pointer; }
-.sp__link:disabled { opacity: 0.5; cursor: progress; }
 </style>

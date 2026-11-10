@@ -2,9 +2,15 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { Alert, Button, Form, Input, InputNumber, Modal, Select } from 'ant-design-vue';
+
 import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
+
+import AsyncSection from '#/components/gainos/async-section.vue';
+import PageContainer from '#/components/gainos/page-container.vue';
+import PageHeader from '#/components/gainos/page-header.vue';
 
 import {
   failureText,
@@ -33,7 +39,7 @@ const draft = ref<CampaignPlanJobView | null>(null);
 const showDraftForm = ref(false);
 const draftIcpId = ref('');
 const draftSizeCap = ref<number | undefined>(undefined);
-const draftBudgetUsd = ref<string>('');
+const draftBudgetUsd = ref<number | undefined>(undefined);
 const pollTimer = ref<ReturnType<typeof setInterval> | null>(null);
 
 const revisions = computed(() => detail.value?.revisions ?? []);
@@ -152,13 +158,13 @@ async function startDraft(): Promise<void> {
   busy.value = 'draft';
   draft.value = null;
   try {
-    const budgetUsd = Number(draftBudgetUsd.value);
+    const budgetUsd = draftBudgetUsd.value;
     const job = await gainosApi.createCampaignPlanDraft(campaignId.value, {
       ...(draftIcpId.value ? { icpId: draftIcpId.value } : {}),
       ...(typeof draftSizeCap.value === 'number' && draftSizeCap.value > 0
         ? { audienceSizeCap: Math.trunc(draftSizeCap.value) }
         : {}),
-      ...(Number.isFinite(budgetUsd) && budgetUsd > 0
+      ...(typeof budgetUsd === 'number' && budgetUsd > 0
         ? { budgetCapMicros: Math.round(budgetUsd * 1_000_000) }
         : {}),
     });
@@ -245,231 +251,214 @@ onUnmounted(stopPolling);
 </script>
 
 <template>
-  <div class="cd">
-    <header class="cd__head">
-      <button type="button" class="cd__back" @click="router.push({ name: 'Campaigns' })">←</button>
-      <router-link class="cd__ghost" to="/growth?tab=outreach">{{ $t('gainos.campaigns.goOutreach') }}</router-link>
-      <div>
-        <h1>{{ detail?.name ?? $t('gainos.menu.campaigns') }}</h1>
-        <p v-if="detail?.objective">{{ detail.objective }}</p>
-      </div>
-      <button class="cd__primary" type="button" :disabled="busy === 'draft'" @click="showDraftForm = true">
-        {{ busy === 'draft' ? $t('gainos.campaigns.drafting') : $t('gainos.campaigns.draftButton') }}
-      </button>
-    </header>
+  <PageContainer>
+    <PageHeader :subtitle="detail?.objective" :title="detail?.name ?? $t('gainos.menu.campaigns')">
+      <template #actions>
+        <Button @click="router.push({ name: 'Campaigns' })">← {{ $t('gainos.campaigns.goOutreach') }}</Button>
+        <Button
+          type="primary"
+          :disabled="busy === 'draft'"
+          :loading="busy === 'draft'"
+          @click="showDraftForm = true"
+        >
+          {{ busy === 'draft' ? $t('gainos.campaigns.drafting') : $t('gainos.campaigns.draftButton') }}
+        </Button>
+      </template>
+    </PageHeader>
 
-    <p class="cd__banner" role="note">{{ $t('gainos.campaigns.shadowBanner') }}</p>
+    <Alert :message="$t('gainos.campaigns.shadowBanner')" banner role="note" type="warning" />
 
-    <p v-if="notice" class="cd__notice" role="status">{{ notice }}</p>
-    <div v-if="actionError" class="cd__error" role="alert">
-      <strong>{{ actionError.title }}</strong>
-      <details v-if="actionError.code">
-        <summary>{{ $t('gainos.campaigns.whyTechnical') }}</summary>
-        <code>{{ actionError.code }}</code>
-      </details>
-    </div>
-
-    <p v-if="loading" class="cd__hint">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="cd__error" role="alert">
-      <strong>{{ error.title }}</strong>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </div>
-
-    <template v-else-if="detail">
-      <p v-if="!latest" class="cd__hint">{{ $t('gainos.campaigns.noRevision') }}</p>
-
-      <!-- 待审批卡：approve / decline（拒绝必填理由） -->
-      <section v-if="pendingApproval" class="cd__card cd__card--gate">
-        <h2>{{ $t('gainos.campaigns.approvalTitle') }}</h2>
-        <p>{{ conclusion }}</p>
-        <p class="cd__muted">
-          {{ $t('gainos.campaigns.approvalExpires') }}:
-          {{ formatDateTime(pendingApproval.expiresAt) }}
-        </p>
-        <div class="cd__actions">
-          <button type="button" class="cd__primary" :disabled="busy === 'decide'" @click="showApprove = true">
-            {{ $t('gainos.campaigns.approve') }}
-          </button>
-          <button type="button" class="cd__danger" :disabled="busy === 'decide'" @click="showDecline = true">
-            {{ $t('gainos.campaigns.decline') }}
-          </button>
-        </div>
-      </section>
-
-      <section v-if="latest" class="cd__card">
-        <h2>{{ $t('gainos.campaigns.planSummary') }}</h2>
-        <dl class="cd__facts">
-          <dt>{{ $t('gainos.campaigns.summaryGoal') }}</dt>
-          <dd>{{ latest.plan.goal.objective }}</dd>
-          <template v-if="latest.plan.goal.successMetric">
-            <dt>{{ $t('gainos.campaigns.summaryMetric') }}</dt>
-            <dd>{{ latest.plan.goal.successMetric }}</dd>
-          </template>
-          <dt>{{ $t('gainos.campaigns.summaryAudience') }}</dt>
-          <dd>{{ latest.plan.audience.icpIds.map(icpName).join('、') }}</dd>
-          <dt>{{ $t('gainos.campaigns.summarySizeCap') }}</dt>
-          <dd>{{ latest.plan.audience.sizeCap }} {{ $t('gainos.campaigns.sizeCapUnit') }}</dd>
-          <dt>{{ $t('gainos.campaigns.summaryBudget') }}</dt>
-          <dd>{{ money(latest.plan.budget.capMicros) || $t('gainos.campaigns.noBudget') }}</dd>
-          <dt>{{ $t('gainos.campaigns.summaryMotion') }}</dt>
-          <dd>{{ $t('gainos.campaigns.motionDiscovery') }}</dd>
-        </dl>
-        <div v-if="latest.state === 'DRAFT'" class="cd__actions">
-          <button type="button" class="cd__primary" :disabled="busy === 'submit'" @click="submitForApproval">
-            {{ $t('gainos.campaigns.submit') }}
-          </button>
-        </div>
-        <p v-else-if="latest.state === 'EXPIRED'" class="cd__muted">
-          {{ $t('gainos.campaigns.approvalExpired') }}
-        </p>
-      </section>
-
-      <!-- Why 卡：三层渐进（结论 / 依据 / 技术详情默认折叠） -->
-      <section v-if="latest" class="cd__card">
-        <h2>{{ $t('gainos.campaigns.why') }}</h2>
-        <p class="cd__why-1">{{ conclusion }}</p>
-        <details class="cd__why-2">
-          <summary>{{ $t('gainos.campaigns.whyBasis') }}</summary>
-          <ul>
-            <li>{{ $t('gainos.campaigns.summaryGoal') }}: {{ latest.plan.goal.objective }}</li>
-            <li>
-              {{ $t('gainos.campaigns.summaryAudience') }}:
-              {{ latest.plan.audience.icpIds.map(icpName).join('、') }}
-            </li>
-            <li>
-              {{ $t('gainos.campaigns.summarySizeCap') }}: {{ latest.plan.audience.sizeCap }}
-              {{ $t('gainos.campaigns.sizeCapUnit') }}
-            </li>
-            <li>
-              {{ $t('gainos.campaigns.summaryBudget') }}:
-              {{ money(latest.plan.budget.capMicros) || $t('gainos.campaigns.noBudget') }}
-            </li>
-            <li>{{ $t('gainos.campaigns.revision', { no: latest.revisionNo }) }} · {{ formatDateTime(latest.createdAt) }}</li>
-          </ul>
-        </details>
-        <details class="cd__why-3">
+    <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
+    <Alert v-if="actionError" role="alert" show-icon type="error">
+      <template #message>{{ actionError.title }}</template>
+      <template v-if="actionError.code" #description>
+        <details>
           <summary>{{ $t('gainos.campaigns.whyTechnical') }}</summary>
-          <p class="cd__muted">{{ $t('gainos.campaigns.whyTechnicalHint') }}</p>
-          <pre>{{ JSON.stringify(latest.plan, null, 2) }}</pre>
-          <code>{{ $t('gainos.campaigns.planVersion') }} · {{ latest.planHash }}</code>
-          <code>revision_id: {{ latest.id }}</code>
-          <code>job_id: {{ draft?.id ?? '—' }}</code>
+          <code>{{ actionError.code }}</code>
         </details>
-      </section>
+      </template>
+    </Alert>
 
-      <section v-if="authorization" class="cd__card cd__card--ok">
-        <h2>{{ $t('gainos.campaigns.authorization') }}</h2>
-        <p>{{ $t('gainos.campaigns.authIssued') }}</p>
-        <p class="cd__muted">
-          {{ formatDateTime(authorization.issuedAt) }} –
-          {{ formatDateTime(authorization.expiresAt) }}
-        </p>
-      </section>
+    <AsyncSection
+      :error="error"
+      :loading="loading"
+      :loading-text="$t('gainos.common.loading')"
+      :retry-text="$t('gainos.common.retry')"
+      @retry="load"
+    >
+      <template v-if="detail">
+        <p v-if="!latest" class="cd__muted">{{ $t('gainos.campaigns.noRevision') }}</p>
 
-      <section v-if="revisions.length" class="cd__card">
-        <h2>{{ $t('gainos.campaigns.revisions') }}</h2>
-        <ol class="cd__timeline">
-          <li v-for="revision in revisions" :key="revision.id">
-            <strong>{{ $t('gainos.campaigns.revision', { no: revision.revisionNo }) }}</strong>
-            <span class="gs-badge" :class="approvalBadgeClass(revision.state)">{{ revisionStateLabel(revision.state) }}</span>
-            <span class="cd__muted">{{ formatDateTime(revision.createdAt) }}</span>
-            <p v-if="revision.approvals[0]?.decisionReason" class="cd__muted">
-              {{ revision.approvals[0].decisionReason }}
-            </p>
-          </li>
-        </ol>
-      </section>
+        <!-- 待审批卡：approve / decline（拒绝必填理由） -->
+        <section v-if="pendingApproval" class="cd__card cd__card--gate">
+          <h2>{{ $t('gainos.campaigns.approvalTitle') }}</h2>
+          <p>{{ conclusion }}</p>
+          <p class="cd__muted">
+            {{ $t('gainos.campaigns.approvalExpires') }}:
+            {{ formatDateTime(pendingApproval.expiresAt) }}
+          </p>
+          <div class="cd__actions">
+            <Button type="primary" :disabled="busy === 'decide'" @click="showApprove = true">
+              {{ $t('gainos.campaigns.approve') }}
+            </Button>
+            <Button danger :disabled="busy === 'decide'" @click="showDecline = true">
+              {{ $t('gainos.campaigns.decline') }}
+            </Button>
+          </div>
+        </section>
 
-      <section v-if="detail.recentTrace.length" class="cd__card">
-        <h2>{{ $t('gainos.campaigns.traceTitle') }}</h2>
-        <ol class="cd__timeline">
-          <li v-for="entry in detail.recentTrace" :key="entry.traceId">
-            <span class="cd__muted">{{ formatDateTime(entry.createdAt) }}</span>
-            <span>{{ traceStepLabel(entry.stepType) }} · {{ entry.actorType }}</span>
-          </li>
-        </ol>
-      </section>
-    </template>
+        <section v-if="latest" class="cd__card">
+          <h2>{{ $t('gainos.campaigns.planSummary') }}</h2>
+          <dl class="cd__facts">
+            <dt>{{ $t('gainos.campaigns.summaryGoal') }}</dt>
+            <dd>{{ latest.plan.goal.objective }}</dd>
+            <template v-if="latest.plan.goal.successMetric">
+              <dt>{{ $t('gainos.campaigns.summaryMetric') }}</dt>
+              <dd>{{ latest.plan.goal.successMetric }}</dd>
+            </template>
+            <dt>{{ $t('gainos.campaigns.summaryAudience') }}</dt>
+            <dd>{{ latest.plan.audience.icpIds.map(icpName).join('、') }}</dd>
+            <dt>{{ $t('gainos.campaigns.summarySizeCap') }}</dt>
+            <dd>{{ latest.plan.audience.sizeCap }} {{ $t('gainos.campaigns.sizeCapUnit') }}</dd>
+            <dt>{{ $t('gainos.campaigns.summaryBudget') }}</dt>
+            <dd>{{ money(latest.plan.budget.capMicros) || $t('gainos.campaigns.noBudget') }}</dd>
+            <dt>{{ $t('gainos.campaigns.summaryMotion') }}</dt>
+            <dd>{{ $t('gainos.campaigns.motionDiscovery') }}</dd>
+          </dl>
+          <div v-if="latest.state === 'DRAFT'" class="cd__actions">
+            <Button type="primary" :disabled="busy === 'submit'" :loading="busy === 'submit'" @click="submitForApproval">
+              {{ $t('gainos.campaigns.submit') }}
+            </Button>
+          </div>
+          <p v-else-if="latest.state === 'EXPIRED'" class="cd__muted">
+            {{ $t('gainos.campaigns.approvalExpired') }}
+          </p>
+        </section>
 
-    <div v-if="showDraftForm" class="cd__modal" role="dialog" aria-modal="true">
-      <div class="cd__dialog">
-        <h2>{{ $t('gainos.campaigns.draftButton') }}</h2>
-        <label>
-          {{ $t('gainos.campaigns.summaryAudience') }}
-          <select v-model="draftIcpId">
-            <option value="">—</option>
-            <option v-for="icp in icps" :key="icp.id" :value="icp.id">{{ icp.name }}</option>
-          </select>
-        </label>
-        <label>
-          {{ $t('gainos.campaigns.summarySizeCap') }}
-          <input v-model.number="draftSizeCap" type="number" min="1" max="1000" />
-        </label>
-        <label>
-          {{ $t('gainos.campaigns.summaryBudget') }} (USD)
-          <input v-model="draftBudgetUsd" type="number" min="0" step="0.01" />
-        </label>
-        <div class="cd__actions">
-          <button type="button" class="cd__primary" :disabled="busy === 'draft'" @click="startDraft">
-            {{ busy === 'draft' ? $t('gainos.campaigns.drafting') : $t('gainos.campaigns.draftButton') }}
-          </button>
-          <button type="button" class="cd__ghost" @click="showDraftForm = false">
-            {{ $t('gainos.common.cancel') }}
-          </button>
-        </div>
-      </div>
-    </div>
+        <!-- Why 卡：三层渐进（结论 / 依据 / 技术详情默认折叠） -->
+        <section v-if="latest" class="cd__card">
+          <h2>{{ $t('gainos.campaigns.why') }}</h2>
+          <p class="cd__why-1">{{ conclusion }}</p>
+          <details class="cd__why-2">
+            <summary>{{ $t('gainos.campaigns.whyBasis') }}</summary>
+            <ul>
+              <li>{{ $t('gainos.campaigns.summaryGoal') }}: {{ latest.plan.goal.objective }}</li>
+              <li>
+                {{ $t('gainos.campaigns.summaryAudience') }}:
+                {{ latest.plan.audience.icpIds.map(icpName).join('、') }}
+              </li>
+              <li>
+                {{ $t('gainos.campaigns.summarySizeCap') }}: {{ latest.plan.audience.sizeCap }}
+                {{ $t('gainos.campaigns.sizeCapUnit') }}
+              </li>
+              <li>
+                {{ $t('gainos.campaigns.summaryBudget') }}:
+                {{ money(latest.plan.budget.capMicros) || $t('gainos.campaigns.noBudget') }}
+              </li>
+              <li>{{ $t('gainos.campaigns.revision', { no: latest.revisionNo }) }} · {{ formatDateTime(latest.createdAt) }}</li>
+            </ul>
+          </details>
+          <details class="cd__why-3">
+            <summary>{{ $t('gainos.campaigns.whyTechnical') }}</summary>
+            <p class="cd__muted">{{ $t('gainos.campaigns.whyTechnicalHint') }}</p>
+            <pre>{{ JSON.stringify(latest.plan, null, 2) }}</pre>
+            <code>{{ $t('gainos.campaigns.planVersion') }} · {{ latest.planHash }}</code>
+            <code>revision_id: {{ latest.id }}</code>
+            <code>job_id: {{ draft?.id ?? '—' }}</code>
+          </details>
+        </section>
 
-    <div v-if="showApprove" class="cd__modal" role="dialog" aria-modal="true">
-      <div class="cd__dialog">
-        <h2>{{ $t('gainos.campaigns.approve') }}</h2>
-        <p>{{ conclusion }}</p>
-        <p class="cd__muted">{{ $t('gainos.campaigns.approveConfirm') }}</p>
-        <div class="cd__actions">
-          <button type="button" class="cd__primary" :disabled="busy === 'decide'" @click="approve">
-            {{ $t('gainos.campaigns.approve') }}
-          </button>
-          <button type="button" class="cd__ghost" @click="showApprove = false">
-            {{ $t('gainos.common.cancel') }}
-          </button>
-        </div>
-      </div>
-    </div>
+        <section v-if="authorization" class="cd__card cd__card--ok">
+          <h2>{{ $t('gainos.campaigns.authorization') }}</h2>
+          <p>{{ $t('gainos.campaigns.authIssued') }}</p>
+          <p class="cd__muted">
+            {{ formatDateTime(authorization.issuedAt) }} –
+            {{ formatDateTime(authorization.expiresAt) }}
+          </p>
+        </section>
 
-    <div v-if="showDecline" class="cd__modal" role="dialog" aria-modal="true">
-      <div class="cd__dialog">
-        <h2>{{ $t('gainos.campaigns.decline') }}</h2>
-        <label>
-          {{ $t('gainos.campaigns.declineReason') }}
-          <textarea v-model="declineReason" rows="3" maxlength="500" />
-        </label>
-        <p v-if="declineError" class="cd__error-inline" role="alert">{{ declineError }}</p>
-        <div class="cd__actions">
-          <button type="button" class="cd__danger" :disabled="busy === 'decide'" @click="decline">
-            {{ $t('gainos.campaigns.decline') }}
-          </button>
-          <button type="button" class="cd__ghost" @click="showDecline = false">
-            {{ $t('gainos.common.cancel') }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+        <section v-if="revisions.length" class="cd__card">
+          <h2>{{ $t('gainos.campaigns.revisions') }}</h2>
+          <ol class="cd__timeline">
+            <li v-for="revision in revisions" :key="revision.id">
+              <strong>{{ $t('gainos.campaigns.revision', { no: revision.revisionNo }) }}</strong>
+              <span class="gs-badge" :class="approvalBadgeClass(revision.state)">{{ revisionStateLabel(revision.state) }}</span>
+              <span class="cd__muted">{{ formatDateTime(revision.createdAt) }}</span>
+              <p v-if="revision.approvals[0]?.decisionReason" class="cd__muted">
+                {{ revision.approvals[0].decisionReason }}
+              </p>
+            </li>
+          </ol>
+        </section>
+
+        <section v-if="detail.recentTrace.length" class="cd__card">
+          <h2>{{ $t('gainos.campaigns.traceTitle') }}</h2>
+          <ol class="cd__timeline">
+            <li v-for="entry in detail.recentTrace" :key="entry.traceId">
+              <span class="cd__muted">{{ formatDateTime(entry.createdAt) }}</span>
+              <span>{{ traceStepLabel(entry.stepType) }} · {{ entry.actorType }}</span>
+            </li>
+          </ol>
+        </section>
+      </template>
+    </AsyncSection>
+
+    <Modal
+      v-model:open="showDraftForm"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="busy === 'draft'"
+      :ok-text="$t('gainos.campaigns.draftButton')"
+      :title="$t('gainos.campaigns.draftButton')"
+      :width="480"
+      @ok="startDraft"
+    >
+      <Form layout="vertical">
+        <Form.Item :label="$t('gainos.campaigns.summaryAudience')">
+          <Select v-model:value="draftIcpId" :options="icps.map((icp) => ({ value: icp.id, label: icp.name }))" allow-clear placeholder="—" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.campaigns.summarySizeCap')">
+          <InputNumber v-model:value="draftSizeCap" :max="1000" :min="1" class="cd__input" />
+        </Form.Item>
+        <Form.Item :label="`${$t('gainos.campaigns.summaryBudget')} (USD)`">
+          <InputNumber v-model:value="draftBudgetUsd" :min="0" :step="0.01" class="cd__input" />
+        </Form.Item>
+      </Form>
+    </Modal>
+
+    <Modal
+      v-model:open="showApprove"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="busy === 'decide'"
+      :ok-text="$t('gainos.campaigns.approve')"
+      :title="$t('gainos.campaigns.approve')"
+      :width="480"
+      @ok="approve"
+    >
+      <p>{{ conclusion }}</p>
+      <p class="cd__muted">{{ $t('gainos.campaigns.approveConfirm') }}</p>
+    </Modal>
+
+    <Modal
+      v-model:open="showDecline"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="busy === 'decide'"
+      :ok-text="$t('gainos.campaigns.decline')"
+      :ok-button-props="{ danger: true }"
+      :title="$t('gainos.campaigns.decline')"
+      :width="480"
+      @ok="decline"
+    >
+      <Form layout="vertical">
+        <Form.Item :label="$t('gainos.campaigns.declineReason')">
+          <Input.TextArea v-model:value="declineReason" :maxlength="500" :rows="3" />
+        </Form.Item>
+      </Form>
+      <Alert v-if="declineError" :message="declineError" role="alert" show-icon type="error" />
+    </Modal>
+  </PageContainer>
 </template>
 
 <style scoped>
-.cd { max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); display: grid; gap: 16px; }
-.cd__head { display: flex; gap: 16px; align-items: flex-start; }
-.cd__head h1 { margin: 0; font-size: 24px; }
-.cd__head p { margin: 4px 0 0; color: var(--gs-fg-muted); }
-.cd__back { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; width: 34px; height: 34px; cursor: pointer; color: var(--gs-fg-2); }
-.cd__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; margin-left: auto; }
-.cd__danger { background: var(--gs-surface); color: var(--gs-danger); border: 1px solid var(--gs-danger-border); border-radius: 10px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
-.cd__ghost { background: var(--gs-surface-2); color: var(--gs-fg-2); border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
-.cd__banner { margin: 0; padding: 10px 14px; border-radius: 8px; background: var(--gs-warn-bg); color: var(--gs-warn); }
-.cd__notice { margin: 0; color: var(--gs-accent-strong); }
-.cd__hint { color: var(--gs-fg-muted); }
 .cd__muted { color: var(--gs-fg-muted); font-size: 13px; }
 .cd__card { border: 1px solid var(--gs-border); border-radius: 12px; padding: 16px 20px; background: var(--gs-surface); }
 .cd__card--gate { border-color: var(--gs-warn); background: var(--gs-warn-bg); }
@@ -486,15 +475,5 @@ onUnmounted(stopPolling);
 .cd__why-3 code { display: block; margin-top: 6px; font-size: 12px; color: var(--gs-fg-muted); }
 .cd__timeline { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
 .cd__timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
-.cd__state { margin: 0 8px; color: var(--gs-warn); }
-.cd__error { background: var(--gs-danger-bg); color: var(--gs-danger); padding: 12px 16px; border-radius: 8px; }
-.cd__error details { margin-top: 6px; }
-.cd__error-inline { color: var(--gs-danger); margin: 0; }
-.cd__modal { position: fixed; inset: 0; background: rgba(30, 20, 8, 0.4); display: flex; align-items: center; justify-content: center; }
-.cd__dialog { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(480px, 92vw); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; box-sizing: border-box; }
-/* 长选项文本会把 grid 列的 min-content 撑宽、溢出卡片；允许多行收缩并让控件占满轨道（2026-11-10）。 */
-.cd__dialog > * { min-width: 0; }
-.cd__dialog select, .cd__dialog input, .cd__dialog textarea { width: 100%; min-width: 0; }
-.cd__dialog label { display: grid; gap: 6px; font-size: 14px; }
-.cd__dialog input, .cd__dialog select, .cd__dialog textarea { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.cd__input { width: 100%; }
 </style>

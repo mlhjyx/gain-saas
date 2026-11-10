@@ -7,10 +7,15 @@ import type { CanonicalContact, Lead, OutreachBatchDetail, OutreachBatchSummary,
 
 import { computed, onMounted, ref } from 'vue';
 
+import { Alert, Button, Form, Input, Modal, Select, Table } from 'ant-design-vue';
+
 import { deriveOutreachActions, formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
+
+import PageContainer from '#/components/gainos/page-container.vue';
+import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
@@ -146,7 +151,7 @@ async function loadPickerContacts(): Promise<void> {
   pickerError.value = null;
   try {
     const pkg = await gainosApi.leadPackage(pickerLeadId.value);
-    pickerContacts.value = pkg.contacts ?? [];
+    pickerContacts.value = (pkg as unknown as { contacts?: CanonicalContact[] }).contacts ?? [];
     pickerLeadName.value = pkg.company?.name ?? '';
   } catch (err) {
     pickerError.value = failureText(err).title;
@@ -274,39 +279,55 @@ function eventLabel(type: string): string {
   return text === key ? $t('gainos.outreach.eventOther') : text;
 }
 
+const draftColumns = [
+  { key: 'recipient', dataIndex: 'recipientEmail', title: $t('gainos.outreach.recipient') },
+  { key: 'company', dataIndex: 'companyName', title: $t('gainos.outreach.company'), width: 180 },
+  { key: 'subject', dataIndex: 'subject', title: $t('gainos.outreach.subject') },
+  { key: 'status', dataIndex: 'status', title: $t('gainos.outreach.status'), width: 130 },
+  { key: 'actions', dataIndex: 'actions', title: '', width: 130 },
+];
+
+const leadOptions = computed(() =>
+  pickerLeads.value.map((lead) => ({ value: lead.id, label: lead.company?.name ?? lead.id.slice(0, 8) })),
+);
+
 onMounted(loadBatches);
 </script>
 
 <template>
-  <div class="ob" :class="{ 'is-embedded': embedded }">
-    <header class="ob__head">
-      <div v-if="!embedded">
-        <h2>{{ $t('gainos.outreach.title') }}</h2>
-      </div>
+  <PageContainer :compact="embedded" :class="{ 'ob--embedded': embedded }">
+    <PageHeader
+      v-if="!embedded"
+      :title="$t('gainos.outreach.title')"
+      :subtitle="$t('gainos.outreach.subtitle')"
+    >
+      <template #actions>
+        <Button type="primary" @click="showCreate = !showCreate">
+          {{ $t('gainos.outreach.newBatch') }}
+        </Button>
+      </template>
+    </PageHeader>
+    <div v-else class="ob__embedded-head">
       <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
-      <button class="ob__primary" type="button" @click="showCreate = !showCreate">
+      <Button type="primary" @click="showCreate = !showCreate">
         {{ $t('gainos.outreach.newBatch') }}
-      </button>
-    </header>
+      </Button>
+    </div>
 
-    <form v-if="showCreate" class="ob__create" @submit.prevent="createBatch">
-      <label>
-        {{ $t('gainos.outreach.nameLabel') }}
-        <input v-model="batchName" maxlength="200" :placeholder="$t('gainos.outreach.namePlaceholder')" />
-      </label>
-      <button class="ob__primary" type="submit" :disabled="busy === 'create' || !batchName.trim()">
+    <Form v-if="showCreate" class="ob__create" layout="inline" @submit.prevent="createBatch">
+      <Form.Item :label="$t('gainos.outreach.nameLabel')">
+        <Input v-model:value="batchName" :maxlength="200" :placeholder="$t('gainos.outreach.namePlaceholder')" style="width: 280px" />
+      </Form.Item>
+      <Button type="primary" :disabled="busy === 'create' || !batchName.trim()" :loading="busy === 'create'" @click="createBatch">
         {{ $t('gainos.outreach.create') }}
-      </button>
-      <button class="ob__ghost" type="button" @click="showCreate = false">
+      </Button>
+      <Button @click="showCreate = false">
         {{ $t('gainos.outreach.cancel') }}
-      </button>
-    </form>
+      </Button>
+    </Form>
 
-    <p v-if="error" class="ob__error">
-      {{ error.title }}<span v-if="error.why"> · {{ error.why }}</span>
-      <span v-if="error.next"> · {{ error.next }}</span>
-    </p>
-    <p v-if="notice" class="ob__notice">{{ notice }}</p>
+    <Alert v-if="error" :message="`${error.title}${error.why ? ' · ' + error.why : ''}${error.next ? ' · ' + error.next : ''}`" role="alert" show-icon type="error" />
+    <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
     <p v-if="loading" class="ob__muted">{{ $t('gainos.outreach.loading') }}</p>
 
     <div v-else-if="!error" class="ob__grid">
@@ -337,21 +358,21 @@ onMounted(loadBatches);
             </span>
           </div>
           <div class="ob__actions">
-            <button v-if="canEdit" class="ob__ghost" type="button" @click="openCreateDraft">
+            <Button v-if="canEdit" @click="openCreateDraft">
               {{ $t('gainos.outreach.addDraft') }}
-            </button>
-            <button
+            </Button>
+            <Button
               v-if="canSubmit"
-              class="ob__ghost"
-              type="button"
+              type="primary"
               :disabled="busy === 'submit'"
+              :loading="busy === 'submit'"
               @click="submitBatch"
             >
               {{ $t('gainos.outreach.submit') }}
-            </button>
-            <button v-if="canReopen" class="ob__ghost" type="button" @click="reopen">
+            </Button>
+            <Button v-if="canReopen" :loading="busy === 'reopen'" @click="reopen">
               {{ $t('gainos.outreach.reopen') }}
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -362,52 +383,44 @@ onMounted(loadBatches);
           <p class="ob__muted">
             {{ $t('gainos.outreach.approvalExpires', { at: when(latestApproval.expiresAt) }) }}
           </p>
-          <label>
-            {{ $t('gainos.outreach.decisionReason') }}
-            <input v-model="decisionReason" maxlength="500" :placeholder="$t('gainos.outreach.decisionReasonHint')" />
-          </label>
+          <Input v-model:value="decisionReason" :maxlength="500" :placeholder="$t('gainos.outreach.decisionReasonHint')" />
           <div class="ob__actions">
-            <button class="ob__primary" type="button" :disabled="!canDecide || busy === 'approve'" @click="decide('approve')">
+            <Button type="primary" :disabled="!canDecide || busy === 'approve'" :loading="busy === 'approve'" @click="decide('approve')">
               {{ $t('gainos.outreach.approve') }}
-            </button>
-            <button class="ob__danger" type="button" :disabled="!canDecide || busy === 'decline'" @click="decide('decline')">
+            </Button>
+            <Button danger :disabled="!canDecide || busy === 'decline'" :loading="busy === 'decline'" @click="decide('decline')">
               {{ $t('gainos.outreach.decline') }}
-            </button>
+            </Button>
           </div>
         </section>
 
         <p v-if="detail.drafts.length === 0" class="ob__muted">{{ $t('gainos.outreach.noDrafts') }}</p>
-        <table v-else class="ob__table">
-          <thead>
-            <tr>
-              <th>{{ $t('gainos.outreach.recipient') }}</th>
-              <th>{{ $t('gainos.outreach.company') }}</th>
-              <th>{{ $t('gainos.outreach.subject') }}</th>
-              <th>{{ $t('gainos.outreach.status') }}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="draft in detail.drafts" :key="draft.id">
-              <td>{{ draft.recipientEmail }}</td>
-              <td>{{ draft.companyName || '—' }}</td>
-              <td>{{ draft.subject }}</td>
-              <td>
-                <span class="gs-badge" :class="tone('outreachDraft', draft.status)">
-                  {{ label('outreachDraft', draft.status) }}
-                </span>
-              </td>
-              <td class="ob__row-actions">
-                <button v-if="canEdit" class="ob__link" type="button" @click="openEditDraft(draft)">
-                  {{ $t('gainos.outreach.edit') }}
-                </button>
-                <button v-if="canEdit" class="ob__link ob__link--danger" type="button" @click="removeDraft(draft)">
-                  {{ $t('gainos.outreach.remove') }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <Table
+          v-else
+          :columns="draftColumns"
+          :data-source="detail.drafts"
+          :pagination="false"
+          :scroll="{ x: 720 }"
+          row-key="id"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'company'">{{ record.companyName || '—' }}</template>
+            <template v-else-if="column.key === 'status'">
+              <span class="gs-badge" :class="tone('outreachDraft', record.status)">
+                {{ label('outreachDraft', record.status) }}
+              </span>
+            </template>
+            <template v-else-if="column.key === 'actions'">
+              <Button v-if="canEdit" type="link" size="small" @click="openEditDraft(record as OutreachDraftView)">
+                {{ $t('gainos.outreach.edit') }}
+              </Button>
+              <Button v-if="canEdit" danger type="link" size="small" :loading="busy === `remove:${record.id}`" @click="removeDraft(record as OutreachDraftView)">
+                {{ $t('gainos.outreach.remove') }}
+              </Button>
+            </template>
+          </template>
+        </Table>
 
         <section class="ob__timeline">
           <h4>{{ $t('gainos.outreach.timeline') }}</h4>
@@ -423,25 +436,31 @@ onMounted(loadBatches);
       <section v-else class="ob__detail ob__muted">{{ $t('gainos.outreach.selectHint') }}</section>
     </div>
 
-    <div v-if="draftDialog" class="ob__dialog" role="dialog" aria-modal="true">
-      <form class="ob__dialog-card" @submit.prevent="saveDraft">
-        <h3>{{ draftDialog.mode === 'create' ? $t('gainos.outreach.addDraft') : $t('gainos.outreach.edit') }}</h3>
-        <label>
-          {{ $t('gainos.outreach.contactRef') }}
-          <input v-model="draftForm.contactRef" :placeholder="$t('gainos.outreach.contactRefHint')" />
-          <button class="ob__ghost ob__pick-toggle" type="button" @click="togglePicker">
+    <Modal
+      :open="Boolean(draftDialog)"
+      :cancel-text="$t('gainos.outreach.cancel')"
+      :confirm-loading="busy === 'draft'"
+      :ok-text="$t('gainos.outreach.save')"
+      :title="draftDialog?.mode === 'create' ? $t('gainos.outreach.addDraft') : $t('gainos.outreach.edit')"
+      :width="560"
+      @cancel="draftDialog = null"
+      @ok="saveDraft"
+    >
+      <Form layout="vertical">
+        <Form.Item :label="$t('gainos.outreach.contactRef')">
+          <Input v-model:value="draftForm.contactRef" :placeholder="$t('gainos.outreach.contactRefHint')" />
+          <Button class="ob__pick-toggle" size="small" @click="togglePicker">
             {{ $t('gainos.outreach.pickContact') }}
-          </button>
+          </Button>
           <div v-if="pickerOpen" class="ob__pick">
-            <label>
-              {{ $t('gainos.outreach.pickLead') }}
-              <select v-model="pickerLeadId" @change="loadPickerContacts">
-                <option value="">{{ $t('gainos.outreach.pickLeadPlaceholder') }}</option>
-                <option v-for="lead in pickerLeads" :key="lead.id" :value="lead.id">
-                  {{ lead.company?.name ?? lead.id.slice(0, 8) }}
-                </option>
-              </select>
-            </label>
+            <Select
+              v-model:value="pickerLeadId"
+              :options="leadOptions"
+              :placeholder="$t('gainos.outreach.pickLeadPlaceholder')"
+              allow-clear
+              style="width: 100%"
+              @change="loadPickerContacts"
+            />
             <p v-if="pickerBusy" class="ob__muted">{{ $t('gainos.common.loading') }}</p>
             <p v-else-if="pickerError" class="ob__error">{{ pickerError }}</p>
             <p v-else-if="pickerLeadId && pickerContacts.length === 0" class="ob__muted">
@@ -450,84 +469,56 @@ onMounted(loadBatches);
             <ul v-else class="ob__pick-list">
               <li v-for="contact in pickerContacts" :key="contact.id">
                 <span>{{ contact.fullName }}<small v-if="contact.title"> · {{ contact.title }}</small></span>
-                <button class="ob__link" type="button" @click="pickContact(contact)">
+                <Button type="link" size="small" @click="pickContact(contact)">
                   {{ $t('gainos.outreach.pickUse') }}
-                </button>
+                </Button>
               </li>
             </ul>
           </div>
-        </label>
-        <label>
-          {{ $t('gainos.outreach.recipient') }}
-          <input v-model="draftForm.recipientEmail" type="email" maxlength="320" />
-        </label>
-        <label>
-          {{ $t('gainos.outreach.company') }}
-          <input v-model="draftForm.companyName" maxlength="200" />
-        </label>
-        <label>
-          {{ $t('gainos.outreach.subject') }}
-          <input v-model="draftForm.subject" maxlength="300" />
-        </label>
-        <label>
-          {{ $t('gainos.outreach.body') }}
-          <textarea v-model="draftForm.body" rows="6" maxlength="20000" />
-        </label>
-        <p v-if="draftError" class="ob__error">{{ draftError }}</p>
-        <div class="ob__actions">
-          <button class="ob__ghost" type="submit" :disabled="busy === 'draft'">
-            {{ $t('gainos.outreach.save') }}
-          </button>
-          <button class="ob__ghost" type="button" @click="draftDialog = null">
-            {{ $t('gainos.outreach.cancel') }}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
+        </Form.Item>
+        <Form.Item :label="$t('gainos.outreach.recipient')">
+          <Input v-model:value="draftForm.recipientEmail" :maxlength="320" type="email" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.outreach.company')">
+          <Input v-model:value="draftForm.companyName" :maxlength="200" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.outreach.subject')">
+          <Input v-model:value="draftForm.subject" :maxlength="300" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.outreach.body')">
+          <Input.TextArea v-model:value="draftForm.body" :maxlength="20000" :rows="6" />
+        </Form.Item>
+      </Form>
+      <Alert v-if="draftError" :message="draftError" role="alert" show-icon type="error" />
+    </Modal>
+  </PageContainer>
 </template>
 
 <style scoped>
-.ob { width: 100%; max-width: 1280px; margin: 0 auto; padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); box-sizing: border-box; display: grid; gap: 16px; }
-.ob.is-embedded { padding: 0; max-width: none; margin: 0; }
-.ob__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.ob__head h2 { margin: 0 0 4px; font-size: 22px; }
-.ob__sub { margin: 0; color: var(--gs-muted, #667085); }
-.ob__create { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; padding: 12px; border: 1px solid var(--gs-border-strong); border-radius: 10px; }
+.ob--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
+.ob__embedded-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ob__sub { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
+.ob__create { margin-bottom: 4px; }
 .ob__grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
 .ob__list { display: grid; gap: 8px; }
-.ob__item { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid var(--gs-border-strong); border-radius: 10px; background: var(--gs-surface); cursor: pointer; }
+.ob__item { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid var(--gs-border-strong); border-radius: 10px; background: var(--gs-surface); cursor: pointer; color: var(--gs-fg); font-size: 13px; }
 .ob__item.is-active { border-color: var(--gs-accent-cta); box-shadow: 0 0 0 2px var(--gs-accent-soft); }
 .ob__item-name { font-weight: 600; }
-.ob__item-meta { color: var(--gs-muted, #667085); font-size: 12px; }
+.ob__item-meta { color: var(--gs-fg-muted); font-size: 12px; }
 .ob__detail { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 16px; display: grid; gap: 14px; }
 .ob__detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .ob__detail-head h3 { margin: 0 0 6px; }
 .ob__actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.ob__primary, .ob__ghost, .ob__danger { padding: 8px 14px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
-.ob__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
-.ob__primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.ob__ghost { background: var(--gs-surface); border-color: var(--gs-border-strong); color: var(--gs-fg-2); }
-.ob__danger { background: var(--gs-danger); color: var(--gs-accent-cta-fg); }
-.ob__pick-toggle { margin-top: 6px; justify-self: start; }
+.ob__pick-toggle { margin-top: 6px; }
 .ob__pick { margin-top: 8px; display: grid; gap: 8px; border: 1px dashed var(--gs-border-dashed); border-radius: 10px; padding: 10px 12px; }
 .ob__pick-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .ob__pick-list li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
 .ob__pick-list small { color: var(--gs-fg-subtle); }
-.ob__link { border: 0; background: none; color: var(--gs-accent-strong); cursor: pointer; padding: 0 6px 0 0; }
-.ob__link--danger { color: var(--gs-danger); }
-.ob__table { width: 100%; border-collapse: collapse; }
-.ob__table th, .ob__table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--gs-divider); vertical-align: top; }
-.ob__row-actions { white-space: nowrap; }
 .ob__approval { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.ob__timeline h4 { margin: 0 0 6px; font-size: 13.5px; }
 .ob__timeline ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .ob__timeline li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.ob__muted { color: var(--gs-muted, #667085); }
+.ob__muted { color: var(--gs-fg-muted); font-size: 12.5px; }
 .ob__error { color: var(--gs-danger); margin: 0; }
-.ob__notice { color: var(--gs-accent-strong); margin: 0; }
-.ob__dialog { position: fixed; inset: 0; background: rgb(16 24 40 / 45%); display: grid; place-items: center; padding: 24px; z-index: 40; }
-.ob__dialog-card { background: var(--gs-surface); border-radius: 12px; padding: 20px; width: min(560px, 100%); display: grid; gap: 10px; max-height: 90vh; overflow: auto; }
-.ob__dialog-card label, .ob__create label, .ob__approval label { display: grid; gap: 4px; font-size: 13px; }
-.ob__dialog-card input, .ob__dialog-card textarea, .ob__create input, .ob__approval input { padding: 8px; border: 1px solid var(--gs-border-strong); border-radius: 8px; font: inherit; }
 @media (max-width: 860px) { .ob__grid { grid-template-columns: 1fr; } }
 </style>

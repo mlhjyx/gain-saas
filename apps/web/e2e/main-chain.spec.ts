@@ -371,7 +371,7 @@ test('主链路 5：战役计划审批 → 已批准 → 运行期横幅（按�
   await page.waitForURL(/\/campaigns\/camp-1/);
   await settle(page);
   await expect(page.getByRole('heading', { name: '待审批' })).toBeVisible();
-  await expect(page.locator('.cd__banner')).toHaveText('批准后将签发执行授权并进入执行；发送仍受国家合规门与渠道授权约束。');
+  await expect(page.getByText('批准后将签发执行授权并进入执行；发送仍受国家合规门与渠道授权约束。')).toBeVisible();
   await page.getByRole('button', { name: '批准' }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: '批准' }).click();
   await expect(page.getByText('已批准，系统已签发执行授权。')).toBeVisible();
@@ -419,12 +419,15 @@ test('主链路 6：商机接受（SAO）→ 登记 Outcome', async ({ page }) =
   await loginAs(page);
   await page.goto('/qgos');
   await page.getByText('Muster Metallbau GmbH').first().click();
-  const drawer = page.locator('.qg__drawer');
+  const drawer = page.locator('.ant-drawer');
   await page.getByRole('button', { name: '接受商机' }).click();
   // 接受后抽屉刷新为 SAO 已接受并出现结果登记表单（提示语会被随后的刷新清空，属既有行为）
   await expect(drawer.getByText('已接受 ·', { exact: false })).toBeVisible();
   await expect(drawer.getByRole('heading', { name: '结果登记' })).toBeVisible();
-  await drawer.locator('select').selectOption('WON');
+  // antd-vue 4：combobox 是隐藏只读 search input，点选择器本体打开下拉
+  await page.locator('.ant-drawer .ant-select-selector').first().click();
+  // antd-vue 4 的下拉项不暴露 role=option，按列表项类名 + 文本定位
+  await page.locator('.ant-select-item-option').filter({ hasText: '赢单' }).click();
   await drawer.getByRole('button', { name: '登记结果' }).click();
   await expect(drawer.locator('.qg__outcome-badge').first()).toHaveText('赢单');
   const outcome = backend.take('POST', '/saos/sao-1/outcomes');
@@ -583,7 +586,7 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
   await expect(page.getByText('名单还是空的')).toBeVisible();
 
   // 新增：邮箱 + 手动原因
-  await page.locator('.sp__form input').fill('noreply@example.com');
+  await page.getByPlaceholder('noreply@example.com').fill('noreply@example.com');
   await page.locator('.sp__form button').click();
   await expect(page.getByText('已加入禁联名单，立即生效。')).toBeVisible();
   await expect(page.getByText('noreply@example.com')).toBeVisible();

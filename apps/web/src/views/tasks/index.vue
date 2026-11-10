@@ -2,12 +2,16 @@
 import type { AcquisitionTaskView, TaskRunView } from '#/api/gainos';
 
 import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+
+import { Button, Table } from 'ant-design-vue';
 
 import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import { $t } from '#/locales';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
@@ -18,6 +22,8 @@ import { failureText, gainosApi } from '#/api/gainos';
  * 这个任务在挖谁、最近一次跑成什么样、去哪里看这次运行。
  */
 defineOptions({ name: 'Tasks' });
+
+const router = useRouter();
 
 const tasks = ref<AcquisitionTaskView[]>([]);
 const loading = ref(false);
@@ -47,27 +53,34 @@ function latestRun(task: AcquisitionTaskView): TaskRunView | null {
 }
 
 function runLabel(status?: string | null): string {
-  const meta = glossaryStatus('engine', status);
+  const meta = glossaryStatus('run', status);
   return meta?.label ?? $t('gainos.tasks.noRun');
 }
 
 function runBadgeClass(status?: string | null): string {
-  const meta = glossaryStatus('engine', status);
+  const meta = glossaryStatus('run', status);
   return statusClass(meta?.tone ?? 'neutral');
 }
 
 function fmtTime(ts?: string | null): string {
   return formatDateTime(ts) || $t('gainos.tasks.never');
 }
+
+const columns = [
+  { key: 'name', dataIndex: 'name', title: $t('gainos.tasks.colTask') },
+  { key: 'status', dataIndex: 'status', title: $t('gainos.tasks.colStatus'), width: 160 },
+  { key: 'lastRunAt', dataIndex: 'lastRunAt', title: $t('gainos.tasks.colLastRun'), width: 180 },
+  { key: 'actions', dataIndex: 'actions', title: $t('gainos.tasks.colActions'), width: 140 },
+];
 </script>
 
 <template>
-  <div class="tk">
+  <PageContainer>
     <PageHeader :title="$t('gainos.tasks.title')" :subtitle="$t('gainos.tasks.subtitle')">
       <template #actions>
-        <button class="tk__refresh" type="button" @click="load">
+        <Button :loading="loading" @click="load">
           {{ $t('gainos.common.refresh') }}
-        </button>
+        </Button>
       </template>
     </PageHeader>
 
@@ -81,91 +94,55 @@ function fmtTime(ts?: string | null): string {
     >
       <template #empty>
         <p>{{ $t('gainos.tasks.empty') }}</p>
-        <router-link class="tk__cta" to="/find-buyers">{{ $t('gainos.tasks.emptyCta') }}</router-link>
+        <Button type="primary" @click="router.push('/find-buyers')">
+          {{ $t('gainos.tasks.emptyCta') }}
+        </Button>
       </template>
-    <table class="tk__table">
-      <thead>
-        <tr>
-          <th>{{ $t('gainos.tasks.colTask') }}</th>
-          <th>{{ $t('gainos.tasks.colStatus') }}</th>
-          <th>{{ $t('gainos.tasks.colLastRun') }}</th>
-          <th>{{ $t('gainos.tasks.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="task in tasks" :key="task.id">
-          <td>
-            <RouterLink class="tk__link" :to="{ name: 'TaskDetail', params: { taskId: task.id } }">
-              <strong>{{ task.name }}</strong>
+      <Table
+        :columns="columns"
+        :data-source="tasks"
+        :loading="false"
+        :pagination="false"
+        :scroll="{ x: 640 }"
+        row-key="id"
+        size="middle"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'">
+            <RouterLink class="tk__link" :to="{ name: 'TaskDetail', params: { taskId: record.id } }">
+              <strong>{{ record.name }}</strong>
             </RouterLink>
-            <br />
-            <small class="tk__muted">
-              {{ task.icpId ? `${$t('gainos.runs.icp')} ${task.icpId.slice(0, 8)}` : '—' }}
-            </small>
-          </td>
-          <td>
-            <span v-if="latestRun(task)" class="gs-badge" :class="runBadgeClass(latestRun(task)!.status)">
-              {{ runLabel(latestRun(task)!.status) }}
+            <div class="tk__muted">
+              {{ record.icpId ? `${$t('gainos.runs.icp')} ${record.icpId.slice(0, 8)}` : '—' }}
+            </div>
+          </template>
+          <template v-else-if="column.key === 'status'">
+            <span v-if="latestRun(record as AcquisitionTaskView)" class="gs-badge" :class="runBadgeClass(latestRun(record as AcquisitionTaskView)!.status)">
+              {{ runLabel(latestRun(record as AcquisitionTaskView)!.status) }}
             </span>
             <span v-else class="tk__muted">{{ $t('gainos.tasks.noRun') }}</span>
-          </td>
-          <td>{{ fmtTime(task.lastRunAt) }}</td>
-          <td>
-            <router-link
-              v-if="latestRun(task)?.runId"
+          </template>
+          <template v-else-if="column.key === 'lastRunAt'">
+            {{ fmtTime(record.lastRunAt) }}
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <RouterLink
+              v-if="latestRun(record as AcquisitionTaskView)?.runId"
               class="tk__link"
-              :to="`/runs/${latestRun(task)!.runId}`"
+              :to="`/runs/${latestRun(record as AcquisitionTaskView)!.runId}`"
             >
               {{ $t('gainos.tasks.viewRun') }}
-            </router-link>
+            </RouterLink>
             <span v-else class="tk__muted">—</span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+          </template>
+        </template>
+      </Table>
     </AsyncSection>
-  </div>
+  </PageContainer>
 </template>
 
 <style scoped>
-.tk {
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
-}
-.tk__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.tk__head h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
-.tk__sub { margin: 6px 0 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-muted); max-width: 680px; }
-.tk__refresh {
-  flex: none; border: 1px solid var(--gs-border-strong); background: var(--gs-surface);
-  border-radius: 10px; padding: 8px 16px; font-size: 13px; color: var(--gs-fg-2); cursor: pointer;
-}
 .tk__muted { color: var(--gs-fg-subtle); font-size: 13px; }
-.tk__error {
-  border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg);
-  border-radius: 12px; padding: 16px; display: grid; gap: 8px; color: var(--gs-danger);
-}
-.tk__error button {
-  justify-self: start; border: 1px solid var(--gs-danger-border); background: var(--gs-surface);
-  border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-danger);
-}
-.tk__empty {
-  border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface);
-  padding: 48px 24px; display: grid; place-items: center; gap: 12px; color: var(--gs-fg-muted);
-}
-.tk__cta {
-  background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none;
-  border-radius: 10px; padding: 10px 18px; font-size: 13.5px; font-weight: 600;
-}
-.tk__table { width: 100%; border-collapse: collapse; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; overflow: hidden; }
-.tk__table th {
-  text-align: left; font-size: 12px; font-weight: 600; color: var(--gs-fg-muted);
-  background: var(--gs-surface-2); padding: 10px 14px; border-bottom: 1px solid var(--gs-border);
-}
-.tk__table td { padding: 12px 14px; border-bottom: 1px solid var(--gs-divider); font-size: 13.5px; color: var(--gs-fg-2); vertical-align: top; }
-.tk__table tr:last-child td { border-bottom: none; }
 .tk__link { color: var(--gs-accent-strong); font-weight: 600; text-decoration: none; }
 .tk__link:hover { text-decoration: underline; }
 </style>

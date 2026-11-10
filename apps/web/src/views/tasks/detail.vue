@@ -11,11 +11,14 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { preferences } from '@vben/preferences';
 
+import { Alert, Button, Table } from 'ant-design-vue';
+
 import { $t } from '#/locales';
 
 import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
@@ -121,31 +124,40 @@ async function retryLatest(): Promise<void> {
 }
 
 onMounted(load);
+
+const runColumns = [
+  { key: 'attempt', dataIndex: 'attempt', title: $t('gainos.tasks.colAttempt'), width: 90 },
+  { key: 'status', dataIndex: 'status', title: $t('gainos.tasks.colRunStatus'), width: 140 },
+  { key: 'trigger', dataIndex: 'trigger', title: $t('gainos.tasks.colTrigger'), width: 110 },
+  { key: 'startedAt', dataIndex: 'startedAt', title: $t('gainos.tasks.colStarted'), width: 170 },
+  { key: 'finishedAt', dataIndex: 'finishedAt', title: $t('gainos.tasks.colFinished'), width: 170 },
+  { key: 'actions', dataIndex: 'actions', title: '', width: 110 },
+];
 </script>
 
 <template>
-  <div class="tkd">
+  <PageContainer>
     <PageHeader
       :subtitle="$t('gainos.tasks.detailSubtitle')"
       :title="task?.name ?? $t('gainos.tasks.title')"
     >
       <template #actions>
-        <button class="tkd__ghost" type="button" @click="router.push('/tasks')">
+        <Button @click="router.push('/tasks')">
           {{ $t('gainos.tasks.backToList') }}
-        </button>
-        <button
+        </Button>
+        <Button
           v-if="canRetry"
-          class="tkd__primary"
-          type="button"
+          type="primary"
           :disabled="retrying"
+          :loading="retrying"
           @click="retryLatest"
         >
           {{ retrying ? $t('gainos.tasks.retrying') : $t('gainos.tasks.retryLast') }}
-        </button>
+        </Button>
       </template>
     </PageHeader>
 
-    <p v-if="notice" class="tkd__notice" role="status">{{ notice }}</p>
+    <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
 
     <AsyncSection
       :error="error"
@@ -179,86 +191,46 @@ onMounted(load);
 
         <section class="tkd__card">
           <h2>{{ $t('gainos.tasks.runHistory') }}</h2>
-          <table v-if="runs.length > 0" class="tkd__table">
-            <thead>
-              <tr>
-                <th>{{ $t('gainos.tasks.colAttempt') }}</th>
-                <th>{{ $t('gainos.tasks.colRunStatus') }}</th>
-                <th>{{ $t('gainos.tasks.colTrigger') }}</th>
-                <th>{{ $t('gainos.tasks.colStarted') }}</th>
-                <th>{{ $t('gainos.tasks.colFinished') }}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="run in runs" :key="run.id">
-                <td>#{{ run.attempt ?? 1 }}</td>
-                <td>
-                  <span class="gs-badge" :class="runBadgeClass(run.status)">
-                    {{ runStatusLabel(run.status) }}
-                  </span>
-                </td>
-                <td>{{ triggerLabel(run.trigger) }}</td>
-                <td>{{ formatDateTime(run.startedAt) || '—' }}</td>
-                <td>{{ formatDateTime(run.finishedAt) || '—' }}</td>
-                <td>
-                  <RouterLink
-                    v-if="run.runId"
-                    class="tkd__link"
-                    :to="{ name: 'DiscoveryRun', params: { runId: run.runId } }"
-                  >
-                    {{ $t('gainos.tasks.viewRun') }}
-                  </RouterLink>
-                  <span v-else class="tkd__muted">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <Table
+            v-if="runs.length > 0"
+            :columns="runColumns"
+            :data-source="runs"
+            :pagination="false"
+            :scroll="{ x: 760 }"
+            row-key="id"
+            size="small"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'attempt'">#{{ record.attempt ?? 1 }}</template>
+              <template v-else-if="column.key === 'status'">
+                <span class="gs-badge" :class="runBadgeClass(record.status)">
+                  {{ runStatusLabel(record.status) }}
+                </span>
+              </template>
+              <template v-else-if="column.key === 'trigger'">{{ triggerLabel(record.trigger) }}</template>
+              <template v-else-if="column.key === 'startedAt'">{{ formatDateTime(record.startedAt) || '—' }}</template>
+              <template v-else-if="column.key === 'finishedAt'">{{ formatDateTime(record.finishedAt) || '—' }}</template>
+              <template v-else-if="column.key === 'actions'">
+                <RouterLink
+                  v-if="record.runId"
+                  class="tkd__link"
+                  :to="{ name: 'DiscoveryRun', params: { runId: record.runId } }"
+                >
+                  {{ $t('gainos.tasks.viewRun') }}
+                </RouterLink>
+                <span v-else class="tkd__muted">—</span>
+              </template>
+            </template>
+          </Table>
           <p v-else class="tkd__muted">{{ $t('gainos.tasks.noRunYet') }}</p>
         </section>
       </template>
     </AsyncSection>
-  </div>
+  </PageContainer>
 </template>
 
 <style scoped>
-.tkd {
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
-}
-.tkd__ghost,
-.tkd__primary {
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.tkd__ghost {
-  border: 1px solid var(--gs-border-strong);
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-}
-.tkd__primary {
-  border: none;
-  background: var(--gs-accent-cta);
-  color: var(--gs-accent-cta-fg);
-  font-weight: 600;
-}
-.tkd__primary:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.tkd__notice {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--gs-accent-soft);
-  color: var(--gs-accent-strong);
-  font-size: 13px;
-}
+.tkd__notice { margin: 0; }
 .tkd__card {
   border: 1px solid var(--gs-border);
   border-radius: 14px;
@@ -286,26 +258,6 @@ onMounted(load);
 .tkd__facts dd {
   margin: 0;
   color: var(--gs-fg-2);
-}
-.tkd__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.tkd__table th,
-.tkd__table td {
-  text-align: left;
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--gs-divider);
-}
-.tkd__table th {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--gs-fg-muted);
-  background: var(--gs-surface-2);
-}
-.tkd__table tr:last-child td {
-  border-bottom: none;
 }
 .tkd__link {
   color: var(--gs-accent-strong);

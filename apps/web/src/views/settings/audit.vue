@@ -7,6 +7,8 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { Alert, Button, DatePicker, Empty, Input, Table } from 'ant-design-vue';
+
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
 import SettingsShell from '#/components/gainos/settings-shell.vue';
@@ -78,6 +80,15 @@ function fmtDetail(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/** YYYY-MM-DD ↔ dayjs（antd DatePicker 的值类型）。 */
+function toDate(value: string): string | undefined {
+  return value || undefined;
+}
+
+function fromDate(value?: string | null): string {
+  return value ?? '';
 }
 
 function readQuery(): void {
@@ -171,6 +182,13 @@ const loadedLabel = computed(() =>
       }),
 );
 
+const columns = [
+  { key: 'at', dataIndex: 'at', title: $t('gainos.audit.time'), width: 170 },
+  { key: 'action', dataIndex: 'action', title: $t('gainos.audit.action'), width: 180 },
+  { key: 'target', dataIndex: 'target', title: $t('gainos.audit.target'), width: 220 },
+  { key: 'detail', dataIndex: 'detail', title: $t('gainos.audit.detail') },
+];
+
 onMounted(() => {
   readQuery();
   void load(true);
@@ -180,20 +198,20 @@ onMounted(() => {
 <template>
   <SettingsShell :subtitle="$t('gainos.audit.subtitle')" :title="$t('gainos.audit.title')">
     <template #actions>
-      <button class="au__ghost" type="button" :disabled="entries.length === 0 || exporting" @click="exportCsv">
+      <Button :disabled="entries.length === 0 || exporting" :loading="exporting" @click="exportCsv">
         {{ exporting ? $t('gainos.audit.exporting') : $t('gainos.audit.exportCsv') }}
-      </button>
-      <button class="au__ghost" type="button" @click="load(true)">{{ $t('gainos.common.refresh') }}</button>
+      </Button>
+      <Button @click="load(true)">{{ $t('gainos.common.refresh') }}</Button>
     </template>
 
     <form class="au__filters" @submit.prevent="applyFilters">
       <label class="au__field">
         <span>{{ $t('gainos.audit.filterAction') }}</span>
-        <input
-          v-model="filters.action"
+        <Input
+          v-model:value="filters.action"
+          :list="'audit-action-options'"
           :placeholder="$t('gainos.audit.filterActionPlaceholder')"
-          list="audit-action-options"
-          type="text"
+          style="min-width: 170px"
         />
         <datalist id="audit-action-options">
           <option v-for="action in KNOWN_ACTIONS" :key="action" :value="action"></option>
@@ -201,46 +219,72 @@ onMounted(() => {
       </label>
       <label class="au__field">
         <span>{{ $t('gainos.audit.filterFrom') }}</span>
-        <input v-model="filters.from" type="date" />
+        <DatePicker
+          :value="toDate(filters.from)"
+          value-format="YYYY-MM-DD"
+          @update:value="(v) => (filters.from = fromDate(String(v ?? '')))"
+        />
       </label>
       <label class="au__field">
         <span>{{ $t('gainos.audit.filterTo') }}</span>
-        <input v-model="filters.to" type="date" />
+        <DatePicker
+          :value="toDate(filters.to)"
+          value-format="YYYY-MM-DD"
+          @update:value="(v) => (filters.to = fromDate(String(v ?? '')))"
+        />
       </label>
       <div class="au__filter-actions">
-        <button class="au__primary" type="submit">{{ $t('gainos.audit.applyFilters') }}</button>
-        <button class="au__ghost" type="button" @click="resetFilters">{{ $t('gainos.audit.resetFilters') }}</button>
+        <Button type="primary" html-type="submit">{{ $t('gainos.audit.applyFilters') }}</Button>
+        <Button @click="resetFilters">{{ $t('gainos.audit.resetFilters') }}</Button>
       </div>
     </form>
 
-    <p v-if="loading" class="au__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="au__error" role="alert">
-      <h2>{{ error.title }}</h2>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button class="au__ghost" type="button" @click="load(true)">{{ $t('gainos.common.retry') }}</button>
-    </div>
+    <div v-if="loading" class="au__loading"><i class="au__spinner" aria-hidden="true"></i>{{ $t('gainos.common.loading') }}</div>
+    <Alert
+      v-else-if="error"
+      :message="error.title"
+      :description="error.next"
+      role="alert"
+      show-icon
+      type="warning"
+    >
+      <template #action>
+        <Button size="small" @click="load(true)">{{ $t('gainos.common.retry') }}</Button>
+      </template>
+    </Alert>
     <section v-else class="au__card">
       <div class="au__meta">
         <span>{{ loadedLabel }}</span>
       </div>
-      <table class="au__table">
-        <thead>
-          <tr><th>{{ $t('gainos.audit.time') }}</th><th>{{ $t('gainos.audit.action') }}</th><th>{{ $t('gainos.audit.target') }}</th><th>{{ $t('gainos.audit.detail') }}</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="entry in entries" :key="entry.id">
-            <td>{{ fmtTime(entry.at) }}</td>
-            <td><code>{{ actionLabel(entry.action) }}</code></td>
-            <td :title="entry.target || ''">{{ shortTarget(entry.target) }}</td>
-            <td class="au__detail">{{ fmtDetail(entry.detail) }}</td>
-          </tr>
-          <tr v-if="entries.length === 0"><td colspan="4" class="au__muted">{{ $t('gainos.audit.empty') }}</td></tr>
-        </tbody>
-      </table>
+      <Empty
+        v-if="entries.length === 0"
+        :description="$t('gainos.audit.empty')"
+        :image="Empty.PRESENTED_IMAGE_SIMPLE"
+      />
+      <Table
+        v-else
+        :columns="columns"
+        :data-source="entries"
+        :pagination="false"
+        :scroll="{ x: 760 }"
+        row-key="id"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'at'">{{ fmtTime(record.at) }}</template>
+          <template v-else-if="column.key === 'action'"><code>{{ actionLabel(record.action) }}</code></template>
+          <template v-else-if="column.key === 'target'">
+            <span :title="record.target || ''">{{ shortTarget(record.target) }}</span>
+          </template>
+          <template v-else-if="column.key === 'detail'">
+            <span class="au__detail">{{ fmtDetail(record.detail) }}</span>
+          </template>
+        </template>
+      </Table>
       <p v-if="nextCursor" class="au__more">
-        <button type="button" :disabled="loadingMore" @click="load(false)">
+        <Button :disabled="loadingMore" :loading="loadingMore" size="small" @click="load(false)">
           {{ loadingMore ? $t('gainos.common.loading') : $t('gainos.audit.loadMore') }}
-        </button>
+        </Button>
       </p>
     </section>
   </SettingsShell>
@@ -263,38 +307,17 @@ onMounted(() => {
   font-size: 12px;
   color: var(--gs-fg-muted);
 }
-.au__field input {
-  border: 1px solid var(--gs-border-strong);
-  border-radius: 8px;
-  padding: 7px 10px;
-  font: inherit;
-  font-size: 13px;
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-  min-width: 170px;
-}
 .au__filter-actions {
   display: flex;
   gap: 8px;
 }
-.au__primary,
-.au__ghost {
-  border-radius: 9px;
-  padding: 7px 14px;
-  font-size: 12.5px;
-  cursor: pointer;
+.au__loading { display: flex; align-items: center; gap: 10px; justify-content: center; padding: 32px; color: var(--gs-fg-subtle); font-size: 13px; background: var(--gs-surface); border: 1px dashed var(--gs-border-dashed); border-radius: 14px; }
+.au__spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--gs-border-strong); border-top-color: var(--gs-accent);
+  animation: au-spin 0.8s linear infinite;
 }
-.au__primary {
-  border: none;
-  background: var(--gs-accent-cta);
-  color: var(--gs-accent-cta-fg);
-  font-weight: 600;
-}
-.au__ghost {
-  border: 1px solid var(--gs-border-strong);
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-}
+@keyframes au-spin { to { transform: rotate(360deg); } }
 .au__meta {
   display: flex;
   justify-content: space-between;
@@ -303,18 +326,7 @@ onMounted(() => {
   color: var(--gs-fg-subtle);
   border-bottom: 1px solid var(--gs-border);
 }
-.au__muted { color: var(--gs-fg-subtle); font-size: 12.5px; }
-.au__error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
-.au__error h2 { margin: 0; font-size: 14px; color: var(--gs-warn); }
-.au__error p { margin: 0; font-size: 12.5px; color: var(--gs-fg-2); }
-.au__error button { justify-self: start; }
 .au__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; overflow: auto; }
-.au__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.au__table th, .au__table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--gs-border); vertical-align: top; }
-.au__table th { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-surface-2); white-space: nowrap; }
-.au__table tr:last-child td { border-bottom: 0; }
-.au__table code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
-.au__detail { max-width: 420px; word-break: break-all; color: var(--gs-fg-muted); }
+.au__detail { word-break: break-all; color: var(--gs-fg-muted); }
 .au__more { margin: 0; padding: 10px 14px; text-align: right; border-top: 1px solid var(--gs-border); }
-.au__more button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 6px 14px; cursor: pointer; color: var(--gs-fg-2); }
 </style>
