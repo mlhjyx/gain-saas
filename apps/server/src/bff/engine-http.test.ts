@@ -28,7 +28,7 @@ describe('EngineHttp 原始响应字节', () => {
       })),
     );
 
-    const result = await http().call(tenant, 'GET', '/reports/weekly');
+    const result = await http().call(tenant, 'GET', '/exports/sample');
 
     expect(Buffer.isBuffer(result.body)).toBe(true);
     expect((result.body as Buffer).subarray(0, 3).toString('hex')).toBe('efbbbf');

@@ -69,7 +69,7 @@ describe('BFF 路由表(SD7)', () => {
   });
 
   it('PRD §2.2 的管理员专属端点必须 access=admin', () => {
-    const adminOnly = ['claims/:claimId/approve', 'claims/:claimId/reject', 'claims/:claimId/revoke', 'conflicts/:conflictId/resolve', 'leads/:leadId/sanctions-review', 'reports/weekly', 'data-providers', 'canonical-companies/:id', 'canonical-companies/:id/discover-contacts', 'canonical-companies/:id/guess-emails', 'contact-points/:pointId/verify'];
+    const adminOnly = ['claims/:claimId/approve', 'claims/:claimId/reject', 'claims/:claimId/revoke', 'conflicts/:conflictId/resolve', 'leads/:leadId/sanctions-review', 'data-providers', 'canonical-companies/:id', 'canonical-companies/:id/discover-contacts', 'canonical-companies/:id/guess-emails', 'contact-points/:pointId/verify'];
     for (const path of adminOnly) {
       const route = BFF_ROUTES.find((r) => r.saasPath === path);
       expect(route, path).toBeDefined();

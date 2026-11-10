@@ -178,9 +178,7 @@ export class BffHandler {
         query,
         ...(route.binary
           ? { binaryBody, binaryContentType: req.get('content-type') ?? undefined }
-          : route.csv
-            ? { rawBody: typeof body === 'string' ? body : '' }
-            : { body: forwardBody }),
+          : { body: forwardBody }),
         headers,
         timeoutMs: route.timeoutMs,
       });
@@ -198,16 +196,6 @@ export class BffHandler {
           target: route.saasPath,
           detail: { method: req.method, workspaceId: tenant.workspaceId },
         });
-      }
-      if (route.raw) {
-        // CSV 的 withheld 计数在引擎响应头里；BFF 必须原样转给浏览器，否则界面永远为空。
-        for (const [name, value] of Object.entries(result.headers)) {
-          if (name.toLowerCase().startsWith('x-report-') || name.toLowerCase() === 'content-disposition') {
-            res.setHeader(name, value);
-          }
-        }
-        res.status(result.status).type(result.contentType).send(result.body);
-        return;
       }
       res.status(result.status).json(result.body);
     } catch (err) {

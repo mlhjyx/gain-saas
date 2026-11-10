@@ -4,7 +4,6 @@
  * - saasPath:前端调用路径(/api 下);enginePath:引擎 /api/v1 下的路径(支持 :param)
  * - access:'member' = 登录即可;'admin' = 追加 AdminGuard(对应 PRD §2.2 的角色→scope 划分:
  *   identity:review / compliance:manage / acquisition:export 只映射给 saas-admin)
- * - raw:true = 非 JSON 直通(周报 CSV)
  * - grant:true = 引擎写接口要求一次性的 Execution Budget Grant;BFF 先取 quote 再签 Grant
  *   (deploy/engine-integration.md §4/§5)。只有引擎 OpenAPI 声明 402/`X-Execution-Budget-Grant`
  *   的写路由才标这一位。
@@ -17,9 +16,6 @@ export interface BffRoute {
   readonly saasPath: string;
   readonly enginePath: string;
   readonly access: 'member' | 'admin';
-  readonly raw?: boolean;
-  /** text/csv 原样透传(周报反馈上传),body 不经过 JSON 序列化。 */
-  readonly csv?: boolean;
   /** 二进制原样透传(资料库上传):body 为 Buffer,content-type 原样转发。 */
   readonly binary?: boolean;
   readonly grant?: true;
@@ -119,8 +115,6 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'DELETE', saasPath: 'suppressions/:id', enginePath: '/suppressions/:id', access: 'admin' },
 
   // ── 周报(D10/D11)──
-  { method: 'GET', saasPath: 'reports/weekly', enginePath: '/reports/weekly', access: 'admin', raw: true },
-  { method: 'POST', saasPath: 'reports/weekly/feedback', enginePath: '/reports/weekly/feedback', access: 'member', csv: true },
 
   // ── 数据主体删除请求(DSR,A6)──
   { method: 'POST', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },

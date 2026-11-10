@@ -20,7 +20,6 @@ const PAGES = [
   '/growth?tab=metrics',
   '/settings/members',
   '/settings/suppressions',
-  '/reports',
   '/campaigns',
   '/qgos',
 ];

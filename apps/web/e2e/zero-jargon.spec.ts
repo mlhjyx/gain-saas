@@ -32,7 +32,6 @@ const PAGES = [
   '/settings/privacy',
   '/settings/audit',
   '/settings/sources',
-  '/reports',
   '/qgos',
   '/campaigns',
   '/tasks',
