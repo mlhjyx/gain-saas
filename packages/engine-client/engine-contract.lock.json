@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "engine-contract-pin/v1",
+  "specDigest": "18e77c631392c3a1-650b2f68b95f9690-bf4c7588740d8531-e9600d7e6de1b913",
+  "pinnedAt": "2026-11-11",
+  "pinnedFrom": "gain-saas commit cbb2132 (2026-10-30 contract import); intentionally pinned, not tracking the engine head",
+  "action": "Upgrading the engine contract is a separate PR: run pnpm gen:engine against the target engine, review the OpenAPI diff (CI runs oasdiff breaking when this file changes), regenerate schema.d.ts, update specDigest here, and record the engine image/source SHA in the PR body."
+}

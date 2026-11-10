@@ -5,52 +5,182 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-test:
+  classify:
+    name: classify changes
     runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 纯文档 PR：全部改动落在 docs/**、根 README.md 或 AGENTS.md。其余一律算代码；
+      # 非 PR 事件、拿不到 diff 或 diff 失败时一律全量（fail-safe，不降级成 false）。
+      - id: scope
+        name: Detect docs-only pull requests
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]] || [[ -z "$BASE_SHA" ]] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          paths="$RUNNER_TEMP/changed-paths.txt"
+          if ! git diff --no-renames --name-only -z "${BASE_SHA}...${HEAD_SHA}" > "$paths"; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          docs_only=true
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              docs/* | README.md | AGENTS.md)
+                ;;
+              *)
+                docs_only=false
+                ;;
+            esac
+          done < "$paths"
+          echo "docs_only=${docs_only}" >> "$GITHUB_OUTPUT"
+
+  # 密钥扫描：文档同样可能泄露凭据，因此不随代码门一起跳过。
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-test:
+    name: build · test · contract
+    needs: classify
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed when change classification did not succeed
+        shell: bash
+        env:
+          SCOPE_RESULT: ${{ needs.classify.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change classification did not succeed: $SCOPE_RESULT"
+            exit 1
+          fi
+
+      - name: Docs-only fast path（无代码/合同变化）
+        if: needs.classify.outputs.docs_only == 'true'
+        run: |
+          echo "docs only: build, tests, lint and contract gates are not applicable; the PR only touches docs/** or root README/AGENTS."
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Enable corepack (pnpm 11 per packageManager)
+        if: needs.classify.outputs.docs_only != 'true'
         run: corepack enable
 
       - name: Install
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm install --frozen-lockfile
 
       # P6 零术语红线（设计 §4、计划 v1.5 §3.9）：用户可见面禁 run/ICP/canonical/plan_hash/裸 UUID/裸枚举。
       # 豁免仅限技术详情与运营台，且必须写明理由；负向用例随 pnpm test 一起跑。
       - name: Zero-jargon terminology lint
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm lint:terms
 
       # QW14：视图日期格式唯一口径（YYYY-MM-DD / YYYY-MM-DD HH:mm），禁止 toLocale 系列。
       - name: Date format lint
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm lint:date
 
       # 全新安装没有生成的 Prisma Client;server 的 tsc 依赖它的生成类型,先生成再构建。
       - name: Prisma generate (server client)
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm --filter @gain-saas/server db:generate
 
       - name: Build (shared → ops-pg → engine-client → server → web)
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm build
 
       - name: Test
+        if: needs.classify.outputs.docs_only != 'true'
         run: pnpm test
 
-      # SD7 铁律的 CI 落点:引擎 OpenAPI 生成物必须无漂移(有漂移 = 本提交缺少 gen:engine)
-      - name: Engine contract drift check
+      # SD7 铁律的 CI 落点（离线、确定性）：固定合同、锁文件哈希与生成类型三方一致。
+      # 运行中的引擎只在本机/部署机用 pnpm gen:engine 对账，CI 不再依赖引擎实例。
+      - name: Engine contract pin（offline）
+        if: needs.classify.outputs.docs_only != 'true'
+        run: node packages/engine-client/scripts/verify-pin.mjs
+
+      - name: Engine client types must match the pinned contract
+        if: needs.classify.outputs.docs_only != 'true'
         run: |
-          pnpm gen:engine
-          git diff --exit-code -- packages/engine-client/src/openapi.json || \
-            (echo "::error::引擎 OpenAPI 合同有漂移 —— 请运行 pnpm gen:engine 并提交" && exit 1)
-        continue-on-error: true # CI 环境无引擎实例时跳过;本机/部署机必跑
+          pnpm --filter @gain-saas/engine-client gen:types
+          git diff --exit-code -- packages/engine-client/src/schema.d.ts || \
+            (echo "::error::schema.d.ts 与固定合同不一致 —— 运行 pnpm gen:engine 并提交生成物" && exit 1)
+
+      # 破坏性变更拦截：固定合同在 PR 中被更新时，对比 base 分支的合同。
+      # 确需破坏 → PR 打 `engine-contract-breaking-approved` label（升级说明见 engine-client README）。
+      - name: Fetch base engine contract（仅 PR）
+        if: github.event_name == 'pull_request' && needs.classify.outputs.docs_only != 'true'
+        run: |
+          git fetch --depth=1 origin "$GITHUB_BASE_REF"
+          if git show "origin/$GITHUB_BASE_REF:packages/engine-client/src/openapi.json" > base-engine-openapi.json 2>/dev/null; then
+            if cmp -s base-engine-openapi.json packages/engine-client/src/openapi.json; then
+              echo "engine contract unchanged in this PR"
+            else
+              echo "ENGINE_CONTRACT_CHANGED=1" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: oasdiff engine contract breaking
+        if: >-
+          github.event_name == 'pull_request' &&
+          env.ENGINE_CONTRACT_CHANGED == '1' &&
+          !contains(github.event.pull_request.labels.*.name, 'engine-contract-breaking-approved')
+        uses: oasdiff/oasdiff-action/breaking@5e81b5c380accc6b523f9d32a637ca630e33620b # v0.1.17
+        env:
+          OASDIFF_INTERNAL: "1"
+        with:
+          base: base-engine-openapi.json
+          revision: packages/engine-client/src/openapi.json
+          fail-on: ERR
+          review: "false"
 
   # M2 步 14-3：Playwright 主链路（BFF mock，不依赖引擎/数据库；本地已全绿）。
-  # 若长期不稳定，按设计 D-14-c 降为每日夜跑（保留本 job，改 cron 触发）。
+  # 纯文档 PR 不跑；若长期不稳定，按设计 D-14-c 降为每日夜跑（保留本 job，改 cron 触发）。
   e2e:
+    name: e2e
+    needs: classify
+    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -86,4 +216,3 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
-

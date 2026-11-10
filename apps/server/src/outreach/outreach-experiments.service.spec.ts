@@ -245,7 +245,10 @@ describe('OutreachExperimentsService（P4-09）', () => {
       subjectType: 'account',
       subjectRefs: [otherRef],
     });
-    expect((await service.holdoutContacts(tenant, CAMPAIGN, [REF_B]))).toEqual(
+    // 用 otherRef 断言：exp1 只分配过 contactRef，不会误命中；硬编码 REF_B 在
+    // 随机盐把 contactRef 落成 REF_B（约 1.2% 的盐）时会把 exp1 的 holdout
+    // 误当成 exp2 的账户级结果，造成假红。
+    expect((await service.holdoutContacts(tenant, CAMPAIGN, [otherRef]))).toEqual(
       new Set<string>(),
     );
     // 归档后不再排除。
