@@ -1,5 +1,8 @@
 # 交付闭环消费侧验收报告（GainOS / gain-saas）
 
+> **历史文档**:本报告验收的周报功能已于 2026-11-11 整体取消(见 current.md);本文仅作历史留档。
+
+
 > 日期：2026-10-30（xin）
 > 对象：GainOS（`/global/gain-saas`，vben SPA + NestJS，`127.0.0.1:4020`；tailnet `100.68.31.20:4020`）
 > 引擎：global-backend 运行镜像 `a2c2c728`（build 于 2026-10-29T17:21Z）；模型网关 `http://127.0.0.1:3001/v1`，获客模型 `gemini-3.8-flash`，推理档（含 `outreach.first_contact_draft`）`gpt-6.1-terra`

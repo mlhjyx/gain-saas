@@ -32,14 +32,13 @@ const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 
-/** 六步主链路(PRD §14.1/§14.3):界面永远回答"我在哪、下一步做什么" */
+/** 五步主链路(周报已于 2026-11-11 取消):界面永远回答"我在哪、下一步做什么" */
 const STEP_KEYS = [
   'gainos.workspace.stepProfile',
   'gainos.workspace.stepIcp',
   'gainos.workspace.stepPlan',
   'gainos.workspace.stepRun',
   'gainos.workspace.stepJudge',
-  'gainos.workspace.stepReport',
 ] as const;
 const STEPS = computed(() =>
   STEP_KEYS.map((key) => ({ key, label: $t(key) })),
@@ -195,8 +194,6 @@ const currentStep = computed(() => {
   if (!plan || plan.status === 'DRAFT') return 3;
   if (!latestRunLink.value) return plan.status === 'READY' ? 4 : 5;
   if (!latestRun.value || latestRun.value.status === 'RUNNING') return 4;
-  if (pendingLeadCount.value > 0 || openRecommendedCount.value > 0) return 5;
-  if (acceptedLeadCount.value > 0) return 6;
   return 5;
 });
 
@@ -336,10 +333,12 @@ const nextAction = computed(() => {
       if (acceptedLeadCount.value > 0) {
         return {
           kicker,
-          title: $t('gainos.workspace.nextReportTitle'),
-          desc: $t('gainos.workspace.nextReportDesc'),
-          action: $t('gainos.workspace.nextReportAction'),
-          to: '/reports',
+          title: $t('gainos.workspace.nextLeadTitle'),
+          desc: $t('gainos.workspace.nextLeadDesc', {
+            count: openRecommendedCount.value,
+          }),
+          action: $t('gainos.workspace.nextLeadAction'),
+          to: '/leads?queue=recommended',
         };
       }
       return {
@@ -411,10 +410,12 @@ const nextAction = computed(() => {
   if (acceptedLeadCount.value > 0) {
     return {
       kicker,
-      title: $t('gainos.workspace.nextReportTitle'),
-      desc: $t('gainos.workspace.nextReportDesc'),
-      action: $t('gainos.workspace.nextReportAction'),
-      to: '/reports',
+      title: $t('gainos.workspace.nextLeadTitle'),
+      desc: $t('gainos.workspace.nextLeadDesc', {
+        count: openRecommendedCount.value,
+      }),
+      action: $t('gainos.workspace.nextLeadAction'),
+      to: '/leads?queue=recommended',
     };
   }
   if (latestRun.value.status === 'DONE') {
@@ -428,10 +429,12 @@ const nextAction = computed(() => {
   }
   return {
     kicker,
-    title: $t('gainos.workspace.nextDoneTitle'),
-    desc: $t('gainos.workspace.nextDoneDesc'),
-    action: $t('gainos.workspace.nextDoneAction'),
-    to: '/reports',
+    title: $t('gainos.workspace.nextLeadTitle'),
+    desc: $t('gainos.workspace.nextLeadDesc', {
+      count: openRecommendedCount.value,
+    }),
+    action: $t('gainos.workspace.nextLeadAction'),
+    to: '/leads?queue=recommended',
   };
 });
 

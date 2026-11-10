@@ -21,13 +21,13 @@ const TOP_NAV = [
   { landmark: '.gr', name: '商机与触达', path: '/growth' },
 ] as const;
 
-test('六项导航可点、无死链，周报退出导航但路由保留', async ({ page }, testInfo) => {
+test('六项导航可点、无死链，周报已下线', async ({ page }, testInfo) => {
   await installMockBackend(page);
   await loginAs(page);
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('nav-workspace.png') });
 
-  // 六项一级导航齐全，且没有旧的「周报」项
+  // 五项一级导航齐全，且没有「周报」项
   for (const item of TOP_NAV) {
     await expect(page.getByRole('menuitem', { name: item.name })).toBeVisible();
   }
@@ -48,9 +48,10 @@ test('六项导航可点、无死链，周报退出导航但路由保留', async
   await page.waitForURL((url) => url.pathname === '/settings/members');
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
 
-  // 收编不等于删除：/reports 深链仍可达
+  // 周报已下线：/reports 深链回 SPA 壳（无周报内容渲染）
   await page.goto('/reports');
-  await page.waitForURL((url) => url.pathname === '/reports');
+  await page.waitForTimeout(1200);
+  await expect(page.getByText('周报概览')).toHaveCount(0);
 });
 
 test('商机与触达：多 tab 内嵌真实页面、运行期语义与词表', async ({ page }, testInfo) => {
