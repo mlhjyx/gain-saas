@@ -3,17 +3,17 @@
 > 文档 ID:`DOC-SAAS-STATUS-001`
 > 生命周期:`CURRENT`
 > 事实来源:本页为主;代码与 PRD/技术方案冲突时以代码 + 评审为准
-> 最后更新:2026-11-01
+> 最后更新:2026-11-11(校对运行方式、R4 撤销状态与阻塞表;历史小节保留原日期)
 
 ## P9 平台撤销自动触发(2026-11-01,已实现,默认关闭)
 
-撤销链的发起方已补齐:政策停用(`R4_PLATFORM_POLICY_MODES` 镜像 + `r4_platform_policy_state`)、部署绑定显式撤销(`revokedAt`)、运营台「平台撤销」页。模型为逻辑请求 + 追加式尝试:同一命令原字节重放,ACK 验签后才记成功,缺 ACK 不判未提交,`SEQUENCE_CONFLICT` 停住等人工;没有 live Grant 时记 `NO_LIVE_TARGET`(不挂起、不阻塞 capability)。Grant 签发与 capability 在策略停用/未结撤销/绑定被显式撤销时 fail closed。**默认关闭**(`R4_REVOCATION_TRIGGER_ENABLED=false`、`R4_REVOCATION_AUTO_CONFIRM=false`),尚未部署、未做真实撤销实测;实现与运维说明见 [technical/r4-revocation-autotrigger.md](../technical/r4-revocation-autotrigger.md),设计见 global-backend `docs/superpowers/plans/2026-11-01-platform-revocation-autotrigger.md`。开启与实测待后端受审计重开路径就绪后单独窗口。2026-11-03 运营台适配:开关真实状态(启用/自动确认)随 `GET /api/ops/r4/policy-state` 返回并在页面显示,「发起/确认/取消」在未启用时禁用;撤销列表补投递结果未知标记、尝试次数与最近尝试结果,状态/来源/原因改中文标签(原码保留);概览红灯新增未结撤销、投递结果未知、平台授权轮次耗尽。当前 `.env` 的 `R4_REVOCATION_TRIGGER_ENABLED/AUTO_CONFIRM=true` 为测试临时值,测试结束按本文回退为 false/false。
+撤销链的发起方已补齐:政策停用(`R4_PLATFORM_POLICY_MODES` 镜像 + `r4_platform_policy_state`)、部署绑定显式撤销(`revokedAt`)、运营台「平台撤销」页。模型为逻辑请求 + 追加式尝试:同一命令原字节重放,ACK 验签后才记成功,缺 ACK 不判未提交,`SEQUENCE_CONFLICT` 停住等人工;没有 live Grant 时记 `NO_LIVE_TARGET`(不挂起、不阻塞 capability)。Grant 签发与 capability 在策略停用/未结撤销/绑定被显式撤销时 fail closed。**默认关闭**(`R4_REVOCATION_TRIGGER_ENABLED=false`、`R4_REVOCATION_AUTO_CONFIRM=false`)。dev 线上在 2026-11-01 测试窗口开启并完成真实撤销闭环实测(绑定撤销→自动请求→真实 Grant 投递→fence→ACK→受审计重开;证据见 global-backend `docs/evidence/2026-11-01-platform-revocation-autotrigger-live.md`),**生产未启用**。实现与运维说明见 [technical/r4-revocation-autotrigger.md](../technical/r4-revocation-autotrigger.md),设计见 global-backend `docs/superpowers/plans/2026-11-01-platform-revocation-autotrigger.md`。2026-11-03 运营台适配:开关真实状态(启用/自动确认)随 `GET /api/ops/r4/policy-state` 返回并在页面显示,「发起/确认/取消」在未启用时禁用;撤销列表补投递结果未知标记、尝试次数与最近尝试结果,状态/来源/原因改中文标签(原码保留);概览红灯新增未结撤销、投递结果未知、平台授权轮次耗尽。当前 `.env` 的 `R4_REVOCATION_TRIGGER_ENABLED/AUTO_CONFIRM=true` 为测试临时值,测试结束按本文回退为 false/false。
 
 ## 一页结论
 
 M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台与设置页已完成。系统运行在 **http://100.68.31.20:4020**，登录、成员管理、邀请加入均为真实链路;获客引擎授权对接已完成(`verify-engine-integration.mjs` 13/13),BFF 读接口已通。**执行预算 Grant 已迁到 gain-saas 并切换引擎信任根**;运营台 `/ops` 具备独立登录域、数据源 Kill Switch、监控源 CRUD、Temporal 调度、跨租户诊断、CSV 导出与审计。**获客模型网关保持 new-api**(2026-11-03 产品决定:引擎 `MODEL_GATEWAY_URL` 继续指向 new-api,任务级模型由引擎 `MODEL_ACQUISITION_TASK_MODELS` 控制);运营台的「模型网关」管理界面与 API 已移除,gain-saas 保留 `/v1` 兼容入口与站点构建 settlement 读回代理,客户 worker READY。
 
-2026-10-29 晚批补齐:公司理解修复已部署,档案可到 REVIEW/ACTIVE;事件消费已实际启用并回放 297 条事件(297 条 ACK、11 条 LeadQualified),通知中心与未读角标上线;寻源任务关闭页面后可找回;企业档案增加概况/完整度/产品服务与人工事实;周报 CSV 的 withheld 响应头透传;线索包可下载,线索页支持按目标买家筛选/队列计数/管理员制裁复核;ICP 创建前校验已通过事实,已发起的寻源方案不再重复执行。运营台新增注册用户列表(工作空间/会话/最近活动)与停用/启用;客户端寻源任务页改为五段业务进度,技术统计折叠;目标买家详情属性、寻源方案来源/筛选/关键词中文化,原始查询收进技术详情;弹窗统一居中、限高滚动与移动端头部堆叠。工作空间页面补齐创建/改名/切换/退出;登录增加同 IP+邮箱 15 分钟 5 次失败的限流;企业事实支持已通过事实撤销与冲突裁决;线索页新增管理员可见的「合规待核」队列,制裁提示可直达并在档案包内复核;修复登录失败被会话过期拦截器递归触发 refresh→logout 导致按钮卡死的问题(登录/登出改走 base client,关闭 refresh-token 链路);前端 HTTP 超时从 10s 调到 240s,避免模型生成已完成但浏览器先超时、重试又撞上 Grant 复用。**仍未完成**:DSR 的 SaaS 侧级联删除、禁联名单(SD5)、CSRF 自定义头、JWKS 双钥轮换、运营域 E4 写白名单执行闸与 E5 中台退役;引擎侧 ICP Grant 前置校验修复已写入工作区但未发布镜像。(canonical 公司详情与决策人已对管理员上线,见「联系人挖掘 M4」;`personal-data:read` 仍不授任何用户角色。)
+2026-10-29 晚批补齐:公司理解修复已部署,档案可到 REVIEW/ACTIVE;事件消费已实际启用并回放 297 条事件(297 条 ACK、11 条 LeadQualified),通知中心与未读角标上线;寻源任务关闭页面后可找回;企业档案增加概况/完整度/产品服务与人工事实;周报 CSV 的 withheld 响应头透传;线索包可下载,线索页支持按目标买家筛选/队列计数/管理员制裁复核;ICP 创建前校验已通过事实,已发起的寻源方案不再重复执行。运营台新增注册用户列表(工作空间/会话/最近活动)与停用/启用;客户端寻源任务页改为五段业务进度,技术统计折叠;目标买家详情属性、寻源方案来源/筛选/关键词中文化,原始查询收进技术详情;弹窗统一居中、限高滚动与移动端头部堆叠。工作空间页面补齐创建/改名/切换/退出;登录增加同 IP+邮箱 15 分钟 5 次失败的限流;企业事实支持已通过事实撤销与冲突裁决;线索页新增管理员可见的「合规待核」队列,制裁提示可直达并在档案包内复核;修复登录失败被会话过期拦截器递归触发 refresh→logout 导致按钮卡死的问题(登录/登出改走 base client,关闭 refresh-token 链路);前端 HTTP 超时从 10s 调到 240s,避免模型生成已完成但浏览器先超时、重试又撞上 Grant 复用。**仍未完成**:DSR 的 SaaS 侧级联删除、禁联名单(SD5)、CSRF 自定义头、JWKS 双钥轮换、运营域 E4 写白名单执行闸与 E5 中台退役(引擎侧 Grant 前置校验/草稿幂等已由 #699 于 2026-10-30 补齐)。(canonical 公司详情与决策人已对管理员上线,见「联系人挖掘 M4」;`personal-data:read` 仍不授任何用户角色。)
 
 ## M2 交付(2026-10-29)
 
@@ -65,16 +65,16 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 3. **深色下分隔线过亮 / 网格过强**:前者漏替换一个硬编码色,后者深色下网格会读成线框稿,均已单独取值。
 4. **移动端英文标语压住切换按钮、密码占位被截断**:移动端隐藏标语、缩短英文占位、窄屏降字号。
 
-## 当前运行中(2026-10-29)
+## 当前运行中(2026-11-11 实测)
 
-| 进程 | 启动方式 | 说明 |
-| --- | --- | --- |
-| 嵌入式 PostgreSQL 18.4 | `cd apps/server && nohup pnpm dev:db &` | 127.0.0.1:5433,数据在 `apps/server/data/pg`;机器重启后需重跑 |
-| gain-saas web | `cd apps/server && nohup node dist/main.js &` | 0.0.0.0:4020(Tailscale 与本机均可访问);SPA + API + BFF 同源 |
-| gain-saas worker | `cd apps/server && nohup node dist/worker.js &` | 事件消费(SD4)每 2 分钟一轮;`EVENT_CONSUMER_ENABLED=true`;日志 `/tmp/gain-saas-worker.log` |
-| 演示账号 | owner@demo.cn / demo1234ab(admin);sales@demo.cn / member1234ab(member);newcol3@demo.cn / newcol1234ab(member) | 工作空间「宁波宏达机电有限公司」 |
+| systemd 单元 | 说明 |
+| --- | --- |
+| `gain-saas-db.service` | 嵌入式 PostgreSQL 18(`127.0.0.1:5433`),数据在 `apps/server/data/pg` |
+| `gain-saas-web.service` | web + API + BFF 同源(`0.0.0.0:4020`,Tailscale 与本机可访问),`Restart=always` |
+| `gain-saas-worker.service` | 事件消费(SD4,每 2 分钟一轮;`EVENT_CONSUMER_ENABLED=true`) |
+| `gain-saas-jwks-tls.service` | 引擎验签用 JWKS TLS 端点(`127.0.0.1:18446` → 4020) |
 
-正式部署(root 一次):`deploy/compose.postgres.yml` 容器替代嵌入式库 + `deploy/systemd/` 四个单元,见技术方案 §3。
+四个单元均 `enabled`;排障用 `systemctl status <unit>` 与 `journalctl -u <unit>`,**禁止用 `nohup`/`setsid` 手工起进程**(会与 systemd 抢端口,2026-11-02/03 曾因此触发 web 崩溃循环)。演示账号是本地 dev fixture,凭据不入库。发布流程见 [engineering/frontend-release-rollback.md](../engineering/frontend-release-rollback.md)。
 
 ## 已完成
 
@@ -119,11 +119,11 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 ## 下一步(按序)
 
 1. **DSR 级联删除**:引擎删除完成后,按主体删除 SaaS `event_inbox`/`qualified_lead`/`notification`/`cost_ledger` 快照并写 `deletion_mirror`;需要先确定事件 payload 与主体的映射口径。
-2. **canonical 公司详情**:引擎 `GET /canonical-companies/:id` 同时要求 `personal-data:read`(服务身份专属),租户 token 必然 403→502;需引擎提供不含个人联系人的租户详情合同,或产品决定只做列表 + 字段摘要。
+2. **canonical 公司详情(已部分解决)**:引擎 2026-11-01(#718)把 `GET /canonical-companies/:id` 等面从 `personal-data:read` 切到窄 scope `contact-discovery:read`,管理员已由 role map 获得并完成 UAT(见「联系人挖掘 M4」);是否对普通成员开放仍是产品口径决定。
 3. **SD5 禁联名单**:`GET /suppressions` 要求 `personal-data:read`;需决定脱敏计数视图、仅运营台代管,或维持现状。
 4. **账户与安全**:CSRF 自定义头、JWKS 双钥轮换;工作空间创建/改名/切换/退出、改密、登录限流已实现(改密和停用会撤销其他设备会话)。
-5. **运营域 E4/E5**:写语句白名单目前只有登记表、没有执行闸;`acq-admin` 仍在运行,gain-saas 仍未 systemd 化。
-6. **引擎侧 Grant 前置校验/草稿幂等修复**:ICP 与接触草稿的“先校验、已有草稿直接返回”改动已写入工作区并补 changelog,但未提交/发布镜像;运行中的引擎仍是旧顺序。
+5. **运营域 E4 写白名单执行闸**:写语句白名单目前只有登记表、没有执行闸(`acq-admin` 已于 2026-10-30 退役,gain-saas 已由 systemd 托管)。
+6. **引擎侧 Grant 前置校验/草稿幂等(已完成)**:引擎 #699(2026-10-30)改为「先验证 Grant → 业务前置校验 → 才消费」,草稿生成默认幂等;剩余「同一线索重新生成/新版本」受预算账户键固定限制(第二次 Grant 必然 409 `EXECUTION_BUDGET_GRANT_REUSED`),需引擎侧账户绑定语义另行设计。
 7. 界面收尾:顶栏 vben 偏好齿轮与重复图标行;公司手动认领仍未接(事实撤销与冲突裁决已接)。
 
 ## 已知待办(界面)
@@ -139,20 +139,24 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 | 项 | 说明 | 缓解 |
 | --- | --- | --- |
 | SD5 禁联名单读取 | 引擎 `GET /suppressions` 同时要求 `compliance:manage` 与 `personal-data:read`;后者只授事件消费服务身份,租户 token 一律 403,因此设置页无法列名单 | 产品决定:提供脱敏计数视图、仅运营台代管,或维持现状。另:BFF 把 suppressions 写路由标成 `member`,但引擎要求 `compliance:manage`,需要同步改成 admin 门 |
-| GrowthOS 平台授权信任 | `EXECUTION_BUDGET_GRANT_*` 只切 api/worker;`platform-worker` 的副本仍指 GrowthOS(R4 平台 Grant/撤销,schedules paused);api 的撤销信任改用 gain-saas 预算 JWKS | 平台 schedule 仍 paused、R4 投递链未实现;回退脚本已备 |
+| R4 平台授权信任 | 已于 2026-10-31 → 11-01 完成迁移:capability、预算 Grant 与撤销均由 gain-saas 签发,引擎 platform worker 的 env 指向 gain-saas(`18446`);4 个平台 schedule 仍 paused | 恢复 schedule 是产品负责人的单独决定;回退见工作区 RUNBOOK |
 | 重新寻源 | PRD 设计为「改目标买家 → 重新生成方案 → 人工确认 → 新 run」;当前详情页没有"重新生成方案"入口,且引擎 `icp.query_plan` 预算账户按 ICP 一次性绑定,同一 ICP 第二次生成方案会 409 `EXECUTION_BUDGET_GRANT_REUSED`;同一 plan 执行后也不能重跑(EXECUTED/账户绑定) | 需引擎把 ICP 版本或请求幂等键纳入 query-plan request scope,再补 SaaS"重新生成方案"、方案版本快照与 run 历史;期间只能由运营重置账户做一次性验证 |
-| 运行方式为 nohup | 机器重启后需手动重跑两个进程(dev 阶段可接受) | 正式部署用 systemd 单元(deploy/systemd,root 一次安装) |
+| 部署仍为手工窗口 | 发布 = 合并 main → CI 绿 → 部署窗口内构建并 `systemctl restart`,没有独立 CD 流水线 | 按[前端发布与回退](../engineering/frontend-release-rollback.md)执行;自动部署待发布线设计 |
 | 顶栏重复渲染 | vben 布局在内容区顶部重复了一行搜索/图标(工作台与线索页同样出现,非 M3 引入) | 随 M3 布局收尾处理 |
 
 ## 运行手册速查
 
 ```bash
+# 本地开发(无 systemd 的机器)
 corepack enable && pnpm install       # pnpm 11(按 packageManager 字段隔离)
-cp .env.example .env                  # 填 SESSION_SECRET / ENGINE_JWT_*;EVENT_CONSUMER_ENABLED=false 直至 §2 完成
+cp .env.example .env                  # 填 SESSION_SECRET / ENGINE_JWT_* 等
 docker compose -f deploy/compose.postgres.yml up -d
 pnpm db:generate && pnpm db:migrate
 pnpm dev:server                        # 127.0.0.1:4020
 pnpm dev:web                           # vben dev(代理到 4020)
-pnpm bootstrap:backfill                # 一次性:登记引擎存量工作空间(用 ENGINE_DATABASE_URL 指向 owner,见 deploy/engine-integration.md §3)
-pnpm --filter @gain-saas/server start:worker   # 事件消费(SD4)
+
+# xin 运行形态:四个 systemd 单元
+sudo systemctl status gain-saas-db gain-saas-web gain-saas-worker gain-saas-jwks-tls
+sudo systemctl restart gain-saas-web gain-saas-worker   # 部署窗口,构建产物更新后
+journalctl -u gain-saas-worker -n 100 --no-pager
 ```
