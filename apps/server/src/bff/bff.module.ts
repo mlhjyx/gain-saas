@@ -36,7 +36,14 @@ function matchRoute(method: string, path: string): { route: BffRoute; params: Re
     for (let i = 0; i < saasParts.length; i += 1) {
       const seg = saasParts[i];
       if (seg.startsWith(':')) {
-        params[seg.slice(1)] = decodeURIComponent(reqParts[i]);
+        // 坏的百分号编码(如 %zz)会抛 URIError,不处理会被外层当成 401
+        let decoded = reqParts[i];
+        try {
+          decoded = decodeURIComponent(reqParts[i]);
+        } catch {
+          // 保留原文:引擎/校验层会按非法值拒绝
+        }
+        params[seg.slice(1)] = decoded;
       } else if (seg !== reqParts[i]) {
         ok = false;
         break;
@@ -203,6 +210,13 @@ export class BffHandler {
           target: route.saasPath,
           detail: { method: req.method, workspaceId: tenant.workspaceId },
         });
+      }
+      // EngineHttp 对非 JSON(如 CSV/二进制)返回原始 Buffer + contentType;
+      // 直接 json() 会把 Buffer 序列化成 {type:"Buffer",data:[…]} 的垃圾响应。
+      const contentType = result.contentType ?? 'application/json; charset=utf-8';
+      if (Buffer.isBuffer(result.body) && !contentType.includes('json')) {
+        res.status(result.status).type(contentType).send(result.body);
+        return;
       }
       res.status(result.status).json(result.body);
     } catch (err) {
