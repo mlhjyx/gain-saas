@@ -5745,7 +5745,7 @@ export interface operations {
                     "application/json": {
                         error: {
                             /** @enum {string} */
-                            code: "SUPPRESSED" | "INVALID_STATE" | "SUPPRESSED_CONTACT_UNREACHABLE" | "STORAGE_RIGHTS_NOT_GRANTED" | "SANCTIONS_HOLD_UNRESOLVED" | "CONFLICT";
+                            code: "SUPPRESSED" | "INVALID_STATE" | "SUPPRESSED_CONTACT_UNREACHABLE" | "STORAGE_RIGHTS_NOT_GRANTED" | "SANCTIONS_HOLD_UNRESOLVED" | "CONFLICT" | "F03_REHEARSAL_ONLY";
                             message: string;
                         } & {
                             [key: string]: unknown;

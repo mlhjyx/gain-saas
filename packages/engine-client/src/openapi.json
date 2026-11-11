@@ -10096,7 +10096,8 @@
                             "SUPPRESSED_CONTACT_UNREACHABLE",
                             "STORAGE_RIGHTS_NOT_GRANTED",
                             "SANCTIONS_HOLD_UNRESOLVED",
-                            "CONFLICT"
+                            "CONFLICT",
+                            "F03_REHEARSAL_ONLY"
                           ]
                         },
                         "message": {
