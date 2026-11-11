@@ -1,0 +1,29 @@
+version: 2
+# 依赖监控（L-2，2026-11-12）。与 backend 同口径：只保留安全更新，
+# 版本更新保持关闭（open-pull-requests-limit: 0），避免 lockfile 与 vendored vben
+# 被动漂移；常规升级按需手工批量处理。
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      production-security:
+        applies-to: security-updates
+        dependency-type: production
+        patterns: ["*"]
+      development-security:
+        applies-to: security-updates
+        dependency-type: development
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(ci)"
