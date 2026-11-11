@@ -38,7 +38,6 @@ const STEP_KEYS = [
   'gainos.workspace.stepPlan',
   'gainos.workspace.stepRun',
   'gainos.workspace.stepJudge',
-  'gainos.workspace.stepReport',
 ] as const;
 const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
 const currentStep = 5;

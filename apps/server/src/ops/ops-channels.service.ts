@@ -112,8 +112,16 @@ export class OpsChannelsService {
     return channel;
   }
 
+  /** channelId 必须 UUID:参数未校验时 %2F 可编码出 `x/../..` 穿出 /source-channels 前缀(路径穿越)。 */
+  private assertChannelId(channelId: string): void {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'channelId 必须是 UUID' } });
+    }
+  }
+
   /** v3.0：渠道详情（manifest + 健康摘要 + 密钥「已配置/未配置」；只读不写审计）。 */
   async detail(actorId: string, channelId: string): Promise<unknown> {
+    this.assertChannelId(channelId);
     const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}`);
     if (result.status >= 300) throw engineError(result);
     return engineData(result);
@@ -121,6 +129,7 @@ export class OpsChannelsService {
 
   /** v3.0 保存即测试：无论引擎接受/拒绝都留审计（试跑也是出网意图）。 */
   async test(actorId: string, channelId: string): Promise<unknown> {
+    this.assertChannelId(channelId);
     const result = await this.engine.call(actorId, 'POST', `/source-channels/${channelId}/test`, {});
     const engineCode =
       (result.body as { error?: { code?: string } } | null)?.error?.code ?? null;
@@ -143,6 +152,7 @@ export class OpsChannelsService {
   }
 
   async patch(actorId: string, channelId: string, body: unknown): Promise<unknown> {
+    this.assertChannelId(channelId);
     const parsed = patchSchema.safeParse(body ?? {});
     if (!parsed.success) throw validationError(parsed.error);
     const result = await this.engine.call(actorId, 'PATCH', `/source-channels/${channelId}`, { body: parsed.data });
@@ -158,11 +168,13 @@ export class OpsChannelsService {
   }
 
   async preview(actorId: string, channelId: string): Promise<unknown> {
+    this.assertChannelId(channelId);
     return this.crawl(`/source-channels/${channelId}/preview`, 'channel.preview', actorId, channelId);
   }
 
   /** 渠道最近物化的抓取记录（含联系人字段；只读，不写审计——与 list 同）。 */
   async records(actorId: string, channelId: string, limitRaw?: string): Promise<unknown> {
+    this.assertChannelId(channelId);
     const limit = typeof limitRaw === 'string' && /^[0-9]{1,3}$/u.test(limitRaw) ? limitRaw : '50';
     const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}/records?limit=${limit}`);
     if (result.status >= 300) throw engineError(result);
@@ -170,6 +182,7 @@ export class OpsChannelsService {
   }
 
   async run(actorId: string, channelId: string): Promise<unknown> {
+    this.assertChannelId(channelId);
     return this.crawl(`/source-channels/${channelId}/run`, 'channel.run', actorId, channelId);
   }
 

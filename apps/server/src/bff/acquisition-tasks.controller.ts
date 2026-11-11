@@ -253,6 +253,13 @@ export class AcquisitionTasksController {
       data: { engineRunId: data.runId, status: runStatus },
     });
     if (task.icpId) {
+      // 同 discovery-runs.controller:全局唯一 runId 的 update 分支需校验归属。
+      const existingLink = await this.prisma.discoveryRunLink.findUnique({ where: { runId: data.runId } });
+      if (existingLink && existingLink.workspaceId !== tenant.workspaceId) {
+        throw new ConflictException({
+          error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
+        });
+      }
       await this.prisma.discoveryRunLink.upsert({
         where: { runId: data.runId },
         create: {

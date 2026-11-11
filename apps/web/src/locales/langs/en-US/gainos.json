@@ -329,8 +329,7 @@
     "complete": "Complete profile",
     "more": "More",
     "noMatch": "No companies match. Try another keyword or status.",
-    "loadMoreDocuments": "Load more documents"
-,
+    "loadMoreDocuments": "Load more documents",
     "loading": "Loading company profiles…",
     "errorWhy": "A one-time deployment setting, unrelated to your account. This page recovers automatically once it's done; nothing you entered is lost.",
     "emptyTitle": "No company profile yet",
@@ -1414,7 +1413,12 @@
     "traceTitle": "Decision log",
     "approvalExpires": "Expires",
     "approveConfirm": "Approving issues an execution authorization and proceeds under it.",
-    "planVersion": "Plan version"
+    "planVersion": "Plan version",
+    "traceStep": {
+      "authorizationIssued": "Execution authorization issued",
+      "approvalDecided": "Approval decided",
+      "superseded": "Superseded by a newer revision"
+    }
   },
   "qgos": {
     "loadMore": "Load more",
@@ -1518,7 +1522,8 @@
     "eventBATCH_DECLINED": "Batch declined",
     "eventBATCH_EXPIRED": "Approval expired",
     "eventBATCH_REOPENED": "Reopened",
-    "eventOther": "Other activity"
+    "eventOther": "Other activity",
+    "reopen": "Reopen"
   },
   "suppressions": {
     "loadMore": "Load more",

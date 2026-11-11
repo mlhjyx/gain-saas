@@ -330,6 +330,9 @@ export class OpsService {
   }
 
   async setWorkspaceStatus(id: string, status: string, actorId: string, note?: string): Promise<Row> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new HttpException({ error: { code: 'VALIDATION_ERROR', message: 'id 必须是 UUID' } }, 400);
+    }
     if (!WORKSPACE_STATUSES.has(status)) {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'status 需要 ACTIVE|DISABLED|ARCHIVED' } });
     }

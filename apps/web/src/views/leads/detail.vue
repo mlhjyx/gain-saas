@@ -230,8 +230,9 @@ const contactPaths = computed(() =>
 );
 
 function sanctionLabel(value?: null | string): string {
-  if (!value) return $t('gainos.leads.sanctionsUnknown');
-  const key = `gainos.leads.sanctions.${value}` as Parameters<typeof $t>[0];
+  // 引擎状态未回填时按「未筛查」呈现；文案节是单数 sanction（勿写成 sanctions）。
+  if (!value) return $t('gainos.leads.sanction.not_screened');
+  const key = `gainos.leads.sanction.${value}` as Parameters<typeof $t>[0];
   const translated = $t(key);
   return translated === key ? value : translated;
 }

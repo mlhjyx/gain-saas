@@ -55,7 +55,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
       (req.route?.path as string | undefined) ??
       req.originalUrl.split('?')[0] ??
       req.path;
-    const scope = `${method} ${req.baseUrl ?? ''}${routePath}`;
+    // scope 必须含真实路径参数:按路由模板聚合时,同一 key + 同空体会把资源 A 的
+    // 响应重放给资源 B(B 永远不会执行)。req.params 在拦截器阶段已由控制器路由填充。
+    const params = (req as Request & { params?: Record<string, string> }).params ?? {};
+    const paramSuffix = Object.keys(params).sort().map((k) => `/${params[k]}`).join('');
+    const scope = `${method} ${req.baseUrl ?? ''}${routePath}${paramSuffix}`;
     const requestHash = this.idempotency.requestHash(req.body);
     const workspaceId = tenant.workspaceId;
 
