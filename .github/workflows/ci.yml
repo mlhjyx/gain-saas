@@ -264,8 +264,14 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Reject cancelled workflow
+        if: ${{ cancelled() }}
+        run: |
+          echo "::error::Cancelled workflows cannot admit a merge"
+          exit 1
+
       - name: Validate CI results
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           CLASSIFY: ${{ needs.classify.result }}
@@ -273,13 +279,8 @@ jobs:
           BUILD_TEST: ${{ needs.build-test.result }}
           E2E: ${{ needs.e2e.result }}
           DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
-          WORKFLOW_CANCELLED: ${{ cancelled() }}
         run: |
           set -euo pipefail
-          if [[ "$WORKFLOW_CANCELLED" != "false" ]]; then
-            echo "::error::Cancelled workflows cannot admit a merge"
-            exit 1
-          fi
           if [[ "$CLASSIFY" != "success" || "$SECRET_SCAN" != "success" || "$BUILD_TEST" != "success" ]]; then
             echo "::error::Classification, secret scan and build checks must all succeed"
             exit 1

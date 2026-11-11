@@ -176,14 +176,21 @@ test('rechecks the current head when a breaking-change approval label is changed
   assert.match(workflow, /pull_request:\s*\n\s+types: \[[^\n]*\blabeled\b[^\n]*\bunlabeled\b[^\n]*\]/);
 });
 
-const success = { CLASSIFY: 'success', SECRET_SCAN: 'success', BUILD_TEST: 'success', E2E: 'success', DOCS_ONLY: 'false', WORKFLOW_CANCELLED: 'false' };
+test('cancellation selects a failing step and skips the normal admission step', (t) => {
+  assert.match(workflow, /name: Reject cancelled workflow\n\s+if: \$\{\{ cancelled\(\) \}\}/);
+  assert.match(workflow, /name: Validate CI results\n\s+if: \$\{\{ !cancelled\(\) \}\}/);
+  const result = fixture(t).run('Reject cancelled workflow');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /Cancelled workflows cannot admit a merge/);
+});
+
+const success = { CLASSIFY: 'success', SECRET_SCAN: 'success', BUILD_TEST: 'success', E2E: 'success', DOCS_ONLY: 'false' };
 for (const [name, overrides, expected] of [
   ['all applicable checks pass', {}, 0],
   ['only the docs fast path may skip E2E', { DOCS_ONLY: 'true', E2E: 'skipped' }, 0],
   ['code cannot skip E2E', { E2E: 'skipped' }, 1],
   ['docs cannot skip secret scanning', { DOCS_ONLY: 'true', E2E: 'skipped', SECRET_SCAN: 'skipped' }, 1],
   ['cancelled build blocks', { BUILD_TEST: 'cancelled' }, 1],
-  ['workflow cancellation after successful jobs blocks', { WORKFLOW_CANCELLED: 'true' }, 1],
   ['failed classification blocks', { CLASSIFY: 'failure' }, 1],
   ['missing classification output blocks', { DOCS_ONLY: '' }, 1],
 ]) {
