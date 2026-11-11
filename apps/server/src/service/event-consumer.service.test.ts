@@ -6,11 +6,12 @@ import type { EngineTokenSigner } from './engine-token.signer.js';
 
 const WORKSPACE = '33fe8b32-e417-4355-af91-96fc042d59e0';
 const EVENT_ID = '47dfb9b2-cdca-490f-b36b-bab68e019a50';
+const DISCOVERY_RUN_ID = 'a09a873f-ff25-432c-9ecb-bef2ab867048';
 
 function createService(cursor: string | null) {
   const update = vi.fn(async () => ({}));
   const tx = {
-    eventInbox: { create: vi.fn(async () => ({})) },
+    eventInbox: { updateMany: vi.fn(async () => ({ count: 1 })) },
     notification: { create: vi.fn(async () => ({})) },
     qualifiedLead: { create: vi.fn(async () => ({})) },
     costLedger: { createMany: vi.fn(async () => ({ count: 1 })) },
@@ -22,8 +23,9 @@ function createService(cursor: string | null) {
       update,
     },
     eventInbox: {
+      findMany: vi.fn(async () => []),
       findUnique: vi.fn(async () => null),
-      create: vi.fn(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 1 })),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
@@ -45,7 +47,8 @@ function pageBody(nextCursor: string | null) {
         event_type: 'DiscoveryRunCompleted',
         workspace_id: WORKSPACE,
         occurred_at: new Date().toISOString(),
-        payload: {},
+        aggregate_id: DISCOVERY_RUN_ID,
+        payload: { status: 'DONE' },
       },
     ],
     page: { next_cursor: nextCursor, has_more: nextCursor !== null },
@@ -124,6 +127,7 @@ describe('1b 花费维度：成本落账', () => {
           event_type: eventType,
           workspace_id: WORKSPACE,
           occurred_at: occurredAt,
+          aggregate_id: DISCOVERY_RUN_ID,
           payload,
         },
       ],
@@ -289,6 +293,7 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
         update: vi.fn(async () => ({})),
       },
       eventInbox: {
+        findMany: vi.fn(async () => []),
         findUnique: vi.fn(async () => null),
         updateMany: vi.fn(async () => ({ count: 0 })),
       },

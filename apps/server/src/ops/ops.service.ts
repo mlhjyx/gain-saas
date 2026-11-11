@@ -615,7 +615,11 @@ export class OpsService {
     }
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
     const rows = await this.prisma.eventInbox.findMany({
-      where: { workspaceId, type: 'CandidateBatchCompleted' },
+      where: {
+        workspaceId,
+        type: 'CandidateBatchCompleted',
+        OR: [{ projectionStatus: 'APPLIED' }, { projectionStatus: null }],
+      },
       orderBy: { occurredAt: 'desc' },
       take: limit,
       select: { eventId: true, payload: true, occurredAt: true },

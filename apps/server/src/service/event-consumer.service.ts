@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type EventInbox } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
@@ -7,32 +7,89 @@ import { PrismaService } from '../shared/prisma.service.js';
 
 /**
  * 事件消费(SD4):pull + ack 主通道。
- * - 每 2 分钟(可配)+ accept 后即时触发(由 BFF accept 路由的审计钩子调用,本进程内单例);
- * - 逐 workspace(经 workspace_registry)拉取多页 → eventId 幂等入库 + 派生 → 批量 ACK → 推进游标;
+ * - Worker 每轮先恢复到期派生，再拉取新事件;
+ * - 逐 workspace 拉取多页 → 持久入箱 → 独立事务派生 → 批量 ACK → 推进游标;
  * - ACK 失败不推进游标,下轮重拉同一页(事件幂等),避免“已入库但永远未 ACK”；
  * - 首次开启即自动回放存量(PRD G4:引擎 279 条 PENDING,含 11 条 LeadQualified)。
  * 引擎合同:GET /api/v1/events?cursor&limit → { data: envelope[], page: { next_cursor, has_more } };
  * envelope 字段 event_type/occurred_at/aggregate_id/payload;POST /api/v1/events/ack { event_ids }。
  */
 
-interface EngineEventEnvelope {
-  event_id: string;
-  event_type: string;
-  workspace_id: string;
-  occurred_at: string;
-  aggregate_type?: string;
-  aggregate_id?: string;
-  payload: unknown;
-  privacy_classification?: string;
-}
-
 interface EngineEventPage {
-  data?: EngineEventEnvelope[];
+  data: unknown[];
   page?: { next_cursor?: string | null; has_more?: boolean };
 }
 
+type ProjectionEvent = Pick<
+  EventInbox,
+  'eventId' | 'workspaceId' | 'type' | 'payload' | 'occurredAt' | 'aggregateId' | 'projectionAttempts'
+>;
+
 const MAX_PAGES_PER_TICK = 10;
+const MAX_PROJECTION_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EVENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TERMINAL_STATUSES = new Set(['DONE', 'PARTIAL', 'FAILED', 'CANCELLED']);
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function discoveryRunId(payload: Record<string, unknown>, aggregateId: string | null): string {
+  return text(payload.run_id) || text(payload.runId) || aggregateId || '';
+}
+
+function inboxEvent(input: unknown, workspaceId: string) {
+  if (!isObject(input) || !EVENT_ID.test(text(input.event_id)) ||
+      text(input.workspace_id).toLowerCase() !== workspaceId.toLowerCase()) {
+    return null;
+  }
+
+  const now = new Date();
+  const occurredAt = new Date(text(input.occurred_at));
+  const type = text(input.event_type);
+  const aggregateId = text(input.aggregate_id) || null;
+  // Unversioned envelopes use the original format. Explicit newer versions must be supported.
+  const version = input.schema_version === undefined ? 1 : input.schema_version;
+  const schemaVersion = typeof version === 'number' && Number.isInteger(version) && version > 0 && version <= 2_147_483_647
+    ? version
+    : null;
+
+  let projectionError: string | null = null;
+  if (!type) {
+    projectionError = 'INVALID_EVENT_TYPE';
+  } else if (!Number.isFinite(occurredAt.getTime())) {
+    projectionError = 'INVALID_OCCURRED_AT';
+  } else if (schemaVersion !== 1 && !(type === 'LeadQualified' && schemaVersion === 2)) {
+    projectionError = 'UNSUPPORTED_SCHEMA_VERSION';
+  } else if (!isObject(input.payload)) {
+    projectionError = 'INVALID_PAYLOAD';
+  } else if (type === 'DiscoveryRunCompleted' &&
+      (!TERMINAL_STATUSES.has(text(input.payload.status)) || !UUID.test(discoveryRunId(input.payload, aggregateId)))) {
+    projectionError = 'INVALID_DISCOVERY_COMPLETION';
+  } else if (type === 'LeadQualified' && !(text(input.payload.lead_id) || text(input.payload.leadId) || aggregateId)) {
+    projectionError = 'INVALID_QUALIFIED_LEAD';
+  }
+
+  return {
+    eventId: text(input.event_id).toLowerCase(),
+    workspaceId,
+    type,
+    payload: (input.payload ?? {}) as Exclude<Prisma.JsonValue, null>,
+    occurredAt: Number.isFinite(occurredAt.getTime()) ? occurredAt : now,
+    aggregateId,
+    schemaVersion,
+    projectionStatus: projectionError ? 'QUARANTINED' as const : 'PENDING' as const,
+    projectionAttempts: 0,
+    projectionNextAttemptAt: projectionError ? null : now,
+    projectionError,
+  };
+}
 
 @Injectable()
 export class EventConsumerService implements OnModuleInit {
@@ -66,11 +123,12 @@ export class EventConsumerService implements OnModuleInit {
     let acked = 0;
     for (const ws of registry) {
       try {
+        await this.retryPendingProjections(ws.workspaceId);
         const result = await this.consumeWorkspace(ws.workspaceId, ws.cursor);
         pulled += result.pulled;
         acked += result.acked;
       } catch (err) {
-        this.logger.warn(`workspace ${ws.workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`workspace ${ws.workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.name : 'UNKNOWN_ERROR'}`);
       }
       try {
         await this.evaluateQuotaAlerts(ws.workspaceId);
@@ -99,79 +157,61 @@ export class EventConsumerService implements OnModuleInit {
       }
       if (!res.ok) throw new Error(`事件拉取 HTTP ${res.status}`);
       const page = (await res.json()) as EngineEventPage;
-      const events = page.data ?? [];
-
-      if (events.length === 0) {
+      if (!Array.isArray(page.data)) throw new Error('INVALID_EVENT_PAGE');
+      if (page.data.length === 0) {
         await this.touchRegistry(workspaceId, currentCursor);
         break;
       }
 
-      const seenIds = events.map((evt) => evt.event_id);
-      for (const evt of events) {
-        const known = await this.prisma.eventInbox.findUnique({ where: { eventId: evt.event_id } });
-        if (known) continue; // 幂等:已知事件跳过派生,但仍参与 ACK
-        // 毒事件隔离(2026-11-11 复盘):此前单事件抛错会炸出整页 → 游标不动 → 同一页
-        // 每 2 分钟重放一次,该工作空间的通知/成本/任务终态全部头阻塞。现在:
-        // ① 信封字段防御(缺 event_id / 坏时间戳的事件跳过并告警,不进 ACK 之外的处理);
-        // ② 入箱与派生分离——派生失败只回滚派生,inbox 保留事件本体(已 ACK,可追溯),
-        //    记录告警后继续处理本页其余事件。
-        if (typeof evt.event_id !== 'string' || !evt.event_id) {
-          this.logger.warn(`workspace ${workspaceId} 事件缺 event_id,跳过(引擎 payload 异常)`);
+      const seenIds = new Set<string>();
+      for (const input of page.data) {
+        const event = inboxEvent(input, workspaceId);
+        if (!event) {
+          this.logger.warn(`workspace ${workspaceId} 事件 ID 无效或工作空间不符，已跳过且未 ACK`);
           continue;
         }
-        const occurredAt = new Date(evt.occurred_at);
-        if (Number.isNaN(occurredAt.getTime())) {
-          this.logger.warn(`workspace ${workspaceId} 事件 ${evt.event_id} occurred_at 非法(${String(evt.occurred_at)}),按当前时间入箱`);
-        }
-        await this.prisma.eventInbox.create({
-          data: {
-            eventId: evt.event_id,
-            workspaceId,
-            type: evt.event_type,
-            payload: (evt.payload ?? {}) as Prisma.InputJsonValue,
-            occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
-          },
-        });
-        try {
-          await this.prisma.$transaction(async (tx) => {
-            await this.derive(tx, workspaceId, evt);
+        if (seenIds.has(event.eventId)) continue;
+
+        const inserted = await this.prisma.eventInbox.createMany({ data: event, skipDuplicates: true });
+        if (inserted.count === 0) {
+          const known = await this.prisma.eventInbox.findUnique({
+            where: { eventId: event.eventId },
+            select: { workspaceId: true },
           });
-        } catch (err) {
-          this.logger.warn(
-            `workspace ${workspaceId} 事件 ${evt.event_id}(${evt.event_type})派生失败(已入箱并 ACK,不再阻塞后续事件): ` +
-              `${err instanceof Error ? err.message : String(err)}`,
-          );
+          if (known?.workspaceId !== workspaceId) {
+            this.logger.warn(`workspace ${workspaceId} event ${event.eventId} 收件箱归属无法确认，未 ACK`);
+            continue;
+          }
+        } else {
+          pulled += 1;
+          if (event.projectionStatus === 'PENDING') {
+            await this.projectEvent(event);
+          } else {
+            this.logger.warn(`workspace ${workspaceId} event ${event.eventId} 已隔离 (${event.projectionError})`);
+          }
         }
-        pulled += 1;
+        seenIds.add(event.eventId);
       }
 
-      let ackedCount = 0;
-      let ackOk = false;
-      if (seenIds.length > 0) {
+      const ackIds = [...seenIds];
+      if (ackIds.length > 0) {
         const ackRes = await fetch(this.engineUrl('/events/ack'), {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ event_ids: seenIds }),
+          body: JSON.stringify({ event_ids: ackIds }),
           signal: AbortSignal.timeout(30_000),
         });
-        if (ackRes.ok) {
-          const body = (await ackRes.json().catch(() => ({}))) as { data?: { acked?: number } };
-          ackedCount = body.data?.acked ?? seenIds.length;
-          ackOk = true;
-          await this.prisma.eventInbox.updateMany({
-            where: { eventId: { in: seenIds } },
-            data: { ackedAt: new Date() },
-          });
-        } else {
+        if (!ackRes.ok) {
           this.logger.warn(`workspace ${workspaceId} ACK 失败(HTTP ${ackRes.status}),保留游标下轮重拉/补 ACK`);
+          await this.touchRegistry(workspaceId, currentCursor);
+          break;
         }
-      }
-      acked += ackedCount;
-
-      // ACK 失败时不能越过本页；否则这些事件永远停在 PENDING。
-      if (!ackOk) {
-        await this.touchRegistry(workspaceId, currentCursor);
-        break;
+        const body = (await ackRes.json().catch(() => ({}))) as { data?: { acked?: number } };
+        acked += body.data?.acked ?? ackIds.length;
+        await this.prisma.eventInbox.updateMany({
+          where: { workspaceId, eventId: { in: ackIds }, ackedAt: null },
+          data: { ackedAt: new Date() },
+        });
       }
 
       const nextCursor = page.page?.next_cursor ?? null;
@@ -186,6 +226,61 @@ export class EventConsumerService implements OnModuleInit {
     }
 
     return { pulled, acked };
+  }
+
+  private async retryPendingProjections(workspaceId: string): Promise<void> {
+    const pending = await this.prisma.eventInbox.findMany({
+      where: { workspaceId, projectionStatus: 'PENDING', projectionNextAttemptAt: { lte: new Date() } },
+      orderBy: [{ projectionNextAttemptAt: 'asc' }, { eventId: 'asc' }],
+      take: this.config.EVENT_CONSUMER_PAGE_LIMIT,
+      select: {
+        eventId: true,
+        workspaceId: true,
+        type: true,
+        payload: true,
+        occurredAt: true,
+        aggregateId: true,
+        projectionAttempts: true,
+      },
+    });
+    for (const event of pending) await this.projectEvent(event);
+  }
+
+  private async projectEvent(event: ProjectionEvent): Promise<void> {
+    const where = {
+      eventId: event.eventId,
+      workspaceId: event.workspaceId,
+      projectionStatus: 'PENDING' as const,
+      projectionAttempts: event.projectionAttempts,
+    };
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // The conditional update locks the pending row. This state and every effect commit together.
+        const claimed = await tx.eventInbox.updateMany({
+          where,
+          data: { projectionStatus: 'APPLIED', projectionNextAttemptAt: null, projectionError: null },
+        });
+        if (claimed.count === 0) return;
+        await this.derive(tx, event);
+      });
+    } catch {
+      const attempts = event.projectionAttempts + 1;
+      const exhausted = attempts >= MAX_PROJECTION_ATTEMPTS;
+      const failure = await this.prisma.eventInbox.updateMany({
+        where,
+        data: {
+          projectionStatus: exhausted ? 'QUARANTINED' : 'PENDING',
+          projectionAttempts: attempts,
+          projectionNextAttemptAt: exhausted ? null : new Date(Date.now() + RETRY_DELAY_MS * 2 ** (attempts - 1)),
+          projectionError: 'PROJECTION_FAILED',
+        },
+      });
+      if (failure.count > 0) {
+        this.logger.warn(
+          `workspace ${event.workspaceId} event ${event.eventId} 派生失败，${exhausted ? '已隔离' : '等待重试'} (attempt=${attempts})`,
+        );
+      }
+    }
   }
 
   private async touchRegistry(workspaceId: string, cursor: string | null): Promise<void> {
@@ -241,10 +336,10 @@ export class EventConsumerService implements OnModuleInit {
   }
 
   /** 派生:LeadQualified→qualified_lead;终态/关键事件→notification;成本→cost_ledger(SD3)。 */
-  private async derive(tx: Prisma.TransactionClient, workspaceId: string, evt: EngineEventEnvelope): Promise<void> {
-    const type = evt.event_type;
-    const payload = (evt.payload ?? {}) as Record<string, unknown>;
-    const aggregateId = typeof evt.aggregate_id === 'string' ? evt.aggregate_id : '';
+  private async derive(tx: Prisma.TransactionClient, event: ProjectionEvent): Promise<void> {
+    const { type, workspaceId } = event;
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const aggregateId = event.aggregateId ?? '';
 
     // 成本落账必须先于事件类型分支：DiscoveryRunCompleted 等分支处理完即 return,
     // 放在末尾会让携带 cost 的终态事件永远走不到（1b 花费维度补口）。
@@ -258,16 +353,14 @@ export class EventConsumerService implements OnModuleInit {
       const micros = Math.round(cost * 1_000_000);
       if (micros > INT4_MAX) {
         this.logger.warn(
-          `event ${evt.event_id} cost ${cost} exceeds int4 micro-USD range; clamped to ${INT4_MAX} (workspace ${workspaceId})`,
+          `event ${event.eventId} cost exceeds int4 micro-USD range; clamped to ${INT4_MAX} (workspace ${workspaceId})`,
         );
       }
       const amountMicros = Math.min(micros, INT4_MAX);
       // 配额窗口按事件发生时间（信封 occurred_at）归属，与 event_inbox 同源；
       // 积压补消费的旧事件不会挤进当前 30 天窗口。
-      const eventTime = new Date(evt.occurred_at);
-      const occurredAt = Number.isNaN(eventTime.getTime()) ? new Date() : eventTime;
       await tx.costLedger.createMany({
-        data: [{ workspaceId, sourceEventId: evt.event_id, amountMicros, occurredAt }],
+        data: [{ workspaceId, sourceEventId: event.eventId, amountMicros, occurredAt: event.occurredAt }],
         skipDuplicates: true,
       });
     }
@@ -279,7 +372,7 @@ export class EventConsumerService implements OnModuleInit {
         aggregateId;
       await tx.qualifiedLead.create({
         data: {
-          eventId: evt.event_id,
+          eventId: event.eventId,
           workspaceId,
           leadId,
           icpId: typeof payload.icp_id === 'string' ? payload.icp_id : null,
@@ -321,18 +414,14 @@ export class EventConsumerService implements OnModuleInit {
     }
 
     if (type === 'DiscoveryRunCompleted') {
-      const runId =
-        (typeof payload.run_id === 'string' && payload.run_id) ||
-        (typeof payload.runId === 'string' && payload.runId) ||
-        aggregateId;
-      const status = typeof payload.status === 'string' ? payload.status : '';
-      // Run 2.0（M0②）：任务执行记录镜像引擎 run 的终态（stats 仍以引擎为准）。
-      const terminalStatus = ['DONE', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(status)
-        ? status
-        : 'DONE';
+      const runId = discoveryRunId(payload, event.aggregateId);
+      const status = text(payload.status);
+      if (!UUID.test(runId) || !TERMINAL_STATUSES.has(status)) {
+        throw new Error('INVALID_DISCOVERY_COMPLETION');
+      }
       await tx.taskRun.updateMany({
         where: { workspaceId, engineRunId: runId, status: 'RUNNING' },
-        data: { status: terminalStatus, finishedAt: new Date() },
+        data: { status, finishedAt: new Date() },
       });
       // P1：BFF 在引擎 202 后丢响应的窗口里 TaskRun.engineRunId 为 NULL——用事件 payload 的
       // taskRef（引擎 B1 起随 DiscoveryRunCompleted 携带）按 id 回填并镜像终态。
@@ -344,7 +433,7 @@ export class EventConsumerService implements OnModuleInit {
       if (taskRunId) {
         await tx.taskRun.updateMany({
           where: { workspaceId, id: taskRunId, engineRunId: null },
-          data: { engineRunId: runId, status: terminalStatus, finishedAt: new Date() },
+          data: { engineRunId: runId, status, finishedAt: new Date() },
         });
       }
       const notificationType =
