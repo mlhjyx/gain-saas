@@ -1091,17 +1091,31 @@ model WorkspaceRegistry {
 
 /// 事件收件箱。eventId 主键语义上的幂等键;含个人数据(SD5),DSR 级联删除。
 model EventInbox {
-  id          String    @id @default(uuid()) @db.Uuid
-  eventId     String    @unique @map("event_id")
-  workspaceId String    @map("workspace_id") @db.Uuid
-  type        String
-  payload     Json
-  occurredAt  DateTime  @map("occurred_at")
-  ackedAt     DateTime? @map("acked_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id                      String                 @id @default(uuid()) @db.Uuid
+  eventId                 String                 @unique @map("event_id")
+  workspaceId             String                 @map("workspace_id") @db.Uuid
+  type                    String
+  payload                 Json
+  occurredAt              DateTime               @map("occurred_at")
+  ackedAt                 DateTime?              @map("acked_at")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  aggregateId             String?                @map("aggregate_id")
+  schemaVersion           Int?                   @map("schema_version")
+  /// NULL indicates a legacy receipt with no projection proof.
+  projectionStatus        EventProjectionStatus? @map("projection_status")
+  projectionAttempts      Int                    @default(0) @map("projection_attempts")
+  projectionNextAttemptAt DateTime?              @map("projection_next_attempt_at")
+  projectionError         String?                @map("projection_error")
 
   @@index([workspaceId, occurredAt])
+  @@index([workspaceId, projectionStatus, projectionNextAttemptAt], map: "event_inbox_projection_retry_idx")
   @@map("event_inbox")
+}
+
+enum EventProjectionStatus {
+  PENDING
+  APPLIED
+  QUARANTINED
 }
 
 /// LeadQualified 派生的只读投影(界面列表);可由事件重放重建。
