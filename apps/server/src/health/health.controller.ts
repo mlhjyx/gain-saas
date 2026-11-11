@@ -39,3 +39,5 @@ export class HealthController {
     };
   }
 }
+
+// F03 synthetic rehearsal marker. No runtime behavior is changed.
