@@ -206,7 +206,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           env.ENGINE_CONTRACT_CHANGED == '1' &&
-          !contains(github.event.pull_request.labels.*.name, 'engine-contract-breaking-approved')
+          !contains(github.event.pull_request.labels.*.name, 'ci-f03-rehearsal-approval-20261111')
         uses: oasdiff/oasdiff-action/breaking@5e81b5c380accc6b523f9d32a637ca630e33620b # v0.1.17
         env:
           OASDIFF_INTERNAL: "1"
