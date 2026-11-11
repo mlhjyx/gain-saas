@@ -110,18 +110,38 @@ export class EventConsumerService implements OnModuleInit {
       for (const evt of events) {
         const known = await this.prisma.eventInbox.findUnique({ where: { eventId: evt.event_id } });
         if (known) continue; // 幂等:已知事件跳过派生,但仍参与 ACK
-        await this.prisma.$transaction(async (tx) => {
-          await tx.eventInbox.create({
-            data: {
-              eventId: evt.event_id,
-              workspaceId,
-              type: evt.event_type,
-              payload: (evt.payload ?? {}) as Prisma.InputJsonValue,
-              occurredAt: new Date(evt.occurred_at),
-            },
-          });
-          await this.derive(tx, workspaceId, evt);
+        // 毒事件隔离(2026-11-11 复盘):此前单事件抛错会炸出整页 → 游标不动 → 同一页
+        // 每 2 分钟重放一次,该工作空间的通知/成本/任务终态全部头阻塞。现在:
+        // ① 信封字段防御(缺 event_id / 坏时间戳的事件跳过并告警,不进 ACK 之外的处理);
+        // ② 入箱与派生分离——派生失败只回滚派生,inbox 保留事件本体(已 ACK,可追溯),
+        //    记录告警后继续处理本页其余事件。
+        if (typeof evt.event_id !== 'string' || !evt.event_id) {
+          this.logger.warn(`workspace ${workspaceId} 事件缺 event_id,跳过(引擎 payload 异常)`);
+          continue;
+        }
+        const occurredAt = new Date(evt.occurred_at);
+        if (Number.isNaN(occurredAt.getTime())) {
+          this.logger.warn(`workspace ${workspaceId} 事件 ${evt.event_id} occurred_at 非法(${String(evt.occurred_at)}),按当前时间入箱`);
+        }
+        await this.prisma.eventInbox.create({
+          data: {
+            eventId: evt.event_id,
+            workspaceId,
+            type: evt.event_type,
+            payload: (evt.payload ?? {}) as Prisma.InputJsonValue,
+            occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
+          },
         });
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await this.derive(tx, workspaceId, evt);
+          });
+        } catch (err) {
+          this.logger.warn(
+            `workspace ${workspaceId} 事件 ${evt.event_id}(${evt.event_type})派生失败(已入箱并 ACK,不再阻塞后续事件): ` +
+              `${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         pulled += 1;
       }
 

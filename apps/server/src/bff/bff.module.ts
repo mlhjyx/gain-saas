@@ -119,7 +119,14 @@ export class BffHandler {
       return;
     }
     const { route, params } = matched;
-    const query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
+    // 坏 query 编码时 new URL 会抛 TypeError → 裸 500;按 400 拒绝。
+    let query: Record<string, string>;
+    try {
+      query = Object.fromEntries(new URL(req.originalUrl, 'http://x').searchParams.entries());
+    } catch {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '请求 URL 编码非法' } });
+      return;
+    }
     const binaryBody = route.binary ? (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)) : undefined;
     let body = ['POST', 'PATCH'].includes(req.method) && !route.binary && req.body ? req.body : undefined;
     // 联系人三路由的合法依据由平台统一注入（请求显式携带时不覆盖；2026-11-04 取消租户声明）。

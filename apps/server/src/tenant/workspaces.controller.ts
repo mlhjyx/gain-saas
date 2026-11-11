@@ -13,6 +13,12 @@ import { SESSION_COOKIE, SessionService } from './session.service.js';
 @Controller('api/workspaces')
 @UseGuards(TenantGuard)
 export class WorkspacesController {
+  /** workspace.id 是 @db.Uuid:非 UUID 直接打 Prisma 会 500;按 404 处理。 */
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
+
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -56,6 +62,7 @@ export class WorkspacesController {
 
   @Patch(':workspaceId')
   async rename(@Req() req: Request, @Param('workspaceId') workspaceId: string, @Body() body: Record<string, unknown>) {
+    if (!this.isUuid(workspaceId)) throw new NotFoundException({ error: { code: 'WORKSPACE_NOT_FOUND', message: '工作空间不存在' } });
     const tenant = req.tenant!;
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 128) : '';
     if (!name) throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: '工作空间名称必填' } });
@@ -74,6 +81,7 @@ export class WorkspacesController {
   @Post(':workspaceId/leave')
   async leave(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Param('workspaceId') workspaceId: string) {
     const tenant = req.tenant!;
+    if (!this.isUuid(workspaceId)) throw new NotFoundException({ error: { code: 'WORKSPACE_NOT_FOUND', message: '工作空间不存在' } });
     const membership = await this.prisma.membership.findFirst({
       where: { userId: tenant.userId, workspaceId, status: 'active' },
     });

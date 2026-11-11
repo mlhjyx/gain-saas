@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
@@ -117,7 +117,7 @@ export class AuthController {
   async switchWorkspace(@Body() body: { workspaceId?: string }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const tenant = req.tenant!;
     if (!body.workspaceId) {
-      return { error: { code: 'VALIDATION_ERROR', message: 'workspaceId 必填' } };
+      throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'workspaceId 必填' } });
     }
     const session = await this.auth.switchWorkspace(tenant.userId, tenant.jti, body.workspaceId);
     this.setSession(res, session);

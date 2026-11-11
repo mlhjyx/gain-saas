@@ -24,7 +24,10 @@ async function bootstrap(): Promise<void> {
   const enabled = config.EVENT_CONSUMER_ENABLED;
   logger.log(`事件消费 worker 已启动(enabled=${enabled},间隔 ${config.EVENT_CONSUMER_INTERVAL_MS}ms)`);
 
+  let running = false;
   const tick = async (): Promise<void> => {
+    if (running) return; // 积压回放时一页可超过 tick 间隔,重入会重复拉页并回退游标
+    running = true;
     try {
       const result = await consumer.consumeOnce();
       if (result.pulled > 0 || result.skipped) {
@@ -32,6 +35,8 @@ async function bootstrap(): Promise<void> {
       }
     } catch (err) {
       logger.error(`consume 失败(下一轮重试): ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      running = false;
     }
   };
 

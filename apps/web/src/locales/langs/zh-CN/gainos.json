@@ -329,8 +329,7 @@
     "complete": "补全资料",
     "more": "更多",
     "noMatch": "没有匹配的公司，换个关键词或状态试试。",
-    "loadMoreDocuments": "加载更多资料"
-,
+    "loadMoreDocuments": "加载更多资料",
     "loading": "正在加载公司档案…",
     "errorWhy": "这是一次性的部署配置，与你的账号无关。配好后此页自动恢复；期间你的操作都会保留。",
     "emptyTitle": "还没有公司档案",
@@ -1414,7 +1413,12 @@
     "traceTitle": "决策记录",
     "approvalExpires": "有效期至",
     "approveConfirm": "批准后将签发执行授权并按授权执行。",
-    "planVersion": "计划版本"
+    "planVersion": "计划版本",
+    "traceStep": {
+      "authorizationIssued": "已签发执行授权",
+      "approvalDecided": "审批已决定",
+      "superseded": "已被新版本取代"
+    }
   },
   "qgos": {
     "loadMore": "加载更多",
@@ -1518,7 +1522,8 @@
     "eventBATCH_DECLINED": "拒绝批次",
     "eventBATCH_EXPIRED": "审批过期",
     "eventBATCH_REOPENED": "重新打开",
-    "eventOther": "其他操作"
+    "eventOther": "其他操作",
+    "reopen": "重新打开"
   },
   "suppressions": {
     "loadMore": "加载更多",

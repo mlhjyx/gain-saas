@@ -65,7 +65,7 @@ function makeController(overrides: {
       update: vi.fn(async () => ({})),
       findFirst: vi.fn(async () => (overrides.taskRunFindFirst ?? []).shift() ?? null),
     },
-    discoveryRunLink: { upsert: vi.fn(async () => ({})) },
+    discoveryRunLink: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
     $queryRaw: vi.fn(async () => [{ id: TASK_ID }]),
   };
   (prisma as Record<string, unknown>).$transaction = vi.fn(

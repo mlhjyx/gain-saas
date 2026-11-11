@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, ConflictException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -55,6 +55,14 @@ export class DiscoveryRunsController {
     ) {
       throw new BadRequestException({
         error: { code: 'VALIDATION_ERROR', message: 'runId、planId、icpId 必须是 UUID' },
+      });
+    }
+    // runId 是全局唯一主键(引擎共享库生成):update 分支必须校验归属,
+    // 否则其它工作空间可以用一个已知 runId 改写他人的 plan/icp 归属(跨租户污染)。
+    const existing = await this.prisma.discoveryRunLink.findUnique({ where: { runId } });
+    if (existing && existing.workspaceId !== tenant.workspaceId) {
+      throw new ConflictException({
+        error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
       });
     }
     const row = await this.prisma.discoveryRunLink.upsert({

@@ -23,6 +23,7 @@ function createService(cursor: string | null) {
     },
     eventInbox: {
       findUnique: vi.fn(async () => null),
+      create: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
