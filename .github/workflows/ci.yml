@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -26,8 +27,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 纯文档 PR：全部改动落在 docs/**、根 README.md 或 AGENTS.md。其余一律算代码；
-      # 非 PR 事件、拿不到 diff 或 diff 失败时一律全量（fail-safe，不降级成 false）。
+      # 快道仅接受普通 Markdown；证据、发布和治理输入走全量。
+      # 空 diff、文件删除、非普通文件和未识别路径均走全量。
       - id: scope
         name: Detect docs-only pull requests
         shell: bash
@@ -41,18 +42,33 @@ jobs:
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [[ "$(git rev-parse HEAD)" != "$HEAD_SHA" || "$(git rev-parse "${HEAD_SHA}^1")" != "$BASE_SHA" ]]; then
+            echo "::error::PR checkout or merge base does not match the workflow event"
+            exit 1
+          fi
           paths="$RUNNER_TEMP/changed-paths.txt"
-          if ! git diff --no-renames --name-only -z "${BASE_SHA}...${HEAD_SHA}" > "$paths"; then
+          if ! git diff --no-renames --name-only -z "${BASE_SHA}...${HEAD_SHA}" > "$paths" || [[ ! -s "$paths" ]]; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           docs_only=true
           while IFS= read -r -d '' path; do
             case "$path" in
-              docs/* | README.md | AGENTS.md)
+              docs/evidence/* | docs/governance/* | docs/releases/*)
+                docs_only=false
+                break
+                ;;
+              docs/*.md | docs/*.markdown | README.md | AGENTS.md)
+                if ! head_mode=$(git --literal-pathspecs ls-tree --format='%(objectmode)' "$HEAD_SHA" -- "$path") ||
+                   ! base_mode=$(git --literal-pathspecs ls-tree --format='%(objectmode)' "$BASE_SHA" -- "$path") ||
+                   [[ "$head_mode" != "100644" || ( -n "$base_mode" && "$base_mode" != "100644" ) ]]; then
+                  docs_only=false
+                  break
+                fi
                 ;;
               *)
                 docs_only=false
+                break
                 ;;
             esac
           done < "$paths"
@@ -95,7 +111,7 @@ jobs:
       - name: Docs-only fast path（无代码/合同变化）
         if: needs.classify.outputs.docs_only == 'true'
         run: |
-          echo "docs only: build, tests, lint and contract gates are not applicable; the PR only touches docs/** or root README/AGENTS."
+          echo "docs only: the classifier verified ordinary Markdown; code and contract checks are not applicable."
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -157,14 +173,36 @@ jobs:
       # 确需破坏 → PR 打 `engine-contract-breaking-approved` label（升级说明见 engine-client README）。
       - name: Fetch base engine contract（仅 PR）
         if: github.event_name == 'pull_request' && needs.classify.outputs.docs_only != 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TESTED_SHA: ${{ github.sha }}
         run: |
-          git fetch --depth=1 origin "$GITHUB_BASE_REF"
-          if git show "origin/$GITHUB_BASE_REF:packages/engine-client/src/openapi.json" > base-engine-openapi.json 2>/dev/null; then
-            if cmp -s base-engine-openapi.json packages/engine-client/src/openapi.json; then
-              echo "engine contract unchanged in this PR"
-            else
-              echo "ENGINE_CONTRACT_CHANGED=1" >> "$GITHUB_ENV"
-            fi
+          set -euo pipefail
+          if [[ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]]; then
+            echo "::error::Checkout does not match the PR merge commit"
+            exit 1
+          fi
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid PR base SHA"
+            exit 1
+          fi
+          # The raw commit header also has the first parent in a shallow checkout.
+          first_parent=$(git cat-file commit HEAD | awk 'NF == 0 { body = 1 } !body && $1 == "parent" && !seen { print $2; seen = 1 }')
+          if [[ "$first_parent" != "$BASE_SHA" ]]; then
+            echo "::error::PR merge first parent does not match the event base"
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          if ! git show "${BASE_SHA}:packages/engine-client/src/openapi.json" > base-engine-openapi.json; then
+            echo "::error::Base engine contract unavailable"
+            exit 1
+          fi
+          if cmp -s base-engine-openapi.json packages/engine-client/src/openapi.json; then
+            echo "engine contract unchanged in this PR"
+          else
+            echo "ENGINE_CONTRACT_CHANGED=1" >> "$GITHUB_ENV"
           fi
 
       - name: oasdiff engine contract breaking
@@ -222,3 +260,39 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  merge-admission:
+    name: merge admission
+    needs: [classify, secret-scan, build-test, e2e]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject cancelled workflow
+        if: ${{ cancelled() }}
+        run: |
+          echo "::error::Cancelled workflows cannot admit a merge"
+          exit 1
+
+      - name: Validate CI results
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          CLASSIFY: ${{ needs.classify.result }}
+          SECRET_SCAN: ${{ needs.secret-scan.result }}
+          BUILD_TEST: ${{ needs.build-test.result }}
+          E2E: ${{ needs.e2e.result }}
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+        run: |
+          set -euo pipefail
+          if [[ "$CLASSIFY" != "success" || "$SECRET_SCAN" != "success" || "$BUILD_TEST" != "success" ]]; then
+            echo "::error::Classification, secret scan and build checks must all succeed"
+            exit 1
+          fi
+          if [[ "$DOCS_ONLY" != "true" && "$DOCS_ONLY" != "false" ]]; then
+            echo "::error::Missing or unrecognized change classification"
+            exit 1
+          fi
+          if [[ "$E2E" != "success" && ( "$DOCS_ONLY" != "true" || "$E2E" != "skipped" ) ]]; then
+            echo "::error::E2E must succeed unless it was skipped for a verified docs-only change"
+            exit 1
+          fi
