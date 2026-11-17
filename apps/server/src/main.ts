@@ -15,6 +15,7 @@ import { EngineBudgetGrantSigner } from './service/engine-budget-grant.signer.js
 import { BffGuard, BffHandler, registerBffMiddleware } from './bff/bff.module.js';
 import { GlobalHttpExceptionFilter } from './shared/http-exception.filter.js';
 import { registerSettlementReadbackProxy } from './model-gateway/settlement-readback-proxy.js';
+import { registerPublicCooperationCors } from './cooperation/public-cooperation-cors.js';
 import { startR4TlsServers } from './r4/r4-tls.server.js';
 
 /**
@@ -34,6 +35,9 @@ async function bootstrap(): Promise<void> {
   // BFF 动态路由注册在 Nest 的 parser middleware 之前,POST/PATCH 的 JSON body 必须在这里先解析,
   // 否则 req.body 为空,引擎会把缺字段报成 "website must be a URL address"。
   const expressInstance = app.getHttpAdapter().getInstance();
+  // 官网合作意向公开端点的 CORS / 体积 / 安全响应头（只作用于该路径前缀）。
+  // 注册在 JSON parser 之前：16KB 上限在解析前就按 content-length 拒绝。
+  registerPublicCooperationCors(expressInstance, config.PUBLIC_COOPERATION_ALLOWED_ORIGINS);
   expressInstance.use(expressLib.json({ limit: '8mb' }));
   expressInstance.use(expressLib.urlencoded({ extended: true, limit: '8mb' }));
   // 资料库上传:BFF 的 binary 路由把文件字节原样转给引擎(浏览器到不了对象存储)。

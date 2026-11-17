@@ -13,6 +13,7 @@ import { CampaignModule } from './campaign/campaign.module.js';
 import { OutreachModule } from './outreach/outreach.module.js';
 import { ModelGatewayModule } from './model-gateway/model-gateway.module.js';
 import { R4Module } from './r4/r4.module.js';
+import { CooperationModule } from './cooperation/cooperation.module.js';
 
 /**
  * 三域单服务(技术方案 §1/SD9):
@@ -23,7 +24,7 @@ import { R4Module } from './r4/r4.module.js';
  * 三个登录域/三条 guard 链在这里汇聚,边界负向测试对应 PRD E1。
  */
 @Module({
-  imports: [ConfigModule, TenantModule, OpsModule, ServiceModule, BffModule, CampaignModule, OutreachModule, ModelGatewayModule, R4Module],
+  imports: [ConfigModule, TenantModule, OpsModule, ServiceModule, BffModule, CampaignModule, OutreachModule, ModelGatewayModule, R4Module, CooperationModule],
   controllers: [HealthController],
   providers: [
     PrismaService,
