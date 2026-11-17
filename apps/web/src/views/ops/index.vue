@@ -47,6 +47,8 @@ const cooperationIntents = ref<Row[]>([]);
 const cooperationTotal = ref(0);
 const cooperationCounts = ref<{ NEW: number; CONTACTED: number; CLOSED: number }>({ NEW: 0, CONTACTED: 0, CLOSED: 0 });
 const cooperationStatus = ref('');
+const cooperationOffset = ref(0);
+const COOPERATION_PAGE_SIZE = 50;
 const cooperationBusy = ref('');
 const cooperationNoteDrafts = ref<Record<string, string>>({});
 const attributionRows = ref<Row[]>([]);
@@ -583,7 +585,11 @@ async function loadCooperationIntents(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const query = cooperationStatus.value ? `?status=${encodeURIComponent(cooperationStatus.value)}` : '';
+    const params = new URLSearchParams();
+    if (cooperationStatus.value) params.set('status', cooperationStatus.value);
+    params.set('limit', String(COOPERATION_PAGE_SIZE));
+    params.set('offset', String(cooperationOffset.value));
+    const query = `?${params.toString()}`;
     const body = await api<{
       intents: Row[];
       total: number;
@@ -602,6 +608,16 @@ async function loadCooperationIntents(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+function changeCooperationFilter(): void {
+  cooperationOffset.value = 0;
+  void loadCooperationIntents();
+}
+
+function cooperationPage(delta: number): void {
+  cooperationOffset.value = Math.max(0, cooperationOffset.value + delta * COOPERATION_PAGE_SIZE);
+  void loadCooperationIntents();
 }
 
 async function updateCooperationIntent(row: Row, patch: { status?: string; note?: string }): Promise<void> {
@@ -1213,13 +1229,18 @@ onMounted(checkSession);
                 官网合作意向
                 <span class="ops__muted">共 {{ cooperationTotal }} 条 · 新提交 {{ cooperationCounts.NEW }}</span>
               </h3>
-              <select v-model="cooperationStatus" @change="loadCooperationIntents">
+              <select v-model="cooperationStatus" @change="changeCooperationFilter">
                 <option value="">全部状态</option>
                 <option value="NEW">新提交</option>
                 <option value="CONTACTED">已联系</option>
                 <option value="CLOSED">已关闭</option>
               </select>
               <button type="button" class="ops__btn" @click="loadCooperationIntents">刷新</button>
+              <span class="ops__muted">
+                第 {{ cooperationTotal ? cooperationOffset + 1 : 0 }}–{{ Math.min(cooperationOffset + cooperationIntents.length, cooperationTotal) }} 条 / 共 {{ cooperationTotal }} 条
+              </span>
+              <button type="button" class="ops__btn" :disabled="cooperationOffset === 0" @click="cooperationPage(-1)">上一页</button>
+              <button type="button" class="ops__btn" :disabled="cooperationOffset + cooperationIntents.length >= cooperationTotal" @click="cooperationPage(1)">下一页</button>
             </div>
             <div class="ops__table-wrap">
               <table class="ops__table">

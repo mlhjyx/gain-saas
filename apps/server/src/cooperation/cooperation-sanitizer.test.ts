@@ -41,6 +41,30 @@ describe('cleanText', () => {
     }
   });
 
+  it('rejects named-entity and semicolon-less numeric obfuscation', () => {
+    for (const payload of [
+      'javascript&colon;alert(1)',
+      'java&Tab;script:alert(1)',
+      'java&NewLine;script:alert(1)',
+      '&#60script&#62alert(1)',
+      '&#x3cscript&#x3ealert(1)',
+    ]) {
+      expect(() => cleanText('message', payload, { max: 200, multiline: true }), payload).toThrow(/UNSAFE/);
+    }
+  });
+
+  it('rejects scheme names split by newlines/whitespace', () => {
+    expect(() => cleanText('message', 'java\nscript:alert(1)', { max: 200, multiline: true })).toThrow(/UNSAFE/);
+    expect(() => cleanText('message', 'data : text/html;base64,x', { max: 200, multiline: true })).toThrow(/UNSAFE/);
+  });
+
+  it('does not reject ordinary URL query strings or prose', () => {
+    expect(cleanText('contact', 'https://example.com/?online=true', { max: 300 })).toBe('https://example.com/?online=true');
+    expect(cleanText('message', '我们希望强化品牌的 expression (visual identity) 表达', { max: 200, multiline: true })).toBe(
+      '我们希望强化品牌的 expression (visual identity) 表达',
+    );
+  });
+
   it('strips zero-width and control characters before checking', () => {
     expect(cleanText('name', '张​三\u0000', { max: 20, required: true })).toBe('张三');
     expect(() => cleanText('name', '<scr​ipt>', { max: 50, required: true })).toThrow(/UNSAFE/);
@@ -78,5 +102,12 @@ describe('cleanEmail', () => {
 
   it('rejects payloads hiding in the local part', () => {
     expect(() => cleanEmail('<script>@example.com')).toThrow(/UNSAFE/);
+  });
+
+  it('rejects mailto-parameter injection and overlong lowercase expansions', () => {
+    expect(() => cleanEmail('a@b.co?subject=hi')).toThrow(/INVALID_TYPE/);
+    expect(() => cleanEmail('a@b.co%0d%0aX: y')).toThrow(/INVALID_TYPE/);
+    // U+0130 小写化后变成 i + U+0307，254 码点会膨胀到 508，必须在落库前拒绝。
+    expect(() => cleanEmail('İ'.repeat(250) + '@a.b')).toThrow(/TOO_LONG/);
   });
 });

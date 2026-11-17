@@ -58,3 +58,23 @@ describe('AuthThrottleService', () => {
     expect(store.row).toBeNull();
   });
 });
+
+describe('AuthThrottleService.consume', () => {
+  function consumeService(rows: Array<{ count: number; retry_after_seconds: number }>) {
+    const prisma = { $queryRaw: vi.fn(async () => rows) };
+    return new AuthThrottleService(prisma as never);
+  }
+
+  it('allows a request within the limit', async () => {
+    const service = consumeService([{ count: 2, retry_after_seconds: 60 }]);
+    await expect(service.consume('k', POLICY)).resolves.toBeUndefined();
+  });
+
+  it('rejects atomically once the limit is exceeded and reports retry seconds', async () => {
+    const service = consumeService([{ count: 3, retry_after_seconds: 42 }]);
+    await expect(service.consume('k', POLICY)).rejects.toMatchObject({
+      status: 429,
+      response: { error: { code: 'RATE_LIMITED', retryAfterSeconds: expect.any(Number) } },
+    });
+  });
+});

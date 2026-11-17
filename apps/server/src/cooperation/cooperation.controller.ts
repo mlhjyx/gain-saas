@@ -28,7 +28,12 @@ export class CooperationIntentController {
     } catch (error) {
       const status = (error as { getStatus?: () => number })?.getStatus?.();
       if (status === 429) {
-        res.setHeader('Retry-After', '600');
+        // 限流服务在 error.retryAfterSeconds 里给出当前窗口的剩余秒数（短窗/日窗不同）。
+        const body = (error as { getResponse?: () => unknown }).getResponse?.() as
+          | { error?: { retryAfterSeconds?: unknown } }
+          | undefined;
+        const retryAfter = body?.error?.retryAfterSeconds;
+        res.setHeader('Retry-After', String(typeof retryAfter === 'number' && retryAfter > 0 ? retryAfter : 600));
       }
       throw error;
     }

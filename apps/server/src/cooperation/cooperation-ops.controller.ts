@@ -12,6 +12,8 @@ import {
 import { OpsGuard, type OpsRequest } from '../ops/ops.guard.js';
 import { CooperationIntentService } from './cooperation.service.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** 运营台「合作意向」：只读列表 + 跟进状态/备注；独立于租户域。 */
 @Controller('api/ops/cooperation-intents')
 @UseGuards(OpsGuard)
@@ -36,7 +38,14 @@ export class CooperationIntentOpsController {
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() req: OpsRequest) {
+  async update(@Param('id') id: string, @Body() rawBody: unknown, @Req() req: OpsRequest) {
+    if (!UUID_RE.test(id)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION_FAILED', message: 'id 必须是 UUID' } });
+    }
+    if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION_FAILED', message: '请求体必须是 JSON 对象' } });
+    }
+    const body = rawBody as Record<string, unknown>;
     return {
       data: await this.intents.update({
         id,

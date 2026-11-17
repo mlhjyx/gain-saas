@@ -27,11 +27,34 @@ const UNSAFE_PATTERNS: RegExp[] = [
   /javascript\s*:/i,
   /vbscript\s*:/i,
   /data\s*:\s*(?:text\/html|image\/svg)/i,
-  /\bon[a-z]{3,}\s*=/i,
-  /expression\s*\(/i,
+  // 事件处理器：只认属性边界（空白/引号/>/;），避免把 ?online=true 这类
+  // 合法 URL 查询串误判；真正的注入必然带 <tag 前缀，会被上面的标签规则拦住。
+  /(?:^|[\s"'>;])on[a-z]{3,}\s*=/i,
   /&lt;|&gt;/i,
   /&#(?:x0*(?:3c|3e|22|27)|0*(?:60|62|34|39));/i,
 ];
+
+const NAMED_ENTITIES: Record<string, string> = {
+  colon: ':',
+  tab: '\t',
+  newline: '\n',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+};
+
+function codePointValue(code: number): string {
+  return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+}
+
+/** 解码常见 HTML 实体（含无分号数字实体），用于对抗编码绕过；仅用于判定，不用于存储。 */
+function decodeEntitiesOnce(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => codePointValue(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);?/g, (_, dec: string) => codePointValue(Number.parseInt(dec, 10)))
+    .replace(/&([a-z]+);/gi, (match, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? match);
+}
 
 export interface CleanTextOptions {
   max: number;
@@ -61,21 +84,33 @@ export function cleanText(field: string, raw: unknown, options: CleanTextOptions
   }
   if (Array.from(value).length > options.max) throw new ContentRejectedError(field, 'TOO_LONG');
 
-  // 危险片段在 NFKC 上判定：全角/兼容字符（如「＜script＞」）无法绕过标签规则。
-  const checkValue = value.normalize('NFKC');
-  for (const pattern of UNSAFE_PATTERNS) {
-    if (pattern.test(checkValue)) throw new ContentRejectedError(field, 'UNSAFE');
+  // 判定在 NFKC + 实体解码 + 去空白三份视图上做：
+  // - NFKC 拦全角/兼容字符（「＜script＞」）；
+  // - 实体解码拦 &colon; / &#58; / 无分号数字实体；
+  // - 去空白拦 `java\nscript:` 这类用换行拆分协议名的写法。
+  const nfkc = value.normalize('NFKC');
+  const decoded = decodeEntitiesOnce(decodeEntitiesOnce(nfkc));
+  const candidates = [nfkc, decoded, decoded.replace(/\s+/g, '')];
+  for (const candidate of candidates) {
+    for (const pattern of UNSAFE_PATTERNS) {
+      if (pattern.test(candidate)) throw new ContentRejectedError(field, 'UNSAFE');
+    }
   }
   return value;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 保守字符集：故意不接受 ? & % 引号等可在 mailto: 链接里拼接参数/头部的内容
+//（运营台把邮箱渲染成 mailto: 链接）。+ . _ - 足够覆盖常见地址。
+const EMAIL_RE = /^[a-z0-9._+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 
 /** 邮箱：小写、去空白、格式与长度校验（同时复用文本清洗）。 */
 export function cleanEmail(raw: unknown): string {
   const value = cleanText('email', raw, { max: 254, required: true });
   if (!value) throw new ContentRejectedError('email', 'REQUIRED');
   const email = value.toLowerCase();
+  // 少数码点小写化后会变长（如 U+0130 → i + U+0307），必须按转换后的长度校验，
+  // 否则会撞上 VARCHAR(254) 变成 500。
+  if (Array.from(email).length > 254) throw new ContentRejectedError('email', 'TOO_LONG');
   if (!EMAIL_RE.test(email)) throw new ContentRejectedError('email', 'INVALID_TYPE');
   return email;
 }

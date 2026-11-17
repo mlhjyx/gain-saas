@@ -15,7 +15,7 @@
 | 方法 / 路径 | `POST /api/public/cooperation-intents` |
 | 生产地址 | `https://<gain-saas 域名>/api/public/cooperation-intents`（本机部署为 `http://100.68.31.20:4020`） |
 | 请求体 | `application/json; charset=utf-8`（也接受 `application/x-www-form-urlencoded`） |
-| body 上限 | 16 KB |
+| body 上限 | 16 KB（按实际解析字节数限制；`chunked` / `gzip` 同样适用） |
 | 认证 | 无（公开端点） |
 | 幂等 | 不要求 `Idempotency-Key`；重复提交会各生成一条记录（请在前端提交成功后禁用按钮） |
 
@@ -35,7 +35,7 @@ PUBLIC_COOPERATION_ALLOWED_ORIGINS=https://www.example.com,https://example.com
 | 字段 | 类型 | 必填 | 长度上限（Unicode 码点） | 说明 |
 | --- | --- | --- | --- | --- |
 | `name` | string | 是 | 100 | 姓名 |
-| `email` | string | 是 | 254 | 邮箱；服务端转小写存储 |
+| `email` | string | 是 | 254 | 邮箱；服务端转小写存储。只接受常规字符（字母/数字/`. _ + -`），`?`、`&`、`%` 等会被拒绝（防止 `mailto:` 参数注入） |
 | `company` | string | 否 | 200 | 公司 / 机构 |
 | `contact` | string | 否 | 300 | 网站、微信或 LinkedIn 等自由联系方式 |
 | `industry` | string | 否 | 100 | 行业选择 |
@@ -96,9 +96,10 @@ curl -X POST http://100.68.31.20:4020/api/public/cooperation-intents \
 | --- | --- | --- | --- |
 | `400` | `INVALID_CONTENT` | 字段为空、超长、含 HTML/脚本/危险协议 | 在对应字段提示（`error.details[].field`） |
 | `400` | `VALIDATION_FAILED` | 请求体不是 JSON 对象 | 修请求体 |
+| `400` | `INVALID_BODY` | 请求体不是合法 JSON | 修请求体 |
 | `403` | `ORIGIN_NOT_ALLOWED` | 预检来源不在白名单 | 检查部署来源配置 |
 | `413` | `PAYLOAD_TOO_LARGE` | 请求体超过 16 KB | 截断输入 |
-| `429` | `RATE_LIMITED` | 触发限流 | 提示稍后重试；响应带 `Retry-After`（秒） |
+| `429` | `RATE_LIMITED` | 触发限流 | 提示稍后重试；响应带 `Retry-After`（当前窗口剩余秒数） |
 | `5xx` | `INTERNAL` | 服务端异常 | 通用失败提示，可重试 |
 
 ## 5. 限流规则
@@ -114,7 +115,8 @@ curl -X POST http://100.68.31.20:4020/api/public/cooperation-intents \
 
 - 计数在解析/校验**之前**执行：畸形或恶意请求同样消耗配额；
 - 成功与失败都计数（本端点不做「成功后清零」）；
-- 命中后返回 `429 RATE_LIMITED`，`Retry-After: 600`。
+- 命中后返回 `429 RATE_LIMITED`，`Retry-After` 为当前窗口的剩余秒数（短窗与日窗不同）；
+- 计数是**原子**的：检查与自增在同一条 SQL 的行锁内完成，并发突发请求无法打穿配额。
 
 ## 6. XSS 校验（服务端强制执行）
 
@@ -127,7 +129,8 @@ curl -X POST http://100.68.31.20:4020/api/public/cooperation-intents \
    - `javascript:`、`vbscript:`、`data:text/html`、`data:image/svg` 协议；
    - 事件处理器（`onerror=`、`onload=` 等 `on<xxx>=`）；
    - CSS `expression(`；
-   - HTML 实体编码形式的尖括号/引号（`&lt;`、`&gt;`、`&#60;`、`&#x3c;` 等）；
+   - HTML 实体编码形式（`&lt;`、`&gt;`、`&colon;`、`&#60;`、`&#x3c;` 及无分号的数字实体）；
+   - 用空白/换行拆分协议名（`java\nscript:`、`data : text/html`）；
 4. 邮箱额外校验格式（`local@domain.tld`）并转小写。
 
 普通文本中的裸 `<`（如「营收 < 500 万」）允许；只有构成标签/协议的形态才会被拒绝。

@@ -40,11 +40,9 @@ export class CooperationIntentService {
     const ipShortKey = `coop-intent:ip:short:${ipDigest}`;
     const ipDailyKey = `coop-intent:ip:daily:${ipDigest}`;
 
-    // 先计数再校验：恶意/畸形请求同样消耗配额，避免被当作无限验证器。
-    await this.throttle.check(ipShortKey, THROTTLE_POLICIES.cooperationIntentIp);
-    await this.throttle.check(ipDailyKey, THROTTLE_POLICIES.cooperationIntentIpDaily);
-    await this.throttle.hit(ipShortKey, THROTTLE_POLICIES.cooperationIntentIp);
-    await this.throttle.hit(ipDailyKey, THROTTLE_POLICIES.cooperationIntentIpDaily);
+    // 原子计数（单条 SQL，行锁内判定）：先计数再校验，恶意/畸形请求同样消耗配额。
+    await this.throttle.consume(ipShortKey, THROTTLE_POLICIES.cooperationIntentIp);
+    await this.throttle.consume(ipDailyKey, THROTTLE_POLICIES.cooperationIntentIpDaily);
 
     let payload;
     try {
@@ -65,8 +63,7 @@ export class CooperationIntentService {
     }
 
     const emailKey = `coop-intent:email:daily:${this.hashValue('email', payload.email)}`;
-    await this.throttle.check(emailKey, THROTTLE_POLICIES.cooperationIntentEmailDaily);
-    await this.throttle.hit(emailKey, THROTTLE_POLICIES.cooperationIntentEmailDaily);
+    await this.throttle.consume(emailKey, THROTTLE_POLICIES.cooperationIntentEmailDaily);
 
     const userAgent = (context.userAgent ?? '').slice(0, 300) || null;
     const row = await this.prisma.cooperationIntent.create({

@@ -22,8 +22,7 @@ function makeService() {
     },
   };
   const throttle = {
-    check: vi.fn(async () => undefined),
-    hit: vi.fn(async () => undefined),
+    consume: vi.fn(async () => undefined),
   };
   const audit = { record: vi.fn(async () => undefined) };
   const config = { SESSION_SECRET: 'test-secret-test-secret-test-secret' };
@@ -54,10 +53,9 @@ describe('CooperationIntentService.submit', () => {
     expect(data.source).toBe('website');
     expect(data.ipHash).toMatch(/^[0-9a-f]{64}$/);
     expect(data.ipHash).not.toContain('203.0.113.9');
-    expect(throttle.check).toHaveBeenCalledTimes(3);
-    expect(throttle.hit).toHaveBeenCalledTimes(3);
-    // 同一 IP 的短窗与日窗必须是不同计数键，否则两次 hit 会把短窗配额翻倍消耗。
-    const keys = throttle.hit.mock.calls.map((call) => call[0] as string);
+    expect(throttle.consume).toHaveBeenCalledTimes(3);
+    // 同一 IP 的短窗与日窗必须是不同计数键，否则两次计数会把短窗配额翻倍消耗。
+    const keys = throttle.consume.mock.calls.map((call) => call[0] as string);
     expect(new Set(keys).size).toBe(3);
     expect(keys.filter((key) => key.startsWith('coop-intent:ip:'))).toHaveLength(2);
   });
@@ -79,7 +77,7 @@ describe('CooperationIntentService.submit', () => {
 
   it('propagates 429 from the throttle', async () => {
     const { service, throttle, prisma } = makeService();
-    throttle.check.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }));
+    throttle.consume.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }));
     await expect(service.submit(VALID, { ip: '1.1.1.1' })).rejects.toMatchObject({ status: 429 });
     expect(prisma.cooperationIntent.create).not.toHaveBeenCalled();
   });
