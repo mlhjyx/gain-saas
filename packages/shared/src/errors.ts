@@ -400,6 +400,16 @@ export const ENGINE_ERROR_COPY = {
       next: "Refresh and pick the industry again; contact operations if it keeps failing.",
     },
   },
+  INVALID_CONTENT: {
+    title: '提交内容需要修改',
+    why: '提交的文字里含有不支持的字符或格式（例如 HTML 标签、脚本片段）。',
+    next: '去掉尖括号或代码片段后重试；若反复出现请联系运营。',
+    en: {
+      title: "Some of the submitted text needs changing",
+      why: "The text contains unsupported characters or markup such as HTML tags or script snippets.",
+      next: "Remove angle brackets or code-like fragments and retry; contact operations if it keeps failing.",
+    },
+  },
   RATE_LIMITED: {
     title: '操作太频繁，请稍后再试',
     why: '登录与敏感操作有频率限制，用于保护账号安全。',
