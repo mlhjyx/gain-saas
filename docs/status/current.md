@@ -5,6 +5,12 @@
 > 事实来源:本页为主;代码与 PRD/技术方案冲突时以代码 + 评审为准
 > 最后更新:2026-11-11(校对运行方式、R4 撤销状态与阻塞表;记录 CI 与文档入口治理)
 
+## 2026-11-17 官网合作意向入口(产品 + 工程)
+
+- 官网「提交合作意向」表单接入公开端点 `POST /api/public/cooperation-intents`(无登录态、CORS 可配、16KB 体积上限、IP/邮箱双维度限流、字段级 XSS 清洗),线索落本仓 `cooperation_intent`。
+- 运营台 `/ops` 新增「合作意向」页:按状态筛选、查看填写内容、标记已联系/关闭/重开、跟进备注(写操作进审计)。
+- 对接文档:`docs/api/cooperation-intents.md`;迁移 `20261117120000_cooperation_intent`;配置 `PUBLIC_COOPERATION_ALLOWED_ORIGINS`(默认 `*`)。
+
 ## 2026-11-11 CI 与文档入口治理(工程,无产品行为变化)
 
 - **CI(#155)**:纯文档 PR 走 `classify` 快通道——只跑改动分类与新增的 gitleaks 密钥扫描,跳过 build/test/E2E 与契约门;代码 PR 检查不变。引擎合同改为离线确定性校验:`packages/engine-client/engine-contract.lock.json` 固定合同的 SHA-256,CI 校验 `schema.d.ts` 与固定合同一致;合同变更的 PR 对 base 分支合同跑 oasdiff breaking(`engine-contract-breaking-approved` label 放行),CI 不再依赖运行中的引擎实例。

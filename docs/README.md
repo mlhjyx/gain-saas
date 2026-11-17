@@ -17,6 +17,7 @@
 | ADR | [technical/adr/](technical/adr/) | 已拍板的承重决策 |
 | 验收与部署证据 | [evidence/](evidence/) | 按主题分目录的真实验收记录 |
 | 变更记录 | [changelog.d/](changelog.d/) | 每个改动 PR 一个片段（frontmatter `date`/`title` + 正文四段，格式同 backend 仓）；本仓暂无汇编脚本，片段作为变更记录保留 |
+| 官网合作意向 API | [api/cooperation-intents.md](api/cooperation-intents.md) | 给官网前端的公开端点：字段、CORS、限流与 XSS 校验 |
 | 前端发布与页面级回退 | [engineering/frontend-release-rollback.md](engineering/frontend-release-rollback.md) | 发布形态、revert 流程与演练要求 |
 | 界面设计准则 | [engineering/ui-design-guidelines.md](engineering/ui-design-guidelines.md) | 运营台与业务流程的 12 条检查项 |
 | 文档放置与维护规则 | [documentation-rules.md](documentation-rules.md) | 正文以 backend 仓 `docs/documentation-rules.md` 为准 |

@@ -21,6 +21,8 @@ import { ServiceModule } from '../service/service.module.js';
 import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsChannelsService } from './ops-channels.service.js';
 import { OpsEngineClient } from './ops-engine.client.js';
+import { CooperationIntentOpsController } from '../cooperation/cooperation-ops.controller.js';
+import { CooperationIntentService } from '../cooperation/cooperation.service.js';
 
 /**
  * 运营域(SD9 / PRD §13):独立登录域 + 引擎库 app/owner 双池 + 白名单写。
@@ -34,6 +36,7 @@ import { OpsEngineClient } from './ops-engine.client.js';
     OpsController,
     OpsRevocationController,
     OpsAttributionController,
+    CooperationIntentOpsController,
   ],
   providers: [
     OpsDatabase,
@@ -45,6 +48,7 @@ import { OpsEngineClient } from './ops-engine.client.js';
     OpsEngineClient,
     OpsChannelsService,
     OpsCampaignMetricsService,
+    CooperationIntentService,
     AuditService,
     PrismaService,
     AuthThrottleService,

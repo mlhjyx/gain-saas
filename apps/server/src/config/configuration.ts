@@ -40,6 +40,9 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   SESSION_TTL_MINUTES: z.coerce.number().default(60),
+  // 官网公开表单（合作意向）允许的跨域来源：逗号分隔；`*` 或空 = 允许任意来源。
+  // 端点无 cookie/登录态，限制来源是纵深防御而不是访问控制。
+  PUBLIC_COOPERATION_ALLOWED_ORIGINS: z.string().default('*'),
   // SD6:design partner 阶段的注册邀请码;不配置 = 不校验(开发期)
   INVITE_CODE: z.string().optional(),
   // 事件消费(SD4):M0 默认关闭,待引擎侧角色映射配置后打开

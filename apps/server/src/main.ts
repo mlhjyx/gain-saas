@@ -15,6 +15,7 @@ import { EngineBudgetGrantSigner } from './service/engine-budget-grant.signer.js
 import { BffGuard, BffHandler, registerBffMiddleware } from './bff/bff.module.js';
 import { GlobalHttpExceptionFilter } from './shared/http-exception.filter.js';
 import { registerSettlementReadbackProxy } from './model-gateway/settlement-readback-proxy.js';
+import { registerPublicCooperationCors } from './cooperation/public-cooperation-cors.js';
 import { startR4TlsServers } from './r4/r4-tls.server.js';
 
 /**
@@ -42,6 +43,8 @@ async function bootstrap(): Promise<void> {
     expressLib.raw({ type: () => true, limit: '51mb' }),
   );
   registerSettlementReadbackProxy(expressInstance, config);
+  // 官网合作意向公开端点的 CORS / 体积 / 安全响应头（只作用于该路径前缀）。
+  registerPublicCooperationCors(expressInstance, config.PUBLIC_COOPERATION_ALLOWED_ORIGINS);
   const bffHandler = app.get(BffHandler);
   const bffGuard = app.get(BffGuard);
   registerBffMiddleware(expressInstance, bffHandler, bffGuard);

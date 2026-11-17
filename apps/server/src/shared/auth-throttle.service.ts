@@ -11,6 +11,11 @@ export const THROTTLE_POLICIES = {
   tenantRegister: { limit: 5, windowMs: 60 * 60 * 1000 },
   tenantAcceptInvite: { limit: 10, windowMs: 15 * 60 * 1000 },
   opsLogin: { limit: 5, windowMs: 15 * 60 * 1000 },
+  // 官网合作意向（公开端点，无登录态）：IP 短窗防连点/脚本刷，IP 日窗防批量；
+  // 邮箱日窗防同一联系人被反复提交。按 HMAC 摘要计数，不落明文 IP/邮箱键。
+  cooperationIntentIp: { limit: 5, windowMs: 10 * 60 * 1000 },
+  cooperationIntentIpDaily: { limit: 30, windowMs: 24 * 60 * 60 * 1000 },
+  cooperationIntentEmailDaily: { limit: 3, windowMs: 24 * 60 * 60 * 1000 },
 } as const satisfies Record<string, ThrottlePolicy>;
 
 /**

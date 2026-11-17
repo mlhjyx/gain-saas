@@ -1573,3 +1573,42 @@ model IdempotencyRecord {
   @@index([expiresAt], map: "idempotency_record_expires_at_idx")
   @@map("idempotency_record")
 }
+
+// ─── 官网合作意向（public form → 运营台）───
+/// 官网「提交合作意向」表单收到的线索。公开端点无登录态，只落本仓运营视图；
+/// 不创建引擎的 Company/Lead 主状态（本仓不生这些主状态，见 AGENTS §2）。
+/// 所有文本字段在写入前已经过 XSS 清洗（见 cooperation/cooperation-sanitizer.ts）。
+enum CooperationIntentStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+model CooperationIntent {
+  id        String                   @id @default(uuid()) @db.Uuid
+  name      String                   @db.VarChar(100)
+  email     String                   @db.VarChar(254)
+  company   String?                  @db.VarChar(200)
+  /// 网站 / 微信 / LinkedIn 等自由联系入口（不是邮箱列）。
+  contact   String?                  @db.VarChar(300)
+  industry  String?                  @db.VarChar(100)
+  region    String?                  @db.VarChar(100)
+  message   String?                  @db.VarChar(500)
+  status    CooperationIntentStatus  @default(NEW)
+  /// 运营跟进备注（只在运营台可见）。
+  note      String?                  @db.VarChar(1000)
+  /// 来源标识：官网表单固定为 website；后续多渠道可区分。
+  source    String                   @default("website") @db.VarChar(64)
+  /// 反滥用用 IP 摘要（HMAC-SHA256，不存明文 IP）；仅用于限流与取证。
+  ipHash    String?                  @map("ip_hash") @db.Char(64)
+  userAgent String?                  @map("user_agent") @db.VarChar(300)
+  createdAt DateTime                 @default(now()) @map("created_at")
+  updatedAt DateTime                 @updatedAt @map("updated_at")
+  handledAt DateTime?                @map("handled_at")
+  handledBy String?                  @map("handled_by") @db.Uuid
+
+  @@index([status, createdAt], map: "cooperation_intent_status_created_at_idx")
+  @@index([createdAt], map: "cooperation_intent_created_at_idx")
+  @@index([email], map: "cooperation_intent_email_idx")
+  @@map("cooperation_intent")
+}

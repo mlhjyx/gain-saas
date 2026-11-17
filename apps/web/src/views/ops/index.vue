@@ -17,6 +17,7 @@ const TABS = [
   { key: 'overview', label: '概览' },
   { key: 'users', label: '用户' },
   { key: 'workspaces', label: '工作空间' },
+  { key: 'cooperation-intents', label: '合作意向' },
   { key: 'providers', label: '数据源' },
   { key: 'campaign-attribution', label: '战役归因' },
   { key: 'campaign-metrics', label: '战役指标' },
@@ -42,6 +43,12 @@ const users = ref<Row[]>([]);
 const userQuery = ref('');
 const userBusy = ref('');
 const workspaceId = ref('');
+const cooperationIntents = ref<Row[]>([]);
+const cooperationTotal = ref(0);
+const cooperationCounts = ref<{ NEW: number; CONTACTED: number; CLOSED: number }>({ NEW: 0, CONTACTED: 0, CLOSED: 0 });
+const cooperationStatus = ref('');
+const cooperationBusy = ref('');
+const cooperationNoteDrafts = ref<Record<string, string>>({});
 const attributionRows = ref<Row[]>([]);
 const campaignAttribution = ref<{
   funnel: Row;
@@ -572,6 +579,67 @@ async function toggleUser(user: Row): Promise<void> {
   }
 }
 
+async function loadCooperationIntents(): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const query = cooperationStatus.value ? `?status=${encodeURIComponent(cooperationStatus.value)}` : '';
+    const body = await api<{
+      intents: Row[];
+      total: number;
+      counts: { NEW: number; CONTACTED: number; CLOSED: number };
+    }>(`/api/ops/cooperation-intents${query}`);
+    cooperationIntents.value = body.intents ?? [];
+    cooperationTotal.value = body.total ?? 0;
+    cooperationCounts.value = body.counts ?? { NEW: 0, CONTACTED: 0, CLOSED: 0 };
+    for (const intent of cooperationIntents.value) {
+      if (cooperationNoteDrafts.value[intent.id] === undefined) {
+        cooperationNoteDrafts.value[intent.id] = intent.note ?? '';
+      }
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function updateCooperationIntent(row: Row, patch: { status?: string; note?: string }): Promise<void> {
+  cooperationBusy.value = String(row.id);
+  error.value = '';
+  notice.value = '';
+  try {
+    await api(`/api/ops/cooperation-intents/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    notice.value = `已更新 ${row.name} 的合作意向`;
+    await loadCooperationIntents();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    cooperationBusy.value = '';
+  }
+}
+
+function saveCooperationNote(row: Row): void {
+  const draft = (cooperationNoteDrafts.value[row.id] ?? '').trim();
+  if (draft === (row.note ?? '')) return;
+  void updateCooperationIntent(row, { note: draft });
+}
+
+function cooperationStatusLabel(status: unknown): string {
+  if (status === 'CONTACTED') return '已联系';
+  if (status === 'CLOSED') return '已关闭';
+  return '新提交';
+}
+
+function cooperationStatusClass(status: unknown): string {
+  if (status === 'CONTACTED') return 'is-ok';
+  if (status === 'CLOSED') return 'is-muted';
+  return 'is-warn';
+}
+
 async function loadAudit(): Promise<void> {
   loading.value = true;
   error.value = '';
@@ -791,6 +859,7 @@ async function switchTab(tab: string): Promise<void> {
   if (tab === 'overview') await loadOverview();
   if (tab === 'users') await loadUsers();
   if (tab === 'workspaces') await loadWorkspaceAdmin();
+  if (tab === 'cooperation-intents') await loadCooperationIntents();
   if (tab === 'providers') await loadProviders();
   if (tab === 'campaign-attribution') await loadCampaignAttribution();
   if (tab === 'campaign-metrics') await loadCampaignMetrics();
@@ -1133,6 +1202,82 @@ onMounted(checkSession);
                     </td>
                   </tr>
                   <tr v-if="!users.length"><td colspan="7" class="ops__muted">没有匹配的用户</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section v-else-if="active === 'cooperation-intents'" class="ops__stack">
+            <div class="ops__toolbar">
+              <h3>
+                官网合作意向
+                <span class="ops__muted">共 {{ cooperationTotal }} 条 · 新提交 {{ cooperationCounts.NEW }}</span>
+              </h3>
+              <select v-model="cooperationStatus" @change="loadCooperationIntents">
+                <option value="">全部状态</option>
+                <option value="NEW">新提交</option>
+                <option value="CONTACTED">已联系</option>
+                <option value="CLOSED">已关闭</option>
+              </select>
+              <button type="button" class="ops__btn" @click="loadCooperationIntents">刷新</button>
+            </div>
+            <div class="ops__table-wrap">
+              <table class="ops__table">
+                <thead>
+                  <tr>
+                    <th>提交时间</th><th>姓名 / 公司</th><th>邮箱 / 联系</th><th>行业 / 区域</th>
+                    <th>合作意向</th><th>状态</th><th>跟进备注</th><th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="intent in cooperationIntents" :key="intent.id">
+                    <td>{{ fmt(intent.createdAt) }}</td>
+                    <td><strong>{{ intent.name }}</strong><br /><span class="ops__muted">{{ intent.company || '—' }}</span></td>
+                    <td>
+                      <a :href="`mailto:${intent.email}`">{{ intent.email }}</a><br />
+                      <span class="ops__muted">{{ intent.contact || '—' }}</span>
+                    </td>
+                    <td>{{ intent.industry || '—' }}<br /><span class="ops__muted">{{ intent.region || '—' }}</span></td>
+                    <td class="ops__message">{{ intent.message || '—' }}</td>
+                    <td>
+                      <span class="ops__badge" :class="cooperationStatusClass(intent.status)">{{ cooperationStatusLabel(intent.status) }}</span>
+                      <br /><span class="ops__muted">{{ intent.handledAt ? fmt(intent.handledAt) : '' }}</span>
+                    </td>
+                    <td>
+                      <input
+                        v-model="cooperationNoteDrafts[intent.id]"
+                        class="ops__note-input"
+                        placeholder="备注"
+                        maxlength="200"
+                        @keyup.enter="saveCooperationNote(intent)"
+                      />
+                      <button type="button" class="ops__btn" :disabled="cooperationBusy === intent.id" @click="saveCooperationNote(intent)">保存</button>
+                    </td>
+                    <td class="ops__row-actions">
+                      <button
+                        v-if="intent.status === 'NEW'"
+                        type="button"
+                        class="ops__btn ops__btn--primary"
+                        :disabled="cooperationBusy === intent.id"
+                        @click="updateCooperationIntent(intent, { status: 'CONTACTED' })"
+                      >标记已联系</button>
+                      <button
+                        v-if="intent.status !== 'CLOSED'"
+                        type="button"
+                        class="ops__btn ops__btn--danger"
+                        :disabled="cooperationBusy === intent.id"
+                        @click="updateCooperationIntent(intent, { status: 'CLOSED' })"
+                      >关闭</button>
+                      <button
+                        v-if="intent.status !== 'NEW'"
+                        type="button"
+                        class="ops__btn"
+                        :disabled="cooperationBusy === intent.id"
+                        @click="updateCooperationIntent(intent, { status: 'NEW' })"
+                      >重新打开</button>
+                    </td>
+                  </tr>
+                  <tr v-if="!cooperationIntents.length"><td colspan="8" class="ops__muted">还没有收到合作意向</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1897,6 +2042,9 @@ onMounted(checkSession);
 .ops__table th, .ops__table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
 .ops__table th { color: #64748b; font-weight: 600; background: #f8fafc; white-space: nowrap; }
 .ops__table tr:last-child td { border-bottom: 0; }
+.ops__message { max-width: 320px; white-space: pre-wrap; word-break: break-word; }
+.ops__note-input { width: 150px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 6px; font-size: 12px; margin-right: 4px; }
+.ops__row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .ops__json { max-width: 320px; word-break: break-all; color: #64748b; }
 .ops__badge { font-size: 11px; font-weight: 650; border-radius: 999px; padding: 2px 8px; background: #f1f5f9; color: #475569; }
 .ops__badge.is-ok { background: #e8f9f0; color: #008f52; }
