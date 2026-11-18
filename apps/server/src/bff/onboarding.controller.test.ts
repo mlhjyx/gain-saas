@@ -431,6 +431,81 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
   });
 });
 
+describe('B0 兼容：空目标市场保存不新增分析或下游动作', () => {
+  it('草稿路径：targetMarkets: [] 原样写回，不签发 Grant，仅只读预检 + 一次 facts 写', async () => {
+    const engineCalls: string[] = [];
+    const { controller, req, res, call, issue } = fixture({
+      tenant: { onboardingCompanyId: 'engine-company-1' },
+      engineImpl: (method, path) => {
+        engineCalls.push(`${method} ${path}`);
+        if (method === 'GET' && path === '/companies/engine-company-1') {
+          return { status: 200, body: { data: { id: 'engine-company-1', status: 'REVIEW' } } };
+        }
+        if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+          return { status: 200, body: { data: PREVIEW } };
+        }
+        if (method === 'POST' && path === '/companies/engine-company-1/onboarding-facts') {
+          return { status: 200, body: { data: { id: 'engine-company-1' } } };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    const body = { name: '具安科技', products: ['A'], targetMarkets: [] };
+    await controller.createCompany(req, res, body);
+    expect(engineCalls).toEqual([
+      'GET /companies/engine-company-1',
+      'GET /companies/engine-company-1/understanding-preview',
+      'POST /companies/engine-company-1/onboarding-facts',
+    ]);
+    expect(issue).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      'POST',
+      '/companies/engine-company-1/onboarding-facts',
+      expect.objectContaining({ body }),
+    );
+    // 保存只写资料：无市场分析、搜索、ICP 激活、计划、挖掘或发送类调用。
+    expect(
+      engineCalls.some((entry) => /search|discovery|icp|activation|plan|outreach|send/i.test(entry)),
+    ).toBe(false);
+  });
+
+  it('旧无草稿路径：targetMarkets: [] 仍走原 Grant → POST /companies', async () => {
+    const { controller, req, res, call, issue } = fixture();
+    const body = { name: 'Acme', products: ['A'], targetMarkets: [] };
+    await controller.createCompany(req, res, body, 'idem-b0');
+    expect(issue).toHaveBeenCalledTimes(1);
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      { operation: 'POST /companies', body },
+    );
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      'POST',
+      '/companies',
+      expect.objectContaining({
+        body,
+        headers: expect.objectContaining({
+          'x-execution-budget-grant': 'grant.jws.sig',
+          'idempotency-key': 'idem-b0',
+        }),
+      }),
+    );
+  });
+
+  it('targetMarkets 空数组合法；超 20 条仍 400', async () => {
+    const { controller, req, res, issue } = fixture();
+    await expect(
+      controller.createCompany(req, res, {
+        name: 'Acme',
+        targetMarkets: Array.from({ length: 21 }, () => 'DE'),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(issue).not.toHaveBeenCalled();
+  });
+});
+
 describe('BffGuard：未完成引导拒绝业务请求（SD11）', () => {
   function guardCtx(req: Request) {
     return {

@@ -154,11 +154,10 @@ const manualValid = computed(
   () =>
     name.value.trim().length > 0 &&
     products.value.length > 0 &&
-    products.value.length <= 5 &&
-    targetMarkets.value.length > 0,
+    products.value.length <= 5,
 );
 const selectionValid = computed(
-  () => products.value.length > 0 && products.value.length <= 5 && targetMarkets.value.length > 0,
+  () => products.value.length > 0 && products.value.length <= 5,
 );
 const step = computed(() => (view.value === 'start' ? 0 : 1));
 const steps = computed(() => [
@@ -199,9 +198,6 @@ function applyPreview(next: OnboardingPreview) {
     const suggestedProducts = next.products.map((item) => item.name);
     if (products.value.length === 0) {
       products.value = suggestedProducts.slice(0, 5);
-    }
-    if (targetMarkets.value.length === 0) {
-      targetMarkets.value = next.markets.map((item) => item.code).slice(0, 20);
     }
     view.value = 'preview';
     stopPolling();
@@ -591,6 +587,7 @@ onBeforeUnmount(stopPolling);
             >
               {{ $t('gainos.onboarding.marketsSuggested', { names: suggestedMarketNames }) }}
             </span>
+            <span class="field-hint">{{ $t('gainos.onboarding.marketsOptionalHint') }}</span>
           </div>
 
           <label class="field">

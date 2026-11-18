@@ -1280,6 +1280,7 @@
     "marketsDesc": "Tick the countries you want to export to; sourcing and due diligence follow these priorities",
     "marketsPlaceholder": "Select target markets",
     "marketsSuggested": "Mentioned on your website: {names}",
+    "marketsOptionalHint": "Target markets are optional. Saving only stores your company profile — no market analysis or buyer sourcing starts",
     "submit": "Finish setup",
     "success": "Company profile created — you are all set",
     "submitFailed": "Setup failed, please try again later",
