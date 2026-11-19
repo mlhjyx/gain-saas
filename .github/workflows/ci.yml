@@ -114,7 +114,7 @@ jobs:
 
       - name: Install
         if: needs.classify.outputs.docs_only != 'true'
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
 
       # P6 零术语红线（设计 §4、计划 v1.5 §3.9）：用户可见面禁 run/ICP/canonical/plan_hash/裸 UUID/裸枚举。
       # 豁免仅限技术详情与运营台，且必须写明理由；负向用例随 pnpm test 一起跑。
@@ -200,7 +200,7 @@ jobs:
         run: corepack enable
 
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
 
       - name: Build shared + web (e2e 产物)
         run: |
