@@ -6,7 +6,7 @@
  * 语言与主题沿应用自身偏好持久化切换（登录页 AuthTools → updatePreferences），
  * 不靠浏览器 locale/colorScheme 假设；onboarding 页无顶栏按钮也不影响。
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installMockBackend, type MockBackend } from './support/mock-backend';
 
@@ -36,6 +36,7 @@ const TEXT = {
     productsLimit: '最多添加 5 个产品',
     start: '开始理解',
     submit: '完成建档',
+    submitFailed: '建档失败，请稍后重试',
     suggestedPrefix: '官网提到：',
     switchManual: '改为手动填写',
     title: '完善公司档案',
@@ -53,6 +54,7 @@ const TEXT = {
     productsLimit: 'Up to 5 products',
     start: 'Read my website',
     submit: 'Finish setup',
+    submitFailed: 'Setup failed, please try again later',
     suggestedPrefix: 'Mentioned on your website:',
     switchManual: 'Fill in manually',
     title: 'Complete your company profile',
@@ -118,15 +120,31 @@ const NOT_STARTED_PREVIEW = preview({
 
 const READY_EMPTY_MARKETS = preview({ markets: [] });
 
+function productsFixture(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    name: `产品-${index + 1}`,
+    source: 'understanding',
+    sourceUrl: `https://example.org/products/${index + 1}`,
+    evidence: `product ${index + 1}`,
+  }));
+}
+
 type Cell = { family: string; lang: Lang; theme: Theme; width: Width };
 
-function text(page: Page | null, cell: Cell) {
+function text(cell: Cell) {
   return TEXT[cell.lang];
 }
 
-async function enterAs(page: Page, cell: Cell): Promise<MockBackend> {
+async function enterAs(
+  page: Page,
+  cell: Cell,
+  options: { role?: 'admin' | 'member' } = {},
+): Promise<MockBackend> {
   await page.setViewportSize(WIDTHS[cell.width]);
-  const backend = await installMockBackend(page, { onboardingComplete: false });
+  const backend = await installMockBackend(page, {
+    onboardingComplete: false,
+    ...(options.role ? { role: options.role } : {}),
+  });
   await page.goto('/auth/login');
   // 应用自身的偏好持久化：登录页 AuthTools 的语言/主题按钮（与顶栏同一机制）。
   if (cell.lang === 'en-US') {
@@ -140,7 +158,7 @@ async function enterAs(page: Page, cell: Cell): Promise<MockBackend> {
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
   await page.waitForURL(/\/onboarding/);
-  await expect(page.getByRole('heading', { name: text(null, cell).title })).toBeVisible();
+  await expect(page.getByRole('heading', { name: text(cell).title })).toBeVisible();
   return backend;
 }
 
@@ -148,11 +166,11 @@ async function enterAs(page: Page, cell: Cell): Promise<MockBackend> {
 async function reenter(page: Page, cell: Cell, backend: MockBackend): Promise<void> {
   backend.onboardingComplete = false;
   await page.goto('/onboarding');
-  await expect(page.getByRole('heading', { name: text(null, cell).title })).toBeVisible();
+  await expect(page.getByRole('heading', { name: text(cell).title })).toBeVisible();
 }
 
 async function assertEnvironment(page: Page, cell: Cell): Promise<void> {
-  const t = text(null, cell);
+  const t = text(cell);
   await expect(page.getByRole('heading', { name: t.title })).toBeVisible();
   const htmlClass = await page.evaluate(() => document.documentElement.className);
   expect(htmlClass.includes('dark'), `主题应为 ${cell.theme}：${htmlClass}`).toBe(
@@ -163,7 +181,7 @@ async function assertEnvironment(page: Page, cell: Cell): Promise<void> {
     return getComputedStyle(target).backgroundColor;
   });
   const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  expect(match, `body 背景应为计算色：${bg}`).toBeTruthy();
+  expect(match, `背景应为计算色：${bg}`).toBeTruthy();
   const luminance =
     0.2126 * Number(match![1]) + 0.7152 * Number(match![2]) + 0.0722 * Number(match![3]);
   if (cell.theme === 'dark') expect(luminance).toBeLessThan(80);
@@ -175,14 +193,11 @@ async function assertEnvironment(page: Page, cell: Cell): Promise<void> {
 }
 
 function submitButton(page: Page, cell: Cell) {
-  return page.getByRole('button', { name: text(null, cell).submit });
+  return page.getByRole('button', { name: text(cell).submit });
 }
 
 function marketSelect(page: Page, cell: Cell) {
-  return page
-    .locator('.field')
-    .filter({ hasText: text(null, cell).marketsLabel })
-    .locator('.ant-select');
+  return page.locator('.field').filter({ hasText: text(cell).marketsLabel }).locator('.ant-select');
 }
 
 async function fillNameOnStart(page: Page, name: string): Promise<void> {
@@ -191,24 +206,67 @@ async function fillNameOnStart(page: Page, name: string): Promise<void> {
 
 async function enterManual(page: Page, cell: Cell): Promise<void> {
   await fillNameOnStart(page, 'E2E 测试公司');
-  await page.getByRole('button', { name: text(null, cell).manual }).click();
+  await page.getByRole('button', { name: text(cell).manual }).click();
   await expect(submitButton(page, cell)).toBeVisible();
 }
 
 async function startReadyPreview(page: Page, cell: Cell): Promise<void> {
   await page.locator('input[placeholder*="https://"]').fill('https://example.org');
-  await page.getByRole('button', { name: text(null, cell).start }).click();
+  await page.getByRole('button', { name: text(cell).start }).click();
   await expect(submitButton(page, cell)).toBeVisible();
 }
 
 async function addProduct(page: Page, cell: Cell, name: string): Promise<void> {
-  const input = page.getByPlaceholder(text(null, cell).productPlaceholder);
+  const input = page.getByPlaceholder(text(cell).productPlaceholder);
   await input.fill(name);
   await input.press('Enter');
 }
 
+async function selectMarketDe(page: Page, cell: Cell): Promise<void> {
+  await marketSelect(page, cell).click();
+  await page.locator('.ant-select-item-option', { hasText: text(cell).marketOptionDe }).first().click();
+  await page.keyboard.press('Escape');
+  await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
+}
+
+async function clearMarkets(page: Page, cell: Cell): Promise<void> {
+  await marketSelect(page, cell).locator('.ant-select-selection-item-remove').first().click();
+  await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
+}
+
 function lastCompanyCall(backend: MockBackend) {
   return backend.callsTo('POST', '/onboarding/company').at(-1);
+}
+
+function companyBodies(backend: MockBackend) {
+  return backend.callsTo('POST', '/onboarding/company').map((call) => call.body as {
+    name?: string;
+    products?: string[];
+    targetMarkets?: string[];
+  });
+}
+
+async function expectFocusable(locator: Locator): Promise<void> {
+  await locator.focus();
+  await expect(locator).toBeFocused();
+}
+
+/** 保存响应挂起，直到 release()；记录只有一次写请求。 */
+function installDelayedSave(backend: MockBackend): { release: () => void } {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  backend.set('POST', '/onboarding/company', async ({ route }) => {
+    await gate;
+    await route.fulfill({
+      body: JSON.stringify({ data: {} }),
+      contentType: 'application/json',
+      status: 200,
+    });
+    return true;
+  });
+  return { release };
 }
 
 function assertNoDownstreamSideEffects(backend: MockBackend): void {
@@ -223,13 +281,18 @@ function assertNoDownstreamSideEffects(backend: MockBackend): void {
   ]) {
     expect(paths, `不应触发 ${forbidden}`).not.toContain(forbidden);
   }
-  // 导航类 GET 不算副作用；写请求只允许 onboarding 自身。
-  const writes = backend.calls
-    .filter((call) => call.method !== 'GET')
-    .map((call) => call.path);
+  const writes = backend.calls.filter((call) => call.method !== 'GET').map((call) => call.path);
   for (const write of writes) {
-    expect(['/onboarding/company', '/onboarding/preview', '/auth/login', '/auth/register', '/auth/logout']).toContain(write);
+    expect([
+      '/onboarding/company',
+      '/onboarding/preview',
+      '/auth/login',
+      '/auth/register',
+      '/auth/logout',
+    ]).toContain(write);
   }
+  // 保存路径不得触发理解/重试等额外引擎动作。
+  expect(paths.some((entry) => /understanding|retry/i.test(entry))).toBe(false);
 }
 
 async function capture(
@@ -264,28 +327,36 @@ async function runFamily(
   consoleLog: string[],
   testInfo: import('@playwright/test').TestInfo,
 ): Promise<void> {
-  const t = text(null, cell);
+  const t = text(cell);
   switch (family) {
     case '01-manual-no-market': {
       backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
       await enterManual(page, cell);
-      // 子场景 A：名称草稿 + 1 个产品，不指定市场直接保存。
+      // name-only 草稿：请求不带官网，不触发理解/重试。
+      const previewCalls = backend.callsTo('POST', '/onboarding/preview');
+      expect(previewCalls).toHaveLength(1);
+      expect((previewCalls[0]!.body as { website?: string }).website).toBeUndefined();
       await addProduct(page, cell, '产品-1');
       await expect(submitButton(page, cell)).toBeEnabled();
       await capture(page, cell, backend, consoleLog, testInfo, '-form-1');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
+      expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(1);
       const one = lastCompanyCall(backend)!.body as { products?: string[]; targetMarkets?: string[] };
       expect(one.targetMarkets).toEqual([]);
       expect(one.products?.length).toBe(1);
-      // 子场景 B：5 个产品同样可保存 []。
+      // 5 个产品同样可保存 []。
       await reenter(page, cell, backend);
       await enterManual(page, cell);
+      const secondPreview = backend.callsTo('POST', '/onboarding/preview');
+      expect(secondPreview).toHaveLength(2);
+      expect((secondPreview[1]!.body as { website?: string }).website).toBeUndefined();
       for (let index = 0; index < 5; index += 1) await addProduct(page, cell, `批量-${index + 1}`);
       await expect(submitButton(page, cell)).toBeEnabled();
       await capture(page, cell, backend, consoleLog, testInfo, '-form-5');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
+      expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(2);
       const five = lastCompanyCall(backend)!.body as { products?: string[]; targetMarkets?: string[] };
       expect(five.targetMarkets).toEqual([]);
       expect(five.products?.length).toBe(5);
@@ -295,16 +366,31 @@ async function runFamily(
       backend.set('POST', '/onboarding/preview', { started: true, preview: READY_EMPTY_MARKETS });
       await startReadyPreview(page, cell);
       await expect(submitButton(page, cell)).toBeEnabled();
-      await capture(page, cell, backend, consoleLog, testInfo, '-form');
+      await capture(page, cell, backend, consoleLog, testInfo, '-form-1');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
-      expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
+      const one = lastCompanyCall(backend)!.body as { products?: string[]; targetMarkets?: string[] };
+      expect(one.targetMarkets).toEqual([]);
+      expect(one.products?.length).toBe(1);
+      // ready 五产品同样可保存 []。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', {
+        started: true,
+        preview: preview({ markets: [], products: productsFixture(5) }),
+      });
+      await startReadyPreview(page, cell);
+      await expect(submitButton(page, cell)).toBeEnabled();
+      await capture(page, cell, backend, consoleLog, testInfo, '-form-5');
+      await submitButton(page, cell).click();
+      await page.waitForURL(/\/workspace/);
+      const five = lastCompanyCall(backend)!.body as { products?: string[]; targetMarkets?: string[] };
+      expect(five.targetMarkets).toEqual([]);
+      expect(five.products?.length).toBe(5);
       break;
     }
     case '03-ready-suggestion': {
       await startReadyPreview(page, cell);
       await expect(page.getByText(t.suggestedPrefix)).toBeVisible();
-      // 建议只能展示，不能自动勾选、不能冒充用户确认。
       await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
       await expect(submitButton(page, cell)).toBeEnabled();
       await capture(page, cell, backend, consoleLog, testInfo, '-suggestion');
@@ -315,49 +401,37 @@ async function runFamily(
     }
     case '04-explicit-and-clear': {
       await startReadyPreview(page, cell);
-      // 子场景 A（ready）：显式选择 DE 原样透传。
-      await marketSelect(page, cell).click();
-      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
-      await page.keyboard.press('Escape');
-      await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
+      // A（ready）显式选择 DE。
+      await selectMarketDe(page, cell);
       await capture(page, cell, backend, consoleLog, testInfo, '-selected');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual(['DE']);
-      // 子场景 B（ready）：清空后仍保存 []，不补回建议国家。
+      // B（ready）清空 → []。
       await reenter(page, cell, backend);
       await startReadyPreview(page, cell);
-      await marketSelect(page, cell).click();
-      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
-      await page.keyboard.press('Escape');
-      await marketSelect(page, cell).locator('.ant-select-selection-item-remove').first().click();
-      await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
+      await selectMarketDe(page, cell);
+      await clearMarkets(page, cell);
       await capture(page, cell, backend, consoleLog, testInfo, '-cleared');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
-      // 子场景 C（manual）：手动表单显式选择 DE 原样透传。
+      // C（manual）显式选择 DE。
       await reenter(page, cell, backend);
       backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
       await enterManual(page, cell);
       await addProduct(page, cell, '手动产品');
-      await marketSelect(page, cell).click();
-      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
-      await page.keyboard.press('Escape');
-      await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
+      await selectMarketDe(page, cell);
       await capture(page, cell, backend, consoleLog, testInfo, '-manual-selected');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual(['DE']);
-      // 子场景 D（manual）：清空后保存 []，不补回国家。
+      // D（manual）清空 → []。
       await reenter(page, cell, backend);
       await enterManual(page, cell);
       await addProduct(page, cell, '手动产品');
-      await marketSelect(page, cell).click();
-      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
-      await page.keyboard.press('Escape');
-      await marketSelect(page, cell).locator('.ant-select-selection-item-remove').first().click();
-      await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
+      await selectMarketDe(page, cell);
+      await clearMarkets(page, cell);
       await capture(page, cell, backend, consoleLog, testInfo, '-manual-cleared');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
@@ -367,10 +441,9 @@ async function runFamily(
     case '05-invalid-inputs': {
       backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
       await enterManual(page, cell);
-      const nameInput = page
-        .locator('label.field')
-        .filter({ hasText: t.companyName })
-        .locator('input');
+      const nameInput = page.locator('label.field').filter({ hasText: t.companyName }).locator('input');
+      await nameInput.fill('');
+      await expect(submitButton(page, cell)).toBeDisabled();
       await nameInput.fill('   ');
       await expect(submitButton(page, cell)).toBeDisabled();
       await nameInput.fill('E2E 测试公司');
@@ -379,30 +452,56 @@ async function runFamily(
       await expect(page.getByText(t.productsLimit)).toBeVisible();
       await expect(page.locator('.tag-toggle')).toHaveCount(5);
       await expect(submitButton(page, cell)).toBeEnabled();
-      await capture(page, cell, backend, consoleLog, testInfo, '-invalid');
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-limit');
+      // ready 0 产品不可提交。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', {
+        started: true,
+        preview: preview({ markets: [], products: [] }),
+      });
+      await startReadyPreview(page, cell);
+      await expect(submitButton(page, cell)).toBeDisabled();
+      await capture(page, cell, backend, consoleLog, testInfo, '-preview-zero');
+      // ready 6 产品：建议最多取 5，不突破原上限。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', {
+        started: true,
+        preview: preview({ markets: [], products: productsFixture(6) }),
+      });
+      await startReadyPreview(page, cell);
+      await expect(page.locator('.tag-toggle[aria-pressed="true"]')).toHaveCount(5);
+      await expect(submitButton(page, cell)).toBeEnabled();
+      await capture(page, cell, backend, consoleLog, testInfo, '-preview-six');
+      await submitButton(page, cell).click();
+      await page.waitForURL(/\/workspace/);
+      const six = lastCompanyCall(backend)!.body as { products?: string[] };
+      expect(six.products?.length).toBe(5);
       break;
     }
     case '06-understanding-pending': {
       for (const state of ['queued', 'running']) {
         await reenter(page, cell, backend);
-        backend.set('POST', '/onboarding/preview', {
-          started: true,
-          preview: preview({ state, status: 'DRAFT' }),
-        });
+        const pending = { started: true, preview: preview({ state, status: 'DRAFT' }) };
+        backend.set('POST', '/onboarding/preview', pending);
+        backend.set('GET', '/onboarding/preview', pending);
         await page.locator('input[placeholder*="https://"]').fill('https://example.org');
         await page.getByRole('button', { name: t.start }).click();
         await expect(page.getByText(t.waitingTitle)).toBeVisible();
+        await expect(submitButton(page, cell)).toHaveCount(0);
         await capture(page, cell, backend, consoleLog, testInfo, `-${state}`);
+        // 等待一个轮询周期后仍是同一 pending 态，无完成 POST。
+        await page.waitForTimeout(4_300);
+        await expect(page.getByText(t.waitingTitle)).toBeVisible();
         expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(0);
+        expect(backend.callsTo('GET', '/onboarding/preview').length).toBeGreaterThan(0);
       }
       break;
     }
     case '07-understanding-failed': {
-      backend.set(
-        'POST',
-        '/onboarding/preview',
-        { started: true, preview: preview({ state: 'failed', failure: { stage: 'crawlWebsite' } }) },
-      );
+      backend.set('POST', '/onboarding/preview', {
+        started: true,
+        preview: preview({ state: 'failed', failure: { stage: 'crawlWebsite' } }),
+      });
       await page.locator('input[placeholder*="https://"]').fill('https://example.org');
       await page.getByRole('button', { name: t.start }).click();
       await expect(page.getByRole('heading', { name: t.failureTitle })).toBeVisible();
@@ -413,84 +512,168 @@ async function runFamily(
       expect(backend.callsTo('POST', '/onboarding/preview').length).toBe(previewCallsBefore);
       await addProduct(page, cell, '手动产品');
       await expect(submitButton(page, cell)).toBeEnabled();
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
+      expect(backend.callsTo('POST', '/onboarding/preview').length).toBe(previewCallsBefore);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
       break;
     }
     case '08-saving-in-flight': {
-      let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      backend.set('POST', '/onboarding/company', async ({ route }) => {
-        await gate;
-        await route.fulfill({
-          body: JSON.stringify({ data: {} }),
-          contentType: 'application/json',
-          status: 200,
-        });
-        return true;
-      });
       await startReadyPreview(page, cell);
+      const ready = installDelayedSave(backend);
       const submit = submitButton(page, cell);
-      await submit.click();
-      await submit.click({ force: true }).catch(() => {});
+      await expectFocusable(submit);
+      await page.keyboard.press('Enter');
       await expect(submit).toHaveClass(/ant-btn-loading/);
-      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(1);
+      await expect(page).not.toHaveURL(/\/workspace/);
+      expect(backend.onboardingComplete).toBe(false);
+      await submit.click({ force: true }).catch(() => {});
+      await expect.poll(() => backend.callsTo('POST', '/onboarding/company').length).toBe(1);
       await capture(page, cell, backend, consoleLog, testInfo, '-saving');
-      release();
+      ready.release();
       await page.waitForURL(/\/workspace/);
       expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(1);
+      // manual 延迟响应同样只发一次。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
+      await enterManual(page, cell);
+      await addProduct(page, cell, '手动产品');
+      const manual = installDelayedSave(backend);
+      const manualSubmit = submitButton(page, cell);
+      await expectFocusable(manualSubmit);
+      await page.keyboard.press('Enter');
+      await expect(manualSubmit).toHaveClass(/ant-btn-loading/);
+      await expect(page).not.toHaveURL(/\/workspace/);
+      expect(backend.onboardingComplete).toBe(false);
+      await manualSubmit.click({ force: true }).catch(() => {});
+      await expect.poll(() => backend.callsTo('POST', '/onboarding/company').length).toBe(2);
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-saving');
+      manual.release();
+      await page.waitForURL(/\/workspace/);
+      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(2);
       break;
     }
     case '09-save-success': {
       await startReadyPreview(page, cell);
+      const submit = submitButton(page, cell);
+      await expectFocusable(submit);
       await capture(page, cell, backend, consoleLog, testInfo, '-form');
-      await submitButton(page, cell).click();
+      await page.keyboard.press('Enter'); // 键盘可完成
       await page.waitForURL(/\/workspace/);
       expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(1);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
+      // 成功响应后 mock 完成态为 true；刷新仍完成（非真 DB 证明）。
+      expect(backend.onboardingComplete).toBe(true);
+      await page.reload();
+      await page.waitForTimeout(900);
+      await expect(page).toHaveURL(/\/workspace/);
+      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(1);
+      // manual 成功同样完成并可刷新。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
+      await enterManual(page, cell);
+      await addProduct(page, cell, '手动产品');
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-form');
+      await submitButton(page, cell).click();
+      await page.waitForURL(/\/workspace/);
+      const manualBody = lastCompanyCall(backend)!.body as { targetMarkets?: string[]; products?: string[] };
+      expect(manualBody.targetMarkets).toEqual([]);
+      expect(manualBody.products?.length).toBe(1);
+      await page.reload();
+      await page.waitForTimeout(900);
+      await expect(page).toHaveURL(/\/workspace/);
       break;
     }
     case '10-save-failure': {
       const failures = [400, 409, 503];
       let attempt = 0;
-      backend.set('POST', '/onboarding/company', async ({ route }) => {
-        attempt += 1;
-        const status = failures[attempt - 1];
-        if (status !== undefined) {
+      const installFailures = () => {
+        attempt = 0;
+        backend.set('POST', '/onboarding/company', async ({ route }) => {
+          attempt += 1;
+          const status = failures[attempt - 1];
+          if (status !== undefined) {
+            const payload =
+              attempt === 1
+                ? { error: { code: 'SAVE_FAILED' } } // 无 message → 应用本地化 fallback
+                : { error: { code: 'SAVE_FAILED', message: `保存失败 ${status}` } };
+            await route.fulfill({
+              body: JSON.stringify(payload),
+              contentType: 'application/json',
+              status,
+            });
+            return true;
+          }
           await route.fulfill({
-            body: JSON.stringify({ error: { code: 'SAVE_FAILED', message: `保存失败 ${status}` } }),
+            body: JSON.stringify({ data: {} }),
             contentType: 'application/json',
-            status,
+            status: 200,
           });
           return true;
-        }
-        await route.fulfill({
-          body: JSON.stringify({ data: {} }),
-          contentType: 'application/json',
-          status: 200,
         });
-        return true;
-      });
+      };
+      installFailures();
       await startReadyPreview(page, cell);
+      await selectMarketDe(page, cell);
       const submit = submitButton(page, cell);
-      for (const status of failures) {
-        await submit.click();
-        await expect(page.locator('.onboarding-error')).toContainText(String(status));
+      await expectFocusable(submit);
+      for (const [index, status] of failures.entries()) {
+        if (index === 0) await page.keyboard.press('Enter');
+        else await submit.click();
+        const error = page.locator('.onboarding-error');
+        await expect(error).toBeVisible();
+        if (index === 0) await expect(error).toContainText(t.submitFailed);
+        else await expect(error).toContainText(String(status));
         await expect(page).not.toHaveURL(/\/workspace/);
-        if (status === 400) await capture(page, cell, backend, consoleLog, testInfo, '-error');
+        expect(backend.onboardingComplete).toBe(false);
+        // 逐值保留：已选国家与产品仍在。
+        await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(1);
+        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toBeVisible();
       }
       expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(3);
-      // 输入与选择保留；显式重试可成功，不自动重试。
-      await expect(marketSelect(page, cell)).toBeVisible();
+      await capture(page, cell, backend, consoleLog, testInfo, '-ready-error');
       await submit.click();
       await page.waitForURL(/\/workspace/);
-      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(4);
+      const readyBody = lastCompanyCall(backend)!.body as { targetMarkets?: string[] };
+      expect(readyBody.targetMarkets).toEqual(['DE']);
+      // manual 路径三种失败与逐值保留。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
+      installFailures();
+      await enterManual(page, cell);
+      const nameInput = page.locator('label.field').filter({ hasText: t.companyName }).locator('input');
+      await nameInput.fill('E2E 手动公司');
+      await addProduct(page, cell, '手动产品');
+      await selectMarketDe(page, cell);
+      for (const [index, status] of failures.entries()) {
+        await submit.click();
+        const error = page.locator('.onboarding-error');
+        await expect(error).toBeVisible();
+        if (index === 0) await expect(error).toContainText(t.submitFailed);
+        else await expect(error).toContainText(String(status));
+        await expect(page).not.toHaveURL(/\/workspace/);
+        expect(backend.onboardingComplete).toBe(false);
+        await expect(nameInput).toHaveValue('E2E 手动公司');
+        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toBeVisible();
+        await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(1);
+      }
+      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(7);
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-error');
+      await submit.click();
+      await page.waitForURL(/\/workspace/);
+      const manualBody = lastCompanyCall(backend)!.body as {
+        name?: string;
+        products?: string[];
+        targetMarkets?: string[];
+      };
+      expect(manualBody.name).toBe('E2E 手动公司');
+      expect(manualBody.products).toEqual(['手动产品']);
+      expect(manualBody.targetMarkets).toEqual(['DE']);
       break;
     }
     case '11-non-admin': {
+      expect(backend.session.workspace.role).toBe('member');
       backend.set('POST', '/onboarding/company', async ({ route }) => {
         await route.fulfill({
           body: JSON.stringify({ error: { code: 'FORBIDDEN', message: '无权限完成建档' } }),
@@ -503,6 +686,7 @@ async function runFamily(
       await submitButton(page, cell).click();
       await expect(page.locator('.onboarding-error')).toBeVisible();
       await expect(page).not.toHaveURL(/\/workspace/);
+      expect(backend.onboardingComplete).toBe(false);
       await capture(page, cell, backend, consoleLog, testInfo, '-forbidden');
       break;
     }
@@ -526,13 +710,22 @@ async function runFamily(
       await page.reload();
       await expect(page.getByText(t.loading)).toBeVisible();
       await expect(page.locator('.onboarding-section')).toBeVisible();
-      await fillNameOnStart(page, 'E2E 测试公司');
-      await page.locator('input[placeholder*="https://"]').fill('example.org');
+      expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(0);
+      // 空名称 + 有效官网：不能开始，也不能进入手动（不发 preview POST）。
+      const nameInput = page.locator('.onboarding-section input').first();
+      await nameInput.fill('');
+      await page.locator('input[placeholder*="https://"]').fill('https://example.org');
       const start = page.getByRole('button', { name: t.start });
       await expect(start).toBeDisabled();
-      await start.click({ force: true }).catch(() => {});
+      const manual = page.getByRole('button', { name: t.manual });
+      await manual.click(); // 名称守卫拦截：不发 preview，也不离开官网页
       await page.waitForTimeout(200);
       expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(0);
+      await expect(page.getByRole('button', { name: t.start })).toBeVisible();
+      // 有名称但无效官网：开始仍禁用，不虚构国家。
+      await nameInput.fill('E2E 测试公司');
+      await page.locator('input[placeholder*="https://"]').fill('example.org');
+      await expect(start).toBeDisabled();
       await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
       await capture(page, cell, backend, consoleLog, testInfo, '-invalid-site');
       break;
@@ -569,7 +762,7 @@ test.describe('B0 未指定市场也可保存：12 族 × 96 格', () => {
             page.on('console', (message) => consoleLog.push(`${message.type()}: ${message.text()}`));
             const pageErrors: string[] = [];
             page.on('pageerror', (error) => pageErrors.push(String(error)));
-            const backend = await enterAs(page, cell);
+            const backend = await enterAs(page, cell, family === '11-non-admin' ? { role: 'member' } : {});
             await assertEnvironment(page, cell);
             await capture(page, cell, backend, consoleLog, testInfo, '-entry');
             await runFamily(family, page, cell, backend, consoleLog, testInfo);

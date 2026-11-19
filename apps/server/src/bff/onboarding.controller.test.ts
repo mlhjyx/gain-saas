@@ -74,13 +74,18 @@ describe('OnboardingController（SD11 注册引导建档）', () => {
   });
 
   it('非管理员不能完成建档', async () => {
-    const { controller, req, res, issue } = fixture({ tenant: { role: 'member' } });
+    const { controller, req, res, issue, call, update, auditRecord } = fixture({
+      tenant: { role: 'member' },
+    });
     const error = await controller
       .createCompany(req, res, { name: 'Acme' })
       .catch((err: unknown) => err);
     expect(error).toBeInstanceOf(HttpException);
     expect((error as HttpException).getStatus()).toBe(403);
     expect(issue).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(auditRecord).not.toHaveBeenCalled();
   });
 
   it('已完成引导的工作空间返回 409', async () => {
@@ -326,7 +331,7 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
   });
 
   it('完成建档：理解仍在进行时 409，不写事实', async () => {
-    const { controller, req, res, call } = fixture({
+    const { controller, req, res, call, update, auditRecord } = fixture({
       tenant: { onboardingCompanyId: 'engine-company-1' },
       engineImpl: (method, path) => {
         if (method === 'GET' && path === '/companies/engine-company-1') {
@@ -348,6 +353,8 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
       '/companies/engine-company-1/onboarding-facts',
       expect.anything(),
     );
+    expect(update).not.toHaveBeenCalled();
+    expect(auditRecord).not.toHaveBeenCalled();
   });
 
   it('industryCode 格式校验与 create 一致', async () => {
@@ -358,7 +365,7 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
   });
 
   it('完成建档：已排队（DRAFT + 官网 + 无失败标记）409，不写事实', async () => {
-    const { controller, req, res, call } = fixture({
+    const { controller, req, res, call, update, auditRecord } = fixture({
       tenant: { onboardingCompanyId: 'engine-company-1' },
       engineImpl: (method, path) => {
         if (method === 'GET' && path === '/companies/engine-company-1') {
@@ -390,6 +397,8 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
       '/companies/engine-company-1/onboarding-facts',
       expect.anything(),
     );
+    expect(update).not.toHaveBeenCalled();
+    expect(auditRecord).not.toHaveBeenCalled();
   });
 
   it('启动预览：理解排队中改官网 409（旧网址已写进 outbox，改了也不会生效）', async () => {
@@ -503,6 +512,192 @@ describe('B0 兼容：空目标市场保存不新增分析或下游动作', () =
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(issue).not.toHaveBeenCalled();
+  });
+
+  it('同一受控 fixture 三态：[] 显式写 facts、缺省不含字段、非空原样', async () => {
+    const run = async (body: Record<string, unknown>) => {
+      const { controller, req, res, call } = fixture({
+        tenant: { onboardingCompanyId: 'engine-company-1' },
+        engineImpl: (method, path) => {
+          if (method === 'GET' && path === '/companies/engine-company-1') {
+            return { status: 200, body: { data: { id: 'engine-company-1', status: 'REVIEW' } } };
+          }
+          if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+            return { status: 200, body: { data: PREVIEW } };
+          }
+          if (method === 'POST' && path === '/companies/engine-company-1/onboarding-facts') {
+            return { status: 200, body: { data: { id: 'engine-company-1' } } };
+          }
+          return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+        },
+      });
+      await controller.createCompany(req, res, body);
+      const factsCall = (call.mock.calls as unknown[][]).find(
+        (entry) => entry[1] === 'POST' && entry[2] === '/companies/engine-company-1/onboarding-facts',
+      );
+      return (factsCall?.[3] as { body: Record<string, unknown> }).body;
+    };
+    const empty = await run({ name: '具安科技', products: ['A'], targetMarkets: [] });
+    expect('targetMarkets' in empty).toBe(true);
+    expect(empty.targetMarkets).toEqual([]);
+    const omitted = await run({ name: '具安科技', products: ['A'] });
+    expect('targetMarkets' in omitted).toBe(false);
+    const nonEmpty = await run({ name: '具安科技', products: ['A'], targetMarkets: ['DE'] });
+    expect(nonEmpty.targetMarkets).toEqual(['DE']);
+  });
+
+  it('DRAFT 无官网（not_started 手动草稿）可写 facts []', async () => {
+    const engineCalls: string[] = [];
+    const { controller, req, res, call, issue, update, auditRecord } = fixture({
+      tenant: { onboardingCompanyId: 'engine-company-1' },
+      engineImpl: (method, path) => {
+        engineCalls.push(`${method} ${path}`);
+        if (method === 'GET' && path === '/companies/engine-company-1') {
+          return {
+            status: 200,
+            body: {
+              data: {
+                id: 'engine-company-1',
+                status: 'DRAFT',
+                website: null,
+                understandingFailedAt: null,
+              },
+            },
+          };
+        }
+        if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+          return {
+            status: 200,
+            body: {
+              data: {
+                ...PREVIEW,
+                state: 'not_started',
+                status: 'DRAFT',
+                website: null,
+                markets: [],
+                products: [],
+              },
+            },
+          };
+        }
+        if (method === 'POST' && path === '/companies/engine-company-1/onboarding-facts') {
+          return { status: 200, body: { data: { id: 'engine-company-1' } } };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    const body = { name: '具安科技', products: ['A'], targetMarkets: [] };
+    await controller.createCompany(req, res, body);
+    expect(issue).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledWith(
+      expect.anything(),
+      'POST',
+      '/companies/engine-company-1/onboarding-facts',
+      expect.objectContaining({ body }),
+    );
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'onboarding.complete' }),
+    );
+    expect(engineCalls).toEqual([
+      'GET /companies/engine-company-1',
+      'GET /companies/engine-company-1/understanding-preview',
+      'POST /companies/engine-company-1/onboarding-facts',
+    ]);
+  });
+
+  it('facts 写失败 409/503：不落完成标志、不写审计、不触发下游', async () => {
+    for (const status of [409, 503]) {
+      const engineCalls: string[] = [];
+      const { controller, req, res, update, auditRecord, issue } = fixture({
+        tenant: { onboardingCompanyId: 'engine-company-1' },
+        engineImpl: (method, path) => {
+          engineCalls.push(`${method} ${path}`);
+          if (method === 'GET' && path === '/companies/engine-company-1') {
+            return { status: 200, body: { data: { id: 'engine-company-1', status: 'REVIEW' } } };
+          }
+          if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+            return { status: 200, body: { data: PREVIEW } };
+          }
+          if (method === 'POST' && path === '/companies/engine-company-1/onboarding-facts') {
+            return { status, body: { error: { code: 'FACTS_FAILED', message: `facts ${status}` } } };
+          }
+          return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+        },
+      });
+      await expect(
+        controller.createCompany(req, res, { name: '具安科技', products: ['A'], targetMarkets: [] }),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(update).not.toHaveBeenCalled();
+      expect(auditRecord).not.toHaveBeenCalled();
+      expect(issue).not.toHaveBeenCalled();
+      expect(
+        engineCalls.every((entry) => /^GET \/companies\/engine-company-1|onboarding-facts$/.test(entry)),
+      ).toBe(true);
+      expect(
+        engineCalls.some((entry) => /search|discovery|icp|activation|plan|outreach|send/i.test(entry)),
+      ).toBe(false);
+    }
+  });
+
+  it('name-only startPreview：保留 Grant 链、不触发理解、审计 kind=manual', async () => {
+    const engineCalls: string[] = [];
+    const { controller, req, issue, call, update, auditRecord } = fixture({
+      engineImpl: (method, path) => {
+        engineCalls.push(`${method} ${path}`);
+        if (method === 'POST' && path === '/companies') {
+          return { status: 201, body: { data: { id: 'engine-company-1', status: 'DRAFT' } } };
+        }
+        if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+          return {
+            status: 200,
+            body: {
+              data: {
+                ...PREVIEW,
+                state: 'not_started',
+                status: 'DRAFT',
+                website: null,
+                markets: [],
+                products: [],
+              },
+            },
+          };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    const result = await controller.startPreview(req, { name: '具安科技' });
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      { operation: 'POST /companies', body: { name: '具安科技' } },
+    );
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      'POST',
+      '/companies',
+      expect.objectContaining({
+        body: { name: '具安科技' },
+        headers: expect.objectContaining({
+          'x-execution-budget-grant': 'grant.jws.sig',
+          'idempotency-key': expect.stringMatching(/^onboarding-preview:[0-9a-f]{64}$/),
+        }),
+      }),
+    );
+    expect(engineCalls).toEqual([
+      'POST /companies',
+      'GET /companies/engine-company-1/understanding-preview',
+    ]);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: req.tenant!.workspaceId },
+      data: { onboardingCompanyId: 'engine-company-1' },
+    });
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'onboarding.preview_started',
+        detail: { companyId: 'engine-company-1', kind: 'manual' },
+      }),
+    );
+    expect(result).toMatchObject({ data: { started: true } });
   });
 });
 
