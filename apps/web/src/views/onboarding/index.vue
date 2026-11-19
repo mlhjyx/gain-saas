@@ -800,8 +800,12 @@ onBeforeUnmount(stopPolling);
 
 .tag-source {
   font-size: 11px;
-  color: var(--gs-fg-muted, #4b5563);
+  color: var(--gs-fg-subtle, #6b7280);
   text-decoration: underline;
+}
+
+.tag.selected .tag-source {
+  color: var(--gs-fg, #111827);
 }
 
 .tag-source:focus-visible {
