@@ -800,7 +800,7 @@ onBeforeUnmount(stopPolling);
 
 .tag-source {
   font-size: 11px;
-  color: var(--gs-fg-subtle, #6b7280);
+  color: var(--gs-fg-muted, #4b5563);
   text-decoration: underline;
 }
 

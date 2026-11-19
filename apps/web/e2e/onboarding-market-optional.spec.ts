@@ -311,6 +311,13 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       const b = lum(bg);
       ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
     }
+    const text = parse(s.color);
+    let textRatio = 0;
+    if (text) {
+      const a = lum([text[0], text[1], text[2]]);
+      const b = lum(bg);
+      textRatio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
     return {
       bg,
       boxShadow: s.boxShadow,
@@ -320,13 +327,18 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       outlineStyle: s.outlineStyle,
       outlineWidth: Number.parseFloat(s.outlineWidth),
       ratio,
+      textRatio,
     };
   });
   expect(style?.focusVisible).toBe(true);
   expect(style?.outlineStyle).not.toBe('none');
   expect(style?.outlineWidth ?? 0).toBeGreaterThanOrEqual(2);
   expect(style?.boxShadow).not.toBe('none');
-  expect(style?.ratio ?? 0, `焦点环/背景对比 ${style?.ratio} outline=${style?.outlineColor} bg=${JSON.stringify(style?.bg)}`).toBeGreaterThanOrEqual(3);
+  expect(style?.ratio ?? 0, `焦点环/背景对比 ${style?.ratio}`).toBeGreaterThanOrEqual(3);
+  expect(
+    style?.textRatio ?? 0,
+    `来源链接文字对比 ${style?.textRatio} bg=${JSON.stringify(style?.bg)}`,
+  ).toBeGreaterThanOrEqual(4.5);
   expect(style?.inViewport).toBe(true);
 }
 
