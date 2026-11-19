@@ -315,7 +315,7 @@ async function runFamily(
     }
     case '04-explicit-and-clear': {
       await startReadyPreview(page, cell);
-      // 子场景 A：显式选择 DE 原样透传。
+      // 子场景 A（ready）：显式选择 DE 原样透传。
       await marketSelect(page, cell).click();
       await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
       await page.keyboard.press('Escape');
@@ -324,7 +324,7 @@ async function runFamily(
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual(['DE']);
-      // 子场景 B：清空后仍保存 []，不补回建议国家。
+      // 子场景 B（ready）：清空后仍保存 []，不补回建议国家。
       await reenter(page, cell, backend);
       await startReadyPreview(page, cell);
       await marketSelect(page, cell).click();
@@ -333,6 +333,32 @@ async function runFamily(
       await marketSelect(page, cell).locator('.ant-select-selection-item-remove').first().click();
       await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
       await capture(page, cell, backend, consoleLog, testInfo, '-cleared');
+      await submitButton(page, cell).click();
+      await page.waitForURL(/\/workspace/);
+      expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
+      // 子场景 C（manual）：手动表单显式选择 DE 原样透传。
+      await reenter(page, cell, backend);
+      backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
+      await enterManual(page, cell);
+      await addProduct(page, cell, '手动产品');
+      await marketSelect(page, cell).click();
+      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
+      await page.keyboard.press('Escape');
+      await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-selected');
+      await submitButton(page, cell).click();
+      await page.waitForURL(/\/workspace/);
+      expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual(['DE']);
+      // 子场景 D（manual）：清空后保存 []，不补回国家。
+      await reenter(page, cell, backend);
+      await enterManual(page, cell);
+      await addProduct(page, cell, '手动产品');
+      await marketSelect(page, cell).click();
+      await page.locator('.ant-select-item-option', { hasText: t.marketOptionDe }).first().click();
+      await page.keyboard.press('Escape');
+      await marketSelect(page, cell).locator('.ant-select-selection-item-remove').first().click();
+      await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
+      await capture(page, cell, backend, consoleLog, testInfo, '-manual-cleared');
       await submitButton(page, cell).click();
       await page.waitForURL(/\/workspace/);
       expect((lastCompanyCall(backend)!.body as { targetMarkets?: string[] }).targetMarkets).toEqual([]);
