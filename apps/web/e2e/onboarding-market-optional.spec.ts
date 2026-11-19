@@ -291,7 +291,23 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       }
       bgEl = bgEl.parentElement;
     }
-    let bg: [number, number, number] = base ?? [255, 255, 255];
+    // 真实绘制底色：从元素所在位置沿祖先链 source-over 合成半透明层；
+    // 若找不到不透明底层或出现无法解析的颜色，判为未知，绝不用默认白色抬高对比。
+    if (!base) {
+      return {
+        bgResolved: false,
+        boxShadow: s.boxShadow,
+        focusVisible: el.matches(':focus-visible'),
+        inViewport: false,
+        outlineColor: s.outlineColor,
+        outlineStyle: s.outlineStyle,
+        outlineWidth: Number.parseFloat(s.outlineWidth),
+        ratio: 0,
+        textRatio: 0,
+        toggleRatio: 0,
+      };
+    }
+    let bg: [number, number, number] = base;
     for (const layer of layers.reverse()) {
       bg = [0, 1, 2].map((index) =>
         Math.round(layer.color[index]! * layer.alpha + bg[index]! * (1 - layer.alpha)),
@@ -330,6 +346,7 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
     }
     return {
       bg,
+      bgResolved: true,
       boxShadow: s.boxShadow,
       focusVisible: el.matches(':focus-visible'),
       inViewport: rect.left >= 0 && rect.right <= window.innerWidth + 0.5,
@@ -341,6 +358,7 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       toggleRatio,
     };
   });
+  expect(style?.bgResolved, '背景必须可由实际相邻层解析，不得默认成高对比底色').toBe(true);
   expect(style?.focusVisible).toBe(true);
   expect(style?.outlineStyle).not.toBe('none');
   expect(style?.outlineWidth ?? 0).toBeGreaterThanOrEqual(2);
