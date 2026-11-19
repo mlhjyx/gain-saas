@@ -766,7 +766,7 @@ onBeforeUnmount(stopPolling);
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   padding-right: 10px;
   font-size: 13px;
   color: var(--gs-fg, #111827);
@@ -792,12 +792,6 @@ onBeforeUnmount(stopPolling);
   background: none;
   border: 0;
   border-radius: 999px;
-}
-
-.tag-toggle:focus-visible {
-  outline: 2px solid var(--gs-fg, #111827);
-  outline-offset: -2px;
-  border-radius: 4px;
 }
 
 .tag-check {

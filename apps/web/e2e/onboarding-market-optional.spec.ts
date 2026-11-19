@@ -418,11 +418,12 @@ async function assertToggleFocusDoesNotOverlapSource(page: Page): Promise<void> 
   expect(geometry.focusVisible).toBe(true);
   expect(geometry.outlineStyle).not.toBe('none');
   expect(geometry.outlineWidth).toBeGreaterThanOrEqual(2);
-  // 焦点环必须向内绘制，且按钮右边界不越过相邻来源文字的左边界。
-  expect(geometry.outlineOffset).toBeLessThanOrEqual(-2);
+  // 按钮外扩焦点环（width + 正 offset）不得越过相邻来源文字的左边界。
   if (geometry.linkLeft !== null) {
-    expect(geometry.buttonRight, `按钮右缘 ${geometry.buttonRight} 应不越过来源左缘 ${geometry.linkLeft}`)
+    const ringRight = geometry.buttonRight + geometry.outlineWidth + Math.max(0, geometry.outlineOffset);
+    expect(ringRight, `环右缘 ${ringRight} 应不越过来源左缘 ${geometry.linkLeft}`)
       .toBeLessThanOrEqual(geometry.linkLeft + 0.5);
+    expect(geometry.buttonRight).toBeLessThanOrEqual(geometry.linkLeft + 0.5);
   }
 }
 
