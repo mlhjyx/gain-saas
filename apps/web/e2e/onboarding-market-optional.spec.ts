@@ -239,6 +239,10 @@ function lastCompanyCall(backend: MockBackend) {
   return backend.callsTo('POST', '/onboarding/company').at(-1);
 }
 
+function localizedFailure(cell: Cell, status: number): string {
+  return cell.lang === 'zh-CN' ? `保存失败 ${status}` : `Save failed ${status}`;
+}
+
 async function expectFocusable(locator: Locator): Promise<void> {
   await locator.focus();
   await expect(locator).toBeFocused();
@@ -619,7 +623,7 @@ async function runFamily(
             const payload =
               attempt === 1
                 ? { error: { code: 'SAVE_FAILED' } } // 无 message → 应用本地化 fallback
-                : { error: { code: 'SAVE_FAILED', message: `保存失败 ${status}` } };
+                : { error: { code: 'SAVE_FAILED', message: localizedFailure(cell, status) } };
             await route.fulfill({
               body: JSON.stringify(payload),
               contentType: 'application/json',
@@ -654,7 +658,7 @@ async function runFamily(
         const error = page.locator('.onboarding-error');
         await expect(error).toBeVisible();
         if (index === 0) await expect(error).toContainText(t.submitFailed);
-        else await expect(error).toContainText(String(status));
+        else await expect(error).toContainText(localizedFailure(cell, status));
         await expect(page).not.toHaveURL(/\/workspace/);
         expect(backend.onboardingComplete).toBe(false);
         // 逐态核对真实值与请求体：每次失败都没有重试或改值。
@@ -689,7 +693,7 @@ async function runFamily(
         const error = page.locator('.onboarding-error');
         await expect(error).toBeVisible();
         if (index === 0) await expect(error).toContainText(t.submitFailed);
-        else await expect(error).toContainText(String(status));
+        else await expect(error).toContainText(localizedFailure(cell, status));
         await expect(page).not.toHaveURL(/\/workspace/);
         expect(backend.onboardingComplete).toBe(false);
         await expect(nameInput).toHaveValue('E2E 手动公司');
@@ -720,9 +724,11 @@ async function runFamily(
     }
     case '11-non-admin': {
       expect(backend.session.workspace.role).toBe('member');
+      const forbiddenCopy =
+        cell.lang === 'zh-CN' ? '无权限完成建档' : 'You do not have permission to finish setup';
       backend.set('POST', '/onboarding/company', async ({ route }) => {
         await route.fulfill({
-          body: JSON.stringify({ error: { code: 'FORBIDDEN', message: '无权限完成建档' } }),
+          body: JSON.stringify({ error: { code: 'FORBIDDEN', message: forbiddenCopy } }),
           contentType: 'application/json',
           status: 403,
         });
@@ -730,7 +736,7 @@ async function runFamily(
       });
       await startReadyPreview(page, cell);
       await submitButton(page, cell).click();
-      await expect(page.locator('.onboarding-error')).toBeVisible();
+      await expect(page.locator('.onboarding-error')).toContainText(forbiddenCopy);
       await expect(page).not.toHaveURL(/\/workspace/);
       expect(backend.onboardingComplete).toBe(false);
       await capture(page, cell, backend, consoleLog, testInfo, '-forbidden');
