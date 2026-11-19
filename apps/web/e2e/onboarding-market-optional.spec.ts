@@ -238,14 +238,6 @@ function lastCompanyCall(backend: MockBackend) {
   return backend.callsTo('POST', '/onboarding/company').at(-1);
 }
 
-function companyBodies(backend: MockBackend) {
-  return backend.callsTo('POST', '/onboarding/company').map((call) => call.body as {
-    name?: string;
-    products?: string[];
-    targetMarkets?: string[];
-  });
-}
-
 async function expectFocusable(locator: Locator): Promise<void> {
   await locator.focus();
   await expect(locator).toBeFocused();
@@ -293,6 +285,29 @@ function assertNoDownstreamSideEffects(backend: MockBackend): void {
   }
   // 保存路径不得触发理解/重试等额外引擎动作。
   expect(paths.some((entry) => /understanding|retry/i.test(entry))).toBe(false);
+}
+
+async function captureFinal(
+  page: Page,
+  cell: Cell,
+  backend: MockBackend,
+  consoleLog: string[],
+  testInfo: import('@playwright/test').TestInfo,
+): Promise<void> {
+  const name = `${cell.family}-${cell.lang}-${cell.theme}-${cell.width}-final`;
+  try {
+    await page.screenshot({ fullPage: true, path: testInfo.outputPath(`${name}.png`) });
+  } catch {
+    // 页面可能已跳转或关闭；附件仍按最终调用账本与 console 留存。
+  }
+  await testInfo.attach(`${name}-requests.json`, {
+    body: JSON.stringify(backend.calls, null, 2),
+    contentType: 'application/json',
+  });
+  await testInfo.attach(`${name}-console.txt`, {
+    body: consoleLog.join('\n'),
+    contentType: 'text/plain',
+  });
 }
 
 async function capture(
@@ -442,14 +457,20 @@ async function runFamily(
       backend.set('POST', '/onboarding/preview', { started: true, preview: NOT_STARTED_PREVIEW });
       await enterManual(page, cell);
       const nameInput = page.locator('label.field').filter({ hasText: t.companyName }).locator('input');
+      // 先有 1 个有效产品，确保空/空白名称的禁用不被 0 产品遮蔽。
+      await addProduct(page, cell, '有效产品');
       await nameInput.fill('');
       await expect(submitButton(page, cell)).toBeDisabled();
       await nameInput.fill('   ');
       await expect(submitButton(page, cell)).toBeDisabled();
       await nameInput.fill('E2E 测试公司');
-      await expect(submitButton(page, cell)).toBeDisabled(); // 0 产品不可提交
+      await expect(submitButton(page, cell)).toBeEnabled();
+      // 独立测 0 产品：取消唯一产品后不可提交。
+      await page.locator('.tag-toggle').first().click();
+      await expect(submitButton(page, cell)).toBeDisabled();
+      await addProduct(page, cell, '有效产品');
       for (let index = 0; index < 6; index += 1) await addProduct(page, cell, `上限-${index + 1}`);
-      await expect(page.getByText(t.productsLimit)).toBeVisible();
+      await expect(page.getByText(t.productsLimit).first()).toBeVisible();
       await expect(page.locator('.tag-toggle')).toHaveCount(5);
       await expect(submitButton(page, cell)).toBeEnabled();
       await capture(page, cell, backend, consoleLog, testInfo, '-manual-limit');
@@ -616,6 +637,14 @@ async function runFamily(
       installFailures();
       await startReadyPreview(page, cell);
       await selectMarketDe(page, cell);
+      // 使用修改过的产品：取消默认建议，加入定制产品。
+      await page.getByRole('button', { name: /LED 灯具/ }).click();
+      await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+      await addProduct(page, cell, '定制产品');
+      await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toContainText('定制产品');
       const submit = submitButton(page, cell);
       await expectFocusable(submit);
       for (const [index, status] of failures.entries()) {
@@ -627,9 +656,17 @@ async function runFamily(
         else await expect(error).toContainText(String(status));
         await expect(page).not.toHaveURL(/\/workspace/);
         expect(backend.onboardingComplete).toBe(false);
-        // 逐值保留：已选国家与产品仍在。
-        await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(1);
-        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toBeVisible();
+        // 逐态核对真实值与请求体：每次失败都没有重试或改值。
+        const failedBody = lastCompanyCall(backend)!.body as {
+          name?: string;
+          products?: string[];
+          targetMarkets?: string[];
+        };
+        expect(failedBody.name).toBe('E2E 测试公司');
+        expect(failedBody.products).toEqual(['定制产品']);
+        expect(failedBody.targetMarkets).toEqual(['DE']);
+        await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
+        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toContainText('定制产品');
       }
       expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(3);
       await capture(page, cell, backend, consoleLog, testInfo, '-ready-error');
@@ -655,8 +692,16 @@ async function runFamily(
         await expect(page).not.toHaveURL(/\/workspace/);
         expect(backend.onboardingComplete).toBe(false);
         await expect(nameInput).toHaveValue('E2E 手动公司');
-        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toBeVisible();
-        await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(1);
+        const failedBody = lastCompanyCall(backend)!.body as {
+          name?: string;
+          products?: string[];
+          targetMarkets?: string[];
+        };
+        expect(failedBody.name).toBe('E2E 手动公司');
+        expect(failedBody.products).toEqual(['手动产品']);
+        expect(failedBody.targetMarkets).toEqual(['DE']);
+        await expect(page.locator('.tag-toggle[aria-pressed="true"]').first()).toContainText('手动产品');
+        await expect(marketSelect(page, cell).locator('.ant-select-selection-item').first()).toContainText('DE');
       }
       expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(7);
       await capture(page, cell, backend, consoleLog, testInfo, '-manual-error');
@@ -765,7 +810,12 @@ test.describe('B0 未指定市场也可保存：12 族 × 96 格', () => {
             const backend = await enterAs(page, cell, family === '11-non-admin' ? { role: 'member' } : {});
             await assertEnvironment(page, cell);
             await capture(page, cell, backend, consoleLog, testInfo, '-entry');
-            await runFamily(family, page, cell, backend, consoleLog, testInfo);
+            try {
+              await runFamily(family, page, cell, backend, consoleLog, testInfo);
+            } finally {
+              // 每格结束（含失败）都留存最终完整请求与 console，覆盖最后一次保存 POST。
+              await captureFinal(page, cell, backend, consoleLog, testInfo);
+            }
             expect(pageErrors, '页面不得抛出未捕获异常').toEqual([]);
           });
         }

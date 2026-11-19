@@ -631,12 +631,13 @@ describe('B0 兼容：空目标市场保存不新增分析或下游动作', () =
       expect(update).not.toHaveBeenCalled();
       expect(auditRecord).not.toHaveBeenCalled();
       expect(issue).not.toHaveBeenCalled();
-      expect(
-        engineCalls.every((entry) => /^GET \/companies\/engine-company-1|onboarding-facts$/.test(entry)),
-      ).toBe(true);
-      expect(
-        engineCalls.some((entry) => /search|discovery|icp|activation|plan|outreach|send/i.test(entry)),
-      ).toBe(false);
+      // 精确有序三调用，且 facts 只写一次；拒绝任何额外/重复写。
+      expect(engineCalls).toEqual([
+        'GET /companies/engine-company-1',
+        'GET /companies/engine-company-1/understanding-preview',
+        'POST /companies/engine-company-1/onboarding-facts',
+      ]);
+      expect(engineCalls.filter((entry) => entry.endsWith('/onboarding-facts'))).toHaveLength(1);
     }
   });
 
