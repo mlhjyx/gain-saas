@@ -870,7 +870,8 @@ onBeforeUnmount(stopPolling);
   padding: 10px 12px;
   font-size: 13px;
   color: var(--gs-fg, #111827);
-  background: color-mix(in srgb, var(--gs-primary, #2563eb) 8%, #fff);
+  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, var(--gs-surface, #fff));
+  border: 1px solid color-mix(in srgb, var(--gs-primary, #2563eb) 28%, transparent);
   border-radius: 8px;
 }
 

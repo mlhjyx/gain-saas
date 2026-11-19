@@ -411,6 +411,32 @@ async function runFamily(
     case '03-ready-suggestion': {
       await startReadyPreview(page, cell);
       await expect(page.getByText(t.suggestedPrefix)).toBeVisible();
+      // 预览提示在明暗主题都必须可读（AA 4.5:1），不是只看文字存在。
+      const bannerContrast = await page.evaluate(() => {
+        const el = document.querySelector('.preview-banner');
+        if (!el) return 0;
+        const parse = (value: string): [number, number, number] | null => {
+          const rgb = value.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+          if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+          const srgb = value.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+          if (srgb) return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255];
+          return null;
+        };
+        const style = getComputedStyle(el);
+        const fg = parse(style.color);
+        const bg = parse(style.backgroundColor);
+        if (!fg || !bg) return 0;
+        const lin = (c: number) => {
+          const s = c / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        };
+        const lum = ([r, g, b]: [number, number, number]) =>
+          0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        const l1 = lum(fg);
+        const l2 = lum(bg);
+        return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      });
+      expect(bannerContrast, `preview banner 对比度 ${bannerContrast}`).toBeGreaterThanOrEqual(4.5);
       await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
       await expect(submitButton(page, cell)).toBeEnabled();
       await capture(page, cell, backend, consoleLog, testInfo, '-suggestion');
