@@ -552,9 +552,13 @@ async function runFamily(
       await expectFocusable(submit);
       await page.keyboard.press('Enter');
       await expect(submit).toHaveClass(/ant-btn-loading/);
+      // 用户可辨的加载态：加载图标可见，按钮不可再触发。
+      await expect(submit.locator('.ant-btn-loading-icon')).toBeVisible();
       await expect(page).not.toHaveURL(/\/workspace/);
       expect(backend.onboardingComplete).toBe(false);
-      await submit.click({ force: true }).catch(() => {});
+      // 保存中真实重复键盘提交（不 force、不吞异常）：不得产生第二次 POST。
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
       await expect.poll(() => backend.callsTo('POST', '/onboarding/company').length).toBe(1);
       await capture(page, cell, backend, consoleLog, testInfo, '-saving');
       ready.release();
@@ -570,9 +574,11 @@ async function runFamily(
       await expectFocusable(manualSubmit);
       await page.keyboard.press('Enter');
       await expect(manualSubmit).toHaveClass(/ant-btn-loading/);
+      await expect(manualSubmit.locator('.ant-btn-loading-icon')).toBeVisible();
       await expect(page).not.toHaveURL(/\/workspace/);
       expect(backend.onboardingComplete).toBe(false);
-      await manualSubmit.click({ force: true }).catch(() => {});
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
       await expect.poll(() => backend.callsTo('POST', '/onboarding/company').length).toBe(2);
       await capture(page, cell, backend, consoleLog, testInfo, '-manual-saving');
       manual.release();
