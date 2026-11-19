@@ -388,6 +388,44 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
   expect(style?.inViewport).toBe(true);
 }
 
+
+async function assertToggleFocusDoesNotOverlapSource(page: Page): Promise<void> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  let found = false;
+  for (let step = 0; step < 24; step += 1) {
+    await page.keyboard.press('Tab');
+    found = await page.evaluate(
+      () => document.activeElement?.classList?.contains('tag-toggle') === true,
+    );
+    if (found) break;
+  }
+  expect(found, '产品按钮应可通过真实 Tab 聚焦').toBe(true);
+  const geometry = await page.evaluate(() => {
+    const button = document.activeElement as HTMLElement;
+    const link = button.parentElement?.querySelector('.tag-source') as HTMLElement | null;
+    const s = getComputedStyle(button);
+    const buttonRect = button.getBoundingClientRect();
+    const linkRect = link?.getBoundingClientRect() ?? null;
+    return {
+      focusVisible: button.matches(':focus-visible'),
+      linkLeft: linkRect?.left ?? null,
+      outlineOffset: Number.parseFloat(s.outlineOffset),
+      outlineStyle: s.outlineStyle,
+      outlineWidth: Number.parseFloat(s.outlineWidth),
+      buttonRight: buttonRect.right,
+    };
+  });
+  expect(geometry.focusVisible).toBe(true);
+  expect(geometry.outlineStyle).not.toBe('none');
+  expect(geometry.outlineWidth).toBeGreaterThanOrEqual(2);
+  // 焦点环必须向内绘制，且按钮右边界不越过相邻来源文字的左边界。
+  expect(geometry.outlineOffset).toBeLessThanOrEqual(-2);
+  if (geometry.linkLeft !== null) {
+    expect(geometry.buttonRight, `按钮右缘 ${geometry.buttonRight} 应不越过来源左缘 ${geometry.linkLeft}`)
+      .toBeLessThanOrEqual(geometry.linkLeft + 0.5);
+  }
+}
+
 async function expectFocusable(locator: Locator): Promise<void> {
   await locator.focus();
   await expect(locator).toBeFocused();
@@ -557,6 +595,8 @@ async function runFamily(
       await startReadyPreview(page, cell);
       await expect(page.getByText(t.suggestedPrefix)).toBeVisible();
       // 预览提示在明暗主题都必须可读（AA 4.5:1），不是只看文字存在。
+      // 产品按钮焦点环必须向内绘制，不得遮挡相邻来源文字。
+      await assertToggleFocusDoesNotOverlapSource(page);
       // 键盘可达：真实 Tab 到“来源”链接，选中与未选中两态都必须有实绘可见焦点。
       await assertSourceLinkFocus(page);
       await page.getByRole('button', { name: /LED 灯具/ }).click();
@@ -565,6 +605,7 @@ async function runFamily(
         'false',
       );
       await assertSourceLinkFocus(page);
+      await assertToggleFocusDoesNotOverlapSource(page);
       await page.getByRole('button', { name: /LED 灯具/ }).click();
       await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
         'aria-pressed',

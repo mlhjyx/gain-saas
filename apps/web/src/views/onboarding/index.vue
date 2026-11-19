@@ -794,6 +794,12 @@ onBeforeUnmount(stopPolling);
   border-radius: 999px;
 }
 
+.tag-toggle:focus-visible {
+  outline: 2px solid var(--gs-fg, #111827);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
 .tag-check {
   font-weight: 600;
 }
