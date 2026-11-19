@@ -804,6 +804,12 @@ onBeforeUnmount(stopPolling);
   text-decoration: underline;
 }
 
+.tag-source:focus-visible {
+  outline: 2px solid var(--gs-accent, #00b96b);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .onboarding-error {
   margin: 0;
   font-size: 13px;

@@ -412,6 +412,24 @@ async function runFamily(
       await startReadyPreview(page, cell);
       await expect(page.getByText(t.suggestedPrefix)).toBeVisible();
       // 预览提示在明暗主题都必须可读（AA 4.5:1），不是只看文字存在。
+      // 键盘可达：Tab 到产品“来源”链接时必须出现可见焦点（outline），不能只有 :focus-visible=true。
+      let sourceFocused = false;
+      for (let step = 0; step < 24; step += 1) {
+        await page.keyboard.press('Tab');
+        sourceFocused = await page.evaluate(
+          () => document.activeElement?.classList?.contains('tag-source') === true,
+        );
+        if (sourceFocused) break;
+      }
+      expect(sourceFocused, '来源链接应可通过 Tab 聚焦').toBe(true);
+      const focusStyle = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el) return null;
+        const style = getComputedStyle(el);
+        return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+      });
+      expect(focusStyle?.outlineStyle).not.toBe('none');
+      expect(Number.parseFloat(focusStyle?.outlineWidth ?? '0')).toBeGreaterThanOrEqual(2);
       const bannerContrast = await page.evaluate(() => {
         const el = document.querySelector('.preview-banner');
         if (!el) return 0;
