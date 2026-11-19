@@ -259,58 +259,74 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
     const el = document.activeElement as HTMLElement | null;
     if (!el) return null;
     const s = getComputedStyle(el);
+    // 严格解析：只接受 rgb/rgba(0-255, alpha 0-1) 与 color(srgb 0-1[/alpha 0-1])；
+    // 其他色空间/越界/非有限值一律视为不可解析，由调用方 fail-closed。
     const parse = (value: string): [number, number, number, number] | null => {
       const rgb = value.match(
-        /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/,
+        /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/,
       );
       if (rgb) {
+        const channels = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
         const alpha = rgb[4] === undefined ? 1 : Number(rgb[4]);
-        return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha];
+        if (!channels.every((c) => Number.isFinite(c) && c >= 0 && c <= 255)) return null;
+        if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+        return [channels[0]!, channels[1]!, channels[2]!, alpha];
       }
       const srgb = value.match(
-        /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?/,
+        /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/,
       );
       if (srgb) {
+        const channels = [Number(srgb[1]), Number(srgb[2]), Number(srgb[3])];
         const alpha = srgb[4] === undefined ? 1 : Number(srgb[4]);
-        return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255, alpha];
+        if (!channels.every((c) => Number.isFinite(c) && c >= 0 && c <= 1)) return null;
+        if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+        return [channels[0]! * 255, channels[1]! * 255, channels[2]! * 255, alpha];
       }
       return null;
     };
-    // 合成祖先背景，跳过透明层，得到真正的绘制底色。
+    const unresolved = () => ({
+      bgResolved: false,
+      boxShadow: s.boxShadow,
+      focusVisible: el.matches(':focus-visible'),
+      foregroundOpaque: false,
+      inViewport: false,
+      outlineColor: s.outlineColor,
+      outlineStyle: s.outlineStyle,
+      outlineWidth: Number.parseFloat(s.outlineWidth),
+      ratio: 0,
+      textRatio: 0,
+      toggleRatio: 0,
+    });
+    // 从元素所在位置沿祖先链收集背景：alpha===0 跳过，alpha===1 截断；
+    // 任何 0<alpha<1 的层参与后续 source-over；任何一层无法完整解析即 fail-closed。
     const layers: Array<{ color: [number, number, number]; alpha: number }> = [];
     let base: [number, number, number] | null = null;
     let bgEl: HTMLElement | null = el;
     while (bgEl) {
-      const parsed = parse(getComputedStyle(bgEl).backgroundColor);
-      if (parsed) {
-        if (parsed[3] >= 0.99) {
-          base = [parsed[0], parsed[1], parsed[2]];
-          break;
-        }
-        if (parsed[3] > 0.01) layers.push({ color: [parsed[0], parsed[1], parsed[2]], alpha: parsed[3] });
+      const raw = getComputedStyle(bgEl).backgroundColor;
+      if (raw === 'transparent') {
+        bgEl = bgEl.parentElement;
+        continue;
       }
+      const parsed = parse(raw);
+      if (!parsed) return unresolved();
+      const alpha = parsed[3];
+      if (alpha === 0) {
+        bgEl = bgEl.parentElement;
+        continue;
+      }
+      if (alpha === 1) {
+        base = [parsed[0], parsed[1], parsed[2]];
+        break;
+      }
+      layers.push({ color: [parsed[0], parsed[1], parsed[2]], alpha });
       bgEl = bgEl.parentElement;
     }
-    // 真实绘制底色：从元素所在位置沿祖先链 source-over 合成半透明层；
-    // 若找不到不透明底层或出现无法解析的颜色，判为未知，绝不用默认白色抬高对比。
-    if (!base) {
-      return {
-        bgResolved: false,
-        boxShadow: s.boxShadow,
-        focusVisible: el.matches(':focus-visible'),
-        inViewport: false,
-        outlineColor: s.outlineColor,
-        outlineStyle: s.outlineStyle,
-        outlineWidth: Number.parseFloat(s.outlineWidth),
-        ratio: 0,
-        textRatio: 0,
-        toggleRatio: 0,
-      };
-    }
+    if (!base) return unresolved();
     let bg: [number, number, number] = base;
     for (const layer of layers.reverse()) {
       bg = [0, 1, 2].map((index) =>
-        Math.round(layer.color[index]! * layer.alpha + bg[index]! * (1 - layer.alpha)),
+        layer.color[index]! * layer.alpha + bg[index]! * (1 - layer.alpha),
       ) as [number, number, number];
     }
     const rect = el.getBoundingClientRect();
@@ -320,45 +336,42 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
     };
     const lum = ([r, g, b]: [number, number, number]) =>
       0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    // 本页前景只支持 opaque；透明前景不参与对比计算，直接判未解析。
     const outline = parse(s.outlineColor);
-    let ratio = 0;
-    if (outline) {
-      const a = lum([outline[0], outline[1], outline[2]]);
-      const b = lum(bg);
-      ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-    }
     const text = parse(s.color);
-    let textRatio = 0;
-    if (text) {
-      const a = lum([text[0], text[1], text[2]]);
-      const b = lum(bg);
-      textRatio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-    }
     const toggle = el.closest('.tag')?.querySelector('.tag-toggle') as HTMLElement | null;
-    let toggleRatio = 0;
-    if (toggle) {
-      const toggleColor = parse(getComputedStyle(toggle).color);
-      if (toggleColor) {
-        const a = lum([toggleColor[0], toggleColor[1], toggleColor[2]]);
-        const b = lum(bg);
-        toggleRatio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      }
-    }
+    const toggleColor = toggle ? parse(getComputedStyle(toggle).color) : null;
+    if (!outline || !text || !toggleColor) return unresolved();
+    if (outline[3] !== 1 || text[3] !== 1 || toggleColor[3] !== 1) return unresolved();
+    const ratioOf = (foreground: [number, number, number, number]) => {
+      const a = lum([foreground[0], foreground[1], foreground[2]]);
+      const b = lum(bg);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    const outlineWidth = Number.parseFloat(s.outlineWidth);
+    const ringOutset = Math.max(6, outlineWidth + 4);
     return {
       bg,
       bgResolved: true,
       boxShadow: s.boxShadow,
       focusVisible: el.matches(':focus-visible'),
-      inViewport: rect.left >= 0 && rect.right <= window.innerWidth + 0.5,
+      foregroundOpaque: true,
+      // 焦点环外扩（outline offset 2 + width + shadow 2）需整体留在视口内。
+      inViewport:
+        rect.left >= ringOutset &&
+        rect.right <= window.innerWidth - ringOutset &&
+        rect.top >= ringOutset &&
+        rect.bottom <= window.innerHeight - ringOutset,
       outlineColor: s.outlineColor,
       outlineStyle: s.outlineStyle,
-      outlineWidth: Number.parseFloat(s.outlineWidth),
-      ratio,
-      textRatio,
-      toggleRatio,
+      outlineWidth,
+      ratio: ratioOf(outline),
+      textRatio: ratioOf(text),
+      toggleRatio: ratioOf(toggleColor),
     };
   });
   expect(style?.bgResolved, '背景必须可由实际相邻层解析，不得默认成高对比底色').toBe(true);
+  expect(style?.foregroundOpaque, '前景必须为 opaque，透明前景直接失败').toBe(true);
   expect(style?.focusVisible).toBe(true);
   expect(style?.outlineStyle).not.toBe('none');
   expect(style?.outlineWidth ?? 0).toBeGreaterThanOrEqual(2);
@@ -1006,4 +1019,100 @@ test.describe('B0 未指定市场也可保存：12 族 × 96 格', () => {
       }
     }
   }
+});
+
+test('校准：source-over、alpha 语义与未知格式 fail-closed', () => {
+  const parse = (value: string): [number, number, number, number] | null => {
+    const rgb = value.match(
+      /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/,
+    );
+    if (rgb) {
+      const channels = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+      const alpha = rgb[4] === undefined ? 1 : Number(rgb[4]);
+      if (!channels.every((c) => Number.isFinite(c) && c >= 0 && c <= 255)) return null;
+      if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+      return [channels[0]!, channels[1]!, channels[2]!, alpha];
+    }
+    const srgb = value.match(
+      /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/,
+    );
+    if (srgb) {
+      const channels = [Number(srgb[1]), Number(srgb[2]), Number(srgb[3])];
+      const alpha = srgb[4] === undefined ? 1 : Number(srgb[4]);
+      if (!channels.every((c) => Number.isFinite(c) && c >= 0 && c <= 1)) return null;
+      if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+      return [channels[0]! * 255, channels[1]! * 255, channels[2]! * 255, alpha];
+    }
+    return null;
+  };
+  const composite = (
+    layers: Array<{ alpha: number; color: [number, number, number] }>,
+    base: [number, number, number],
+  ): [number, number, number] => {
+    let bg = base;
+    for (const layer of layers) {
+      bg = [0, 1, 2].map((i) => layer.color[i]! * layer.alpha + bg[i]! * (1 - layer.alpha)) as [
+        number,
+        number,
+        number,
+      ];
+    }
+    return bg;
+  };
+  const lin = (c: number) => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = ([r, g, b]: [number, number, number]) =>
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const contrast = (fg: [number, number, number], bg: [number, number, number]) => {
+    const a = lum(fg);
+    const b = lum(bg);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+
+  // 格式域：合法 rgb/color(srgb) 精确消费；未知色空间与 transparent 按未解析处理（transparent 单独按 alpha 0 跳过）。
+  expect(parse('rgba(0, 0, 0, 0)')?.[3]).toBe(0);
+  expect(parse('rgba(10, 20, 30, 0.5)')?.[3]).toBe(0.5);
+  expect(parse('transparent')).toBeNull();
+  expect(parse('lab(100% 0 0)')).toBeNull();
+  const srgb = parse('color(srgb 0.907843 0.978824 0.951373)');
+  expect(srgb?.[0]).toBeCloseTo(231.499965, 3);
+  expect(srgb?.[1]).toBeCloseTo(249.60012, 3);
+  expect(srgb?.[2]).toBeCloseTo(242.600115, 3);
+  expect(srgb?.[3]).toBe(1);
+
+  // alpha 语义：0.005 不得被丢弃；丢弃会得到白底并假过 4.5。
+  const nearWhite = composite([{ color: [0, 0, 0], alpha: 0.005 }], [255, 255, 255]);
+  expect(nearWhite[0]).toBeCloseTo(253.725, 3);
+  const trueRatio = contrast([118, 118, 118], nearWhite);
+  expect(trueRatio).toBeCloseTo(4.493, 2);
+  expect(trueRatio).toBeLessThan(4.5);
+  expect(contrast([118, 118, 118], [255, 255, 255])).toBeGreaterThan(4.5);
+
+  // 0.995 也不是纯黑；多层从紧邻 opaque 底的外层开始向内叠加：
+  // 外层白 0.5 叠白仍为白，内层黑 0.5 再叠得 127.5。
+  expect(composite([{ color: [0, 0, 0], alpha: 0.995 }], [255, 255, 255])[0]).toBeCloseTo(1.275, 3);
+  expect(
+    composite(
+      [
+        { color: [255, 255, 255], alpha: 0.5 },
+        { color: [0, 0, 0], alpha: 0.5 },
+      ],
+      [255, 255, 255],
+    )[0],
+  ).toBeCloseTo(127.5, 3);
+  // 反过来（外层黑、内层白）应得 191.25，证明顺序敏感。
+  expect(
+    composite(
+      [
+        { color: [0, 0, 0], alpha: 0.5 },
+        { color: [255, 255, 255], alpha: 0.5 },
+      ],
+      [255, 255, 255],
+    )[0],
+  ).toBeCloseTo(191.25, 3);
+
+  // 前景 alpha 域：本页只接受 opaque；0.6 必须被该域判据拒绝。
+  expect(parse('rgba(232, 235, 240, 0.6)')?.[3]).not.toBe(1);
 });
