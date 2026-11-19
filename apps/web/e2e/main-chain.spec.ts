@@ -76,7 +76,7 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   await page.locator('input[placeholder*="https://"]').fill('https://example.org');
   await page.getByRole('button', { name: '开始理解' }).click();
 
-  // 理解预览：行业/产品/市场候选默认勾选，客户确认后提交。
+  // 理解预览：行业/产品候选默认勾选；目标市场只展示建议、不默认勾选，客户确认后提交。
   await expect(page.getByText('我们读完了官网')).toBeVisible();
   await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
     'aria-pressed',
@@ -96,7 +96,7 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   expect(body.name).toBe('E2E 测试公司');
   expect(body.industryCode).toBe('28');
   expect(body.products).toEqual(['LED 灯具']);
-  expect(body.targetMarkets).toEqual(['DE']);
+  expect(body.targetMarkets).toEqual([]);
 });
 
 test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
