@@ -10,7 +10,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installMockBackend, type MockBackend } from './support/mock-backend';
 
-test.use({ trace: 'retain-on-failure' });
+// 设计独立体验需要成功格的原始 trace，不只失败格。
+test.use({ trace: 'on' });
 
 type Lang = 'zh-CN' | 'en-US';
 type Theme = 'light' | 'dark';
