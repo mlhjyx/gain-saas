@@ -777,7 +777,7 @@ onBeforeUnmount(stopPolling);
 
 .tag.selected {
   color: var(--gs-primary, #2563eb);
-  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, #fff);
+  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, var(--gs-surface, #fff));
   border-color: var(--gs-primary, #2563eb);
 }
 
@@ -805,9 +805,10 @@ onBeforeUnmount(stopPolling);
 }
 
 .tag-source:focus-visible {
-  outline: 2px solid var(--gs-accent, #00b96b);
+  outline: 2px solid var(--gs-fg, #111827);
   outline-offset: 2px;
-  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--gs-surface, #ffffff);
+  border-radius: 2px;
 }
 
 .onboarding-error {

@@ -243,6 +243,93 @@ function localizedFailure(cell: Cell, status: number): string {
   return cell.lang === 'zh-CN' ? `保存失败 ${status}` : `Save failed ${status}`;
 }
 
+
+async function assertSourceLinkFocus(page: Page): Promise<void> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  let found = false;
+  for (let step = 0; step < 24; step += 1) {
+    await page.keyboard.press('Tab');
+    found = await page.evaluate(
+      () => document.activeElement?.classList?.contains('tag-source') === true,
+    );
+    if (found) break;
+  }
+  expect(found, '来源链接应可通过真实 Tab 聚焦').toBe(true);
+  const style = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el) return null;
+    const s = getComputedStyle(el);
+    const parse = (value: string): [number, number, number, number] | null => {
+      const rgb = value.match(
+        /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/,
+      );
+      if (rgb) {
+        const alpha = rgb[4] === undefined ? 1 : Number(rgb[4]);
+        return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha];
+      }
+      const srgb = value.match(
+        /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?/,
+      );
+      if (srgb) {
+        const alpha = srgb[4] === undefined ? 1 : Number(srgb[4]);
+        return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255, alpha];
+      }
+      return null;
+    };
+    // 合成祖先背景，跳过透明层，得到真正的绘制底色。
+    const layers: Array<{ color: [number, number, number]; alpha: number }> = [];
+    let base: [number, number, number] | null = null;
+    let bgEl: HTMLElement | null = el;
+    while (bgEl) {
+      const parsed = parse(getComputedStyle(bgEl).backgroundColor);
+      if (parsed) {
+        if (parsed[3] >= 0.99) {
+          base = [parsed[0], parsed[1], parsed[2]];
+          break;
+        }
+        if (parsed[3] > 0.01) layers.push({ color: [parsed[0], parsed[1], parsed[2]], alpha: parsed[3] });
+      }
+      bgEl = bgEl.parentElement;
+    }
+    let bg: [number, number, number] = base ?? [255, 255, 255];
+    for (const layer of layers.reverse()) {
+      bg = [0, 1, 2].map((index) =>
+        Math.round(layer.color[index]! * layer.alpha + bg[index]! * (1 - layer.alpha)),
+      ) as [number, number, number];
+    }
+    const rect = el.getBoundingClientRect();
+    const lin = (c: number) => {
+      const x = c / 255;
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = ([r, g, b]: [number, number, number]) =>
+      0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const outline = parse(s.outlineColor);
+    let ratio = 0;
+    if (outline) {
+      const a = lum([outline[0], outline[1], outline[2]]);
+      const b = lum(bg);
+      ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+    return {
+      bg,
+      boxShadow: s.boxShadow,
+      focusVisible: el.matches(':focus-visible'),
+      inViewport: rect.left >= 0 && rect.right <= window.innerWidth + 0.5,
+      outlineColor: s.outlineColor,
+      outlineStyle: s.outlineStyle,
+      outlineWidth: Number.parseFloat(s.outlineWidth),
+      ratio,
+    };
+  });
+  expect(style?.focusVisible).toBe(true);
+  expect(style?.outlineStyle).not.toBe('none');
+  expect(style?.outlineWidth ?? 0).toBeGreaterThanOrEqual(2);
+  expect(style?.boxShadow).not.toBe('none');
+  expect(style?.ratio ?? 0, `焦点环/背景对比 ${style?.ratio} outline=${style?.outlineColor} bg=${JSON.stringify(style?.bg)}`).toBeGreaterThanOrEqual(3);
+  expect(style?.inViewport).toBe(true);
+}
+
 async function expectFocusable(locator: Locator): Promise<void> {
   await locator.focus();
   await expect(locator).toBeFocused();
@@ -412,24 +499,19 @@ async function runFamily(
       await startReadyPreview(page, cell);
       await expect(page.getByText(t.suggestedPrefix)).toBeVisible();
       // 预览提示在明暗主题都必须可读（AA 4.5:1），不是只看文字存在。
-      // 键盘可达：Tab 到产品“来源”链接时必须出现可见焦点（outline），不能只有 :focus-visible=true。
-      let sourceFocused = false;
-      for (let step = 0; step < 24; step += 1) {
-        await page.keyboard.press('Tab');
-        sourceFocused = await page.evaluate(
-          () => document.activeElement?.classList?.contains('tag-source') === true,
-        );
-        if (sourceFocused) break;
-      }
-      expect(sourceFocused, '来源链接应可通过 Tab 聚焦').toBe(true);
-      const focusStyle = await page.evaluate(() => {
-        const el = document.activeElement as HTMLElement | null;
-        if (!el) return null;
-        const style = getComputedStyle(el);
-        return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
-      });
-      expect(focusStyle?.outlineStyle).not.toBe('none');
-      expect(Number.parseFloat(focusStyle?.outlineWidth ?? '0')).toBeGreaterThanOrEqual(2);
+      // 键盘可达：真实 Tab 到“来源”链接，选中与未选中两态都必须有实绘可见焦点。
+      await assertSourceLinkFocus(page);
+      await page.getByRole('button', { name: /LED 灯具/ }).click();
+      await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+      await assertSourceLinkFocus(page);
+      await page.getByRole('button', { name: /LED 灯具/ }).click();
+      await expect(page.getByRole('button', { name: /LED 灯具/ })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
       const bannerContrast = await page.evaluate(() => {
         const el = document.querySelector('.preview-banner');
         if (!el) return 0;
