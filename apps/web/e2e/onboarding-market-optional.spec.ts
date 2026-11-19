@@ -318,6 +318,16 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       const b = lum(bg);
       textRatio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
     }
+    const toggle = el.closest('.tag')?.querySelector('.tag-toggle') as HTMLElement | null;
+    let toggleRatio = 0;
+    if (toggle) {
+      const toggleColor = parse(getComputedStyle(toggle).color);
+      if (toggleColor) {
+        const a = lum([toggleColor[0], toggleColor[1], toggleColor[2]]);
+        const b = lum(bg);
+        toggleRatio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      }
+    }
     return {
       bg,
       boxShadow: s.boxShadow,
@@ -328,6 +338,7 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
       outlineWidth: Number.parseFloat(s.outlineWidth),
       ratio,
       textRatio,
+      toggleRatio,
     };
   });
   expect(style?.focusVisible).toBe(true);
@@ -338,6 +349,10 @@ async function assertSourceLinkFocus(page: Page): Promise<void> {
   expect(
     style?.textRatio ?? 0,
     `来源链接文字对比 ${style?.textRatio} bg=${JSON.stringify(style?.bg)}`,
+  ).toBeGreaterThanOrEqual(4.5);
+  expect(
+    style?.toggleRatio ?? 0,
+    `产品按钮文字对比 ${style?.toggleRatio} bg=${JSON.stringify(style?.bg)}`,
   ).toBeGreaterThanOrEqual(4.5);
   expect(style?.inViewport).toBe(true);
 }
