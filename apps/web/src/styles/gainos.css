@@ -207,3 +207,9 @@ body {
   outline: 2px solid var(--gs-accent-strong);
   outline-offset: 2px;
 }
+
+.ant-notification-notice .ant-notification-notice-close:focus-visible {
+  outline: 2px solid var(--gs-fg, #111827);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--gs-surface, #fff);
+}

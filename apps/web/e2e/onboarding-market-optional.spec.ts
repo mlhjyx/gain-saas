@@ -1158,3 +1158,61 @@ test('校准：source-over、alpha 语义与未知格式 fail-closed', () => {
   // 前景 alpha 域：本页只接受 opaque；0.6 必须被该域判据拒绝。
   expect(parse('rgba(232, 235, 240, 0.6)')?.[3]).not.toBe(1);
 });
+
+test.describe('R4 通知关闭焦点', () => {
+  for (const lang of LANGS) {
+    for (const theme of THEMES) {
+      for (const width of Object.keys(WIDTHS) as Width[]) {
+        test(`notification-close · ${lang} · ${theme} · ${width}`, async ({ page }, testInfo) => {
+          await page.setViewportSize(WIDTHS[width]);
+          await installMockBackend(page, { onboardingComplete: false });
+          await page.goto('/auth/login');
+          if (lang === 'en-US') {
+            await page.getByRole('button', { name: 'Switch to English' }).click();
+          }
+          if (theme === 'dark') {
+            await page.getByRole('button', { name: 'Switch to dark' }).click();
+          }
+          await page.waitForTimeout(250);
+          await page.locator('input[type="email"]').fill('e2e@gainos.local');
+          await page.locator('input[type="password"]').fill('e2e-password-123');
+          await page.locator('button.g-submit').click();
+          const notice = page.locator('.ant-notification-notice').first();
+          await expect(notice).toBeVisible();
+          let found = false;
+          for (let step = 0; step < 80; step += 1) {
+            await page.keyboard.press('Tab');
+            found = await page.evaluate(
+              () =>
+                document.activeElement?.classList?.contains('ant-notification-notice-close') ===
+                true,
+            );
+            if (found) break;
+          }
+          expect(found, '通知关闭控件应可通过真实 Tab 聚焦').toBe(true);
+          const style = await page.evaluate(() => {
+            const el = document.activeElement as HTMLElement;
+            const s = getComputedStyle(el);
+            return {
+              boxShadow: s.boxShadow,
+              focusVisible: el.matches(':focus-visible'),
+              outlineStyle: s.outlineStyle,
+              outlineWidth: Number.parseFloat(s.outlineWidth),
+            };
+          });
+          expect(style.focusVisible).toBe(true);
+          expect(style.outlineStyle).not.toBe('none');
+          expect(style.outlineWidth).toBeGreaterThanOrEqual(2);
+          expect(style.boxShadow).not.toBe('none');
+          await page.screenshot({
+            fullPage: false,
+            path: testInfo.outputPath(`notification-close-${lang}-${theme}-${width}.png`),
+          });
+          // CSS 不改变激活逻辑：既有鼠标关闭行为保留。
+          await page.locator('.ant-notification-notice-close').first().click();
+          await expect(notice).toBeHidden();
+        });
+      }
+    }
+  }
+});
