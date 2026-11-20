@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
@@ -21,6 +22,7 @@ function makeController(overrides: {
   attemptEnabled?: boolean;
   /** 同一能力的既有开关名（ENGINE_DISCOVER_ATTEMPT_ID_ENABLED）——任一为 true 即透传。 */
   discoverAttemptEnabled?: boolean;
+  manufacturerEnabled?: boolean;
   /** taskRun.findFirst 依次返回值（重放查询 → 最近 attempt → 同 plan 上一 TaskRun）。 */
   taskRunFindFirst?: Array<Record<string, unknown> | null>;
 } = {}) {
@@ -86,6 +88,7 @@ function makeController(overrides: {
   const config = {
     ENGINE_RETRY_ATTEMPT_ID_ENABLED: overrides.attemptEnabled ?? false,
     ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: overrides.discoverAttemptEnabled ?? false,
+    ENGINE_MANUFACTURER_NETWORK_ENABLED: overrides.manufacturerEnabled ?? false,
   };
   const controller = new AcquisitionTasksController(
     prisma as never,
@@ -98,6 +101,173 @@ function makeController(overrides: {
 }
 
 describe('Run 2.0 任务对象（M0②）', () => {
+  describe('SF1 native UUID replay identity', () => {
+    const lowercasePlan = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const originalPlan = lowercasePlan.toUpperCase();
+    const originalAttempt = '88888888-8888-4888-8888-888888888888';
+    const cases = ['legacy', 'manufacturer-network/v1', 'manufacturer-network/v2'] as const;
+
+    async function originalRequest(revision: typeof cases[number]) {
+      const body = { planId: originalPlan, attemptId: originalAttempt,
+        ...(revision === 'legacy' ? {} : { manufacturerNetworkRevision: revision }) };
+      const first = makeController({ attemptEnabled: true, manufacturerEnabled: true });
+      await first.controller.startRun(req, TASK_ID, body);
+      const quoted = first.budget.issue.mock.calls[0]![1] as { planId: string; body?: Record<string, unknown> };
+      expect(quoted.planId).toBe(originalPlan);
+      expect(quoted.body).toEqual({ attemptId: originalAttempt,
+        ...(revision === 'legacy' ? {} : { manufacturerNetworkRevision: revision }) });
+      expect(first.engine.call).toHaveBeenCalledWith(req.tenant, 'POST', `/query-plans/${originalPlan}/execute`,
+        expect.objectContaining({ body: { taskRef: { taskId: TASK_ID, taskRunId: TASK_RUN_ID }, ...quoted.body } }));
+      const created = first.prisma.taskRun.create.mock.calls[0]![0].data;
+      if (revision === 'legacy') expect(created.executionRequestSha256).toBeUndefined();
+      else {
+        expect(created.executionRequestSha256).toBe(createHash('sha256').update(JSON.stringify({ planId: originalPlan, ...quoted.body })).digest('hex'));
+        expect(created.executionRequestSha256).not.toBe(createHash('sha256').update(JSON.stringify({ planId: lowercasePlan, ...quoted.body })).digest('hex'));
+      }
+      return { body, hash: created.executionRequestSha256 ?? null };
+    }
+
+    for (const path of ['initial', 'P2002'] as const) {
+      it.each(cases)(`${path} replay keeps the original uppercase request and accepts native lowercase plan (%s)`, async (revision) => {
+        const { body, hash } = await originalRequest(revision);
+        const winner = { id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING',
+          planId: lowercasePlan, executionRequestSha256: hash };
+        const replay = makeController({ attemptEnabled: true, manufacturerEnabled: true,
+          taskRunFindFirst: path === 'initial' ? [winner] : [null, null, null, winner] });
+        if (path === 'P2002') replay.prisma.taskRun.create.mockRejectedValueOnce(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+        expect(await replay.controller.startRun(req, TASK_ID, body)).toMatchObject({ data: { replayed: true, runId: ENGINE_RUN_ID } });
+        expect(replay.budget.issue).not.toHaveBeenCalled();
+        expect(replay.engine.call).not.toHaveBeenCalled();
+      });
+
+      it.each(['different plan', 'different hash'] as const)(`${path} replay still rejects %s with an uppercase original request`, async (drift) => {
+        const { body, hash } = await originalRequest('manufacturer-network/v2');
+        const winner = { id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING',
+          planId: drift === 'different plan' ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : lowercasePlan,
+          executionRequestSha256: drift === 'different hash' ? '0'.repeat(64) : hash };
+        const replay = makeController({ attemptEnabled: true, manufacturerEnabled: true,
+          taskRunFindFirst: path === 'initial' ? [winner] : [null, null, null, winner] });
+        if (path === 'P2002') replay.prisma.taskRun.create.mockRejectedValueOnce(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+        await expect(replay.controller.startRun(req, TASK_ID, body)).rejects.toMatchObject({ status: 409,
+          response: { error: { code: 'TASK_ATTEMPT_REQUEST_CONFLICT' } } });
+        expect(replay.budget.issue).not.toHaveBeenCalled();
+        expect(replay.engine.call).not.toHaveBeenCalled();
+      });
+    }
+  });
+
+  it.each(['manufacturer-network/v1', 'manufacturer-network/v2'] as const)('quotes %s exactly as forwarded and persists its replay binding', async (revision) => {
+    const { controller, prisma, engine, budget } = makeController({ attemptEnabled: true, manufacturerEnabled: true });
+    const attemptId = '88888888-8888-4888-8888-888888888888';
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId, manufacturerNetworkRevision: revision });
+    expect(budget.issue).toHaveBeenCalledWith(req.tenant, {
+      operation: 'POST /query-plans/:planId/execute', planId: PLAN_ID,
+      body: { attemptId, manufacturerNetworkRevision: revision },
+    });
+    expect(engine.call).toHaveBeenCalledWith(req.tenant, 'POST', `/query-plans/${PLAN_ID}/execute`, expect.objectContaining({
+      body: { taskRef: { taskId: TASK_ID, taskRunId: TASK_RUN_ID }, attemptId, manufacturerNetworkRevision: revision },
+    }));
+    expect(prisma.taskRun.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      executionRequestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }) }));
+  });
+
+  it('does not replay an old attempt as a new evidence execution', async () => {
+    const { controller, engine, budget } = makeController({
+      attemptEnabled: true, manufacturerEnabled: true,
+      taskRunFindFirst: [{ id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'DONE', planId: PLAN_ID, executionRequestSha256: null }],
+    });
+    await expect(controller.startRun(req, TASK_ID, {
+      planId: PLAN_ID, attemptId: '88888888-8888-4888-8888-888888888888', manufacturerNetworkRevision: 'manufacturer-network/v1',
+    })).rejects.toMatchObject({ status: 409 });
+    expect(engine.call).not.toHaveBeenCalled();
+    expect(budget.issue).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unavailable evidence feature before allocating a run or quoting', async () => {
+    const { controller, prisma, budget } = makeController();
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID, manufacturerNetworkRevision: 'manufacturer-network/v1' }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(prisma.taskRun.create).not.toHaveBeenCalled();
+    expect(budget.issue).not.toHaveBeenCalled();
+  });
+
+  it.each(['manufacturer-network/v1', 'manufacturer-network/v2'])('gives %s its normal attempt with old compatibility switches off', async (revision) => {
+    const setup = makeController({ manufacturerEnabled: true });
+    await setup.controller.startRun(req, TASK_ID, { planId: PLAN_ID, manufacturerNetworkRevision: revision });
+    const quoted = setup.budget.issue.mock.calls[0]![1] as { body?: Record<string, unknown> };
+    expect(quoted.body?.attemptId).toMatch(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
+    const sent = setup.engine.call.mock.calls[0]![3] as { body?: Record<string, unknown> };
+    expect(sent.body?.attemptId).toBe(quoted.body?.attemptId);
+    expect(quoted.body?.manufacturerNetworkRevision).toBe(revision);
+  });
+
+  it('replays the identical evidence request without another quote or engine call', async () => {
+    const setup = makeController({ attemptEnabled: true, manufacturerEnabled: true });
+    const body = { planId: PLAN_ID, attemptId: '88888888-8888-4888-8888-888888888888', manufacturerNetworkRevision: 'manufacturer-network/v1' };
+    await setup.controller.startRun(req, TASK_ID, body);
+    const created = setup.prisma.taskRun.create.mock.calls[0]![0].data;
+    const replay = makeController({ attemptEnabled: true, manufacturerEnabled: true, taskRunFindFirst: [{
+      id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'DONE', planId: PLAN_ID,
+      executionRequestSha256: created.executionRequestSha256,
+    }] });
+    expect(await replay.controller.startRun(req, TASK_ID, body)).toMatchObject({ data: { replayed: true } });
+    expect(replay.budget.issue).not.toHaveBeenCalled();
+    expect(replay.engine.call).not.toHaveBeenCalled();
+  });
+
+
+  it.each([['manufacturer-network/v1', 'manufacturer-network/v2'], ['manufacturer-network/v2', 'manufacturer-network/v1']] as const)('rejects changing %s to %s on a frozen attempt before another quote', async (original, changed) => {
+    const setup = makeController({ manufacturerEnabled: true });
+    const attemptId = '88888888-8888-4888-8888-888888888888';
+    await setup.controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId, manufacturerNetworkRevision: original });
+    const created = setup.prisma.taskRun.create.mock.calls[0]![0].data;
+    const replay = makeController({ manufacturerEnabled: true, taskRunFindFirst: [{
+      id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'DONE', planId: PLAN_ID,
+      executionRequestSha256: created.executionRequestSha256,
+    }] });
+    await expect(replay.controller.startRun(req, TASK_ID, {
+      planId: PLAN_ID, attemptId, manufacturerNetworkRevision: changed,
+    })).rejects.toMatchObject({ status: 409 });
+    expect(replay.budget.issue).not.toHaveBeenCalled();
+    expect(replay.engine.call).not.toHaveBeenCalled();
+  });
+
+  it('rejects a changed plan on a reused legacy attempt key', async () => {
+    const setup = makeController({ taskRunFindFirst: [{
+      id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'DONE', planId: ICP_ID, executionRequestSha256: null,
+    }] });
+    await expect(setup.controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: '88888888-8888-4888-8888-888888888888' }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(setup.budget.issue).not.toHaveBeenCalled();
+  });
+
+  it.each(['manufacturer-network/v1', 'manufacturer-network/v2'] as const)('replays the matching %s race winner without another quote or dispatch', async (revision) => {
+    const body = { planId: PLAN_ID, attemptId: '88888888-8888-4888-8888-888888888888', manufacturerNetworkRevision: revision };
+    const first = makeController({ manufacturerEnabled: true });
+    await first.controller.startRun(req, TASK_ID, body);
+    const created = first.prisma.taskRun.create.mock.calls[0]![0].data;
+    const race = makeController({ manufacturerEnabled: true, taskRunFindFirst: [null, null, null, {
+      id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING', planId: PLAN_ID,
+      executionRequestSha256: created.executionRequestSha256,
+    }] });
+    race.prisma.taskRun.create.mockRejectedValueOnce(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+    expect(await race.controller.startRun(req, TASK_ID, body)).toMatchObject({ data: { replayed: true, runId: ENGINE_RUN_ID } });
+    expect(race.budget.issue).not.toHaveBeenCalled();
+    expect(race.engine.call).not.toHaveBeenCalled();
+  });
+
+  it('checks request binding when the concurrent allocation loses its unique-key race', async () => {
+    const setup = makeController({ attemptEnabled: true, manufacturerEnabled: true,
+      taskRunFindFirst: [null, null, null, { id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'DONE', planId: PLAN_ID, executionRequestSha256: null }],
+    });
+    setup.prisma.taskRun.create.mockRejectedValueOnce(Object.assign(new Error('unique constraint'), { code: 'P2002' }));
+    await expect(setup.controller.startRun(req, TASK_ID, {
+      planId: PLAN_ID, attemptId: '88888888-8888-4888-8888-888888888888', manufacturerNetworkRevision: 'manufacturer-network/v1',
+    })).rejects.toMatchObject({ status: 409 });
+    expect(setup.budget.issue).not.toHaveBeenCalled();
+    expect(setup.engine.call).not.toHaveBeenCalled();
+  });
   it('creates a task scoped to the workspace with an audit entry', async () => {
     const { controller, prisma, audit } = makeController();
     const result = await controller.create(req, { icpId: ICP_ID, name: ' 德国泵买家 ' });
@@ -213,7 +383,7 @@ describe('Run 2.0 任务对象（M0②）', () => {
   it('replays the same attempt key without calling the engine again (P1 双击幂等)', async () => {
     const ATTEMPT_ID = '99999999-9999-4999-8999-999999999999';
     const { controller, prisma, budget, engine } = makeController({
-      taskRunFindFirst: [{ id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING' }],
+      taskRunFindFirst: [{ id: TASK_RUN_ID, engineRunId: ENGINE_RUN_ID, status: 'RUNNING', planId: PLAN_ID, executionRequestSha256: null }],
     });
     const result = await controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: ATTEMPT_ID });
 

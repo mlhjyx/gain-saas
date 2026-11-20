@@ -11,6 +11,8 @@
  * 新增透传只在此表加一行;任何"业务逻辑"都不得进 BFF(铁律 1),否则退回。
  */
 
+import type { components } from '@gain-saas/engine-client';
+
 export interface BffRoute {
   readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   readonly saasPath: string;
@@ -143,6 +145,8 @@ export interface BudgetQuoteOptions {
   /** 引擎是否已支持重试 attempt 维度（`ENGINE_RETRY_ATTEMPT_ID_ENABLED`，P1）。默认关闭时
    *  三类写路由（ICP 生成 / 查询计划生成 / 计划执行）的 attemptId 会从 quote 与转发体里剥离。 */
   readonly writeAttemptId?: boolean;
+  /** 已部署支持厂家证明的引擎后才启用；请求仍须显式携带已知版本。 */
+  readonly manufacturerNetwork?: boolean;
 }
 
 /** P1 attempt 维度覆盖的三类写路由（引擎 #791 起接受可选 body.attemptId）。 */
@@ -160,6 +164,32 @@ function writeAttemptBody(
   const attemptId = (body as { attemptId?: unknown } | null)?.attemptId;
   if (typeof attemptId !== 'string' || attemptId.length === 0) return {};
   return { body: { attemptId } };
+}
+
+/** 已部署合同中明确支持的采集版本；未知值不能静默降级。 */
+export type ManufacturerNetworkRevision = NonNullable<
+  components['schemas']['ExecuteQueryPlanDto']['manufacturerNetworkRevision']
+>;
+
+export function isManufacturerNetworkRevision(value: unknown): value is ManufacturerNetworkRevision {
+  return value === 'manufacturer-network/v1' || value === 'manufacturer-network/v2';
+}
+
+/** execute 报价与实际请求共用的规范字段；taskRef 只作归因，不进入预算 hash。 */
+export function canonicalExecuteBody(body: unknown, options: BudgetQuoteOptions = {}) {
+  const value = body && typeof body === 'object' && !Array.isArray(body)
+    ? (body as Record<string, unknown>).manufacturerNetworkRevision
+    : undefined;
+  if (value !== undefined && !isManufacturerNetworkRevision(value)) {
+    throw new Error('MANUFACTURER_NETWORK_REVISION_INVALID');
+  }
+  if (value !== undefined && !options.manufacturerNetwork) {
+    throw new Error('MANUFACTURER_NETWORK_NOT_AVAILABLE');
+  }
+  return {
+    ...writeAttemptBody(body, { ...options, writeAttemptId: options.writeAttemptId || isManufacturerNetworkRevision(value) }).body,
+    ...(isManufacturerNetworkRevision(value) ? { manufacturerNetworkRevision: value } : {}),
+  };
 }
 
 /**
@@ -220,7 +250,11 @@ export function budgetQuoteRequest(
     case '/icps/:icpId/query-plans':
       return { operation: 'POST /icps/:icpId/query-plans', icpId: params.icpId, ...writeAttemptBody(body, options) };
     case '/query-plans/:planId/execute':
-      return { operation: 'POST /query-plans/:planId/execute', planId: params.planId, ...writeAttemptBody(body, options) };
+    {
+      const canonical = canonicalExecuteBody(body, options);
+      return { operation: 'POST /query-plans/:planId/execute', planId: params.planId,
+        ...(Object.keys(canonical).length ? { body: canonical } : {}) };
+    }
     case '/leads/:leadId/outreach-drafts':
       return { operation: 'POST /leads/:leadId/outreach-drafts', leadId: params.leadId };
     // 发现联系人绑定公司 ID；引擎支持 attemptId 后，把每次点击的幂等键并入请求哈希，
@@ -261,11 +295,13 @@ export function engineRequestBody(
   body: unknown,
   options: BudgetQuoteOptions = {},
 ): unknown {
+  const explicitManufacturer = route.enginePath === '/query-plans/:planId/execute'
+    && canonicalExecuteBody(body, options).manufacturerNetworkRevision !== undefined;
   // 旧引擎镜像不认识 attemptId：未升级前从转发体里剥离，保持 requestSha256 与 DTO 校验兼容。
   // discover-contacts 由其专用开关控制；三类写路由由 `writeAttemptId`（P1）控制。
   const needsStrip =
     (route.enginePath === '/canonical-companies/:id/discover-contacts' && !options.discoverAttemptId) ||
-    (WRITE_ATTEMPT_ENGINE_PATHS.has(route.enginePath) && !options.writeAttemptId);
+    (WRITE_ATTEMPT_ENGINE_PATHS.has(route.enginePath) && !options.writeAttemptId && !explicitManufacturer);
   if (!needsStrip || !body || typeof body !== 'object' || Array.isArray(body)) {
     return body;
   }

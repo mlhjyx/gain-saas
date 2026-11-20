@@ -24,7 +24,14 @@ describe('loadConfig', () => {
     expect(config.PORT).toBe(4020);
     expect(config.ENGINE_ORIGIN).toBe('http://127.0.0.1:3000');
     expect(config.EVENT_CONSUMER_ENABLED).toBe(false);
+    expect(config.ENGINE_MANUFACTURER_NETWORK_ENABLED).toBe(false);
     expect(config.SESSION_TTL_MINUTES).toBe(60);
+  });
+
+  it('only explicitly enables manufacturer evidence on an upgraded engine', () => {
+    resetConfigCache();
+    expect(loadConfig({ ...baseEnv, ENGINE_MANUFACTURER_NETWORK_ENABLED: 'true' } as NodeJS.ProcessEnv)
+      .ENGINE_MANUFACTURER_NETWORK_ENABLED).toBe(true);
   });
 
   it('ENGINE_JWT_ISSUER 缺失拒绝启动(不能与引擎 AUTH_ISSUER 静默漂移)', () => {
