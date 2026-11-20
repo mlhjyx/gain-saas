@@ -164,6 +164,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/execution-budget/window-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 窗口实扣读回（服务身份）：SUM(tool_budget_operation.charged_microusd) 按 workspace/时间窗；窗口花费的唯一权威口径
+         * @description 供 gain-saas 在签发执行预算 Grant 前判定窗口余额（ch08 C1a）。返回窗口内已结算实扣（SETTLED/RESULT_UNKNOWN）、仍在途的预留与按 purpose 的构成；只读、不写任何表。服务身份（x-service-token）且仅限回环调用；未配置令牌时返回 503（fail-closed）。
+         */
+        get: operations["ExecutionBudgetWindowUsageController_windowUsage_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platform-authority/technical-quote": {
         parameters: {
             query?: never;
@@ -244,6 +264,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/campaign-plans/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 服务身份触发一次受限 Campaign 规划（异步 job，gain-saas 控制面专用）
+         * @description 供 gain-saas 控制面调用：校验并消费一次性 execution-budget Grant（purpose campaign.plan），启动 campaignPlanningWorkflow 后在回调中把原始计划 JSON 交付 gain-saas 落 DRAFT revision。本端点不执行任何外部动作，也不在本侧计算 plan_hash。
+         */
+        post: operations["requestCampaignPlanDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outreach/dnc/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 检查邮箱是否被租户禁联名单或平台全局抑制命中
+         * @description 任一命中即 suppressed=true；调用方必须 fail closed。返回规范化邮箱的 SHA-256 与命中来源，不回传明文。
+         */
+        post: operations["OutreachDncController_check_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outreach/dnc/suppress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 写入平台级外联抑制（退订/投诉/退信）
+         * @description 规范化邮箱后只存 SHA-256；同一邮箱重复写入幂等。调用方必须已确认退订/投诉事实。
+         */
+        post: operations["OutreachDncController_suppress_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outreach/contact-eligibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 批量查询邮箱的四态与可触达动作（服务令牌）
+         * @description 服务间端点（gain-saas 控制面，x-service-token）：按规范化邮箱的确定性密文匹配 contact_point，返回 emailHash（sha256，与 DNC 端点同口径）、found、四态（VALID/INVALID/CATCH_ALL_RISKY/UNKNOWN）、confidence 与 allowedActions；未找到按 UNKNOWN 处理（found=false，调用方必须 fail closed）。CATCH_ALL_RISKY 的 catchAllPolicy 当前恒为 mode=OFF/allowed=false（灰度策略表属 P1-13，策略不存在=一律拒发）。批量 ≤50；非法邮箱/超限返回 400，令牌未配置 503，令牌不符 403。多租户不跨域匹配（RLS 强制）。
+         */
+        post: operations["ContactEligibilityController_check_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contact-points/{pointId}/bounce-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 回写一条投递结果（hard/soft bounce、complaint；messageId 幂等）
+         * @description 服务间端点（gain-saas SMTP transport，x-service-token）：hard_bounce → 点置 INVALID 并写 suppression(email, bounce, PREFERENCE)；soft_bounce 同一地址累计第 3 次 → UNKNOWN 且 24h 后重验；complaint → 状态不变、confidence 归 0、证据 allowedActions 去 outreach、写 suppression(email, complaint, LEGAL)。每次回写落一行验证事件账（provider=smtp_transport）与 email.delivery 证据（无 PII）。messageId 复用返回 duplicate 且无副作用。非 email 点 409，点不存在/跨租户 404。
+         */
+        post: operations["ContactBounceController_record_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/companies": {
         parameters: {
             query?: never;
@@ -268,6 +388,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/understanding/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重试最近一次失败的企业官网理解（需要新的 Execution Budget Grant）
+         * @description 只允许对最近一次理解失败、仍为 DRAFT 的档案重试；成功时重新入队理解工作流。原创建请求的 Grant 已消费，调用方必须先为 `POST /companies/:companyId/understanding/retry` 取新 quote 并签发 Grant。
+         */
+        post: operations["CompanyController_retryUnderstanding_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/companies/{companyId}": {
         parameters: {
             query?: never;
@@ -282,6 +422,54 @@ export interface paths {
         get: operations["CompanyController_get_v1"];
         put?: never;
         post?: never;
+        /**
+         * 软删除 DRAFT 档案（行保留、列表与详情不再可见；物理删除归 owner/DSR）
+         * @description 软删除 DRAFT 档案：列表与详情不再可见，关联事实与审计保留；物理删除归 owner/DSR。非 DRAFT 返回 409 COMPANY_NOT_DELETABLE。
+         */
+        delete: operations["CompanyController_remove_v1"];
+        options?: never;
+        head?: never;
+        /**
+         * 编辑公司档案（DRAFT 内可改：名称/官网/行业/目标市场/业务邮箱）
+         * @description 补填官网后，调用方需为 `POST /companies/:companyId/understanding/retry` 另取 quote 与 Grant 来启动理解；本接口不消费 Grant。
+         */
+        patch: operations["CompanyController_update_v1"];
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/understanding-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 理解预览（注册即建档）：状态、已分析页数、行业/产品/市场候选（只读）
+         * @description 复用一次真实 understanding run 的已落库结果：不新增模型调用、不出网、不消费预算。industry 候选由 profile.industry 词面归一到受控词表（canonical_taxonomy kind=industry）；markets 只收官网文本里明确提到的国家并附原句；受控行业词表随响应下发。
+         */
+        get: operations["CompanyController_preview_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/onboarding-facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 注册引导完成：把预览勾选的卖家事实写回同一档案（DRAFT/REVIEW）
+         * @description 只写卖家事实（名称/行业/目标市场/产品/业务邮箱），零模型调用、不出网、不消费 Grant；industryCode 以受控词表校验并回填 industry 标签；products 落 Offering(source=onboarding)。ENRICHING 期间返回 409，避免理解回填稍后覆盖客户选择。
+         */
+        post: operations["CompanyController_applyOnboardingFacts_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -322,6 +510,26 @@ export interface paths {
          * @description 人工确认企业可用：REVIEW → ACTIVE，是显式的 Gate 出口。需要 acquisition:review。
          */
         post: operations["CompanyController_confirm_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/website-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 按公司名搜索官网候选（SearXNG，人工确认后自行采用；不抓页面）
+         * @description 按公司名用自托管 SearXNG 搜索官网候选（两个有界查询），过滤企业信息聚合站/社交/搜索引擎并按标题与公司名的匹配度排序，最多 5 条；只返回 {url,title,score}，不抓页面，需人工确认后通过 PATCH 采用。
+         */
+        post: operations["CompanyController_listWebsiteCandidates_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -406,6 +614,26 @@ export interface paths {
          * @description 驳回一条待审事实：NEEDS_REVIEW → REVOKED。需要 acquisition:review。
          */
         post: operations["ClaimController_reject_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/claim-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 从公司档案生成企业事实草稿（NEEDS_REVIEW，幂等，不消费 Grant）
+         * @description 从公司档案确定性生成待审事实草稿（NEEDS_REVIEW）：主营产品 → capability、行业 → company_fact、目标市场 → market，证据记为「注册引导填写」。不调用模型、不消费 Grant；按归一化语句幂等去重，REVOKED 的语句不复活。批准任意一条后 ICP 生成不再被 NO_APPROVED_CLAIMS 阻断。需要 acquisition:review。
+         */
+        post: operations["ClaimController_synthesizeDrafts_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -648,6 +876,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/icps/{icpId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * M2 反馈闭环：接受/拒绝聚合（来源/渠道/行业/国家）与 ICP 建议卡（只建议，人工采纳才改 ICP）
+         * @description M2 反馈闭环：按来源/渠道/行业/国家聚合的接受率与拒绝理由分布，以及 ICP 建议卡（只给建议，人工采纳后才改 ICP）。
+         */
+        get: operations["IcpController_feedbackReport_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icps/{icpId}/feedback/recompute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重算该 ICP 的反馈聚合（幂等；通常由判断动作自动触发）
+         * @description 重算该 ICP 的反馈聚合（幂等；通常由接受/拒绝动作自动触发，这里是手动补偿入口）。
+         */
+        post: operations["IcpController_recomputeFeedback_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/query-plans/{planId}/confirm": {
         parameters: {
             query?: never;
@@ -678,10 +946,70 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 执行 READY 查询计划：多源发现 → Raw → Canonical（异步，Temporal 编排）
-         * @description 执行一个 READY 查询计划：多源发现 → Raw → Canonical，由 Temporal 异步编排。返回 202 与 runId，用 GET /discovery-runs/{runId} 轮询。
+         * 执行查询计划（READY 首跑；EXECUTED 重跑须携带新 attemptId）：多源发现 → Raw → Canonical（异步，Temporal 编排）
+         * @description 执行一个查询计划：READY 首跑；EXECUTED 计划携带新 attemptId 即重跑（新请求哈希/新预算 Grant，同一 attempt 重放报 EXECUTION_BUDGET_GRANT_REUSED，缺 attemptId 报 RERUN_REQUIRES_ATTEMPT）。多源发现 → Raw → Canonical，由 Temporal 异步编排，返回 202 与 runId。
          */
         post: operations["DiscoveryController_execute_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery-runs/{runId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 停止深挖：取消 run 的 Temporal 工作流（未完成公司标 skipped，可续；已完成结果保留）
+         * @description 停止深挖：向 Temporal 发取消请求。已完成公司的结果保留，未完成公司标 skipped（下一次 run 会重新排队），run 以 CANCELLED 收尾。已结束的 run 幂等返回当前状态。
+         */
+        post: operations["DiscoveryController_cancelRun_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery-runs/{runId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * run 进度事件（按 seq 增量拉取；?after=<seq> 断点续拉）
+         * @description run 进度事件（append-only，按 seq 增量拉取）：阶段开始/完成、公司进出阶段、预算耗尽、租约跳过、run 收尾。用 ?after=<上次的 nextAfter> 断点续拉，事件可重放。
+         */
+        get: operations["DiscoveryController_listRunEvents_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery-runs/{runId}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * run 的公司级 job 队列（快扫名单 + 深挖逐家状态；游标分页）
+         * @description run 的公司级队列（快扫名单 + 深挖逐家状态：stage/粗判/精判/失败码/耗时），游标分页。
+         */
+        get: operations["DiscoveryController_listRunJobs_v1"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -737,7 +1065,7 @@ export interface paths {
         };
         /**
          * 公司详情：canonical 视图 + 联系人 + 字段级 Evidence（每个字段值的来源）
-         * @description 公司详情：canonical 视图 + 联系人 + 字段级 Evidence（每个字段值来自哪一页、哪段原文）。需要 personal-data:read。
+         * @description 公司详情：canonical 视图 + 联系人 + 字段级 Evidence（每个字段值来自哪一页、哪段原文）。需要 contact-discovery:read（只覆盖联系人数据面，不等于 personal-data:read）。
          */
         get: operations["DiscoveryController_getCompany_v1"];
         put?: never;
@@ -759,9 +1087,29 @@ export interface paths {
         put?: never;
         /**
          * 按需发现联系人（Waterfall 第5步：仅高价值企业；Suppression 先行过滤）
-         * @description 按需发现联系人（Waterfall 第 5 步，只对高价值企业调用）：先过 suppression，再抽取联系人。必须带 lawfulBasis；缺 body 会在消耗预算前以 CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED 拒绝。需要 personal-data:read 与 compliance:manage。
+         * @description 按需发现联系人（Waterfall 第 5 步，只对高价值企业调用）：先过 suppression，再抽取联系人。必须带 lawfulBasis；缺 body 会在消耗预算前以 CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED 拒绝。需要 contact-discovery:read 与 compliance:manage。
          */
         post: operations["DiscoveryController_discoverContacts_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/canonical-companies/{id}/enrich-contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 公司级邮箱富集（付费 finder 瀑布：Hunter → Findymail → Prospeo，A 档追加 Apollo/PDL）
+         * @description 对该公司缺 email 的具名联系人按瀑布补全邮箱：finder 命中先过验证（双正规则），验证 INVALID 继续下一家；每公司 ≤10 次 finder 调用、每地址 ≤6 次验证、软截止 10 分钟；本地尝试账保证同一输入 90 天不重复购买。需要 purpose contact.enrich 的 ExecutionBudget Grant；lawfulBasis 必填（把具名联系人 + 域名送给第三方处理器）。供应商未启用（data_provider DISABLED）时逐家跳过并如实记账，不伪造命中。
+         */
+        post: operations["DiscoveryController_enrichContacts_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -816,8 +1164,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 禁联名单
-         * @description 禁联名单，游标分页。需要 compliance:manage 与 personal-data:read。
+         * 本 workspace 的禁联名单（workspace 隔离；租户 admin 可管理自己的禁联记录）
+         * @description 只返回调用方 workspace 的 suppression 记录。展示的是租户自己提交的合规登记，不是引擎采集的招揽联系人；个人数据面（事件流）仍要求 personal-data:read，联系人面走 contact-discovery:read，都不在此端点开放。
          */
         get: operations["DiscoveryController_listSuppressions_v1"];
         put?: never;
@@ -897,6 +1245,398 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/judgment-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 人工复核队列（按优先级/SLA 排序，keyset 分页）
+         * @description 人工复核队列：按优先级（P0 高价值 UNKNOWN 24h / P1 72h / P2 随机抽检 5 工作日 / P3 漂移与申诉 7 天）、到期时间升序返回待办任务，含公司名与当时判定；keyset 游标分页，可用 status/priority/limit 过滤。需要 acquisition:review。
+         */
+        get: operations["JudgmentReviewController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/judgment-reviews/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 认领复核任务（queued → in_review，同人幂等）
+         * @description 认领复核任务（queued → in_review）。同一复核人重复认领幂等；已被他人认领返回 409。需要 acquisition:review。
+         */
+        post: operations["JudgmentReviewController_claim_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/judgment-reviews/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 提交复核结论（写新 human judgment_record + golden label candidate，任务 resolved）
+         * @description 提交复核裁决：在一个事务里写入新的「人工判定」记录（append-only，model_requested=human）、把结论回流为金标候选（split=candidate）并将任务置 resolved；可对个别 criterion 覆写分数/label。需要 acquisition:review。
+         */
+        post: operations["JudgmentReviewController_resolve_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/judgments/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 复核队列统计（分布 + overturn rate）
+         * @description 复核队列统计：按状态/原因/优先级的分布与近 N 天 overturn rate（人工结论与原判定不一致的比例），用于 SLA 与质量报表。需要 acquisition:review。
+         */
+        get: operations["JudgmentReviewController_stats_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/judgments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 单条判定明细（含 criteria 与失败码）
+         * @description 单条判定明细：verdict、逐 criterion 的分数/证据/理由、模型与失败码；跨租户不可见（RLS）。需要 acquisition:read。
+         */
+        get: operations["JudgmentReviewController_detail_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery-runs/{runId}/result-view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * run 级结果视图：本 run 候选、本轮评分留痕与最新评分分列（只读；最新分不一定是本 run）
+         * @description 候选集来自本 run 物化的公司（discovery_company_job）；本轮评分来自 run_event 的 qualification_batch_scored 批次留痕（没有留痕时标 not_scored_in_run，绝不回填）；最新评分来自 lead 的 ICP 级投影，单独一列并标注不一定是本 run。两种评分口径不可互相替代。
+         */
+        get: operations["RunResultViewController_getRunResultView_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 渠道列表（状态/模式/类别/最近运行；平台渠道对所有租户可见）
+         * @description 渠道列表（状态/模式/类别/最近运行与失败率）。平台级渠道注册表，运营台读取（ops:read）；租户侧只看 /available。
+         */
+        get: operations["ChannelsController_list_v1"];
+        put?: never;
+        /**
+         * 新建渠道（默认 DISABLED；治理信息齐全并经人工确认后才能启用）
+         * @description 新建平台渠道（默认停用 DISABLED）。仅运营身份（ops:write）；配置按形态校验：crawl 需 https 列表页与选择器；api 需适配器名；import 直接可用。启用前必须登记许可、条款与 robots 结论。
+         */
+        post: operations["ChannelsController_create_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 租户可用渠道（已批准 ENABLED）+ 本工作空间是否已启用
+         * @description 租户可用的已批准渠道（status=ENABLED），并标注本工作空间是否已启用。
+         */
+        get: operations["ChannelsController_available_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/import-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 导入通道示例 CSV（10 行，列映射与导入验收用；附建议 mapping 与可用列）
+         * @description 导入通道的示例 CSV（10 行，列：company/website/country/industry），附 columns 与建议 mapping；预览/提交缺少或错配 mapping 时，错误信息会列出可用列并给出示例。
+         */
+        get: operations["ChannelsController_importTemplate_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 渠道详情：manifest 全量 + 健康摘要 + 密钥「已配置/未配置」（值永不返回）
+         * @description 渠道详情：manifest 全量、健康摘要（熔断/连续失败/最近成功/停用原因）与认证密钥「已配置/未配置」状态——密钥值永不返回。仅运营身份（ops:read）。
+         */
+        get: operations["ChannelsController_detail_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 更新渠道配置/治理信息/状态（crawl 仅允许 robots A 启用，C 永不启用）
+         * @description 更新渠道配置/治理信息/状态，或整体替换 channel-manifest/v1（重存即置 probe_required=true）。仅运营身份（ops:write）。启用硬闸门：license+tosUrl+robots 结论齐全，robots=C 永不启用，crawl 仅允许 robots=A；manifest 渠道还需先通过 POST /test（否则 409 CHANNEL_PROBE_REQUIRED）。
+         */
+        patch: operations["ChannelsController_patch_v1"];
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 租户启用一个已批准渠道
+         * @description 租户启用一个已批准（ENABLED）渠道；只能启用，不能新建平台渠道。
+         */
+        post: operations["ChannelsController_enable_v1"];
+        /**
+         * 租户停用渠道（平台渠道本身不受影响）
+         * @description 租户停用渠道（平台渠道本身不受影响）。
+         */
+        delete: operations["ChannelsController_disable_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 保存即测试（probe）：按 manifest 试跑 1 页并落 source_channel_probe；未接平台出网绑定时 fail-closed 503
+         * @description 保存即测试（probe）：按已保存 manifest 试跑 1 页，落 source_channel_probe 与健康事件；产出 >0 且无错误才解除 probe_required。仅运营身份（ops:write）。平台出网围栏绑定未接入本进程时 fail-closed 503 CHANNEL_TEST_EGRESS_UNAVAILABLE。
+         */
+        post: operations["ChannelsController_test_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 试跑抓取通道（抓 1 页/前 20 条）——平台抓取预算权威获批前 fail-closed 409
+         * @description 试跑抓取通道（抓 1 页/前 20 条）。仅运营身份（ops:write）。抓取出网需要平台级抓取预算权威（platform.channel_crawl purpose），授权链落地前该端点 fail-closed 返回 409 CHANNEL_CRAWL_REQUIRES_PLATFORM_AUTHORITY。
+         */
+        post: operations["ChannelsController_preview_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 立即运行抓取通道——平台抓取预算权威获批前 fail-closed 409
+         * @description 立即运行抓取通道（同 preview 的门槛与限额，仅运营身份 ops:write；失败率连续 3 轮 >30% 自动停用）。
+         */
+        post: operations["ChannelsController_run_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看渠道最近物化的抓取记录（含观察名单状态与计数；PII 按 OWNER-DECISION-2026-11-05 明文存储）
+         * @description 渠道最近物化的抓取记录（默认最近 50 条，limit 1–100，可按 reviewStatus=PENDING/APPROVED/REJECTED 过滤）：公司/官网/国家/行业/产品/关键词与联系人（人名/职位/邮箱/电话，均为渠道页公开信息），附观察名单状态与三态计数。仅运营身份（ops:read），用于选择器校验、抽检与获客联系；同一公司跨轮去重合并（渠道+去重键 upsert），重跑不重复且不覆盖人工抽检结论。
+         */
+        get: operations["ChannelsController_records_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-channels/{channelId}/records/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 观察名单抽检：批量置 APPROVED/REJECTED（留 reviewed_by/at）；REJECTED 率 >20%（已抽检 ≥20）时渠道回 DISABLED
+         * @description 观察名单抽检（CH-7）：把本渠道 1–200 条记录批量置 APPROVED/REJECTED 并记录 reviewed_by/reviewed_at；已抽检 ≥20 条且 REJECTED 率 >20% 时渠道自动回 DISABLED（原因 RECORD_REJECTION_RATE，写健康事件）。仅运营身份（ops:write）。
+         */
+        post: operations["ChannelsController_reviewRecords_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imported-buyers/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 导入预览：解析 CSV、校验列映射、去重与抑制命中（不写库）
+         * @description 导入预览：解析 CSV、校验列映射（至少公司名列）、给出前 10 行样例与去重/抑制命中计数，不写库。
+         */
+        post: operations["ChannelsController_previewImport_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imported-buyers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 导入提交：原始行落 imported_buyer，去重/抑制后物化进公司池（私有）
+         * @description 导入提交：原始行落 imported_buyer，按域名/名称+国家去重并过抑制门后物化进本租户的公司池（私有），并写渠道 sighting。
+         */
+        post: operations["ChannelsController_importBuyers_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imported-buyers/{batchId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 导入批次明细（每行状态：MATERIALIZED/DUPLICATE/SUPPRESSED）
+         * @description 导入批次明细（每行状态 MATERIALIZED/DUPLICATE/SUPPRESSED 与去重键）。
+         */
+        get: operations["ChannelsController_batch_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/icps/{icpId}/qualify": {
         parameters: {
             query?: never;
@@ -929,6 +1669,26 @@ export interface paths {
          * @description Lead 列表，可按 ?icpId= 与 ?queue=recommended|needs_review|rejected|suppressed 过滤，按分数排序。
          */
         get: operations["LeadController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lead-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 机器候选只读视图（候选≠线索；?runId=<qualify run> 或 ?icpId=&queue=，游标分页）
+         * @description 机器候选只读视图（候选 ≠ 线索，不复制表）：候选行就是 qualify 产出的 lead，语义由 queue/fit_verdict/scored_at 与 score_detail.candidateBatchRef 组装。?runId=<qualify 工作流 run id> 只看该 run 的全部批次（批次引用前缀 qualify:<runId>:）；?icpId=/?queue= 收窄；按 scored_at 倒序、id 升序游标分页（limit 默认 50、上限 200）。runId 仅接受 [A-Za-z0-9-]{1,64}，否则 400。
+         */
+        get: operations["LeadController_listCandidates_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1024,11 +1784,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * 读取该线索最近一版开发信草稿（没有则 data=null）
+         * @description 只读：返回该线索最新一版已存储的开发信草稿（含中文译文与引用事实键），没有草稿时 data 为 null。不消耗预算、不调用模型；草稿只在生成时计费。
+         */
+        get: operations["LeadController_latestOutreachDraft_v1"];
         put?: never;
         /**
          * 生成首次联系开发信草稿（BI-15）：目标国语言 + 中文译文，只存储不发送
-         * @description 按线索的公司级事实与卖方资料生成一版草稿（版本号递增），末尾由平台追加卖方自己的回复入口（官网/邮箱/wa.me）。平台不发送、不提供发送按钮。模型网关结算了调用却没有可用答案时返回 502 MODEL_UPSTREAM_UNUSABLE；草稿引用了未提供的事实键（或主题/正文/译文为空）时返回 422 OUTREACH_DRAFT_UNGROUNDED 并丢弃草稿；这两种情况预算授权都已消耗，重试需要新的授权。
+         * @description 按线索的公司级事实与卖方资料生成一版草稿，末尾由平台追加卖方自己的回复入口（官网/邮箱/wa.me）。幂等：该线索已有草稿时直接返回最新一版，不调用模型、不消耗预算授权（浏览器超时/关页后的重试不会重复付费）；读取已有草稿请用 GET 同路径。平台不发送、不提供发送按钮。模型网关结算了调用却没有可用答案时返回 502 MODEL_UPSTREAM_UNUSABLE；草稿引用了未提供的事实键（或主题/正文/译文为空）时返回 422 OUTREACH_DRAFT_UNGROUNDED 并丢弃草稿——这两种情况授权已消耗且当前不提供重新生成，需要重新评估后再调用。
          */
         post: operations["LeadController_outreachDraft_v1"];
         delete?: never;
@@ -1131,6 +1895,266 @@ export interface paths {
          * @description 上传客户填写后的周报 CSV 原文：按「线索 ID」列匹配、逐行校验，只追加写 lead_outcome，返回接受 / 拒绝 / 跳过计数与带文件行号的拒绝原因。
          */
         post: operations["ReportController_feedback_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 指标字典目录（metric_definition 平台表只读）：ID/版本/口径/状态/负责人；字典由 docs/metrics/dictionary 同步（measurement-sync-definitions 命令）
+         * @description 指标字典目录（ch01）：读取平台工件 metric_definition（app_user 只读），返回每个指标的 ID/版本/口径/状态/负责人；字典由 docs/metrics/dictionary 经 measurement-sync-definitions 命令同步，未同步时返回空数组。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_catalog_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 度量观测（append-only，本 workspace 可见行）：按 window_end 倒序 keyset 分页；数值列以 double 返回，stratum 原样返回 JSON
+         * @description 度量观测（ch01 PR-04）：本 workspace 可见的 metric_observation 行（append-only；平台级行对租户不可见，RLS 由 PR-02 权限测试保障）。按 window_end 倒序 keyset 分页（cursor 原样回传）；数值列以 double 返回，stratum 为原样 JSON。参数不合法返回 400 VALIDATION_ERROR。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_observations_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/rollups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 日/周聚合（metric_rollup_daily|weekly，本 workspace 可见行）：granularity=daily|weekly；按桶倒序 + 指标/维度 keyset 分页
+         * @description 度量日/周聚合（ch01 PR-04）：granularity=daily|weekly 选择 metric_rollup_daily/weekly，聚合由 PR-03 的测量工作流按主键 upsert。桶倒序 + 指标/维度 keyset 分页；租户过滤走 stratum.workspace_id 的 RLS。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_rollups_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/vric": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * VRIC 成对序列（T0-001 STRICT + T0-002 PLUS，本 workspace 可见行）：按桶升序返回最近 limit 个桶；某侧缺数据时为 null，不得以 0 冒充缺失
+         * @description VRIC 成对序列（ch01 PR-04 后续切片）：同一 bucket + stratum 下 T0-001 STRICT 与 T0-002 PLUS 并排返回，桶按时间升序、默认最近 30 个（limit 上限 180）；某侧无数据为 null，不以 0 冒充。只含本 workspace 可见行（平台级 ALL 行不可见）。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_vric_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/source-yield": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 源边际产出账本（source_yield_ledger，本 workspace）：按日/周×发现源聚合记录数、新增合格数、实扣成本 microusd 与每新增合格公司的美元成本；季度砍源报表消费它
+         * @description 源边际产出账本（获客 vNext W3）：按日/周（granularity=day|week，默认 week，周桶=ISO 周一）× 发现源聚合 source_yield_ledger——记录数、新增合格公司数、实扣成本 microusd、每新增合格公司的美元成本（新增为 0 时为 null，不以 0 冒充）。账本行由 run 终结时写入、历史 run 可回填；可按 providerKey 过滤，limit 默认 100、最大 500。只含本 workspace 行（RLS）。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_sourceYieldByPeriod_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics/billing-reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 三方对账视图：usage_ledger 用量 ↔ tool_budget_operation 结算（窗口实扣，ch08 §3.1.1 C1a 口径）↔ tool_budget_account 执行包络（余额来源表；累计快照）。客户钱包余额真值在 gain-saas，不在本引擎
+         * @description 三方对账视图（获客 vNext W3）：同一窗口内 usage_ledger 用量（cost_usd 记账）↔ tool_budget_operation 结算（SETTLED/RESULT_UNKNOWN 取实扣 microusd，在途 RESERVED 单列；口径与 execution-budget 窗口实扣一致）↔ tool_budget_account 执行包络（授权上限/已扣/预留；余额来源表，累计快照，不与窗口用量直接相减）。deltaUsageMinusSettledMicrousd = 用量 − 结算，是诊断指针不是错误断言；客户钱包余额真值在 gain-saas 计费侧，不在本引擎。可按 from/to（YYYY-MM-DD，UTC）限定窗口。需要 acquisition:read。
+         */
+        get: operations["MeasurementController_billingReconciliation_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluation/sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 新建评估集（golden set 的版本化容器）
+         * @description 新建评估集（获客 vNext W3，golden set 的版本化容器）：name+version 在 workspace 内唯一（重复返回 409 EVALUATION_SET_EXISTS）；icpId 可空（ICP 删除时置空保留历史），description 记录口径（地区×品类、抽样与标注约定）。评估集只插不改，换口径用新 version。需要 acquisition:label:write。
+         */
+        post: operations["EvaluationController_createSet_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluation/sets/{id}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 批量标注（同集同候选键覆盖，重标注即更新）
+         * @description 批量人工标注（获客 vNext W3）：1..500 条，label=POSITIVE|NEGATIVE；候选引用三选一（canonicalCompanyId / domain / name[+country]）。同一集内同候选键覆盖（重标注即更新 label/note/labeled_by/labeled_at），批内同键后写覆盖先写。评估集不存在返回 404 EVALUATION_SET_NOT_FOUND，候选引用缺失返回 400。需要 acquisition:label:write。
+         */
+        post: operations["EvaluationController_addLabels_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluation/sets/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * precision@k 报告：某次 run（可限单源）的候选排名 vs 评估集标注
+         * @description precision@k 报告（获客 vNext W3）：取某次 run（runId 必填，可加 providerKey 只看单源）产出的去重候选，按判定分数降序（该 run 最权威 judgment_record 的 1−conformal_score；无 conformal 时 FIT=0.5、其余=0）截前 k（默认 10、最大 50），对照评估集标注计算 precision。标注匹配优先级：canonical id 精确 > 域名（小写）> 名称+国家。分母为实际评估深度 min(k, 候选数)；未标注候选计入分母记为非命中，另单列 precisionAtLabeledK。需要 acquisition:read。
+         */
+        get: operations["EvaluationController_report_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluation/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 双源 Chapman 覆盖估计（95% CI），结果按口径+计数存证到 coverage_estimate
+         * @description 双源捕获-再捕获覆盖估计（获客 vNext W3）：给定两条发现源（sourceA/sourceB，provider_key，须不同）与地区×品类口径（匹配 canonical_company.country / industry，大小写不敏感，排除 SUPPRESSED），按已物化公司计算各自命中数 n1/n2 与重叠 m，返回 Chapman 点估计 N̂=((n1+1)(n2+1)/(m+1))−1 与 95% CI（下界不低于已观测并集）。任一边为空不可估计（estimable=false, reason=EMPTY_SOURCE，估计值为 null）；零重叠照常给出估计但标记 warning=ZERO_OVERLAP（独立性假设可疑）。结果按口径+计数存证到 coverage_estimate（append-only）。估计的是两源可发现的公司总数，不是地区工商登记全量；承重假设见端点文档。需要 acquisition:read。
+         */
+        get: operations["EvaluationController_coverage_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 公司触发信号（社媒/网页变更信号，observed_at 倒序）：只读 company_signal 中已归因到该公司的行，keyset 分页
+         * @description 公司触发信号（P1-18 读侧）：只读 company_signal 中已归因到该公司的社媒/网页变更信号（changedetection 页面变更、RSSHub 条目；纯元数据，标题/URL/摘要，不含页面正文与个人数据），按 observed_at 倒序 keyset 分页（limit 默认 20、最大 100；cursor 原样回传 page.next_cursor）。未归因（company_id 为空）的信号不在此端点出现；该公司暂无信号返回空数组。参数不合法返回 400 VALIDATION_ERROR。需要 acquisition:read。
+         */
+        get: operations["CompanySignalsController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/legal-links/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 触发一次法人实体消歧（确定性键优先 + 概率匹配双阈值），返回公司当前全部链接候选
+         * @description 法人实体消歧（获客 vNext W2）：把公司自带确定性标识（GLEIF/Wikidata LEI、官网 VAT）与请求体可选 candidates（≤20 条，先登记进本 workspace 的 legal_entity）参与匹配——确定性键优先（LEI/SIREN/CH/KVK/CVR/bolagsverket 命中即 auto；VAT 经 VIES 校验通过才 auto，HRB 因按法院分配同号落 review），无键时按 Fellegi–Sunter 概率匹配双阈值产出 auto/review；同 scheme 键冲突的候选落 rejected 留档（同名异法人不连）。重复调用幂等（同公司×实体只升不降）。返回公司当前全部链接（含本次新增），按置信度倒序。绝不自动合并两个已存在的 canonical 公司，合并只进人工复核。需要 acquisition:write；公司不存在或属其他 workspace 返回 404，请求体非法返回 400 VALIDATION_ERROR。
+         */
+        post: operations["CompanyLegalLinksController_resolve_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/legal-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 公司 ↔ 法人实体链接列表（含实体摘要，按置信度倒序）
+         * @description 公司 ↔ 法人实体链接列表（获客 vNext W2）：每条含 confidence、match_method（deterministic/probabilistic）、match_rule、status（auto/review/rejected）与判定证据 JSON，并内联实体摘要（scheme/value/country/name/address/status/来源）。按置信度倒序；无链接返回空数组。公司不存在或属其他 workspace 返回 404。需要 acquisition:read。
+         */
+        get: operations["CompanyLegalLinksController_list_v1"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1521,6 +2545,626 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/seller-documents/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 为卖家资料上传签发短时 presigned PUT（校验类型与配额）
+         * @description 为卖家资料上传签发短时 presigned PUT（15 分钟）。校验 MIME 白名单与单文件上限（PDF/Word/PPT/Excel ≤50MB，文本/Markdown ≤10MB）与配额（每空间 500 份/2 GiB、每公司 200 份，env 可调）；超限返回 409。返回 documentId 与 uploadUrl，上传对象带 1 天过期的 staging 生命周期标签。
+         */
+        post: operations["SellerCompanyDocumentsController_presign_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 确认上传：HEAD/魔数/sha256 校验、转存 canonical 并入队解析
+         * @description 确认上传完成：对 staging 对象做 HEAD、流式 sha256 与魔数校验（声明的 MIME 必须与实际内容相符），通过后转存 canonical 对象并将文档置为 queued、入队解析。上传未完成返回 409 并留在 pending_upload；内容不符置 rejected；同一公司已存在相同内容时返回 409 并清理已复制副本。
+         */
+        post: operations["SellerCompanyDocumentsController_commit_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 浏览器直传：把文件字节经引擎写入暂存对象（presign 主机对浏览器不可达时的中转）
+         * @description 仅 pending_upload 状态可用；Content-Type 必须与 presign 申报一致，字节数必须等于申报大小。写入后照常调用 commit 校验并入队。
+         */
+        put: operations["SellerCompanyDocumentsController_uploadContent_v1"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 资料库混合检索（向量 + 全文），限定公司与可检索状态
+         * @description 资料库混合检索：查询词经本机 BGE-M3 嵌入后与分块向量做余弦（权重 0.7）并与全文 ts_rank_cd（权重 0.3）合成排序；只检索该公司 status=ready 且未删除的资料，limit 上限 50。
+         */
+        get: operations["SellerCompanyDocumentsController_search_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出公司资料库（游标分页，软删不可见）
+         * @description 游标分页列出公司的卖家资料（软删不可见）：limit 默认 20、上限 100，返回 { data, page: { next_cursor, has_more } }。每条含状态（pending_upload/committing/queued/processing/ready/failed_terminal/rejected）、类型与字节数。
+         */
+        get: operations["SellerCompanyDocumentsController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 资料详情（跨租户 404）
+         * @description 按 id 取单份资料详情。资源属于其他 workspace 或已软删时返回 404，不泄露存在性。
+         */
+        get: operations["SellerDocumentsController_get_v1"];
+        put?: never;
+        post?: never;
+        /**
+         * 软删资料（恢复窗口内可由运营恢复；物理清理见 DSR/清理管线）
+         * @description 软删一份资料：置 deleted_at 并从列表与下载中消失；对象与分块的物理清理在受控清理管线（DSR 同路径）完成。需要 acquisition:review。
+         */
+        delete: operations["SellerDocumentsController_remove_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 短时 presigned GET 下载地址
+         * @description 返回 10 分钟有效的 presigned GET；尚未上传完成（pending_upload/committing）或已被拒绝时返回 409。
+         */
+        get: operations["SellerDocumentsController_downloadUrl_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重试失败或排队中的资料解析
+         * @description 重试解析：仅 failed_terminal 或 queued 状态可调用，重置错误码后重新入队（202）。需要 acquisition:write。
+         */
+        post: operations["SellerDocumentsController_retry_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/market-candidate-sets/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取公司的最新市场候选文档
+         * @description 仅从引擎持久层读取；NOT_ANALYZED 只表示本能力没有可读文档，不表示市场无机会、生成已完成或失败。不会自动创建候选或调用模型、搜索、执行。
+         */
+        get: operations["MarketCandidateSetsController_getLatest_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-sets/{setId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取候选集合当前修订
+         * @description 返回不可变文档、原依据版本/摘要及本次来源可用性。来源变化或删除不改写历史、不生成下载链接、不自动重评估。已被新集合取代的文档明确 historical。
+         */
+        get: operations["MarketCandidateSetsController_getCurrent_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-sets/{setId}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取候选修订历史摘要
+         * @description 修订号降序，默认20、最大100；cursor 是上一页最后一个正整数修订号，读取严格小于该值的摘要。历史只读，不无界加载所有正文。
+         */
+        get: operations["MarketCandidateSetsController_listRevisions_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-sets/{setId}/revisions/{revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取指定不可变候选修订
+         * @description 返回当时的 proposal、用户纠正、依据版本/hash、可信 actor/time，另计算当前来源可用性。旧来源失效时不回挂到现行正文，不修改旧修订。
+         */
+        get: operations["MarketCandidateSetsController_getRevision_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-sets/{setId}/candidates/{candidateId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 追加市场候选人工反馈
+         * @description CONFIRM/CORRECT/KEEP_PENDING/REJECT 仅记录用户意见，不提升事实核验等级、不改卖方 SoR、不授权找买家。CORRECT 必须提供有实质变更的白名单 correction，其它动作不得带 correction。先核权限及幂等重放，再校验集合级 expectedRevision；旧版本/旧集合返回 VERSION_CONFLICT，同 key 异意图返回 IDEMPOTENCY_CONFLICT。理由缺省/null/纯空白记为未提供，其余原文保留。响应丢失时沿用原 key 重试，返回原 recordedRevision；不启动模型、搜索、Grant、计划、run 或发送。
+         */
+        post: operations["MarketCandidateSetsController_recordFeedback_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 技能列表（平台目录 + 当前版本 + 启停状态）
+         * @description 列出平台技能目录：技能键、pack_type、启停状态与当前版本；仅运营身份（ops:read）可读，租户调用返回 403。
+         */
+        get: operations["SkillsController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillKey}/workspaces/{workspaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 目标 workspace 的技能生效状态（平台状态 + 覆盖行）
+         * @description 查看目标 workspace 的技能生效状态：平台状态、覆盖行与合成后的 enabled；需要 ops:read。
+         */
+        get: operations["SkillsController_workspaceEnablement_v1"];
+        /**
+         * 设置 workspace 级启停覆盖（缺行 = 跟随平台默认）
+         * @description 设置 workspace 级启停覆盖（幂等 upsert）；删除覆盖行则跟随平台默认；需要 ops:write。
+         */
+        put: operations["SkillsController_setWorkspaceEnablement_v1"];
+        post?: never;
+        /**
+         * 删除 workspace 覆盖（回到跟随平台默认）
+         * @description 删除 workspace 启停覆盖，回到跟随平台默认；重复删除幂等返回 removed=false；需要 ops:write。
+         */
+        delete: operations["SkillsController_clearWorkspaceEnablement_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 技能详情（manifest、正文与版本历史）
+         * @description 返回单个技能的 manifest、SKILL.md 正文与全部版本历史；未登记返回 404；需要 ops:read。
+         */
+        get: operations["SkillsController_detail_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillKey}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 平台级启停（kill switch，所有 workspace 生效）
+         * @description 平台级启停（kill switch）：DISABLED 后该技能对所有 workspace 停止执行（fail-closed），worker 最迟 30 秒生效；需要 ops:write。
+         */
+        patch: operations["SkillsController_setStatus_v1"];
+        trace?: never;
+    };
+    "/api/v1/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pack 目录（含当前激活版本）
+         * @description 列出 Pack 目录：pack_key、类型、启停状态与当前激活版本；仅运营身份（ops:read）可读。
+         */
+        get: operations["PacksController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pack 详情（版本/草稿/激活/回执）
+         * @description 返回单个 Pack 的版本历史、草稿、激活日志与最近评测回执；未登记返回 404；需要 ops:read。
+         */
+        get: operations["PacksController_detail_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 新建草稿（可从已发布版本派生）
+         * @description 新建 Pack 草稿（可从已发布版本派生）；草稿可反复编辑，发布后才生成不可变版本；需要 ops:write。
+         */
+        post: operations["PacksController_createDraft_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts/{draftId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 编辑草稿（manifest/content）
+         * @description 编辑草稿的 manifest 或内容正文；编辑会使既有校验/评测失效，需重新 validate 与 eval；需要 ops:write。
+         */
+        patch: operations["PacksController_updateDraft_v1"];
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts/{draftId}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 校验草稿（schema + 语义 + 冲突模拟）
+         * @description 校验草稿：四类 Schema、平台语义与单包冲突模拟；结果写入草稿的 validation 报告；需要 ops:write。
+         */
+        post: operations["PacksController_validateDraft_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts/{draftId}/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 试跑：在样本上下文解析并渲染策略简报（与当前版本差异）
+         * @description 零成本试跑：在给定行业/市场/动作选择器下解析策略，返回策略简报与相对当前版本的差异；需要 ops:write。
+         */
+        post: operations["PacksController_dryRun_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts/{draftId}/eval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 运行确定性评测并写回执（发布门前置）
+         * @description 运行确定性 Golden Set 评测（零模型）并写入不可变回执；发布门只认与草稿摘要匹配的回执；需要 ops:write。
+         */
+        post: operations["PacksController_eval_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/drafts/{draftId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 发布草稿为不可变版本（需匹配的有效评测回执）
+         * @description 发布草稿为不可变版本：要求当前摘要已通过校验且存在匹配、未过期（30 天）的通过回执；需要 ops:write。
+         */
+        post: operations["PacksController_publish_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 激活已发布版本（platform 默认或 workspace 白名单灰度；回滚=激活旧版本）
+         * @description 激活已发布版本：scope=platform 设为平台默认，scope=workspace 仅对白名单空间灰度；回滚=激活旧版本；需要 ops:write。
+         */
+        post: operations["PacksController_activate_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/{packKey}/workspaces/{workspaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 目标 workspace 的 Pack 生效状态（平台状态 + 覆盖行）
+         * @description 查看目标 workspace 的 Pack 生效状态（平台状态 + 覆盖行）；需要 ops:read。
+         */
+        get: operations["PacksController_workspaceEnablement_v1"];
+        /**
+         * 设置 workspace 级 Pack 启停覆盖
+         * @description 设置 workspace 级 Pack 启停覆盖（幂等 upsert）；删除覆盖则跟随平台默认；需要 ops:write。
+         */
+        put: operations["PacksController_setWorkspaceEnablement_v1"];
+        post?: never;
+        /**
+         * 删除 workspace 启停覆盖（回到跟随平台默认）
+         * @description 删除 workspace 启停覆盖，回到跟随平台默认；重复删除幂等返回 removed=false；需要 ops:write。
+         */
+        delete: operations["PacksController_clearWorkspaceEnablement_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ops-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * agent 注册表（角色、技能子集、模型与 loop 策略、启停状态）
+         * @description 列出 agent 注册表：角色名、角色提示词版本、技能子集、模型与 loop 策略、平台启停状态；仅运营身份（ops:read）可读，租户调用返回 403。
+         */
+        get: operations["AgentsController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ops-agents/{agentKey}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 平台级启停（kill switch，所有 workspace 生效）
+         * @description 平台级启停（kill switch）：DISABLED 后该 agent 的对应回合对所有 workspace fail-closed（AGENT_DISABLED），worker 最迟 30 秒生效；未登记返回 404；需要 ops:write。
+         */
+        patch: operations["AgentsController_setStatus_v1"];
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * run 决策轨迹（过程时间线：选源/跳过原因/批量判定与被否候选）
+         * @description run 的决策轨迹（过程时间线）：源侦察员的选源/跳过原因与资格判定员的批量判定、被否候选，按时间升序键集分页（limit 默认 100、上限 200）；跨租户 404。需要 acquisition:read。
+         */
+        get: operations["RunTraceController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1531,13 +3175,13 @@ export interface components {
             /** @enum {string} */
             authorityKind: "WORKSPACE_GRANT";
             /** @enum {string} */
-            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts";
+            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/enrich-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts" | "POST /companies/:companyId/understanding/retry" | "POST /site-builder/intake" | "POST /campaigns/:campaignId/plan-drafts";
             /** Format: uuid */
             workspaceId: string;
             /** @enum {string} */
-            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "discovery.run" | "contact.verify" | "outreach.draft";
+            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "discovery.run" | "contact.verify" | "contact.enrich" | "outreach.draft" | "campaign.plan";
             /** @enum {string} */
-            subjectType: "company" | "icp" | "discovery_run" | "contact_point" | "lead";
+            subjectType: "company" | "icp" | "discovery_run" | "contact_point" | "lead" | "campaign";
             subjectId: string;
             requestSha256: string;
             /** @enum {string} */
@@ -1548,6 +3192,73 @@ export interface components {
             policyRevision: string;
             /** Format: date-time */
             expiresAt: string;
+        };
+        ExecutionBudgetWindowUsageResponseDto: {
+            /** @enum {string} */
+            schemaVersion: "execution-budget-window-usage/v1";
+            /** Format: uuid */
+            workspaceId: string;
+            /** Format: date-time */
+            since: string;
+            /**
+             * @description 窗口内实扣合计（µUSD，字符串承载 bigint）
+             * @example 2410250
+             */
+            chargedMicrousd: string;
+            /**
+             * @description 窗口内仍在途（RESERVED）的预留合计（µUSD）
+             * @example 500000
+             */
+            reservedMicrousd: string;
+            /**
+             * @description 按 purpose 的实扣构成（µUSD 字符串）
+             * @example {
+             *       "discovery.run": "2100000",
+             *       "understanding.run": "310250"
+             *     }
+             */
+            byPurpose: {
+                [key: string]: string;
+            };
+        };
+        CheckOutreachDncDto: {
+            /** @description 待检查的收件邮箱（≤50，调用方必须是已审批的 outreach 批次） */
+            emails: string[];
+        };
+        SuppressOutreachDncDto: {
+            /** @description 需要平台级抑制的收件邮箱（服务端只落 SHA-256，不存明文） */
+            email: string;
+            /** @enum {string} */
+            reason: "unsubscribe" | "bounce" | "complaint" | "manual" | "legal";
+            /** @description 抑制来源（如 gain-saas:unsubscribe） */
+            source: string;
+        };
+        CheckContactEligibilityDto: {
+            /**
+             * Format: uuid
+             * @description 该批发送所属的 workspace（服务令牌端点：租户由控制面显式给出）
+             */
+            workspaceId: string;
+            /** @description 待检查的收件邮箱（≤50；引擎按规范化后的确定性密文等值匹配） */
+            emails: string[];
+        };
+        RecordContactBounceDto: {
+            /**
+             * Format: uuid
+             * @description 该投递所属的 workspace（服务令牌端点：租户由控制面显式给出）
+             */
+            workspaceId: string;
+            /**
+             * @description SMTP transport 回调的投递事件
+             * @enum {string}
+             */
+            event: "hard_bounce" | "soft_bounce" | "complaint";
+            /** @description SMTP 消息 ID（幂等键） */
+            messageId: string;
+            /** @description SMTP 响应码（如 550） */
+            smtpCode?: string;
+            /** @description 事件发生时间（ISO 8601） */
+            receivedAt?: string;
         };
         PublicContactDto: {
             /** @enum {string} */
@@ -1566,26 +3277,120 @@ export interface components {
             website: string | null;
             /** @enum {string} */
             status: "DRAFT" | "ENRICHING" | "REVIEW" | "ACTIVE";
-            /** @description 行业（理解工作流回填） */
+            /** @description 行业（注册引导填写或理解工作流回填） */
             industry: string | null;
+            /** @description 受控行业码（canonical_taxonomy kind=industry 的 ISIC code；自由文本行业时为空） */
+            industryCode?: string | null;
+            /** @description 目标市场（ISO 3166-1 alpha-2；注册引导填写，卖家事实 SoR） */
+            targetMarkets?: string[];
+            /** @description 业务邮箱（公司级询盘接收缺省值；注册引导填写） */
+            businessEmail?: string | null;
             /** @description 企业简介（抽取，可人工修正） */
             summary: string | null;
             /** @description 官网确定性抽取的公开联系方式/社媒（正则命中，非 AI 生成，逐条带来源页） */
             publicContacts: components["schemas"]["PublicContactDto"][];
+            /**
+             * Format: date-time
+             * @description 最近一次理解失败的时间；非空且状态为 DRAFT 时表示可以重试（老响应没有该字段时视为未知）
+             */
+            understandingFailedAt?: string | null;
+            /** @description 最近一次理解失败的错误标签（stage:ErrorType，如 extract:ProviderHttpError） */
+            understandingLastError?: string | null;
             /** Format: date-time */
             createdAt: string;
+            /**
+             * @description 仅创建响应携带：理解是否已触发；无官网时恒为 not_started（D17），档案字段仍已保存
+             * @enum {string}
+             */
+            understanding?: "started" | "not_started";
         };
         CreateCompanyDto: {
             /**
-             * @description 企业官网 URL
+             * @description 企业官网 URL（可选；缺省时不会触发官网理解）
              * @example https://acme-tech.com
              */
-            website: string;
+            website?: string;
             /**
-             * @description 企业名称（可选；未填则先用域名占位，理解后回填）
+             * @description 企业名称（可选；有官网未填则先用域名占位，理解后回填；无官网时必填其一）
              * @example Shenzhen Acme Tech Co.
              */
             name?: string;
+            /**
+             * @description 所属行业（taxonomy id 或自由文本，注册引导必填项之一）
+             * @example isic-2813
+             */
+            industry?: string;
+            /**
+             * @description 目标市场（ISO 3166-1 alpha-2，大写；最多 20 个）
+             * @example [
+             *       "DE",
+             *       "US"
+             *     ]
+             */
+            targetMarkets?: string[];
+            /** @description 主营产品关键词 1~5 个（落 Offering，source=onboarding） */
+            products?: string[];
+            /**
+             * @description 业务邮箱（公司级询盘接收缺省值）
+             * @example sales@acme-tech.com
+             */
+            businessEmail?: string;
+        };
+        RetryUnderstandingDto: {
+            /**
+             * Format: uuid
+             * @description 本次重试尝试的客户端幂等键
+             */
+            attemptId: string;
+        };
+        OnboardingFactsDto: {
+            /** @description 企业名称 */
+            name?: string;
+            /**
+             * @description 所属行业（自由文本；给出 industryCode 时可省略，由词表标签回填）
+             * @example isic-2813
+             */
+            industry?: string;
+            /**
+             * @description 受控行业码（canonical_taxonomy kind=industry 的 ISIC code）
+             * @example 25
+             */
+            industryCode?: string;
+            /**
+             * @description 目标市场（ISO 3166-1 alpha-2，大写；最多 20 个）
+             * @example [
+             *       "DE",
+             *       "US"
+             *     ]
+             */
+            targetMarkets?: string[];
+            /** @description 主营产品关键词 0~5 个（落 Offering，source=onboarding）。空数组=明确取消全部勾选；缺省=本次不改动选择。 */
+            products?: string[];
+            /**
+             * @description 业务邮箱（公司级询盘接收缺省值）
+             * @example sales@acme-tech.com
+             */
+            businessEmail?: string;
+        };
+        UpdateCompanyDto: {
+            /** @description 企业名称 */
+            name?: string;
+            /**
+             * Format: uri
+             * @description 企业官网（http/https）；补填后将可启动理解
+             */
+            website?: string;
+            /** @description 所属行业 */
+            industry?: string;
+            /** @description 受控行业码；不随 industry 一起给出时，改为自由文本会清空受控码。 */
+            industryCode?: string;
+            /** @description 目标市场（ISO 3166-1 alpha-2），最多 30 个 */
+            targetMarkets?: string[];
+            /**
+             * Format: email
+             * @description 业务邮箱
+             */
+            businessEmail?: string;
         };
         OfferingDto: {
             /** Format: uuid */
@@ -1704,6 +3509,15 @@ export interface components {
             ruleLint: string[];
             /** Format: date-time */
             createdAt: string;
+        };
+        GenerateIcpDto: {
+            /**
+             * Format: uuid
+             * @description 「重新生成」的幂等键（BFF 或客户端生成）。
+             */
+            attemptId?: string;
+            /** @description 本次生成中由用户明确确认的目标市场（ISO 3166-1 alpha-2）。AI 预填与历史档案不算确认；缺省时按未确认处理。 */
+            confirmedTargetMarkets?: string[];
         };
         UpdateIcpDto: {
             name?: string;
@@ -1830,9 +3644,52 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        GenerateWithAttemptDto: {
+            /**
+             * Format: uuid
+             * @description 「重新生成」的幂等键（BFF 或客户端生成）。
+             */
+            attemptId?: string;
+        };
+        ExecuteTaskRefDto: {
+            /** Format: uuid */
+            taskId: string;
+            /** Format: uuid */
+            taskRunId: string;
+        };
+        ExecuteQueryPlanDto: {
+            /**
+             * @description Explicit frozen manufacturer evidence execution revision.
+             * @enum {string}
+             */
+            manufacturerNetworkRevision?: "manufacturer-network/v1" | "manufacturer-network/v2";
+            /** @description Run 2.0 任务归因；旧调用方不传时行为不变。 */
+            taskRef?: components["schemas"]["ExecuteTaskRefDto"];
+            /**
+             * Format: uuid
+             * @description P1 attempt 维度：「重试」的幂等键；同一 attempt 重放被拒（GRANT_REUSED），新 attempt 放行。READY 计划首跑可缺省（行为与旧版一致）；EXECUTED 计划重跑必填，缺省返回 409 RERUN_REQUIRES_ATTEMPT。
+             */
+            attemptId?: string;
+        };
         DiscoverContactsDto: {
             /**
-             * @description 发现并持久化具名联系人的合法性基础（GDPR Art.6）
+             * @description 发现并持久化具名联系人的合法性基础（GDPR Art.6）。缺失时不在这里返回 400，而是交给服务层在消耗预算前以 CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED 拒绝（与 OpenAPI 合同一致）。
+             * @enum {string}
+             */
+            lawfulBasis?: "legitimate_interest" | "consent" | "contract" | "legal_obligation";
+            /** @description LIA / 工单 / 合同 / 同意记录的引用（可审计） */
+            lawfulBasisRef?: string;
+            /** @description 有界审计备注 */
+            lawfulBasisNote?: string;
+            /**
+             * Format: uuid
+             * @description 客户端每次点击生成的幂等键（UUID）。用于把同一公司的多次联系人发现隔离到各自预算账户，避免重复点击触发 EXECUTION_BUDGET_GRANT_REUSED；缺省时保持旧请求哈希。
+             */
+            attemptId?: string;
+        };
+        EnrichContactsDto: {
+            /**
+             * @description 把具名联系人 + 公司域送给付费 finder/验证器处理的合法性基础（GDPR Art.6）。缺失时不在这里返回 400，而是交给服务层在消耗预算前以 CONTACT_ENRICH_LAWFUL_BASIS_REQUIRED 拒绝。
              * @enum {string}
              */
             lawfulBasis: "legitimate_interest" | "consent" | "contract" | "legal_obligation";
@@ -1840,6 +3697,17 @@ export interface components {
             lawfulBasisRef?: string;
             /** @description 有界审计备注 */
             lawfulBasisNote?: string;
+            /** @description 限定联系人 id（≤10）；缺省 = 该公司全部缺 email 的具名联系人 */
+            contactIds?: string[];
+            /** @description 每联系人最多尝试的 finder 家数（1–3） */
+            maxProviders?: number;
+            /** @description 每地址验证瀑布调用上限（1–6） */
+            maxProbe?: number;
+            /**
+             * Format: uuid
+             * @description 客户端每次请求生成的幂等键（UUID），隔离到各自的预算账户与请求哈希
+             */
+            attemptId?: string;
         };
         VerifyContactPointDto: {
             /**
@@ -1890,6 +3758,20 @@ export interface components {
             /** @enum {string} */
             reasonCode: "USER_PREFERENCE_CHANGED" | "BOUNCE_CLASSIFICATION_ERROR" | "IDENTITY_MISASSOCIATION" | "DUPLICATE_RECORD" | "OTHER";
         };
+        CriterionOverrideDto: {
+            /** @enum {string} */
+            id: "C1_MATERIAL" | "C2_ROLE" | "C3_PROCESS" | "C4_BUSINESS_MODEL" | "C5_SIZE";
+            /** @description 0–10 或 null（null=仅改 label） */
+            score?: Record<string, never> | null;
+            /** @enum {string} */
+            label?: "pass" | "weak" | "fail" | "unclear" | "not_applicable";
+        };
+        ResolveReviewTaskDto: {
+            /** @enum {string} */
+            verdict: "FIT" | "NOT_FIT" | "UNKNOWN";
+            note?: string;
+            criterionOverrides?: components["schemas"]["CriterionOverrideDto"][];
+        };
         LeadOutcomeDto: {
             /** @description 客户判断：相关性 1–5 */
             relevance?: number;
@@ -1936,6 +3818,44 @@ export interface components {
             /** @description 复核备注（留痕） */
             note?: string;
         };
+        CreateEvaluationSetDto: {
+            /** @description 评估集名称；与 version 组成唯一键 */
+            name: string;
+            /**
+             * @description 版本号（同集改名/换口径时递增）
+             * @default 1
+             */
+            version: number;
+            /** @description ICP 口径引用（可空）；ICP 删除时置空保留历史 */
+            icpId?: Record<string, never> | null;
+            /** @description 口径说明：地区×品类、抽样规则、标注约定 */
+            description?: Record<string, never>;
+            /** @description 创建者标识；缺省取 token 的 userId */
+            createdBy?: Record<string, never>;
+        };
+        EvaluationLabelDto: {
+            /** @description 候选公司（本 workspace canonical id） */
+            canonicalCompanyId?: Record<string, never> | null;
+            /** @description 候选域名（无 canonical id 时的引用） */
+            domain?: Record<string, never>;
+            /** @description 候选公司名（与 country 搭配的引用） */
+            name?: Record<string, never>;
+            /** @description 国家（name 引用时建议带上） */
+            country?: Record<string, never>;
+            /**
+             * @description 人工判定：是否命中 ICP
+             * @enum {string}
+             */
+            label: "POSITIVE" | "NEGATIVE";
+            /** @description 备注（判定依据） */
+            note?: Record<string, never>;
+            /** @description 标注者标识；缺省取 token 的 userId */
+            labeledBy?: Record<string, never>;
+        };
+        AddEvaluationLabelsDto: {
+            /** @description 1..500 条；同集同候选键后写覆盖先写 */
+            labels: components["schemas"]["EvaluationLabelDto"][];
+        };
         AckEventsDto: {
             /** @description 要 ACK 的 event_id 列表（envelope.event_id，uuid） */
             event_ids: string[];
@@ -1972,6 +3892,11 @@ export interface components {
              * @enum {string}
              */
             status: "generating_demo";
+            /**
+             * @description 公司理解是否已随 intake 触发；缺执行授权时为 not_started
+             * @enum {string}
+             */
+            understanding?: "started" | "not_started";
         };
         IntakeCompanyDto: {
             /** @description 公司中文名 */
@@ -2180,6 +4105,216 @@ export interface components {
             /** @description SiteSpec page/block identifier；局部构建要求目标存在于 active version */
             targetId?: string;
             options?: components["schemas"]["BuildOptionsDto"];
+        };
+        PresignSellerDocumentResponseDto: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uri */
+            uploadUrl: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        PresignSellerDocumentDto: {
+            /** @example 产品目录-2026.pdf */
+            filename: string;
+            /**
+             * @description pdf / docx / pptx / xlsx / text/plain / text/markdown
+             * @example application/pdf
+             */
+            mime: string;
+            /** @description 字节数（≤50MB，txt/md ≤10MB） */
+            size: number;
+        };
+        SellerDocumentDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            companyId: string;
+            filename: string;
+            mime: string;
+            /** @description 字节数（字符串表示，避免 JSON 大整数截断） */
+            sizeBytes: string;
+            /** @enum {string} */
+            kind: "pdf" | "docx" | "pptx" | "txt" | "md" | "other";
+            /** @enum {string} */
+            status: "pending_upload" | "committing" | "queued" | "processing" | "ready" | "failed_terminal" | "rejected" | "deleted";
+            processingErrorCode?: string | null;
+            chunkCount: number;
+            /** Format: date-time */
+            factsExtractedAt?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MarketCandidateCompanyBasisDto: {
+            /** Format: uuid */
+            companyId: string;
+            version: number;
+        };
+        MarketCandidateSourcePositionDto: {
+            seq: number | null;
+            page: number | null;
+            section: string | null;
+            quoteStart: number | null;
+            quoteEnd: number | null;
+        };
+        MarketCandidateSourceSnapshotDto: {
+            /** @enum {string} */
+            kind: "OFFERING" | "CLAIM" | "EVIDENCE" | "SELLER_DOCUMENT" | "SELLER_DOCUMENT_CHUNK";
+            /** Format: uuid */
+            sourceId: string;
+            key: string;
+            version: number | null;
+            status: string | null;
+            digest: string;
+            contentHash: string | null;
+            /** Format: uuid */
+            parentId: string | null;
+            parentContentHash: string | null;
+            position: components["schemas"]["MarketCandidateSourcePositionDto"] | null;
+            /** Format: date-time */
+            sourceDate: string | null;
+        };
+        MarketCandidateBasisSnapshotDto: {
+            company: components["schemas"]["MarketCandidateCompanyBasisDto"];
+            sources: components["schemas"]["MarketCandidateSourceSnapshotDto"][];
+        };
+        MarketCandidateSupplyDto: {
+            /** Format: uuid */
+            offeringId: string;
+            description: string;
+        };
+        MarketCandidateStatementDto: {
+            text: string;
+            /**
+             * @description 资料事实不等于独立验证认证、采购关系或真实市场效果。
+             * @enum {string}
+             */
+            knowledgeState: "SELLER_ASSERTION" | "REVIEWED_SOURCE_FACT" | "INFERENCE" | "CONFLICT" | "UNKNOWN";
+            /** @description 指向同一依据快照的 kind:UUID 键；空数组明确无记录依据。 */
+            basisKeys: string[];
+            impact: string;
+        };
+        MarketCandidateRecommendationDto: {
+            /** @enum {string} */
+            status: "COMPARABLE" | "CONDITIONAL" | "INSUFFICIENT_EVIDENCE" | "NOT_RECOMMENDED";
+            reason: string;
+        };
+        MarketCandidateProposalDto: {
+            supplyOrCapability: components["schemas"]["MarketCandidateSupplyDto"];
+            buyerOrganizationCountry: string | null;
+            projectCountry: string | null;
+            application: components["schemas"]["MarketCandidateStatementDto"];
+            organizationRole: components["schemas"]["MarketCandidateStatementDto"];
+            fitExplanation: components["schemas"]["MarketCandidateStatementDto"];
+            entryConditions: components["schemas"]["MarketCandidateStatementDto"][];
+            support: components["schemas"]["MarketCandidateStatementDto"][];
+            counterEvidence: components["schemas"]["MarketCandidateStatementDto"][];
+            gaps: components["schemas"]["MarketCandidateStatementDto"][];
+            recommendation: components["schemas"]["MarketCandidateRecommendationDto"];
+            nextVerification: string[];
+        };
+        MarketCandidateCorrectionDto: {
+            supplyDescription?: string;
+            buyerOrganizationCountry?: string | null;
+            projectCountry?: string | null;
+            application?: string;
+            organizationRole?: string;
+            fitExplanation?: string;
+            entryConditions?: string[];
+            gaps?: string[];
+            nextVerification?: string[];
+        };
+        MarketCandidateDto: {
+            proposal: components["schemas"]["MarketCandidateProposalDto"];
+            /** Format: uuid */
+            candidateId: string;
+            /** @description 用户主张覆盖层；不修改原 proposal 或卖方 SoR。 */
+            corrections: components["schemas"]["MarketCandidateCorrectionDto"];
+            /** @enum {string} */
+            feedback: "PENDING" | "CONFIRMED" | "CORRECTED" | "PENDING_EVIDENCE" | "REJECTED";
+            needsReassessment: boolean;
+            /** @enum {string} */
+            impactScope: "NONE" | "UNKNOWN";
+        };
+        MarketCandidateSetV1Dto: {
+            /** @enum {string} */
+            schemaVersion: "market-candidate-set/v1";
+            /** Format: uuid */
+            setId: string;
+            /** Format: uuid */
+            companyId: string;
+            revision: number;
+            basisSnapshot: components["schemas"]["MarketCandidateBasisSnapshotDto"];
+            /** @enum {string} */
+            generationOutcome: "CANDIDATES_PROPOSED" | "COMPLETED_EMPTY";
+            candidates: components["schemas"]["MarketCandidateDto"][];
+        };
+        MarketCandidateBasisAvailabilityDto: {
+            key: string;
+            /** @enum {string} */
+            status: "CURRENT" | "CHANGED" | "UNAVAILABLE" | "UNKNOWN";
+            /** @enum {string} */
+            reason: "MATCHED" | "VERSION_OR_DIGEST_CHANGED" | "SOURCE_UNAVAILABLE" | "FINGERPRINT_UNKNOWN";
+        };
+        MarketCandidateRevisionDto: {
+            document: components["schemas"]["MarketCandidateSetV1Dto"];
+            documentHash: string;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            historical: boolean;
+            basisAvailability: components["schemas"]["MarketCandidateBasisAvailabilityDto"][];
+        };
+        MarketCandidateLatestDto: {
+            /**
+             * @description NOT_ANALYZED 仅表示本能力没有可读候选文档，不代表没有市场机会。
+             * @enum {string}
+             */
+            status: "NOT_ANALYZED" | "AVAILABLE";
+            result: components["schemas"]["MarketCandidateRevisionDto"] | null;
+        };
+        MarketCandidateRevisionSummaryDto: {
+            revision: number;
+            documentHash: string;
+            /** Format: uuid */
+            createdBy: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MarketCandidateRevisionPageDto: {
+            revisions: components["schemas"]["MarketCandidateRevisionSummaryDto"][];
+            nextCursor: string | null;
+        };
+        MarketCandidateFeedbackResultDto: {
+            /** Format: uuid */
+            feedbackId: string;
+            /** Format: uuid */
+            setId: string;
+            /** Format: uuid */
+            candidateId: string;
+            recordedRevision: number;
+            documentHash: string;
+            /** @enum {string} */
+            action: "CONFIRM" | "CORRECT" | "KEEP_PENDING" | "REJECT";
+            reason: string | null;
+            correction: components["schemas"]["MarketCandidateCorrectionDto"] | null;
+            before: components["schemas"]["MarketCandidateDto"];
+            after: components["schemas"]["MarketCandidateDto"];
+            /** Format: uuid */
+            actorId: string;
+            /** Format: date-time */
+            createdAt: string;
+            replayed: boolean;
+            basisAvailability: components["schemas"]["MarketCandidateBasisAvailabilityDto"][];
+        };
+        MarketCandidateFeedbackInputDto: {
+            expectedRevision: number;
+            /** @enum {string} */
+            action: "CONFIRM" | "CORRECT" | "KEEP_PENDING" | "REJECT";
+            reason?: string | null;
+            /** @description 仅 CORRECT 接受非空且有实质变更的白名单补丁。 */
+            correction?: components["schemas"]["MarketCandidateCorrectionDto"];
         };
     };
     responses: never;
@@ -3044,14 +5179,27 @@ export interface operations {
                     /** @enum {string} */
                     operation: "POST /companies";
                     body: {
-                        website: string;
+                        website?: string;
                         name?: string;
+                        industry?: string;
+                        targetMarkets?: string[];
+                        products?: string[];
+                        businessEmail?: string;
                     };
                 } | {
                     /** @enum {string} */
                     operation: "POST /companies/:companyId/icps";
                     /** Format: uuid */
                     companyId: string;
+                } | {
+                    /** @enum {string} */
+                    operation: "POST /companies/:companyId/understanding/retry";
+                    /** Format: uuid */
+                    companyId: string;
+                    body: {
+                        /** Format: uuid */
+                        attemptId: string;
+                    };
                 } | {
                     /** @enum {string} */
                     operation: "POST /icps/:icpId/query-plans";
@@ -3062,11 +5210,30 @@ export interface operations {
                     operation: "POST /query-plans/:planId/execute";
                     /** Format: uuid */
                     planId: string;
+                    body?: {
+                        /** Format: uuid */
+                        attemptId?: string;
+                        /** @enum {string} */
+                        manufacturerNetworkRevision?: "manufacturer-network/v1" | "manufacturer-network/v2";
+                    };
                 } | {
                     /** @enum {string} */
                     operation: "POST /canonical-companies/:id/discover-contacts";
                     /** Format: uuid */
                     companyId: string;
+                    body?: {
+                        /** Format: uuid */
+                        attemptId: string;
+                    };
+                } | {
+                    /** @enum {string} */
+                    operation: "POST /canonical-companies/:id/enrich-contacts";
+                    /** Format: uuid */
+                    companyId: string;
+                    body?: {
+                        /** Format: uuid */
+                        attemptId: string;
+                    };
                 } | {
                     /** @enum {string} */
                     operation: "POST /canonical-companies/:id/guess-emails";
@@ -3098,6 +5265,12 @@ export interface operations {
                     operation: "POST /leads/:leadId/outreach-drafts";
                     /** Format: uuid */
                     leadId: string;
+                } | {
+                    /** @enum {string} */
+                    operation: "POST /site-builder/intake";
+                    body: {
+                        requestHash: string;
+                    };
                 };
             };
         };
@@ -3139,6 +5312,59 @@ export interface operations {
                         };
                     };
                 };
+            };
+        };
+    };
+    ExecutionBudgetWindowUsageController_windowUsage_v1: {
+        parameters: {
+            query: {
+                /** @description ISO8601（UTC） */
+                since: unknown;
+                workspaceId: unknown;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExecutionBudgetWindowUsageResponseDto"];
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_WINDOW_USAGE_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SERVICE_TOKEN_REQUIRED / SERVICE_TOKEN_INVALID */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description BUDGET_READBACK_LOOPBACK_ONLY */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description BUDGET_READBACK_NOT_CONFIGURED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3525,6 +5751,180 @@ export interface operations {
             };
         };
     };
+    requestCampaignPlanDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description SaaS 签发的一次性 workspace 执行预算 Grant（purpose campaign.plan） */
+                "x-execution-budget-grant": string;
+                /** @description gain-saas 控制面服务令牌（env CAMPAIGN_PLAN_INTERNAL_SERVICE_TOKEN） */
+                "x-service-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    workspaceId: string;
+                    /** Format: uuid */
+                    campaignId: string;
+                    /** Format: uuid */
+                    jobId: string;
+                    objective: string;
+                    /** Format: uuid */
+                    icpId?: string;
+                    audienceSizeCap?: number;
+                    budgetCapMicros?: number;
+                    maxReplans?: number;
+                    previousPlan?: Record<string, never>;
+                    replanReason?: {
+                        /** @enum {string} */
+                        code: "HUMAN_DECLINE";
+                        detail?: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            jobId: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    OutreachDncController_check_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckOutreachDncDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            results: {
+                                [key: string]: unknown;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+    };
+    OutreachDncController_suppress_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuppressOutreachDncDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            suppressed: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ContactEligibilityController_check_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description gain-saas 控制面服务令牌（env OUTREACH_INTERNAL_SERVICE_TOKEN；与 DNC 抑制同源） */
+                "x-service-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckContactEligibilityDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            results: {
+                                [key: string]: unknown;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ContactBounceController_record_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description gain-saas 控制面服务令牌（env OUTREACH_INTERNAL_SERVICE_TOKEN；与 DNC 抑制同源） */
+                "x-service-token": string;
+            };
+            path: {
+                pointId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordContactBounceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            status: string;
+                            action: string;
+                            duplicate: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
     CompanyController_list_v1: {
         parameters: {
             query?: {
@@ -3640,6 +6040,92 @@ export interface operations {
             };
         };
     };
+    CompanyController_retryUnderstanding_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description SaaS signed authority bound to this exact workspace mutation */
+                "X-Execution-Budget-Grant": string;
+            };
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryUnderstandingDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompanyDto"];
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH or EXECUTION_BUDGET_AUTHORITY_REVOKED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REUSED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     CompanyController_get_v1: {
         parameters: {
             query?: never;
@@ -3650,6 +6136,161 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompanyDto"];
+                    };
+                };
+            };
+        };
+    };
+    CompanyController_remove_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    CompanyController_update_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCompanyDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompanyDto"];
+                    };
+                };
+            };
+        };
+    };
+    CompanyController_preview_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            companyId: string;
+                            name?: string;
+                            website?: string | null;
+                            /** @enum {string} */
+                            status?: "DRAFT" | "ENRICHING" | "REVIEW" | "ACTIVE";
+                            /** @enum {string} */
+                            state: "not_started" | "queued" | "running" | "ready" | "failed";
+                            failure?: {
+                                stage?: string;
+                                code?: string;
+                            } | null;
+                            pagesAnalyzed: number;
+                            industry: {
+                                raw?: string | null;
+                                suggested?: {
+                                    raw?: string | null;
+                                    code?: string | null;
+                                    label?: string | null;
+                                    labelEn?: string | null;
+                                    matched?: boolean;
+                                };
+                                options?: {
+                                    code?: string;
+                                    labelEn?: string;
+                                    label?: string;
+                                    labels?: {
+                                        [key: string]: string;
+                                    };
+                                    parentCode?: string | null;
+                                    nace?: string[];
+                                }[];
+                            };
+                            products: {
+                                name?: string;
+                                source?: string | null;
+                                sourceUrl?: string | null;
+                                evidence?: string | null;
+                            }[];
+                            markets: {
+                                code?: string;
+                                name?: string;
+                                labelEn?: string;
+                                labels?: {
+                                    [key: string]: string;
+                                };
+                                evidence?: string;
+                                sourceUrl?: string | null;
+                            }[];
+                            /** Format: date-time */
+                            updatedAt?: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    CompanyController_applyOnboardingFacts_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingFactsDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -3710,6 +6351,33 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["CompanyDto"];
+                    };
+                };
+            };
+        };
+    };
+    CompanyController_listWebsiteCandidates_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            url: string;
+                            title: string;
+                            score: number;
+                        }[];
                     };
                 };
             };
@@ -3836,6 +6504,40 @@ export interface operations {
             };
         };
     };
+    ClaimController_synthesizeDrafts_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 把注册引导/档案里的主营产品、行业、目标市场确定性映射为待审事实草稿；批准后 ICP 生成不再被 NO_APPROVED_CLAIMS 阻断。重复调用按归一化语句去重。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description 从公司档案确定性生成的 Claim 草稿（幂等：重复调用不再新增） */
+                        data: {
+                            /** @description 本次新建的草稿数量 */
+                            created: number;
+                            /** @description 因既有同文事实或 REVOKED 去重而跳过的数量 */
+                            skipped: number;
+                            /** @description 本次新建的 Claim 草稿（NEEDS_REVIEW，带注册引导证据） */
+                            claims: {
+                                [key: string]: unknown;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+    };
     ClaimController_revoke_v1: {
         parameters: {
             query?: never;
@@ -3928,7 +6630,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["GenerateIcpDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {
@@ -4277,7 +6983,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["GenerateWithAttemptDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {
@@ -4366,6 +7076,56 @@ export interface operations {
             };
         };
     };
+    IcpController_feedbackReport_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                icpId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    IcpController_recomputeFeedback_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                icpId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
     IcpController_confirmQueryPlan_v1: {
         parameters: {
             query?: never;
@@ -4401,7 +7161,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExecuteQueryPlanDto"];
+            };
+        };
         responses: {
             202: {
                 headers: {
@@ -4445,7 +7209,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description EXECUTION_BUDGET_GRANT_REUSED */
+            /** @description EXECUTION_BUDGET_GRANT_REUSED, INVALID_STATE or RERUN_REQUIRES_ATTEMPT */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4469,6 +7233,113 @@ export interface operations {
                         error: {
                             code: string;
                             message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DiscoveryController_cancelRun_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            runId: string;
+                            status: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DiscoveryController_listRunEvents_v1: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            status: string;
+                            events: {
+                                [key: string]: unknown;
+                            }[];
+                            nextAfter: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DiscoveryController_listRunJobs_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            name?: string | null;
+                            domain?: string | null;
+                            country?: string | null;
+                            stage: string;
+                            verdictQuick?: string | null;
+                            verdictDeep?: string | null;
+                            lastErrorCode?: string | null;
+                            costCents?: number;
+                            /** Format: date-time */
+                            startedAt?: string | null;
+                            /** Format: date-time */
+                            finishedAt?: string | null;
+                        }[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
                         };
                     };
                 };
@@ -4503,6 +7374,13 @@ export interface operations {
                             stats: {
                                 [key: string]: unknown;
                             };
+                            taskRef?: {
+                                [key: string]: unknown;
+                            } | null;
+                            phases?: {
+                                [key: string]: unknown;
+                            } | null;
+                            mode?: string;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
@@ -4627,6 +7505,97 @@ export interface operations {
                         error: {
                             /** @enum {string} */
                             code: "EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH" | "EXECUTION_BUDGET_AUTHORITY_REVOKED" | "CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED";
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REUSED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DiscoveryController_enrichContacts_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description SaaS signed authority bound to this exact workspace mutation */
+                "X-Execution-Budget-Grant": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Body is required. An absent lawfulBasis is rejected before authority consumption with CONTACT_ENRICH_LAWFUL_BASIS_REQUIRED. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrichContactsDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description 富集结果（tier/逐联系人状态/成本） */
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH or EXECUTION_BUDGET_AUTHORITY_REVOKED or CONTACT_ENRICH_LAWFUL_BASIS_REQUIRED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH" | "EXECUTION_BUDGET_AUTHORITY_REVOKED" | "CONTACT_ENRICH_LAWFUL_BASIS_REQUIRED";
                             message: string;
                         };
                     };
@@ -5201,6 +8170,628 @@ export interface operations {
             };
         };
     };
+    JudgmentReviewController_list_v1: {
+        parameters: {
+            query?: {
+                status?: "queued" | "in_review" | "resolved" | "expired";
+                priority?: 0 | 1 | 2 | 3;
+                limit?: string;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            items: {
+                                id: string;
+                                judgmentRecordId: string;
+                                /** @enum {string} */
+                                reason: "UNKNOWN" | "BORDERLINE" | "RANDOM_AUDIT" | "DRIFT_AUDIT" | "APPEAL" | "CONFORMAL_ABSTAIN";
+                                /** @enum {number} */
+                                priority: 0 | 1 | 2 | 3;
+                                /** @enum {string} */
+                                status: "queued" | "in_review" | "resolved" | "expired";
+                                dueAt: string | null;
+                                /** @enum {string} */
+                                verdictAtJudge: "FIT" | "NOT_FIT" | "UNKNOWN";
+                                companyName: string | null;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    JudgmentReviewController_claim_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            status: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    JudgmentReviewController_resolve_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveReviewTaskDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            recordId: string;
+                            goldenLabelId: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    JudgmentReviewController_stats_v1: {
+        parameters: {
+            query?: {
+                /** @description 窗口天数，默认 7 */
+                window?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            windowDays: number;
+                            byStatus: {
+                                [key: string]: number;
+                            };
+                            byReason: {
+                                [key: string]: number;
+                            };
+                            byPriority: {
+                                [key: string]: number;
+                            };
+                            overturn: {
+                                resolved: number;
+                                overturned: number;
+                                rate: number | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    JudgmentReviewController_detail_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description judgment_record 明细（criteria/verdict/model/failureCode） */
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    RunResultViewController_getRunResultView_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            runId: string;
+                            /** Format: uuid */
+                            icpId: string;
+                            status: string;
+                            /** Format: date-time */
+                            completedAt?: string | null;
+                            candidates: {
+                                total: number;
+                                truncated: boolean;
+                                items: {
+                                    [key: string]: unknown;
+                                }[];
+                            };
+                            scoring: {
+                                thisRun: {
+                                    available: boolean;
+                                    /** @enum {string} */
+                                    label: "this_run" | "not_scored_in_run";
+                                    batches: number;
+                                    scoredCompanies?: number;
+                                    truncated?: boolean;
+                                    /** Format: date-time */
+                                    scoredAt?: string | null;
+                                    items: {
+                                        [key: string]: unknown;
+                                    }[];
+                                };
+                                latest: {
+                                    /** @enum {string} */
+                                    label: "latest_not_necessarily_this_run";
+                                    items: {
+                                        [key: string]: unknown;
+                                    }[];
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_list_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_create_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_available_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_importTemplate_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            csv: string;
+                            columns: string[];
+                            mapping: {
+                                [key: string]: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_detail_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_patch_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_enable_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            channelId: string;
+                            enabled: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_disable_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            channelId: string;
+                            enabled: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_test_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_preview_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_run_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_records_v1: {
+        parameters: {
+            query: {
+                limit: string;
+                reviewStatus?: "PENDING" | "APPROVED" | "REJECTED";
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_reviewRecords_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_previewImport_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_importBuyers_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ChannelsController_batch_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
     LeadController_qualify_v1: {
         parameters: {
             query?: never;
@@ -5260,6 +8851,59 @@ export interface operations {
                         } & {
                             [key: string]: unknown;
                         })[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    LeadController_listCandidates_v1: {
+        parameters: {
+            query?: {
+                /** @description qualify 工作流 run id；按批次引用前缀过滤 */
+                runId?: string;
+                icpId?: string;
+                queue?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            lead_id: string;
+                            /** Format: uuid */
+                            icp_id: string;
+                            /** Format: uuid */
+                            canonical_company_id: string;
+                            /** @description 公司摘要（name/domain/country/industry/employeeCount） */
+                            company: {
+                                [key: string]: unknown;
+                            } | null;
+                            /** @description 机器判定队列（recommended|needs_review|rejected|suppressed|sanctions_hold） */
+                            queue: string;
+                            fit_verdict: string | null;
+                            total_score: number | null;
+                            /** Format: date-time */
+                            scored_at: string | null;
+                            status: string;
+                            /** @description 如 qualify:<runRef>:<batchNo>；未评分/旧数据为 null */
+                            candidate_batch_ref: string | null;
+                        }[];
                         page: {
                             /** @description 下一页游标；null = 没有更多 */
                             next_cursor: string | null;
@@ -5511,6 +9155,49 @@ export interface operations {
             };
         };
     };
+    LeadController_latestOutreachDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            leadId: string;
+                            version: number;
+                            /** @description 目标国语言（BCP-47 主标签） */
+                            language: string;
+                            /** @description 主题（目标国语言） */
+                            subject: string;
+                            /** @description 正文（目标国语言），末尾附卖方自己的回复入口 */
+                            body: string;
+                            /** @description 中文译文（运营审阅用） */
+                            bodyZh: string;
+                            /** @description 草稿引用的事实键 */
+                            usedFacts: string[];
+                            /** @description 实际产出该草稿的模型身份 */
+                            model: string;
+                            /** Format: date-time */
+                            createdAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+    };
     LeadController_outreachDraft_v1: {
         parameters: {
             query?: never;
@@ -5745,7 +9432,7 @@ export interface operations {
                     "application/json": {
                         error: {
                             /** @enum {string} */
-                            code: "SUPPRESSED" | "INVALID_STATE" | "SUPPRESSED_CONTACT_UNREACHABLE" | "STORAGE_RIGHTS_NOT_GRANTED" | "SANCTIONS_HOLD_UNRESOLVED" | "CONFLICT";
+                            code: "SUPPRESSED" | "INVALID_STATE" | "SUPPRESSED_CONTACT_UNREACHABLE" | "STORAGE_RIGHTS_NOT_GRANTED" | "SANCTIONS_HOLD_UNRESOLVED" | "SANCTIONS_LIST_STALE" | "CONFLICT";
                             message: string;
                         } & {
                             [key: string]: unknown;
@@ -6065,6 +9752,672 @@ export interface operations {
             };
         };
     };
+    MeasurementController_catalog_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...], page } — 字典为空时返回空数组（has_more=false） */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            metricId: string;
+                            version: number;
+                            name: string;
+                            tier: string;
+                            unit: string;
+                            status: string;
+                            owner: string;
+                            /** Format: date-time */
+                            effectiveFrom: string;
+                            definition: string;
+                        }[];
+                        page: {
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MeasurementController_observations_v1: {
+        parameters: {
+            query?: {
+                /** @description 指标 ID，如 T2-001；缺省返回全部指标 */
+                metricId?: string;
+                /** @description 起始日（含），YYYY-MM-DD（UTC） */
+                from?: string;
+                /** @description 结束日（含），YYYY-MM-DD（UTC） */
+                to?: string;
+                /** @description 上一页 page.next_cursor 原样回传 */
+                cursor?: string;
+                /** @description 每页条数，默认 100，最大 500 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...observations], page } */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 参数或游标不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MeasurementController_rollups_v1: {
+        parameters: {
+            query?: {
+                /** @description daily（默认）或 weekly */
+                granularity?: "daily" | "weekly";
+                /** @description 指标 ID，如 T2-001；缺省返回全部指标 */
+                metricId?: string;
+                /** @description 起始日（含），YYYY-MM-DD（UTC） */
+                from?: string;
+                /** @description 结束日（含），YYYY-MM-DD（UTC） */
+                to?: string;
+                /** @description 上一页 page.next_cursor 原样回传 */
+                cursor?: string;
+                /** @description 每页条数，默认 100，最大 500 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...rollups], page } */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 参数或游标不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MeasurementController_vric_v1: {
+        parameters: {
+            query?: {
+                /** @description daily（默认）或 weekly */
+                granularity?: "daily" | "weekly";
+                /** @description 起始日（含），YYYY-MM-DD（UTC） */
+                from?: string;
+                /** @description 结束日（含），YYYY-MM-DD（UTC） */
+                to?: string;
+                /** @description 返回的桶数，默认 30，最大 180；显式 from/to 时以最后 limit 个桶为准 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...vric buckets], page } — page.has_more 表示窗口被截断 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 参数不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MeasurementController_sourceYieldByPeriod_v1: {
+        parameters: {
+            query?: {
+                /** @description day（自然日）或 week（ISO 周，周一为桶值）；默认 week */
+                granularity?: "day" | "week";
+                /** @description 起始日（含），YYYY-MM-DD（UTC） */
+                from?: string;
+                /** @description 结束日（含），YYYY-MM-DD（UTC） */
+                to?: string;
+                /** @description 只看向某一发现源（provider_key） */
+                providerKey?: string;
+                /** @description 每页条数，默认 100，最大 500 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...buckets], page } */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 参数不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MeasurementController_billingReconciliation_v1: {
+        parameters: {
+            query?: {
+                /** @description 起始日（含），YYYY-MM-DD（UTC） */
+                from?: string;
+                /** @description 结束日（含），YYYY-MM-DD（UTC） */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: {...} } */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 参数不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    EvaluationController_createSet_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvaluationSetDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            name: string;
+                            version: number;
+                            icpId: string | null;
+                            description: string | null;
+                            createdBy: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    EvaluationController_addLabels_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddEvaluationLabelsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            setId: string;
+                            upserted: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    EvaluationController_report_v1: {
+        parameters: {
+            query: {
+                /** @description discovery run id（uuid） */
+                runId: string;
+                /** @description 只看某一发现源（provider_key）产出的候选；缺省用该 run 全部去重候选 */
+                providerKey?: string;
+                /** @description 截断深度，默认 10，最大 50 */
+                k?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            set: {
+                                id: string;
+                                name: string;
+                                version: number;
+                                icpId: string | null;
+                                description: string | null;
+                                createdBy: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                            runId: string;
+                            providerKey: string | null;
+                            k: number;
+                            candidateCount: number;
+                            evaluated: number;
+                            hits: number;
+                            negatives: number;
+                            unlabeled: number;
+                            precisionAtK: number | null;
+                            precisionAtLabeledK: number | null;
+                            top: {
+                                canonicalCompanyId: string;
+                                name: string;
+                                domain: string | null;
+                                country: string | null;
+                                verdict: string;
+                                score: number;
+                                /** @enum {string|null} */
+                                label: "POSITIVE" | "NEGATIVE" | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+    };
+    EvaluationController_coverage_v1: {
+        parameters: {
+            query: {
+                /** @description 发现源 A 的 provider_key */
+                sourceA: string;
+                /** @description 发现源 B 的 provider_key（须与 A 不同） */
+                sourceB: string;
+                /** @description 地区（匹配 canonical_company.country，大小写不敏感） */
+                region: string;
+                /** @description 品类（匹配 canonical_company.industry，大小写不敏感） */
+                category: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            region: string;
+                            category: string;
+                            sourceA: string;
+                            sourceB: string;
+                            countA: number;
+                            countB: number;
+                            overlap: number;
+                            estimator: string;
+                            estimable: boolean;
+                            /** @enum {string|null} */
+                            reason: "EMPTY_SOURCE" | null;
+                            observedUnion: number;
+                            estimate: number | null;
+                            ciLow: number | null;
+                            ciHigh: number | null;
+                            recallEstimate: number | null;
+                            /** @enum {string|null} */
+                            warning: "ZERO_OVERLAP" | null;
+                            /** Format: date-time */
+                            computedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    CompanySignalsController_list_v1: {
+        parameters: {
+            query?: {
+                /** @description 每页条数，默认 20，最大 100 */
+                limit?: number;
+                /** @description 上一页 page.next_cursor 原样回传 */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description { data: [...], page } — 该公司暂无信号时返回空数组（has_more=false） */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            /** @enum {string} */
+                            providerKey: "rss" | "changedetection";
+                            /** @enum {string} */
+                            signalKind: "rss_item" | "page_change";
+                            sourceUrl: string;
+                            title: string;
+                            excerpt: string | null;
+                            /** Format: date-time */
+                            observedAt: string;
+                        }[];
+                        page: {
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR — limit/cursor 形态非法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    CompanyLegalLinksController_resolve_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description 可选：先登记进本 workspace 的 legal_entity 再参与消歧的候选法人实体（≤20 条） */
+                    candidates?: {
+                        /** @enum {string} */
+                        scheme: "lei" | "vat" | "hrb" | "siren" | "ch" | "kvk" | "cvr" | "bolagsverket" | "other";
+                        /** @description 规范式由服务端归一（大写、去空格/分隔符） */
+                        value: string;
+                        country: string;
+                        name: string;
+                        address?: string | null;
+                        /** @enum {string} */
+                        status?: "active" | "inactive" | "dissolved" | "unknown";
+                        sourceProvider?: string;
+                        evidenceUrl?: string | null;
+                        evidenceHash?: string | null;
+                        evidenceJson?: {
+                            [key: string]: unknown;
+                        } | null;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description 公司当前全部链接（含本次新增），按置信度倒序 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** Format: uuid */
+                            legalEntityId: string;
+                            confidence: number;
+                            /** @enum {string} */
+                            matchMethod: "deterministic" | "probabilistic";
+                            matchRule: string;
+                            /** @enum {string} */
+                            status: "auto" | "review" | "rejected";
+                            evidence: {
+                                [key: string]: unknown;
+                            } | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                            legalEntity: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                scheme: "lei" | "vat" | "hrb" | "siren" | "ch" | "kvk" | "cvr" | "bolagsverket" | "other";
+                                value: string;
+                                country: string;
+                                name: string;
+                                address: string | null;
+                                /** @enum {string} */
+                                status: "active" | "inactive" | "dissolved" | "unknown";
+                                sourceProvider: string;
+                            };
+                        }[];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR — 请求体或候选实体形态非法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description 公司不存在或属于其他 workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CompanyLegalLinksController_list_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 公司当前全部链接；无链接返回空数组 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** Format: uuid */
+                            legalEntityId: string;
+                            confidence: number;
+                            /** @enum {string} */
+                            matchMethod: "deterministic" | "probabilistic";
+                            matchRule: string;
+                            /** @enum {string} */
+                            status: "auto" | "review" | "rejected";
+                            evidence: {
+                                [key: string]: unknown;
+                            } | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            updatedAt: string;
+                            legalEntity: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                scheme: "lei" | "vat" | "hrb" | "siren" | "ch" | "kvk" | "cvr" | "bolagsverket" | "other";
+                                value: string;
+                                country: string;
+                                name: string;
+                                address: string | null;
+                                /** @enum {string} */
+                                status: "active" | "inactive" | "dissolved" | "unknown";
+                                sourceProvider: string;
+                            };
+                        }[];
+                    };
+                };
+            };
+            /** @description 公司不存在或属于其他 workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     EventsController_ackStatus_v1: {
         parameters: {
             query?: never;
@@ -6285,6 +10638,8 @@ export interface operations {
                 "idempotency-key"?: string;
                 /** @description SaaS 签发、绑定本次 intake 请求的一次性费用授权 JWS */
                 "X-Site-Build-Budget-Grant": string;
+                /** @description 可选：SaaS 签发的 understanding.run 授权；缺失时公司理解不触发，响应 understanding=not_started */
+                "X-Execution-Budget-Grant"?: string;
             };
             path?: never;
             cookie?: never;
@@ -7812,6 +12167,1286 @@ export interface operations {
                             /** @enum {string} */
                             code: "SITE_BUILD_BUDGET_QUOTE_UNAVAILABLE" | "SITE_BUILD_BUDGET_POLICY_DRIFT";
                             message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_presign_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresignSellerDocumentDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PresignSellerDocumentResponseDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_commit_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_uploadContent_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                "content-type": string;
+            };
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_search_v1: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            documentId: string;
+                            filename: string;
+                            seq: number;
+                            text: string;
+                            score: number;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_list_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"][];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_get_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_remove_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_downloadUrl_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uri */
+                            url: string;
+                            expiresInSeconds?: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_retry_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateSetsController_getLatest_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateLatestDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：参数或严格文档合同无效。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 缺少读取或人工反馈权限。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 公司、候选或文档不存在、已删除或不在当前租户。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateSetsController_getCurrent_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                setId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateRevisionDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：参数或严格文档合同无效。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 缺少读取或人工反馈权限。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 公司、候选或文档不存在、已删除或不在当前租户。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateSetsController_listRevisions_v1: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                setId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateRevisionPageDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：参数或严格文档合同无效。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 缺少读取或人工反馈权限。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 公司、候选或文档不存在、已删除或不在当前租户。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateSetsController_getRevision_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                setId: string;
+                revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateRevisionDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：参数或严格文档合同无效。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 缺少读取或人工反馈权限。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 公司、候选或文档不存在、已删除或不在当前租户。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateSetsController_recordFeedback_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 同一意图重试沿用原 UUID；不同意图使用新 key。 */
+                "idempotency-key": string;
+            };
+            path: {
+                setId: string;
+                candidateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCandidateFeedbackInputDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateFeedbackResultDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：参数或严格文档合同无效。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 缺少读取或人工反馈权限。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description 公司、候选或文档不存在、已删除或不在当前租户。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description VERSION_CONFLICT 或 IDEMPOTENCY_CONFLICT；不写半条历史，不自动强制覆盖。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            details?: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_list_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_workspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_setWorkspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_clearWorkspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_detail_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SkillsController_setStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_list_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    PacksController_detail_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_createDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_updateDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                draftId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_validateDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                draftId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_dryRun_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                draftId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_eval_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                draftId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_publish_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                draftId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_activate_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_workspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_setWorkspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    PacksController_clearWorkspaceEnablement_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                packKey: string;
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    AgentsController_list_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    AgentsController_setStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    RunTraceController_list_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            stepType: string;
+                            agentKey: string;
+                            actorType?: string;
+                            attempt?: number;
+                            decisionType: string;
+                            chosenOption?: {
+                                [key: string]: unknown;
+                            } | null;
+                            score?: number | null;
+                            reasonCode?: string | null;
+                            evidence?: {
+                                [key: string]: unknown;
+                            }[];
+                            rejectedCandidates?: {
+                                [key: string]: unknown;
+                            }[];
+                            costEstimatedMicros?: string | null;
+                            costActualMicros?: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                        }[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
                         };
                     };
                 };
