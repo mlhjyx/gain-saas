@@ -154,11 +154,10 @@ const manualValid = computed(
   () =>
     name.value.trim().length > 0 &&
     products.value.length > 0 &&
-    products.value.length <= 5 &&
-    targetMarkets.value.length > 0,
+    products.value.length <= 5,
 );
 const selectionValid = computed(
-  () => products.value.length > 0 && products.value.length <= 5 && targetMarkets.value.length > 0,
+  () => products.value.length > 0 && products.value.length <= 5,
 );
 const step = computed(() => (view.value === 'start' ? 0 : 1));
 const steps = computed(() => [
@@ -199,9 +198,6 @@ function applyPreview(next: OnboardingPreview) {
     const suggestedProducts = next.products.map((item) => item.name);
     if (products.value.length === 0) {
       products.value = suggestedProducts.slice(0, 5);
-    }
-    if (targetMarkets.value.length === 0) {
-      targetMarkets.value = next.markets.map((item) => item.code).slice(0, 20);
     }
     view.value = 'preview';
     stopPolling();
@@ -591,6 +587,7 @@ onBeforeUnmount(stopPolling);
             >
               {{ $t('gainos.onboarding.marketsSuggested', { names: suggestedMarketNames }) }}
             </span>
+            <span class="field-hint">{{ $t('gainos.onboarding.marketsOptionalHint') }}</span>
           </div>
 
           <label class="field">
@@ -769,7 +766,7 @@ onBeforeUnmount(stopPolling);
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   padding-right: 10px;
   font-size: 13px;
   color: var(--gs-fg, #111827);
@@ -780,7 +777,7 @@ onBeforeUnmount(stopPolling);
 
 .tag.selected {
   color: var(--gs-primary, #2563eb);
-  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, #fff);
+  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, var(--gs-surface, #fff));
   border-color: var(--gs-primary, #2563eb);
 }
 
@@ -805,6 +802,17 @@ onBeforeUnmount(stopPolling);
   font-size: 11px;
   color: var(--gs-fg-subtle, #6b7280);
   text-decoration: underline;
+}
+
+.tag.selected .tag-source {
+  color: var(--gs-fg, #111827);
+}
+
+.tag-source:focus-visible {
+  outline: 2px solid var(--gs-fg, #111827);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--gs-surface, #ffffff);
+  border-radius: 2px;
 }
 
 .onboarding-error {
@@ -873,7 +881,8 @@ onBeforeUnmount(stopPolling);
   padding: 10px 12px;
   font-size: 13px;
   color: var(--gs-fg, #111827);
-  background: color-mix(in srgb, var(--gs-primary, #2563eb) 8%, #fff);
+  background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, var(--gs-surface, #fff));
+  border: 1px solid color-mix(in srgb, var(--gs-primary, #2563eb) 28%, transparent);
   border-radius: 8px;
 }
 

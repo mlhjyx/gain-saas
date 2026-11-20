@@ -1280,6 +1280,7 @@
     "marketsDesc": "勾选你希望出口的国家（可多选），寻源与背调会按市场优先级执行",
     "marketsPlaceholder": "选择目标市场",
     "marketsSuggested": "官网提到：{names}",
+    "marketsOptionalHint": "目标市场可以留空；保存只记录公司资料，不会启动市场分析或买家挖掘",
     "submit": "完成建档",
     "success": "公司档案已创建，开始使用吧",
     "submitFailed": "建档失败，请稍后重试",
