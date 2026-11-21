@@ -54,28 +54,30 @@ const items = computed(() =>
 
 <style scoped>
 .gss {
-  max-width: 1280px;
+  max-width: var(--gs-page-max, 1280px);
   margin: 0 auto;
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
+  padding: var(--gs-page-pad, 24px);
+  padding-bottom: clamp(32px, 4vh, 48px);
   display: grid;
-  grid-template-columns: 188px minmax(0, 1fr);
-  gap: clamp(20px, 2.6vw, 36px);
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 24px;
   align-items: start;
 }
 .gss__nav {
   position: sticky;
   top: 84px;
   display: grid;
-  gap: 4px;
-  padding: 6px;
+  gap: 2px;
+  padding: 4px;
   border: 1px solid var(--gs-border);
-  border-radius: 12px;
+  border-radius: var(--gs-radius-10);
   background: var(--gs-surface);
 }
 .gss__link {
   border-radius: 8px;
-  padding: 9px 12px;
-  font-size: 13.5px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--gs-fg-2);
   text-decoration: none;
 }
@@ -85,7 +87,7 @@ const items = computed(() =>
 .gss__link.router-link-active {
   background: var(--gs-accent-soft);
   color: var(--gs-accent-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 .gss__main {
   display: grid;
@@ -102,15 +104,18 @@ const items = computed(() =>
 .gss__head h1 {
   margin: 0;
   font-size: 24px;
-  font-weight: 700;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.011em;
   color: var(--gs-fg);
 }
 .gss__head p {
   margin: 6px 0 0;
-  font-size: 13.5px;
-  line-height: 1.7;
-  color: var(--gs-fg-muted);
   max-width: 680px;
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.011em;
+  color: var(--gs-fg-muted);
 }
 .gss__actions {
   display: flex;

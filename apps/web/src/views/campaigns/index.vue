@@ -9,6 +9,7 @@ import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { $t } from '#/locales';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import EmptyState from '#/components/gainos/empty-state.vue';
 import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
@@ -151,10 +152,19 @@ onMounted(load);
       @retry="load"
     >
       <template #empty>
-        <div class="cm__empty-body">
-          <p>{{ $t('gainos.campaigns.empty') }}</p>
-          <Button type="primary" @click="showCreate = true">{{ $t('gainos.campaigns.newCampaign') }}</Button>
-        </div>
+        <EmptyState :title="$t('gainos.campaigns.empty')">
+          <template #actions>
+            <Button type="primary" @click="showCreate = true">
+              {{ $t('gainos.campaigns.newCampaign') }}
+            </Button>
+            <Button @click="router.push('/qgos')">
+              {{ $t('gainos.qgos.title') }}
+            </Button>
+            <Button @click="router.push('/growth?tab=outreach')">
+              {{ $t('gainos.growth.outreachTitle') }}
+            </Button>
+          </template>
+        </EmptyState>
       </template>
       <Table
         :columns="columns"

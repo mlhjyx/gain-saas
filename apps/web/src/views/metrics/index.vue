@@ -427,6 +427,10 @@ onMounted(() => {
       <div v-else-if="chartBuckets.length === 0" class="mt__empty">
         <p class="mt__empty-title">{{ $t('gainos.metrics.vricEmpty') }}</p>
         <p class="mt__muted">{{ $t('gainos.metrics.vricEmptyHint') }}</p>
+        <div class="mt__empty-actions">
+          <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+          <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+        </div>
       </div>
       <template v-else>
         <p class="mt__summary">
@@ -509,6 +513,10 @@ onMounted(() => {
         <div v-else-if="catalogRows.length === 0" class="mt__empty">
           <p class="mt__empty-title">{{ $t('gainos.metrics.catalogEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.catalogEmptyHint') }}</p>
+          <div class="mt__empty-actions">
+            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          </div>
         </div>
         <div v-else class="mt__tablewrap">
           <table class="mt__table">
@@ -583,6 +591,10 @@ onMounted(() => {
         <div v-else-if="observations.length === 0" class="mt__empty">
           <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
+          <div class="mt__empty-actions">
+            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          </div>
         </div>
         <template v-else>
           <div class="mt__tablewrap">
@@ -673,6 +685,10 @@ onMounted(() => {
         <div v-else-if="rollups.length === 0" class="mt__empty">
           <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
+          <div class="mt__empty-actions">
+            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          </div>
         </div>
         <template v-else>
           <div class="mt__tablewrap">
@@ -752,6 +768,15 @@ onMounted(() => {
 .mt__error button { justify-self: start; }
 .mt__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface-3); padding: 32px 20px; text-align: center; display: grid; gap: 6px; }
 .mt__empty-title { margin: 0; font-weight: 600; color: var(--gs-fg-2); }
+.mt__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.mt__empty-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 8px 16px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
+}
+.mt__empty-link.is-primary { border-color: transparent; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
+.mt__empty-link:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
+.mt__empty-link.is-primary:hover { background: var(--gs-accent-cta-hover); color: var(--gs-accent-cta-fg); }
 .mt__tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--gs-surface-2); border-radius: 12px; width: fit-content; }
 .mt__tab { border: none; background: transparent; color: var(--gs-fg-2); font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 9px; cursor: pointer; }
 .mt__tab.is-active { background: var(--gs-surface); color: var(--gs-fg); box-shadow: var(--gs-shadow-card); }

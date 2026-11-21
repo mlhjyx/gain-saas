@@ -758,7 +758,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
       <div class="fb__empty-mark">🎯</div>
       <p class="fb__empty-title">{{ $t('gainos.findBuyers.emptyTitle') }}</p>
       <p class="fb__empty-desc">{{ $t('gainos.findBuyers.emptyDesc') }}</p>
-      <button class="fb__cta" type="button" @click="openCreate">{{ $t('gainos.findBuyers.emptyCta') }}</button>
+      <div class="fb__empty-actions">
+        <button class="fb__cta" type="button" @click="openCreate">{{ $t('gainos.findBuyers.emptyCta') }}</button>
+        <RouterLink class="fb__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
+        <RouterLink class="fb__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
+      </div>
     </section>
     <section v-else class="fb__list">
       <article v-for="icp in icps" :key="icp.id" class="fb__card">
@@ -1093,9 +1097,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 <style scoped>
 .fb { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
 .fb__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.fb__stage { font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
-.fb__head h1 { margin: 6px 0 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
-.fb__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 640px; line-height: 1.7; }
+.fb__stage { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .04em; color: var(--gs-accent-strong); }
+.fb__head h1 { margin: 6px 0 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
+.fb__head p { margin: 8px 0 0; font-size: 16px; line-height: 24px; letter-spacing: -.011em; color: var(--gs-fg-muted); max-width: 640px; }
 .fb__refresh { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 10px; padding: 8px 16px; font-size: 13px; color: var(--gs-fg-2); cursor: pointer; white-space: nowrap; }
 .fb__refresh.is-loading { opacity: .6; cursor: progress; }
 .fb__steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
@@ -1126,6 +1130,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 .fb__empty-mark { font-size: 30px; }
 .fb__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
 .fb__empty-desc { margin: 0 0 10px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 540px; line-height: 1.75; }
+.fb__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.fb__cta-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
+}
+.fb__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .fb__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 /* 卡片用纵向 flex（而非 grid）：外层网格把同行卡片拉伸到等高时，
    grid 的 auto 行会把多余高度平摊到每一行——标题/标签/统计行全部被撑高，

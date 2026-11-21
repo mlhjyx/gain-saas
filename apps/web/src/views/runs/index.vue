@@ -1233,8 +1233,8 @@ onUnmounted(() => {
 .run__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .run__back { border: 0; background: transparent; padding: 0; color: var(--gs-fg-muted); font-size: 13px; cursor: pointer; }
 .run__back:hover { color: var(--gs-accent-strong); }
-.run__kicker { display: block; margin-top: 10px; font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
-.run__head h1 { margin: 6px 0 0; font-size: 26px; font-weight: 700; color: var(--gs-fg); }
+.run__kicker { display: block; margin-top: 10px; font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .04em; color: var(--gs-accent-strong); }
+.run__head h1 { margin: 6px 0 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
 .run__head-actions { display: flex; align-items: center; gap: 12px; padding-top: 4px; }
 .run__auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gs-fg-muted); }
 .run__action { border: 1px solid var(--gs-border); background: var(--gs-surface); border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--gs-fg); }

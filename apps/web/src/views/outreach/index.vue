@@ -337,7 +337,13 @@ onMounted(loadBatches);
 
     <div v-else-if="!error" class="ob__grid">
       <section class="ob__list" :aria-label="$t('gainos.outreach.listTitle')">
-        <p v-if="batches.length === 0" class="ob__muted">{{ $t('gainos.outreach.empty') }}</p>
+        <div v-if="batches.length === 0" class="ob__empty">
+          <p class="ob__muted">{{ $t('gainos.outreach.empty') }}</p>
+          <div class="ob__empty-actions">
+            <RouterLink class="ob__secondary" to="/growth?tab=replies">{{ $t('gainos.replies.tab') }}</RouterLink>
+            <RouterLink class="ob__secondary" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          </div>
+        </div>
         <button
           v-for="batch in batches"
           :key="batch.id"
@@ -524,6 +530,14 @@ onMounted(loadBatches);
 .ob__timeline ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .ob__timeline li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .ob__muted { color: var(--gs-fg-muted); font-size: 12.5px; }
+.ob__empty { display: grid; gap: 10px; }
+.ob__empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ob__secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 7px 16px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
+}
+.ob__secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .ob__error { color: var(--gs-danger); margin: 0; }
 @media (max-width: 860px) { .ob__grid { grid-template-columns: 1fr; } }
 </style>

@@ -11,6 +11,7 @@ import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 import { $t } from '#/locales';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import EmptyState from '#/components/gainos/empty-state.vue';
 import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
@@ -93,10 +94,19 @@ const columns = [
       @retry="load"
     >
       <template #empty>
-        <p>{{ $t('gainos.tasks.empty') }}</p>
-        <Button type="primary" @click="router.push('/find-buyers')">
-          {{ $t('gainos.tasks.emptyCta') }}
-        </Button>
+        <EmptyState :title="$t('gainos.tasks.empty')">
+          <template #actions>
+            <Button type="primary" @click="router.push('/find-buyers')">
+              {{ $t('gainos.tasks.emptyCta') }}
+            </Button>
+            <Button @click="router.push('/leads')">
+              {{ $t('gainos.leads.title') }}
+            </Button>
+            <Button @click="router.push('/companies')">
+              {{ $t('gainos.companies.title') }}
+            </Button>
+          </template>
+        </EmptyState>
       </template>
       <Table
         :columns="columns"

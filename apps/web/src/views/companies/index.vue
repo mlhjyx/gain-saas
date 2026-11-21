@@ -875,7 +875,12 @@ onUnmounted(() => {
       </div>
       <p class="cp__state-title">{{ $t('gainos.companies.emptyTitle') }}</p>
       <p class="cp__state-desc">{{ $t('gainos.companies.emptyDesc') }}</p>
-      <button type="button" class="cp__cta" @click="openWizard">{{ $t('gainos.companies.emptyCta') }}</button>
+      <div class="cp__state-actions">
+        <button type="button" class="cp__cta" @click="openWizard">{{ $t('gainos.companies.emptyCta') }}</button>
+        <RouterLink class="cp__cta-secondary" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+        <RouterLink v-if="isAdmin" class="cp__cta-secondary" to="/settings/sources">{{ $t('gainos.sources.title') }}</RouterLink>
+        <RouterLink v-else class="cp__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
+      </div>
     </div>
 
     <template v-else>
@@ -1396,8 +1401,8 @@ onUnmounted(() => {
   margin: 0 auto;
  display: grid; gap: 20px; }
 .cp__head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
-.cp__head h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
-.cp__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 560px; line-height: 1.7; }
+.cp__head h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
+.cp__head p { margin: 8px 0 0; font-size: 16px; line-height: 24px; letter-spacing: -.011em; color: var(--gs-fg-muted); max-width: 560px; }
 .cp__cta {
   display: inline-flex; align-items: center; gap: 7px; flex: none; cursor: pointer;
   border: 0; border-radius: 11px; padding: 11px 18px; font-size: 14px; font-weight: 600;
@@ -1430,6 +1435,13 @@ onUnmounted(() => {
   font-size: 13.5px; cursor: pointer; color: var(--gs-fg-2); transition: border-color .15s ease, color .15s ease;
 }
 .cp__state-retry:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
+.cp__state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.cp__cta-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
+}
+.cp__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 
 .cp__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .cp__item {
