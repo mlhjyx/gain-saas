@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, GoneException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -45,8 +45,8 @@ export class WorkspacesController {
   @Post()
   async create() {
     // 一企一空间（2026-11-21）：工作空间只在注册新企业时创建，不再开放自助多开。
-    // 保留路由返回 410，避免老客户端误用；同事加入走邀请（/api/members/invite）。
-    throw new ConflictException({
+    // 路由保留但返回 410 Gone（与 PRD/changelog 的「410 退役」一致）；同事加入走邀请（/api/members/invite）。
+    throw new GoneException({
       error: { code: 'WORKSPACE_CREATE_RETIRED', message: '工作空间随企业注册创建，同事请通过邀请加入' },
     });
   }
