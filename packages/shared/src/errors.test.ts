@@ -33,6 +33,14 @@ describe('copyForError', () => {
     for (const code of blockers) expect(code in ENGINE_ERROR_COPY).toBe(true);
   });
 
+  it('接受线索的制裁名单过期码有登记(不再落 fallback;重试无效必须给恢复指引)', () => {
+    expect('SANCTIONS_LIST_STALE' in ENGINE_ERROR_COPY).toBe(true);
+    const copy = copyForError('SANCTIONS_LIST_STALE');
+    expect(copy.why).toContain('合规');
+    expect(copy.next).toContain('自动恢复');
+    expect(copy.en!.next).toContain('recovers automatically');
+  });
+
   it('交付闭环的开发信草稿错误码有登记(不再落 fallback)', () => {
     expect(copyForError('OUTREACH_DRAFT_LEAD_NOT_ACCEPTED').why).toContain('接受');
     expect(copyForError('OUTREACH_DRAFT_UNGROUNDED').title).toContain('事实校验');
