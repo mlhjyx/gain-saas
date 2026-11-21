@@ -149,8 +149,16 @@ export class BffHandler {
     const quoteOptions = {
       discoverAttemptId: attemptPassthroughEnabled,
       writeAttemptId: attemptPassthroughEnabled,
+      manufacturerNetwork: this.config.ENGINE_MANUFACTURER_NETWORK_ENABLED,
     };
-    const forwardBody = engineRequestBody(route, body, quoteOptions);
+    let forwardBody: unknown;
+    try {
+      forwardBody = engineRequestBody(route, body, quoteOptions);
+    } catch (error) {
+      if (!(error instanceof Error) || !['MANUFACTURER_NETWORK_REVISION_INVALID', 'MANUFACTURER_NETWORK_NOT_AVAILABLE'].includes(error.message)) throw error;
+      res.status(400).json(this.engine.toClientError(400, { error: { code: error.message, message: '当前搜索配置不可用，请刷新后重试' } }, req.headers?.['accept-language'] as string | undefined));
+      return;
+    }
     const headers: Record<string, string> = {};
     const idempotencyKey = req.get('idempotency-key');
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;

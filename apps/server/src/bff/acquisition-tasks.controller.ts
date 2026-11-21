@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Inject } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
@@ -22,6 +22,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import { canonicalExecuteBody, isManufacturerNetworkRevision } from './routes.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TASK_NAME = 200;
@@ -169,7 +170,8 @@ export class AcquisitionTasksController {
     // ENGINE_DISCOVER_ATTEMPT_ID_ENABLED 是既有部署里已开启的那个，单独只认新名字会让重试
     // 静默剥离 attemptId 并撞 GRANT_REUSED（2026-11-04 验收阻断复现）。
     const attemptPassthroughEnabled =
-      this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED || this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED;
+      this.config.ENGINE_RETRY_ATTEMPT_ID_ENABLED || this.config.ENGINE_DISCOVER_ATTEMPT_ID_ENABLED ||
+      (this.config.ENGINE_MANUFACTURER_NETWORK_ENABLED && isManufacturerNetworkRevision(body?.manufacturerNetworkRevision));
     const attemptId: string | undefined =
       typeof rawAttemptId === 'string'
         ? rawAttemptId
@@ -177,20 +179,34 @@ export class AcquisitionTasksController {
           ? randomUUID()
           : undefined;
 
+    let canonical: ReturnType<typeof canonicalExecuteBody>;
+    try {
+      canonical = canonicalExecuteBody({ ...body, attemptId }, {
+        writeAttemptId: attemptPassthroughEnabled,
+        manufacturerNetwork: this.config.ENGINE_MANUFACTURER_NETWORK_ENABLED,
+      });
+    } catch {
+      invalid('当前搜索配置不可用，请刷新后重试');
+    }
+    const executionRequestSha256 = canonical.manufacturerNetworkRevision
+      ? createHash('sha256').update(JSON.stringify({ planId, ...canonical })).digest('hex')
+      : undefined;
+
     // 同键重放（双击/网络重试）：直接返回既有记录，绝不再调引擎（避免双扣费）。
     if (attemptId) {
       const replayed = await this.prisma.taskRun.findFirst({
         where: { taskId: task.id, attemptKey: attemptId },
-        select: { id: true, engineRunId: true, status: true },
+        select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
       });
       if (replayed) {
+        this.assertReplayBinding(replayed, planId, executionRequestSha256);
         return {
           data: { taskRunId: replayed.id, runId: replayed.engineRunId, status: replayed.status, replayed: true },
         };
       }
     }
 
-    const allocated = await this.allocateRun(tenant.workspaceId, task.id, planId, tenant.userId, attemptId);
+    const allocated = await this.allocateRun(tenant.workspaceId, task.id, planId, tenant.userId, attemptId, executionRequestSha256);
     if (allocated.replayed) {
       const replayed = allocated.run as { id: string; engineRunId?: string | null; status?: string };
       return {
@@ -201,14 +217,13 @@ export class AcquisitionTasksController {
     const previousAttempt = allocated.previousAttempt;
 
     // 引擎侧 attempt：开关关闭时剥离（兼容未升级镜像，requestSha256 与旧版一致）。
-    const engineAttempt = attemptPassthroughEnabled ? attemptId : undefined;
     let grant: string;
     try {
       // 与 BFF execute 路由同一 quote 口径（operation + planId + 可选 attemptId）。
       grant = await this.budget.issue(tenant, {
         operation: 'POST /query-plans/:planId/execute',
         planId,
-        ...(engineAttempt ? { body: { attemptId: engineAttempt } } : {}),
+        ...(Object.keys(canonical).length ? { body: canonical } : {}),
       });
     } catch (error) {
       await this.failRun(run.id);
@@ -226,7 +241,7 @@ export class AcquisitionTasksController {
       response = await this.engine.call(tenant, 'POST', `/query-plans/${planId}/execute`, {
         body: {
           taskRef: { taskId: task.id, taskRunId: run.id },
-          ...(engineAttempt ? { attemptId: engineAttempt } : {}),
+          ...canonical,
         },
         headers: { 'x-execution-budget-grant': grant },
       });
@@ -305,6 +320,7 @@ export class AcquisitionTasksController {
     planId: string,
     requestedBy: string,
     attemptId: string | undefined,
+    executionRequestSha256: string | undefined,
   ): Promise<{ run: Record<string, unknown>; previousAttempt: string | null; replayed?: boolean }> {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -328,6 +344,7 @@ export class AcquisitionTasksController {
             planId,
             attempt: (last?.attempt ?? 0) + 1,
             ...(attemptId ? { attemptKey: attemptId } : {}),
+            ...(executionRequestSha256 ? { executionRequestSha256 } : {}),
             ...(previous ? { rerunOf: previous.id } : {}),
           },
         });
@@ -337,13 +354,25 @@ export class AcquisitionTasksController {
       if (attemptId && (error as { code?: string } | null)?.code === 'P2002') {
         const replayed = await this.prisma.taskRun.findFirst({
           where: { taskId, attemptKey: attemptId },
-          select: { id: true, engineRunId: true, status: true },
+          select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
         });
         if (replayed) {
+          this.assertReplayBinding(replayed, planId, executionRequestSha256);
           return { run: replayed as unknown as Record<string, unknown>, previousAttempt: null, replayed: true };
         }
       }
       throw error;
+    }
+  }
+
+  private assertReplayBinding(
+    row: { planId: string | null; executionRequestSha256: string | null },
+    planId: string,
+    executionRequestSha256: string | undefined,
+  ): void {
+    // PostgreSQL UUID readback is lowercase; preserve the original signed/hash/forward request material.
+    if (row.planId?.toLowerCase() !== planId.toLowerCase() || (row.executionRequestSha256 ?? undefined) !== executionRequestSha256) {
+      throw new ConflictException({ error: { code: 'TASK_ATTEMPT_REQUEST_CONFLICT', message: '本次操作已绑定另一份搜索配置，请刷新后重试' } });
     }
   }
 

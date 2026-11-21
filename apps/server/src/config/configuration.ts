@@ -39,6 +39,8 @@ const schema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
+  // 只在已部署厂家证明合同的引擎上启用；不向旧请求自动添加版本。
+  ENGINE_MANUFACTURER_NETWORK_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   SESSION_TTL_MINUTES: z.coerce.number().default(60),
   // 官网公开表单（合作意向）允许的跨域来源：逗号分隔；`*` 或空 = 允许任意来源。
   // 端点无 cookie/登录态，限制来源是纵深防御而不是访问控制。

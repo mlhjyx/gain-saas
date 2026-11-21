@@ -3,6 +3,7 @@
  * 字段命名跟随引擎 OpenAPI(packages/engine-client);未知字段一律防御性可选。
  */
 import { baseRequestClient, requestClient } from '#/api/request';
+import { buildExecutionBody, type ExecutionFeatureOptions } from './execution-body';
 
 export interface CompanyProfile {
   id?: string;
@@ -996,10 +997,10 @@ export const gainosApi = {
     requestClient.post<QueryPlan>(`/icps/${icpId}/query-plans`, attemptId ? { attemptId } : {}),
   confirmQueryPlan: (planId: string) =>
     requestClient.post<QueryPlan>(`/query-plans/${planId}/confirm`, {}),
-  executeQueryPlan: (planId: string, attemptId?: string) =>
+  executeQueryPlan: (planId: string, attemptId?: string, options?: ExecutionFeatureOptions) =>
     requestClient.post<{ runId: string; status: string }>(
       `/query-plans/${planId}/execute`,
-      attemptId ? { attemptId } : {},
+      buildExecutionBody(attemptId, options),
     ),
   /** Run 2.0（M0②）：任务列表（含最近运行）。 */
   acquisitionTasks: (icpId?: string) =>
@@ -1011,7 +1012,7 @@ export const gainosApi = {
    * P1：attemptId 是前端在「用户意图」粒度生成的幂等键——双击复用同一键只算一次；
    * 引擎侧同键重放会被预算防重放拒绝，BFF 侧命中既有 TaskRun 时直接返回（replayed）。
    */
-  startAcquisitionTaskRun: (taskId: string, planId: string, attemptId?: string) =>
+  startAcquisitionTaskRun: (taskId: string, planId: string, attemptId?: string, options?: ExecutionFeatureOptions) =>
     requestClient.post<{
       taskRunId: string;
       runId: string | null;
@@ -1019,7 +1020,7 @@ export const gainosApi = {
       attempt?: number;
       rerunOf?: string | null;
       replayed?: boolean;
-    }>(`/tasks/${taskId}/runs`, attemptId ? { planId, attemptId } : { planId }),
+    }>(`/tasks/${taskId}/runs`, { planId, ...buildExecutionBody(attemptId, options) }),
   /** 回复收件箱：任何回复/退信/退订（append-only）。 */
   outreachReplies: () =>
     requestClient.get<{ data: OutreachReplyView[] }>('/outreach/replies'),

@@ -1006,6 +1006,8 @@ model TaskRun {
   planId      String?   @map("plan_id") @db.Uuid
   attempt     Int       @default(1)
   attemptKey  String?   @map("attempt_key") @db.Uuid
+  /// 显式新版执行请求绑定；旧运行保留 NULL，不追认新证据规则。
+  executionRequestSha256 String? @map("execution_request_sha256") @db.VarChar(64)
   rerunOf     String?   @map("rerun_of") @db.Uuid
 
   workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
