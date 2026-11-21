@@ -1209,6 +1209,8 @@ export const gainosApi = {
 
 export interface OutreachDraftInput {
   contactRef: string;
+  /** 引擎 contact_point id（email 通讯点）；退信回写寻址用。 */
+  contactPointId?: string;
   recipientEmail: string;
   companyName?: string;
   subject: string;

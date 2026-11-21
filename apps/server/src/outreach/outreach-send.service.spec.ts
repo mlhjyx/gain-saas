@@ -426,15 +426,17 @@ class FakeSendPrisma {
 
 function approvedBatch(
   prisma: FakeSendPrisma,
-  options?: { expired?: boolean; countries?: [string | null, string | null] },
+  options?: { expired?: boolean; countries?: [string | null, string | null]; withPointId?: boolean },
 ) {
   const countries = options?.countries ?? ['DE', 'DE'];
+  const pointId = options?.withPointId === false ? null : '22222222-2222-4222-8222-222222222222';
   const drafts = [
     {
       id: DRAFT_1,
       workspaceId: WS_A,
       batchId: BATCH,
       contactRef: CONTACT_1,
+      contactPointId: pointId,
       recipientEmail: 'buyer@example.de',
       countryCode: countries[0],
       companyName: 'Beispiel GmbH',
@@ -453,6 +455,7 @@ function approvedBatch(
       workspaceId: WS_A,
       batchId: BATCH,
       contactRef: CONTACT_2,
+      contactPointId: pointId,
       recipientEmail: 'einkauf@example.de',
       countryCode: countries[1],
       companyName: 'Zweite AG',
@@ -612,6 +615,7 @@ function service(
   dncReasons: Map<string, string[]> = new Map(),
   dncFails = false,
   configOverrides: Partial<AppConfig> = {},
+  eligibilityOverride?: { results?: Map<string, { state: string; allowedActions: string[] }>; fails?: boolean },
 ) {
   const config = baseConfig(configOverrides);
   const gate = new OutreachSendGate({ OUTREACH_SEND_ENABLED: enabled } as AppConfig);
@@ -648,12 +652,21 @@ function service(
     prisma as unknown as PrismaService,
     audit,
   );
-  return new OutreachSendService(
+  const eligibility = {
+    check: vi.fn(async () => {
+      if (eligibilityOverride?.fails) throw new Error('engine down');
+      return eligibilityOverride?.results ?? new Map();
+    }),
+  };
+  const writeback = { enqueue: vi.fn(async () => undefined) };
+  const send = new OutreachSendService(
     prisma as unknown as PrismaService,
     audit,
     gate,
     transport,
     dnc,
+    eligibility as never,
+    writeback as never,
     unsubscribe as never,
     config,
     controls,
@@ -662,6 +675,7 @@ function service(
     health,
     experiments,
   );
+  return { send, eligibility, writeback };
 }
 
 function fakeTransport(
@@ -689,7 +703,7 @@ describe('OutreachSendService', () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
     const transport = fakeTransport();
-    const gateService = service(prisma, transport, false);
+    const { send: gateService } = service(prisma, transport, false);
 
     await expect(gateService.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_SEND_DISABLED',
@@ -704,7 +718,7 @@ describe('OutreachSendService', () => {
     prisma.drafts[0].approvedAt = null;
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_DRAFT_NOT_APPROVED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -716,7 +730,7 @@ describe('OutreachSendService', () => {
     approvedBatch(prisma, { expired: true });
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_APPROVAL_EXPIRED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -728,7 +742,7 @@ describe('OutreachSendService', () => {
     prisma.drafts[0].subject = '改过的主题';
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_CONTENT_CHANGED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -740,7 +754,7 @@ describe('OutreachSendService', () => {
     prisma.batches[0].status = 'SENT';
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_BATCH_ALREADY_SENT',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -751,7 +765,7 @@ describe('OutreachSendService', () => {
     approvedBatch(prisma);
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'SENT', sent: 2, failed: 0 });
     expect(transport.send).toHaveBeenCalledTimes(2);
@@ -797,7 +811,7 @@ describe('OutreachSendService', () => {
       lawfulBasis: 'consent',
     });
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_BATCH_ALREADY_SENT',
     );
     expect(transport.send).toHaveBeenCalledTimes(2);
@@ -815,13 +829,13 @@ describe('OutreachSendService', () => {
       return { messageId: `sink-${message.to}` };
     });
 
-    const first = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const first = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
     expect(first).toMatchObject({ status: 'QUEUED', sent: 1, failed: 1 });
     expect(prisma.batches[0].status).toBe('QUEUED');
     expect(prisma.sends.filter((send) => send.status === 'FAILED')).toHaveLength(1);
     expect(prisma.authorizations[0].uses).toBe(2);
 
-    const second = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const second = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
     expect(second).toMatchObject({ status: 'SENT', sent: 1, failed: 0 });
     expect(transport.send).toHaveBeenCalledTimes(3);
     expect(prisma.batches[0].status).toBe('SENT');
@@ -839,7 +853,7 @@ describe('OutreachSendService', () => {
       ['buyer@example.de', ['global:unsubscribe']],
     ]);
 
-    const result = await service(prisma, transport, true, dncReasons).sendBatch(
+    const result = await service(prisma, transport, true, dncReasons).send.sendBatch(
       tenantA,
       BATCH,
     );
@@ -863,7 +877,7 @@ describe('OutreachSendService', () => {
     prisma.consents[0].status = 'OPT_OUT';
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -878,7 +892,7 @@ describe('OutreachSendService', () => {
     const transport = fakeTransport();
 
     await expect(
-      service(prisma, transport, true, new Map(), true).sendBatch(tenantA, BATCH),
+      service(prisma, transport, true, new Map(), true).send.sendBatch(tenantA, BATCH),
     ).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_DNC_UNAVAILABLE',
     );
@@ -892,7 +906,7 @@ describe('OutreachSendService', () => {
     prisma.batches[0].status = 'COMPLETED';
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_BATCH_ALREADY_COMPLETED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -903,7 +917,7 @@ describe('OutreachSendService', () => {
     approvedBatch(prisma);
     const transport = fakeTransport();
 
-    await service(prisma, transport).sendBatch(tenantA, BATCH);
+    await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     const firstCall = transport.send.mock.calls[0][0] as {
       body: string;
@@ -921,10 +935,10 @@ describe('OutreachSendService', () => {
   it('审计包 hash 不含 generatedAt：重复读取命中持久化版本', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
-    await service(prisma, fakeTransport()).sendBatch(tenantA, BATCH);
+    await service(prisma, fakeTransport()).send.sendBatch(tenantA, BATCH);
 
-    const first = await service(prisma, fakeTransport()).getAuditPackage(tenantA, BATCH);
-    const second = await service(prisma, fakeTransport()).getAuditPackage(tenantA, BATCH);
+    const first = await service(prisma, fakeTransport()).send.getAuditPackage(tenantA, BATCH);
+    const second = await service(prisma, fakeTransport()).send.getAuditPackage(tenantA, BATCH);
     expect(first.packageHash).toBe(second.packageHash);
     expect(first.persistedAt).not.toBeNull();
   });
@@ -934,7 +948,7 @@ describe('OutreachSendService', () => {
     approvedBatch(prisma, { expired: true });
 
     await expect(
-      service(prisma, fakeTransport()).sendBatch(tenantA, BATCH),
+      service(prisma, fakeTransport()).send.sendBatch(tenantA, BATCH),
     ).rejects.toSatisfy((error) => errorCode(error) === 'OUTREACH_APPROVAL_EXPIRED');
 
     expect(prisma.events.some((event) => event.type === 'BATCH_REJECTED')).toBe(true);
@@ -945,7 +959,7 @@ describe('OutreachSendService', () => {
   it('审计包按 workspace 隔离：跨租户不可见', async () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
-    const serviceInstance = service(prisma, fakeTransport());
+    const { send: serviceInstance } = service(prisma, fakeTransport());
 
     await expect(
       serviceInstance.getAuditPackage(
@@ -963,7 +977,7 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     prisma.consents = prisma.consents.filter((consent) => consent.contactRef !== CONTACT_1);
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -985,7 +999,7 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     approvedBatch(prisma, { countries: [null, 'DE'] });
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
     expect(result).toMatchObject({ sent: 1, skipped: 1 });
     expect(prisma.sends.find((send) => send.status === 'SKIPPED')!.error).toBe(
       'JURISDICTION_REVIEW_REQUIRED',
@@ -999,7 +1013,7 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     prisma.consents = [];
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'SENT', sent: 2 });
     const body = (transport.send.mock.calls[0][0] as { body: string }).body;
@@ -1012,9 +1026,10 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     prisma.consents = [];
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport, true, new Map(), false, {
+    const svc0 = service(prisma, transport, true, new Map(), false, {
       OUTREACH_US_POSTAL_ADDRESS: undefined,
-    }).sendBatch(tenantA, BATCH);
+    });
+    const result = await svc0.send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ sent: 0, skipped: 2 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1027,7 +1042,7 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     prisma.consents = [];
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'SENT', sent: 2 });
     const body = (transport.send.mock.calls[0][0] as { body: string }).body;
@@ -1040,9 +1055,10 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     prisma.consents = [];
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport, true, new Map(), false, {
+    const svc0 = service(prisma, transport, true, new Map(), false, {
       OUTREACH_FR_SOURCE_NOTICE: undefined,
-    }).sendBatch(tenantA, BATCH);
+    });
+    const result = await svc0.send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ sent: 0, skipped: 2 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1056,7 +1072,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     prisma.batches[0].authorizationId = null;
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_INVALID',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1069,7 +1085,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     prisma.authorizations[0].state = 'REVOKED';
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_REVOKED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1085,7 +1101,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     prisma.authorizations[0].expiresAt = new Date('2026-11-11T08:00:00Z');
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_EXPIRED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1100,7 +1116,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     scope.actions[0].template.contentHash = 'b'.repeat(64);
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1118,7 +1134,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     };
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_SCHEDULE_OUT_OF_WINDOW',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1130,7 +1146,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     prisma.authorizations[0].maxUses = 1;
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1145,7 +1161,7 @@ describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {
     scope.actions[0].budget = { currency: 'USD', capMicros: 1_000 };
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_BUDGET_EXCEEDED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1159,7 +1175,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     approvedBatch(prisma);
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 0, deferred: 2 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1193,7 +1209,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 0, deferred: 2 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1219,7 +1235,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 0, deferred: 2 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1250,7 +1266,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1280,7 +1296,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_DOMAIN_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1303,7 +1319,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -1329,7 +1345,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     }
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -1351,7 +1367,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     };
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
     expect((prisma.events.find((event) => event.type === 'DRAFT_DEFERRED')!.detail as Row).code).toBe(
@@ -1368,7 +1384,7 @@ describe('OutreachSendService · 控制面 v1（P4-02 服务层）', () => {
     scope.actions[0].caps = { perMailboxDaily: 30, perMailboxWeekly: 120, perDomainHourly: 5, batchMax: 1 };
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_AUTHORIZATION_SCOPE_MISMATCH',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1386,7 +1402,7 @@ describe('OutreachSendService · 发送遥测与信箱资产（P4-02/P4-04）', 
       return { messageId: 'sink-ok' };
     });
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 1, failed: 1 });
     const failed = prisma.sends.find((send) => send.status === 'FAILED')!;
@@ -1410,7 +1426,7 @@ describe('OutreachSendService · 发送遥测与信箱资产（P4-02/P4-04）', 
       throw new Error('SMTP 响应超时');
     });
 
-    await service(prisma, transport).sendBatch(tenantA, BATCH);
+    await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     const failed = prisma.sends.filter((send) => send.status === 'FAILED');
     expect(failed).toHaveLength(2);
@@ -1440,7 +1456,7 @@ describe('OutreachSendService · 发送遥测与信箱资产（P4-02/P4-04）', 
     });
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1460,7 +1476,7 @@ describe('OutreachSendService · 持久化熔断（P4-08）', () => {
     });
     const transport = fakeTransport();
 
-    await expect(service(prisma, transport).sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+    await expect(service(prisma, transport).send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
       (error) => errorCode(error) === 'OUTREACH_MAILBOX_PAUSED',
     );
     expect(transport.send).not.toHaveBeenCalled();
@@ -1478,9 +1494,10 @@ describe('OutreachSendService · 持久化熔断（P4-08）', () => {
     });
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport, true, new Map(), false, {
+    const svc0 = service(prisma, transport, true, new Map(), false, {
       OUTREACH_HALF_OPEN_BATCH_LIMIT: 1,
-    }).sendBatch(tenantA, BATCH);
+    });
+    const result = await svc0.send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'QUEUED', sent: 1, deferred: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -1510,7 +1527,7 @@ describe('OutreachSendService · 实验 holdout 排除（P4-09）', () => {
     });
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
     expect(transport.send).toHaveBeenCalledTimes(1);
@@ -1536,7 +1553,7 @@ describe('OutreachSendService · 实验 holdout 排除（P4-09）', () => {
     });
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport).sendBatch(tenantA, BATCH);
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
     expect(result).toMatchObject({ status: 'SENT', sent: 2 });
   });
 });
@@ -1548,9 +1565,10 @@ describe('OutreachSendService · 影子模式（CAMPAIGN_EXECUTION_SHADOW，默�
     prisma.consents[0].status = 'OPT_OUT';
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport, true, new Map(), false, {
+    const svc0 = service(prisma, transport, true, new Map(), false, {
       CAMPAIGN_EXECUTION_SHADOW: true,
-    }).sendBatch(tenantA, BATCH);
+    });
+    const result = await svc0.send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({ shadowed: 2, skipped: 0 });
     expect(transport.send).not.toHaveBeenCalled();
@@ -1568,9 +1586,10 @@ describe('OutreachSendService · 影子模式（CAMPAIGN_EXECUTION_SHADOW，默�
     approvedBatch(prisma);
     const transport = fakeTransport();
 
-    const result = await service(prisma, transport, true, new Map(), false, {
+    const svc0 = service(prisma, transport, true, new Map(), false, {
       CAMPAIGN_EXECUTION_SHADOW: true,
-    }).sendBatch(tenantA, BATCH);
+    });
+    const result = await svc0.send.sendBatch(tenantA, BATCH);
 
     expect(result).toMatchObject({
       status: 'QUEUED',
@@ -1585,5 +1604,129 @@ describe('OutreachSendService · 影子模式（CAMPAIGN_EXECUTION_SHADOW，默�
     expect(
       prisma.events.filter((event) => event.type === 'SEND_SHADOWED'),
     ).toHaveLength(2);
+  });
+});
+
+
+describe('缺口 3：引擎可触达性门 + 退信回写', () => {
+  const POINT = '22222222-2222-4222-8222-222222222222';
+  const eligibilityOn = { OUTREACH_ENGINE_ELIGIBILITY_ENABLED: true };
+
+  function eligibleMap(entries: Array<[string, { state: string; allowedActions: string[] }]>) {
+    return new Map(entries.map(([email, value]) => [email.trim().toLowerCase(), value]));
+  }
+
+  it('flag 关闭（默认）→ 不调用引擎照常发送', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const { eligibility, writeback } = service(prisma, transport, true, new Map(), false, {});
+    const result = await eligibility; // 占位避免未用告警（实际断言在下方桩上）
+    void result;
+    // 重新构造:用返回的桩断言
+    const { send, eligibility: e2, writeback: w2 } = (() => {
+      const svc = service(prisma, transport, true, new Map(), false, {});
+      return svc;
+    })();
+    await send.sendBatch(tenantA, BATCH);
+    expect(e2.check).not.toHaveBeenCalled();
+    expect(transport.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag 开 + 全部 VALID → 照常发送,检查按批调用', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const results = eligibleMap([
+      ['buyer@example.de', { state: 'VALID', allowedActions: ['display', 'match', 'outreach'] }],
+      ['einkauf@example.de', { state: 'VALID', allowedActions: ['display', 'match', 'outreach'] }],
+    ]);
+    const { send, eligibility } = service(prisma, transport, true, new Map(), false, eligibilityOn, { results });
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(eligibility.check).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ sent: 2, skipped: 0 });
+  });
+
+  it('flag 开 + INVALID/UNKNOWN → 逐封 SKIPPED（OUTREACH_ELIGIBILITY_BLOCKED），不发不整批拒', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const results = eligibleMap([
+      ['buyer@example.de', { state: 'INVALID', allowedActions: ['display', 'match'] }],
+      ['einkauf@example.de', { state: 'UNKNOWN', allowedActions: ['display', 'match'] }],
+    ]);
+    const { send, writeback } = service(prisma, transport, true, new Map(), false, eligibilityOn, { results });
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ sent: 0, skipped: 2 });
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(prisma.sends.every((send) => send.error?.startsWith('OUTREACH_ELIGIBILITY_BLOCKED'))).toBe(true);
+  });
+
+  it('flag 开 + CATCH_ALL_RISKY（引擎现策略拒发）→ SKIPPED', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const results = eligibleMap([
+      ['buyer@example.de', { state: 'CATCH_ALL_RISKY', allowedActions: ['display', 'match'] }],
+      ['einkauf@example.de', { state: 'VALID', allowedActions: ['display', 'match', 'outreach'] }],
+    ]);
+    const { send } = service(prisma, transport, true, new Map(), false, eligibilityOn, { results });
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ sent: 1, skipped: 1 });
+    expect(prisma.drafts[0].status).toBe('SKIPPED');
+    expect(prisma.drafts[1].status).toBe('SENT');
+  });
+
+  it('flag 开 + 引擎不可达 → 整批 fail-closed（OUTREACH_ELIGIBILITY_UNAVAILABLE）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const { send } = service(prisma, transport, true, new Map(), false, eligibilityOn, { fails: true });
+    await expect(send.sendBatch(tenantA, BATCH)).rejects.toSatisfy(
+      (error) => errorCode(error) === 'OUTREACH_ELIGIBILITY_UNAVAILABLE',
+    );
+    expect(transport.send).not.toHaveBeenCalled();
+  });
+
+  it('SMTP 硬拒 → 回写队列入队（hard_bounce + 确定性 messageId）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport(async () => {
+      throw new SmtpProtocolError('RCPT TO', ['550 5.1.1 user unknown']);
+    });
+    const { send, writeback } = service(prisma, transport, true, new Map(), false, {});
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result.failed).toBe(2);
+    expect(writeback.enqueue).toHaveBeenCalledTimes(2);
+    expect(writeback.enqueue.mock.calls[0]![1]).toMatchObject({
+      contactPointId: POINT,
+      event: 'hard_bounce',
+      messageId: `saas-smtp-${prisma.drafts[0].id}-1`,
+      smtpCode: '550',
+    });
+  });
+
+  it('软拒（bounceType SOFT）→ 不入队（引擎按 DSN/重验处理软退）', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport(async () => {
+      throw Object.assign(new Error('452 4.2.2 mailbox full'), { smtpStatusCode: 452, bounceType: 'SOFT' });
+    });
+    const { send, writeback } = service(prisma, transport, true, new Map(), false, {});
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result.failed).toBe(2);
+    expect(writeback.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('legacy 草稿无 contactPointId → 硬拒不入队,发送主链路不受影响', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma, { withPointId: false });
+    const transport = fakeTransport(async () => {
+      throw new SmtpProtocolError('RCPT TO', ['550 5.1.1 user unknown']);
+    });
+    const { send, writeback } = service(prisma, transport, true, new Map(), false, {});
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result.failed).toBe(2);
+    expect(writeback.enqueue).not.toHaveBeenCalled();
   });
 });

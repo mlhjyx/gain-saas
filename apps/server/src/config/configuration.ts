@@ -204,6 +204,10 @@ const schema = z.object({
     .default(604_800_000),
   // 退订链接的对外基址（M2 步 11-4）；生产必须是用户可访问的 HTTPS 域名。
   OUTREACH_UNSUBSCRIBE_BASE_URL: z.string().url().default('http://127.0.0.1:4020'),
+  // 发送前可投递性预检（P1-16 接线，缺口 3）：开启后批次发送在 DNC 门后追加引擎
+  // contact-eligibility 检查（state=VALID 才放行）；引擎不可达整批 fail-closed。
+  // 关闭（默认）时不调用引擎，行为与历史一致。
+  OUTREACH_ENGINE_ELIGIBILITY_ENABLED: z.coerce.boolean().default(false),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；
   // 未配置时退订仍生效，但跨租户抑制写入被跳过并记 warning。
   OUTREACH_ENGINE_SERVICE_TOKEN: z.string().min(16).optional(),

@@ -57,6 +57,12 @@ import {
   EngineOutreachDncChecker,
   OUTREACH_DNC_SUPPRESSOR,
 } from './outreach-dnc.checker.js';
+import {
+  EngineContactEligibilityChecker,
+  OUTREACH_ELIGIBILITY_CHECKER,
+} from './outreach-eligibility.checker.js';
+import { OutreachBounceWritebackService } from './outreach-bounce-writeback.service.js';
+import { OutreachBounceWritebackWorker } from './outreach-bounce-writeback.worker.js';
 import { OutreachController } from './outreach.controller.js';
 import {
   OUTREACH_DNC_CHECKER,
@@ -119,6 +125,10 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachReplyService,
     EngineOutreachDncChecker,
     { provide: OUTREACH_DNC_CHECKER, useExisting: EngineOutreachDncChecker },
+    EngineContactEligibilityChecker,
+    { provide: OUTREACH_ELIGIBILITY_CHECKER, useExisting: EngineContactEligibilityChecker },
+    OutreachBounceWritebackService,
+    OutreachBounceWritebackWorker,
     { provide: OUTREACH_DNC_SUPPRESSOR, useExisting: EngineOutreachDncChecker },
     { provide: OUTREACH_TRANSPORT, useClass: SmtpOutreachTransport },
   ],
