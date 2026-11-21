@@ -37,6 +37,9 @@ function fixture(activeWorkspaces: Array<{ name: string; createdAt: Date }>) {
       findMany: vi.fn(async () => activeWorkspaces),
       create: vi.fn(async () => ({ id: 'w-1', name: 'x', memberships: [{ id: 'm-1' }] })),
     },
+    // 事务回调直接复用同一 mock:advisory lock 的 $executeRaw 也在这里断言
+    $transaction: vi.fn(async (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma as never)),
+    $executeRaw: vi.fn(async () => 0),
   } as unknown as PrismaService;
   const audit = { record: vi.fn(async () => undefined) };
   const sessions = { issue: vi.fn(async () => ({ jti: 'j-1' })) };
@@ -63,6 +66,8 @@ describe('AuthService.register（一企一空间查重）', () => {
     expect(body.meta.existingCreatedAt).toBe('2026-10-28');
     expect(prisma.user.create).not.toHaveBeenCalled();
     expect((prisma.workspace.create as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    // 并发防护:查重发生在 advisory lock 之后、同一事务内
+    expect(prisma.$executeRaw).toHaveBeenCalled();
   });
 
   it('后缀"+1"式重复同样被拦', async () => {

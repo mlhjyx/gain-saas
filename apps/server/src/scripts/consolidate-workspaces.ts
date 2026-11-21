@@ -127,18 +127,33 @@ async function main(): Promise<void> {
         const drop = group[i]!;
         const t = tallies[i]!;
         if (businessWeight(t) > 0) continue; // 上面 NEEDS_MANUAL 分支已兜住,双保险
-        // 空侧成员先补进保留侧(保证人人有活跃空间、保留侧不丢 admin)
+        // 空侧成员按原角色补进保留侧(不提权);若保留侧补完后没有 admin,提升一名
         const memberships = await prisma.membership.findMany({ where: { workspaceId: drop.id, status: 'active' } });
+        const pendingMoves: Array<{ userId: string; role: string }> = [];
         for (const m of memberships) {
           const inKeep = await prisma.membership.findFirst({ where: { workspaceId: keep.id, userId: m.userId, status: 'active' } });
           if (inKeep) {
             log(`  成员 ${m.userId} 已在保留侧(${inKeep.role}),原侧 membership 将置 left`);
-          } else if (!APPLY) {
-            log(`  [dry-run] 将把成员 ${m.userId}(${m.role})补进保留侧 admin`);
           } else {
-            await prisma.membership.create({ data: { userId: m.userId, workspaceId: keep.id, role: 'admin' } });
-            log(`  成员 ${m.userId} 已补进保留侧 admin`);
+            pendingMoves.push({ userId: m.userId, role: m.role });
+            log(`  ${APPLY ? '' : '[dry-run] '}将把成员 ${m.userId}(${m.role})补进保留侧(${m.role})`);
           }
+        }
+        if (APPLY) {
+          for (const move of pendingMoves) {
+            await prisma.membership.create({ data: { userId: move.userId, workspaceId: keep.id, role: move.role } });
+          }
+          const keepAdmins = await prisma.membership.count({ where: { workspaceId: keep.id, status: 'active', role: 'admin' } });
+          if (keepAdmins === 0 && pendingMoves.length > 0) {
+            await prisma.membership.update({
+              where: { userId_workspaceId: { userId: pendingMoves[0]!.userId, workspaceId: keep.id } },
+              data: { role: 'admin' },
+            });
+            log(`  保留侧无 admin,已提升 ${pendingMoves[0]!.userId} 为 admin`);
+          }
+        } else if (pendingMoves.length > 0) {
+          const keepAdmins = await prisma.membership.count({ where: { workspaceId: keep.id, status: 'active', role: 'admin' } });
+          if (keepAdmins === 0) log(`  [dry-run] 保留侧补完成员后仍无 admin,将提升 ${pendingMoves[0]!.userId} 为 admin`);
         }
         await archive(prisma, drop.id, `空侧「${drop.name}」`, log);
       }
