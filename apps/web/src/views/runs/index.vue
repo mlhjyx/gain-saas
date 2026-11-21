@@ -869,9 +869,9 @@ onUnmounted(() => {
         <h1>{{ $t('gainos.runs.title') }}</h1>
         <p class="run__muted">{{ $t('gainos.runs.subtitle') }}</p>
         <p class="run__muted run__identity">
-          <span v-if="run.icpId">{{ $t('gainos.runs.icp') }} {{ run.icpId.slice(0, 8) }}</span>
-          <span v-if="run.planId"> · {{ $t('gainos.runs.plan') }} {{ run.planId.slice(0, 8) }}</span>
-          <span> · {{ $t('gainos.runs.taskId') }} {{ run.id.slice(0, 8) }}</span>
+          <span v-if="run?.icpId">{{ $t('gainos.runs.icp') }} {{ run.icpId.slice(0, 8) }}</span>
+          <span v-if="run?.planId"> · {{ $t('gainos.runs.plan') }} {{ run.planId.slice(0, 8) }}</span>
+          <span v-if="run"> · {{ $t('gainos.runs.taskId') }} {{ run.id.slice(0, 8) }}</span>
         </p>
       </div>
       <div class="run__head-actions">

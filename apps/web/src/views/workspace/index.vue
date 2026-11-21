@@ -442,7 +442,6 @@ const kpis = computed(() => {
   const loaded = !loading.value;
   const buyer = activeIcp.value;
   const run = latestRun.value;
-  const link = latestRunLink.value;
   const plan = latestPlan.value;
   const runValue = run
     ? runStatusLabel(run.status)
