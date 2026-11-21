@@ -24,7 +24,7 @@
   --gs-fg-2: #5c5c5c;
   /* muted 用于正文级说明，必须 ≥4.5:1（#5C5C5C on white = 6.69）；#7B7B7B 只做 subtle/图标 */
   --gs-fg-muted: #5c5c5c;
-  --gs-fg-subtle: #7b7b7b;
+  --gs-fg-subtle: #5c5c5c;
   --gs-fg-placeholder: #a3a3a3;
 
   /* 表面与背景 */
@@ -122,7 +122,7 @@
   --gs-fg: #ffffff;
   --gs-fg-2: #a3a3a3;
   --gs-fg-muted: #a3a3a3;
-  --gs-fg-subtle: #7b7b7b;
+  --gs-fg-subtle: #8a8a8a;
   --gs-fg-placeholder: #7b7b7b;
 
   --gs-bg: #171717;

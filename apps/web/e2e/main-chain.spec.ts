@@ -141,6 +141,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   );
 
   await loginAs(page);
+  await page.locator('.vben-menu').getByText('获客', { exact: true }).click();
   await page.getByRole('menuitem', { name: '公司档案' }).click();
   await page.waitForURL(/\/companies/);
   await page.getByRole('button', { name: '查看档案' }).click();

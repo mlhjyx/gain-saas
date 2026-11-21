@@ -776,7 +776,7 @@ onBeforeUnmount(stopPolling);
 }
 
 .tag.selected {
-  color: var(--gs-primary, #2563eb);
+  color: var(--gs-fg, #111827);
   background: color-mix(in srgb, var(--gs-primary, #2563eb) 10%, var(--gs-surface, #fff));
   border-color: var(--gs-primary, #2563eb);
 }
