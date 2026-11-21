@@ -5,6 +5,8 @@
 > 盘点日期：2026-11-22
 > 盘点方法：逐页阅读 SFC 的 `<script setup>` 与 `<template>`（不含 style）、`api/gainos.ts`、`api/core/auth.ts`、路由模块、`packages/shared/src/glossary.ts`、`locales/langs/zh-CN/gainos.json`。所有 API 路径均为 `gainos.ts` 中的 BFF 相对路径；运行时前缀为 `VITE_GLOB_API_URL`（文档记录为 `/api`）。
 > 使用方式：改造后逐项对零。任何“改造前”有、改造后没有，或文案/校验/请求发生变化，都必须在 PR 中说明；无说明即失败。
+>
+> **范围更新（2026-11-22，用户指示）**：登录后的系统内页面为改造对象；`/ops` 平台运营台、`/auth/login`、`/auth/register` 不因本次视觉改造而动。Phase 4 收敛为设置五页；§3 认证页仅作为功能基线保留。新增交互准则见 `AGENTS.md` §5.1：砍掉标语、提示文字和次要标签，靠布局表达；功能性标签/校验/错误/空状态/操作入口/API 不得删除。
 
 ---
 
@@ -1323,15 +1325,14 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 ---
 
-## 7. 待确认事项（进入对应 Phase 前必须拍板）
+## 7. 已确认决策（2026-11-22）
 
-1. **找回密码**：`/auth/forget-password` 是 redirect，且硬性禁令禁止改路由 component/redirect。Phase 4 的“找回”应如何交付？
-   - A. 只重构不可达的 `forget-password.vue`（无用户可见效果）；
-   - B. 把登录页 `forgotHint` 作为找回路径，不新增页面；
-   - C. 破例把 redirect 改为 component（违反禁令，不推荐）。
-2. **locales 新增 key**：既有 key/value 一律不改；驾驶舱新模块（今日摘要/阶段漏斗/行动清单/提醒/今日建议）需要新文案。是否允许**只新增** key（中英文同步）？
-3. **`/outreach` 死链**：dark-mode spec 访问不存在的 `/outreach`。是否在 Phase 1 顺手把 spec 的路径改为 `/growth?tab=outreach`（测试修正，不影响产品路由），还是保持原样（404 也能过溢出断言）？
-4. **基线修复**：本 PR 已在 P0 修复 3 处既有 typecheck 错误（`runs` 空值、`workspace` 未使用变量、`vxe-pc-ui` 类型声明）。是否接受这些作为 P0 的“基线修复”提交？
+1. **找回密码**：保持 `/auth/forget-password` 的 redirect 不变；登录页的「忘记密码？」提示即找回路径（内测由管理员重置）。进一步按用户指示，登录/注册页本身不改造，Phase 4 只做设置五页。
+2. **locales 新增 key**：允许**只新增** key，zh-CN 与 en-US 同步；既有 key/value 一律不改。新增 key 在 P5 清单中列明。
+3. **`/outreach` 死链**：保持现状，不改 spec；该 spec 当前通过（404 页面无横向溢出）。不新增 `/outreach` 路由。
+4. **基线修复**：已作为 P0 提交 `cf83bf5` 的一部分（3 处 typecheck 修复）；不改变业务行为。
+5. **/ops 与登录/注册**：不改造；只允许继承全局 token 的自然影响。用户登录后的系统内页面为主要改造对象。
+6. **文案原则**：按 `AGENTS.md` §5.1 砍掉标语、提示文字和次要标签；靠布局表达。功能性标签、校验规则、错误/空状态、操作入口、API 调用不得删除。
 
 ---
 
