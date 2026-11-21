@@ -18,6 +18,7 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
+import { useMenuGroups } from '#/composables/use-menu-groups';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
 import LoginForm from '#/views/_core/authentication/login.vue';
@@ -33,6 +34,8 @@ const router = useRouter();
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
+// 路由仍是扁平结构；只把 Vben 的菜单数据收进 6 个业务组（工作空间/获客/线索/活动/增长/设置）。
+useMenuGroups();
 const { destroyWatermark, updateWatermark } = useWatermark();
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
 const appVersion = __APP_VERSION__;

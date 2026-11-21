@@ -1,6 +1,12 @@
 {
   "menu": {
     "settingsNav": "Settings navigation",
+    "groupWorkspace": "Workspace",
+    "groupAcquisition": "Acquisition",
+    "groupLeads": "Leads",
+    "groupActivity": "Activity",
+    "groupGrowth": "Growth",
+    "groupSettings": "Settings",
     "tasks": "Tasks",
     "members": "Members & Roles",
     "privacy": "Data & privacy",

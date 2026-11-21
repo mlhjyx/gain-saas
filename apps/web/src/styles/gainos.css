@@ -1,15 +1,13 @@
 /**
- * GainOS 设计令牌(浅色 / 深色双套)
+ * GainOS 设计令牌（浅色 / 深色双套）
  *
- * 为什么自建令牌:vben 的 shadcn 令牌覆盖框架外壳,而 GainOS 页面有独立的
- * 品牌视觉语言(卡片、网格、品牌绿、深色 hero 面板)。这里只定义页面层需要的
- * 语义变量;组件里一律用 var(--gs-*),深色模式只在这一处切换。
- *
- * 深色切换由 vben 在 html 上打 .dark 类(update-css-variables.ts)。
+ * 视觉来源：AgentSDR / AlignUI（/home/xin/gain-ref/AgentSDR/src/app/globals.css）。
+ * 数值与 AntDV ConfigProvider 的映射见 docs/evidence/ui-restyle/token-mapping.md。
+ * 组件里优先用 AntDV token；页面级自定义表面/状态用 var(--gs-*)。
+ * 深色切换由 Vben 在 html 上打 .dark 类；两套值必须同时维护。
  */
 
-/* 统一盒模型（2026-11-09）：自定义 input/select/textarea 等控件在网格/弹性轨道里
-   按 border-box 计算，避免 padding+border 把控件撑出容器（模态框输入框右侧溢出即此因）。 */
+/* 统一盒模型：自定义 input/select/textarea 在网格/弹性轨道里按 border-box 计算。 */
 *,
 *::before,
 *::after {
@@ -17,158 +15,220 @@
 }
 
 :root {
-  /* 文字层级（AA：muted 7.6:1、subtle 4.8:1 on white；2026-11-09 审计修复） */
-  --gs-fg: #0f172a;
-  --gs-fg-2: #374151;
-  --gs-fg-muted: #4b5563;
-  --gs-fg-subtle: #6b7280;
-  --gs-fg-placeholder: #8b93a1;
+  /* 字体：系统栈优先，中文由系统字体回退 */
+  --gs-font-sans: system-ui, -apple-system, 'Segoe UI', Arial, Helvetica, sans-serif;
+  --gs-font-mono: 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* 文字层级（中性灰，无色度） */
+  --gs-fg: #171717;
+  --gs-fg-2: #5c5c5c;
+  /* muted 用于正文级说明，必须 ≥4.5:1（#5C5C5C on white = 6.69）；#7B7B7B 只做 subtle/图标 */
+  --gs-fg-muted: #5c5c5c;
+  --gs-fg-subtle: #7b7b7b;
+  --gs-fg-placeholder: #a3a3a3;
 
   /* 表面与背景 */
-  --gs-bg: #f7f8fa;
+  --gs-bg: #f7f7f7;
   --gs-surface: #ffffff;
-  --gs-surface-2: #f3f4f6;
-  --gs-surface-3: #fbfcfd;
-  /* 深色表格表头等的柔和底色（此前被引用但未定义，深色下回退成浅灰） */
-  --gs-bg-soft: #f8fafc;
+  --gs-surface-2: #f5f5f5;
+  --gs-surface-3: #fafafa;
+  --gs-bg-soft: #f7f7f7;
+  --gs-table-head: #f7f7f7;
 
   /* 边框与分隔 */
-  --gs-border: #eceef2;
-  --gs-border-strong: #e5e7eb;
-  --gs-border-dashed: #e2e5eb;
-  --gs-divider: #f3f4f6;
+  --gs-border: #ebebeb;
+  --gs-border-strong: #d1d1d1;
+  --gs-border-dashed: #ebebeb;
+  --gs-divider: #f5f5f5;
 
   /* 装饰 */
-  --gs-grid-line: rgba(17, 24, 39, 0.035);
-  --gs-shadow-card: 0 6px 16px -8px rgba(17, 24, 39, 0.08);
-  --gs-shadow-modal: 0 28px 70px -20px rgba(11, 16, 35, 0.4);
-  --gs-mask: rgba(11, 16, 35, 0.45);
+  --gs-grid-line: rgba(23, 23, 23, 0.04);
+  --gs-shadow-card: 0 1px 2px 0 rgba(10, 13, 20, 0.031);
+  --gs-shadow-xs: 0 1px 2px 0 rgba(10, 13, 20, 0.031);
+  --gs-shadow-sm: 0 2px 4px rgba(27, 28, 29, 0.039);
+  --gs-shadow-modal: 0 16px 32px -12px rgba(14, 18, 27, 0.1);
+  --gs-shadow-tooltip: 0 12px 24px 0 rgba(14, 18, 27, 0.059), 0 1px 2px 0 rgba(14, 18, 27, 0.031);
+  --gs-shadow-focus: 0 0 0 2px var(--gs-surface), 0 0 0 4px rgba(51, 92, 255, 0.16);
+  --gs-mask: rgba(23, 23, 23, 0.24);
 
-  /* 品牌绿 */
-  --gs-accent: #00b96b;
-  /* 兼容别名：部分视图引用了 --gs-primary/--gs-muted/--gs-mono/--gs-fg-1/--gs-fg-3，
-     之前未定义导致回退成蓝(#2563eb)或继承错误色。统一在这里补齐，勿再新增引用。 */
+  /* 品牌蓝（主行动 #335CFF，白字 5.10:1） */
+  --gs-accent: #335cff;
   --gs-primary: var(--gs-accent-cta);
   --gs-muted: var(--gs-fg-muted);
-  --gs-mono: 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --gs-mono: var(--gs-font-mono);
   --gs-fg-1: var(--gs-fg);
   --gs-fg-3: var(--gs-fg-subtle);
-  --gs-accent-strong: #007a47;
-  /* CTA（实心按钮）专用深绿：白字 5.4:1 达 AA；装饰仍用 --gs-accent */
-  --gs-accent-cta: #007a47;
-  --gs-accent-cta-hover: #00693f;
+  --gs-accent-strong: #2547d0;
+  --gs-accent-cta: #335cff;
+  --gs-accent-cta-hover: #2547d0;
+  --gs-accent-cta-active: #1f3bad;
   --gs-accent-cta-fg: #ffffff;
-  --gs-accent-soft: #e7f8f0;
-  --gs-accent-soft-border: #9fe3c4;
-  --gs-accent-glow: rgba(0, 185, 107, 0.45);
-  --gs-accent-glow-strong: rgba(0, 185, 107, 0.6);
+  --gs-accent-soft: #ebf1ff;
+  --gs-accent-soft-border: #c0d5ff;
+  --gs-accent-glow: rgba(51, 92, 255, 0.35);
+  --gs-accent-glow-strong: rgba(51, 92, 255, 0.5);
 
-  /* 语义色 */
-  --gs-warn: #b45309;
-  --gs-warn-bg: rgba(251, 191, 36, 0.09);
-  --gs-danger: #b91c1c;
-  --gs-danger-bg: #fef2f2;
-  --gs-danger-border: #fecaca;
-  --gs-indigo-soft: #eef2ff;
-  --gs-indigo: #4f46e5;
+  /* 语义色：500 档做图标/边框/浅底；文字用 600/700/800 档达 AA */
+  --gs-warn: #b75310;
+  --gs-warn-bg: rgba(250, 115, 25, 0.1);
+  --gs-danger: #d02533;
+  --gs-danger-bg: rgba(251, 55, 72, 0.08);
+  --gs-danger-border: #ffc3c8;
+  --gs-success: #1a7544;
+  --gs-success-bg: rgba(31, 193, 107, 0.1);
+  --gs-indigo-soft: #ebf1ff;
+  --gs-indigo: #335cff;
 
-  /* 深色 hero / 品牌面板(两套主题共用,保持品牌识别一致) */
+  /* 深色 hero / 品牌面板（登录页当前不改；保留蓝化后的固定值） */
   --gs-hero-from: #0b1023;
   --gs-hero-via: #132244;
-  --gs-hero-to: #0f2a26;
-  --gs-hero-fg: #eef2f6;
-  --gs-hero-fg-soft: rgba(238, 242, 246, 0.72);
-  --gs-hero-fg-dim: rgba(238, 242, 246, 0.52);
-  --gs-hero-divider: rgba(238, 242, 246, 0.1);
-  --gs-hero-accent: #00d68f;
+  --gs-hero-to: #1f3bad;
+  --gs-hero-fg: #f5f7fa;
+  --gs-hero-fg-soft: rgba(245, 247, 250, 0.72);
+  --gs-hero-fg-dim: rgba(245, 247, 250, 0.52);
+  --gs-hero-divider: rgba(245, 247, 250, 0.1);
+  --gs-hero-accent: #4d82ff;
+
+  /* 圆角 / 排版 / 间距（与 token-mapping.md 一致） */
+  --gs-radius-10: 10px;
+  --gs-radius-20: 20px;
+  --gs-radius-pill: 9999px;
+  --gs-text-title-h4: 2rem;
+  --gs-text-title-h5: 1.5rem;
+  --gs-text-title-h6: 1.25rem;
+  --gs-text-label-lg: 1.125rem;
+  --gs-text-label-md: 1rem;
+  --gs-text-label-sm: 0.875rem;
+  --gs-text-paragraph-lg: 1.125rem;
+  --gs-text-paragraph-md: 1rem;
+  --gs-text-paragraph-sm: 0.875rem;
+  --gs-leading-paragraph-lg: 1.5rem;
+  --gs-tracking-tight: -0.015em;
+  --gs-tracking-normal: -0.011em;
+  --gs-space-1: 4px;
+  --gs-space-2: 8px;
+  --gs-space-3: 12px;
+  --gs-space-4: 16px;
+  --gs-space-5: 20px;
+  --gs-space-6: 24px;
+  --gs-space-8: 32px;
+  --gs-page-max: 1280px;
+  --gs-page-pad: clamp(20px, 2.4vw, 32px);
 
   color-scheme: light;
 }
 
 .dark {
-  --gs-fg: #e8ebf0;
-  --gs-fg-2: #c4cbd6;
-  --gs-fg-muted: #98a1b1;
-  --gs-fg-subtle: #8b94a6;
-  --gs-fg-placeholder: #6f7888;
+  --gs-fg: #ffffff;
+  --gs-fg-2: #a3a3a3;
+  --gs-fg-muted: #a3a3a3;
+  --gs-fg-subtle: #7b7b7b;
+  --gs-fg-placeholder: #7b7b7b;
 
-  --gs-bg: #0b0f16;
-  --gs-surface: #141922;
-  --gs-surface-2: #1c222d;
-  --gs-surface-3: #10151d;
-  --gs-bg-soft: #1c222d;
+  --gs-bg: #171717;
+  --gs-surface: #1c1c1c;
+  --gs-surface-2: #262626;
+  --gs-surface-3: #171717;
+  --gs-bg-soft: #262626;
+  --gs-table-head: #1c1c1c;
 
-  --gs-border: #232b37;
-  --gs-border-strong: #2c3543;
-  --gs-border-dashed: #2a3340;
-  --gs-divider: #1e2530;
+  --gs-border: #262626;
+  --gs-border-strong: #333333;
+  --gs-border-dashed: #333333;
+  --gs-divider: #262626;
 
   --gs-grid-line: rgba(255, 255, 255, 0.045);
-  --gs-shadow-card: 0 6px 18px -10px rgba(0, 0, 0, 0.7);
-  --gs-shadow-modal: 0 28px 70px -20px rgba(0, 0, 0, 0.8);
-  --gs-mask: rgba(3, 6, 12, 0.68);
+  --gs-shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
+  --gs-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
+  --gs-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.5);
+  --gs-shadow-modal: 0 16px 32px -12px rgba(0, 0, 0, 0.65);
+  --gs-shadow-tooltip: 0 12px 24px 0 rgba(0, 0, 0, 0.55);
+  --gs-shadow-focus: 0 0 0 2px var(--gs-surface), 0 0 0 4px rgba(51, 92, 255, 0.24);
+  --gs-mask: rgba(0, 0, 0, 0.68);
 
-  --gs-accent: #14c983;
-  --gs-accent-strong: #34d399;
-  /* 深色下亮绿底配深色字（8.9:1），避免白字对比不足 */
-  --gs-accent-cta: #14c983;
-  --gs-accent-cta-hover: #34d399;
-  --gs-accent-cta-fg: #0b0f16;
-  --gs-accent-soft: rgba(20, 201, 131, 0.14);
-  --gs-accent-soft-border: rgba(20, 201, 131, 0.34);
-  --gs-accent-glow: rgba(20, 201, 131, 0.35);
-  --gs-accent-glow-strong: rgba(20, 201, 131, 0.5);
+  --gs-accent: #335cff;
+  --gs-accent-strong: #4d82ff;
+  --gs-accent-cta: #335cff;
+  --gs-accent-cta-hover: #4d82ff;
+  --gs-accent-cta-active: #2547d0;
+  --gs-accent-cta-fg: #ffffff;
+  --gs-accent-soft: rgba(51, 92, 255, 0.16);
+  --gs-accent-soft-border: rgba(51, 92, 255, 0.24);
+  --gs-accent-glow: rgba(51, 92, 255, 0.35);
+  --gs-accent-glow-strong: rgba(51, 92, 255, 0.5);
 
-  --gs-warn: #fbbf24;
-  --gs-warn-bg: rgba(251, 191, 36, 0.1);
-  --gs-danger: #f87171;
-  --gs-danger-bg: rgba(248, 113, 113, 0.1);
-  --gs-danger-border: rgba(248, 113, 113, 0.32);
-  --gs-indigo-soft: rgba(99, 102, 241, 0.14);
-  --gs-indigo: #a5b4fc;
+  --gs-warn: #ffa468;
+  --gs-warn-bg: rgba(255, 164, 104, 0.12);
+  --gs-danger: #ff6875;
+  --gs-danger-bg: rgba(255, 104, 117, 0.12);
+  --gs-danger-border: rgba(255, 104, 117, 0.32);
+  --gs-success: #3ee089;
+  --gs-success-bg: rgba(62, 224, 137, 0.12);
+  --gs-indigo-soft: rgba(51, 92, 255, 0.16);
+  --gs-indigo: #4d82ff;
 
+  /* hero 面板保持固定深色，不跟随页面明暗（登录页不改造） */
   color-scheme: dark;
 }
 
-/* 窄屏:顶栏空间紧张,品牌只留图形标记,避免名称被截断成 "Ga…" */
-@media (max-width: 640px) {
-  header a > span.truncate {
-    display: none;
-  }
-  /* 390px 顶栏放不下搜索：隐藏它，保留主题/语言/刷新/通知/退出 */
-  header .mr-1.sm\:mr-4:has(svg.lucide-search) {
-    display: none;
-  }
-}
-
-/* 顶栏图标间距略收,整体更安静 */
-header .flex.items-center {
-  gap: 0.15rem;
-}
-
-/* 中文/英文正文渲染优化 */
+/* 正文基线：系统字体、16px、1.5 行高、轻微负字距 */
 body {
+  margin: 0;
+  font-family: var(--gs-font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: var(--gs-tracking-normal);
+  color: var(--gs-fg);
+  background: var(--gs-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* 统一状态徽标（P6 词表 glossary.ts 的 tone 色板）：
-   状态不靠颜色单独传义——文案与色板永远成对出现（PRD §14.4 / 设计 §3.9）。 */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 500;
+  letter-spacing: var(--gs-tracking-normal);
+}
+
+/* 页面级通用表面 */
+.gs-card {
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-10);
+  box-shadow: var(--gs-shadow-card);
+}
+
+.gs-card--large {
+  border-radius: var(--gs-radius-20);
+}
+
+.gs-prose {
+  font-size: var(--gs-text-paragraph-lg);
+  line-height: var(--gs-leading-paragraph-lg);
+  letter-spacing: var(--gs-tracking-tight);
+}
+
+/* 统一状态徽标：文案与色板永远成对出现，不靠颜色单独传义。 */
 .gs-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--gs-divider);
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--gs-radius-pill);
+  background: var(--gs-surface-2);
   color: var(--gs-fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
   white-space: nowrap;
 }
 
 .gs-badge--neutral {
-  background: var(--gs-divider);
+  background: var(--gs-surface-2);
   color: var(--gs-fg-2);
 }
 
@@ -178,8 +238,8 @@ body {
 }
 
 .gs-badge--success {
-  background: var(--gs-accent-soft);
-  color: var(--gs-accent-strong);
+  background: var(--gs-success-bg);
+  color: var(--gs-success);
 }
 
 .gs-badge--warning {
@@ -192,24 +252,36 @@ body {
   color: var(--gs-danger);
 }
 
-/* F0 组件一致性：主按钮统一规格（高度 38 / 圆角 10 / 13.5px·600）。
-   各视图的 scoped 样式保留自身颜色语义，这里只收敛尺寸与字重。 */
-.cp__primary, .ob__primary, .qg__btn--primary, .cd__primary,
-.mb__cta, .sp__cta, .pv__cta, .ws__primary, .tk__refresh {
-  min-height: 38px;
-  border-radius: 10px;
-  font-size: 13.5px;
-  font-weight: 600;
+/* 主按钮统一规格：40 高 / 全圆 / 14px·500。
+   各视图的 scoped 样式保留颜色语义，这里只收敛尺寸与形状。 */
+.cp__primary,
+.ob__primary,
+.qg__btn--primary,
+.cd__primary,
+.mb__cta,
+.sp__cta,
+.pv__cta,
+.ws__primary,
+.tk__refresh {
+  min-height: 40px;
+  border-radius: var(--gs-radius-pill);
+  font-size: 14px;
+  font-weight: 500;
 }
 
-/* 可访问性基线（审计 二-2x）：键盘焦点可见；禁止缩放已在 index.html 移除 */
+.ant-btn-primary {
+  border-radius: var(--gs-radius-pill);
+  font-weight: 500;
+}
+
+/* 可访问性基线：键盘焦点可见 */
 :focus-visible {
-  outline: 2px solid var(--gs-accent-strong);
+  outline: 2px solid var(--gs-accent);
   outline-offset: 2px;
 }
 
 .ant-notification-notice .ant-notification-notice-close:focus-visible {
-  outline: 2px solid var(--gs-fg, #111827);
+  outline: 2px solid var(--gs-fg);
   outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--gs-surface, #fff);
+  box-shadow: 0 0 0 2px var(--gs-surface);
 }
