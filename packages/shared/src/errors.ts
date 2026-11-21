@@ -430,6 +430,16 @@ export const ENGINE_ERROR_COPY = {
       next: "Sign in instead; use the reset flow if you forgot the password.",
     },
   },
+  COMPANY_WORKSPACE_EXISTS: {
+    title: '贵司已开通工作空间',
+    why: '该企业已注册过工作空间。按「一企一空间」原则，同一企业只有一个工作空间，同事通过邀请加入，不再重复开通。',
+    next: '请联系贵司管理员在「设置 → 成员」生成邀请链接；若这不是贵司的工作空间，请联系运营处理。',
+    en: {
+      title: "Your company already has a workspace",
+      why: "This company already opened a workspace. One company keeps exactly one workspace; colleagues join via invitation instead of re-registering.",
+      next: "Ask your company admin for an invite link (Settings → Members); if this isn't your company's workspace, contact operations.",
+    },
+  },
   ALREADY_MEMBER: {
     title: '该用户已是工作空间成员',
     why: '邀请的对象已经在成员列表里。',

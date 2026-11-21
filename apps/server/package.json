@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate deploy",
     "dev:db": "tsx src/scripts/dev-postgres.ts",
     "bootstrap:backfill": "tsx src/scripts/backfill-workspaces.ts",
-    "bootstrap:operator": "tsx src/scripts/bootstrap-operator.ts"
+    "bootstrap:operator": "tsx src/scripts/bootstrap-operator.ts",
+    "bootstrap:consolidate": "tsx src/scripts/consolidate-workspaces.ts"
   },
   "dependencies": {
     "@gain-saas/engine-client": "workspace:*",

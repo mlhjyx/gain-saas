@@ -161,7 +161,7 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "noAccount": "New to GainOS?",
-    "createWorkspace": "Create an account",
+    "createWorkspace": "Open your company workspace",
     "terms": "By continuing you agree to GainOS's terms of service and data compliance policy.",
     "errEmailRequired": "Enter your work email",
     "errEmailInvalid": "That email doesn't look right",
@@ -194,6 +194,12 @@
     "errEmailRequired": "Enter your work email",
     "errEmailInvalid": "That email doesn't look right",
     "errPassword": "Password must be 10+ characters with letters and digits",
+    "enterpriseExists": {
+      "title": "Your company already has a workspace",
+      "why": "\"{name}\" opened a workspace on {date}. One company keeps exactly one workspace — colleagues join via invitation.",
+      "next": "Ask your company admin for an invite link (Settings → Members); if this isn't your company, contact operations.",
+      "goLogin": "Already have an account? Sign in"
+    },
     "errFailed": "Something went wrong, please try again",
     "companyHint": "used as your company name"
   },

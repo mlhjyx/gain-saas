@@ -161,7 +161,7 @@
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "noAccount": "第一次使用 GainOS？",
-    "createWorkspace": "创建账号",
+    "createWorkspace": "开通企业工作空间",
     "terms": "继续即表示你同意 GainOS 的服务条款与数据合规要求。",
     "errEmailRequired": "请输入工作邮箱",
     "errEmailInvalid": "邮箱格式不正确",
@@ -194,6 +194,12 @@
     "errEmailRequired": "请输入工作邮箱",
     "errEmailInvalid": "邮箱格式不正确",
     "errPassword": "密码至少 10 位，且包含字母与数字",
+    "enterpriseExists": {
+      "title": "贵司已开通工作空间",
+      "why": "「{name}」已于 {date} 开通工作空间。按一企一空间原则，同一企业只有一个工作空间，同事通过邀请加入。",
+      "next": "请联系贵司管理员在「设置 → 成员」生成邀请链接；若这不是贵司的工作空间，请联系运营。",
+      "goLogin": "已有账号？去登录"
+    },
     "errFailed": "操作没有成功，请重试",
     "companyHint": "将作为公司名称"
   },

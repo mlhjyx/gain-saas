@@ -1,14 +1,13 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
 
 /**
- * 工作空间管理(A3/SD2):模型多对多，UI 只做切换、创建、改名、退出。
- * 不做所有权转移和高级空间管理。
+ * 工作空间管理(A3/SD2):一企一空间——空间随企业注册创建，成员经邀请加入；
+ * 这里只做列表、改名、退出（创建端点 410 退役）。不做所有权转移和高级空间管理。
  */
 @Controller('api/workspaces')
 @UseGuards(TenantGuard)
@@ -44,20 +43,12 @@ export class WorkspacesController {
   }
 
   @Post()
-  async create(@Req() req: Request, @Body() body: Record<string, unknown>) {
-    const tenant = req.tenant!;
-    const name = typeof body.name === 'string' ? body.name.trim().slice(0, 128) : '';
-    if (!name) throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: '工作空间名称必填' } });
-    const workspace = await this.prisma.workspace.create({
-      data: {
-        id: randomUUID(),
-        name,
-        memberships: { create: { userId: tenant.userId, role: 'admin' } },
-        registry: { create: {} },
-      },
+  async create() {
+    // 一企一空间（2026-11-21）：工作空间只在注册新企业时创建，不再开放自助多开。
+    // 保留路由返回 410，避免老客户端误用；同事加入走邀请（/api/members/invite）。
+    throw new ConflictException({
+      error: { code: 'WORKSPACE_CREATE_RETIRED', message: '工作空间随企业注册创建，同事请通过邀请加入' },
     });
-    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, action: 'workspaces.create', target: workspace.id, detail: { name } });
-    return { data: { id: workspace.id, name: workspace.name, role: 'admin' } };
   }
 
   @Patch(':workspaceId')
