@@ -2809,6 +2809,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/market-candidate-generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 准备一次明确的市场候选生成意图
+         * @description 持久化严格的结构化依据描述与摘要，按用户/公司/意图幂等。只准备，不消费 Grant，不调用模型、搜索或下游执行。默认来源溢出明确拒绝，不截断。
+         */
+        post: operations["MarketCandidateGenerationsController_prepare_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-generations/{generationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取已持久化的生成状态
+         * @description 普通租户只读入口，不调用模型或消费新授权。PERSISTED 的集合引用必须经 B1 初始修订权威冷读；NOT_APPLIED 只读既有域决定，永不返回可用集合。
+         */
+        get: operations["MarketCandidateGenerationsController_get_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-generations/{generationId}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 在精确预算授权下执行一次市场候选生成
+         * @description 先重建完整输入与实际模型上下文，再消费绑定当前意图的 market.candidates.generate 授权。整个逻辑意图全部账户和 attempts 共80美分上界，单任务40美分与原结构化修复倍率2不变。重复调用恢复原结果，UNKNOWN 不重发。
+         */
+        post: operations["MarketCandidateGenerationsController_execute_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-candidate-generations/{generationId}/recover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 只恢复原结果及未完成保存
+         * @description 当前合法请求者读取原账本 SETTLED 投影，恢复同事务 B1 保存/合法未应用决定及准确 ACK。无模型 dispatch、Grant 签发或消费能力；无结果、RESERVED 与 UNKNOWN 都不能触发新 wire。仍受全局写准入，无控制面或恢复豁免。
+         */
+        post: operations["MarketCandidateGenerationsController_recover_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/skills": {
         parameters: {
             query?: never;
@@ -3175,13 +3255,13 @@ export interface components {
             /** @enum {string} */
             authorityKind: "WORKSPACE_GRANT";
             /** @enum {string} */
-            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/enrich-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts" | "POST /companies/:companyId/understanding/retry" | "POST /site-builder/intake" | "POST /campaigns/:campaignId/plan-drafts";
+            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/enrich-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts" | "POST /companies/:companyId/understanding/retry" | "POST /site-builder/intake" | "POST /campaigns/:campaignId/plan-drafts" | "POST /market-candidate-generations/:generationId/execute";
             /** Format: uuid */
             workspaceId: string;
             /** @enum {string} */
-            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "discovery.run" | "contact.verify" | "contact.enrich" | "outreach.draft" | "campaign.plan";
+            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "discovery.run" | "contact.verify" | "contact.enrich" | "outreach.draft" | "campaign.plan" | "market.candidates.generate";
             /** @enum {string} */
-            subjectType: "company" | "icp" | "discovery_run" | "contact_point" | "lead" | "campaign";
+            subjectType: "company" | "icp" | "discovery_run" | "contact_point" | "lead" | "campaign" | "market_candidate_generation";
             subjectId: string;
             requestSha256: string;
             /** @enum {string} */
@@ -4316,6 +4396,56 @@ export interface components {
             /** @description 仅 CORRECT 接受非空且有实质变更的白名单补丁。 */
             correction?: components["schemas"]["MarketCandidateCorrectionDto"];
         };
+        MarketCandidateGenerationSetReferenceDto: {
+            /** Format: uuid */
+            setId: string;
+            /** @enum {number} */
+            revision: 1;
+            documentHash: string;
+        };
+        MarketCandidateGenerationExecutionReferenceDto: {
+            /** Format: uuid */
+            operationId: string;
+            /** @enum {string} */
+            resultSchema: "market-candidates-generation/v1";
+            resultDigest: string;
+            ackId: string;
+        };
+        MarketCandidateGenerationDto: {
+            /** Format: uuid */
+            generationId: string;
+            /** Format: uuid */
+            companyId: string;
+            /** Format: uuid */
+            intentId: string;
+            intentDigest: string;
+            /** @enum {string} */
+            phase: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "RESULT_READY" | "PERSISTED" | "FAILED" | "NOT_APPLIED";
+            /** @enum {string|null} */
+            reasonCode: "BASIS_UNAVAILABLE" | "BASIS_CHANGED" | "SUPERSEDED" | "VERSION_CONFLICT" | "OUTPUT_INVALID" | "EXECUTION_REJECTED" | "EXECUTION_FAILED" | "RESULT_UNKNOWN" | "RESULT_NOT_FOUND" | "SAVE_PENDING" | null;
+            /** Format: date-time */
+            preparedAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description 仅在准确 ACK 与域终态提交且 B1 初始修订权威冷读成功后返回。NOT_APPLIED 永不返回候选集合。 */
+            set: components["schemas"]["MarketCandidateGenerationSetReferenceDto"] | null;
+            execution: components["schemas"]["MarketCandidateGenerationExecutionReferenceDto"] | null;
+        };
+        MarketCandidateGenerationPrepareDto: {
+            /**
+             * Format: uuid
+             * @description 明确意图的幂等 UUID；同一意图重试必须沿用。
+             */
+            intentId: string;
+            /** @description 可选 Offering UUID；省略读取当前合法结构化依据，服务端归一并去重后与 Claim 合计最多200项。 */
+            offeringIds?: string[];
+            /** @description 可选已审批 Claim UUID；显式空选择不等于省略，不会静默补充或删除选中来源。 */
+            claimIds?: string[];
+        };
+        MarketCandidateGenerationExecuteDto: {
+            /** @description prepare 持久返回的不可变意图摘要，不是客户端授权。 */
+            intentDigest: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -5270,6 +5400,14 @@ export interface operations {
                     operation: "POST /site-builder/intake";
                     body: {
                         requestHash: string;
+                    };
+                } | {
+                    /** @enum {string} */
+                    operation: "POST /market-candidate-generations/:generationId/execute";
+                    /** Format: uuid */
+                    generationId: string;
+                    body: {
+                        intentDigest: string;
                     };
                 };
             };
@@ -12888,6 +13026,481 @@ export interface operations {
                             details?: {
                                 [key: string]: unknown;
                             };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateGenerationsController_prepare_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCandidateGenerationPrepareDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：严格输入、依据或输出合同不合法。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的普通 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 缺少当前 workspace 读取/写入权限或不是本意图请求者。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 生成意图或公司不存在、已删除或不属于当前 workspace。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description VERSION_CONFLICT 或 IDEMPOTENCY_CONFLICT；保留原账，不覆盖后发意图或反馈。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 运行准入关闭或执行/存储验证暂不可用，不能据此重发模型。 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateGenerationsController_get_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                generationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：严格输入、依据或输出合同不合法。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的普通 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 缺少当前 workspace 读取/写入权限或不是本意图请求者。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 生成意图或公司不存在、已删除或不属于当前 workspace。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description VERSION_CONFLICT 或 IDEMPOTENCY_CONFLICT；保留原账，不覆盖后发意图或反馈。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 运行准入关闭或执行/存储验证暂不可用，不能据此重发模型。 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateGenerationsController_execute_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description SaaS signed authority bound to this exact workspace mutation */
+                "X-Execution-Budget-Grant": string;
+            };
+            path: {
+                generationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCandidateGenerationExecuteDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description 仍在执行、结果未知或已有结果等待保存；不表示候选集合可用。 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：严格输入、依据或输出合同不合法。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的普通 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH or EXECUTION_BUDGET_AUTHORITY_REVOKED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 生成意图或公司不存在、已删除或不属于当前 workspace。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REUSED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    MarketCandidateGenerationsController_recover_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                generationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description 已知结果仍待保存或旧执行仍未决；保留原身份，不购买新执行。 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MarketCandidateGenerationDto"];
+                    };
+                };
+            };
+            /** @description VALIDATION_ERROR：严格输入、依据或输出合同不合法。 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 需要有效的普通 SaaS 用户身份。 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 缺少当前 workspace 读取/写入权限或不是本意图请求者。 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 生成意图或公司不存在、已删除或不属于当前 workspace。 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description VERSION_CONFLICT 或 IDEMPOTENCY_CONFLICT；保留原账，不覆盖后发意图或反馈。 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description 运行准入关闭或执行/存储验证暂不可用，不能据此重发模型。 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
                         };
                     };
                 };

@@ -48,3 +48,33 @@ describe('EngineHttp 原始响应字节', () => {
     expect(result.body).toEqual({ data: { ok: true } });
   });
 });
+
+
+describe('generation HTTP status and single-attempt transport', () => {
+  it('preserves 202 and unresolved generation data without synthesizing success', async () => {
+    const body = { data: {
+      generationId: '11111111-1111-4111-8111-111111111111',
+      companyId: '22222222-2222-4222-8222-222222222222',
+      intentId: '33333333-3333-4333-8333-333333333333',
+      intentDigest: 'a'.repeat(64), phase: 'RESULT_UNKNOWN', reasonCode: 'RESULT_UNKNOWN',
+      preparedAt: '2026-11-21T00:00:00Z', updatedAt: '2026-11-21T00:00:00Z', set: null, execution: null,
+    } };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(body), {
+      status: 202, headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetcher);
+    const result = await http().call(tenant, 'POST', '/market-candidate-generations/11111111-1111-4111-8111-111111111111/recover');
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual(body);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['TimeoutError', 'TypeError'])('does not retry a failed generation wire (%s)', async (name) => {
+    const fetcher = vi.fn(async () => { throw Object.assign(new Error('synthetic transport failure'), { name }); });
+    vi.stubGlobal('fetch', fetcher);
+    await expect(http().call(tenant, 'POST', '/market-candidate-generations/11111111-1111-4111-8111-111111111111/execute', {
+      body: { intentDigest: 'a'.repeat(64) }, timeoutMs: 240_000,
+    })).rejects.toThrow('synthetic transport failure');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

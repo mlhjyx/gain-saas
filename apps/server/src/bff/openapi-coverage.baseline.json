@@ -1,6 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
   "pinnedAt": "2026-11-21",
-  "reason": "固定到已真实采用的引擎9620adc5合同；当前84条BFF透传接口全部收录。新增接口仍必须通过固定合同或明确登记；每次升级重新核对清单。",
+  "reason": "固定到源码31da69d5的完整code-first合同；93条BFF薄透传必须全部收录，uncovered保持为空。本次仅隔离源码消费，不表示运行采用。",
   "uncovered": []
 }
