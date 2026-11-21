@@ -1342,31 +1342,31 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 | 路由 | 功能项 | 改造前（本文件） | 改造后 | 差异/说明 |
 |---|---|---|---|---|
-| `/workspace` | 数据接口（14 个） | §2.1 | 待核对 | — |
-| `/workspace` | 通知已读/全部已读 | §2.1 | 待核对 | — |
-| `/workspace` | KPI 跳转目标 6 个 | §2.1 | 待核对 | — |
-| `/find-buyers` | ICP 创建/激活/编辑 | §2.2 | 待核对 | — |
-| `/find-buyers` | 规则 CRUD + 回测 | §2.2 | 待核对 | — |
-| `/find-buyers` | 方案生成/确认/执行 | §2.2 | 待核对 | — |
-| `/runs/:runId` | 轮询/停止/重试/过程 | §2.3 | 待核对 | — |
-| `/leads` | 队列/裁决/提升商机/分页 | §2.4 | 待核对 | — |
-| `/leads/:leadId` | 4 tabs/裁决/草稿/制裁/决策人 | §2.5 | 待核对 | — |
-| `/qgos` | 状态筛选/接受/拒绝/结果 | §2.6 | 待核对 | — |
-| `/campaigns` | 创建/列表 CTA | §2.7 | 待核对 | — |
-| `/campaigns/:id` | 起草/提交/批准/拒绝/时间线 | §2.8 | 待核对 | — |
-| `/companies` | 建档/编辑/资料/事实/冲突 | §2.9 | 待核对 | — |
-| `/growth` | 6 tab 可深链 | §2.10 | 待核对 | — |
-| `/tasks` | 列表/最近运行 | §2.11 | 待核对 | — |
-| `/tasks/:id` | 历史/重试 | §2.12 | 待核对 | — |
-| `/notifications` | 分组/已读/全部已读 | §2.13 | 待核对 | — |
-| `/settings/members` | 邀请/改角色/移除 | §2.14 | 待核对 | — |
-| `/settings/suppressions` | 加入/解除申请/更多 | §2.15 | 待核对 | — |
-| `/settings/sources` | 渠道启停/导入预览/提交 | §2.16 | 待核对 | — |
-| `/settings/privacy` | 删除请求/查询/本地跟踪 | §2.17 | 待核对 | — |
-| `/settings/audit` | 筛选/导出/更多 | §2.18 | 待核对 | — |
-| `/auth/login` | 登录/校验/忘记密码提示 | §3.1 | 待核对 | — |
-| `/auth/register` | 注册/邀请/企业已存在 | §3.2 | 待核对 | — |
-| legacy 7 条 | redirect 目标 | §0.2 | 待核对 | — |
+| `/workspace` | 数据接口（14 个） | §2.1 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/workspace` | 通知已读/全部已读 | §2.1 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/workspace` | KPI 跳转目标 6 个 | §2.1 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/find-buyers` | ICP 创建/激活/编辑 | §2.2 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/find-buyers` | 规则 CRUD + 回测 | §2.2 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/find-buyers` | 方案生成/确认/执行 | §2.2 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/runs/:runId` | 轮询/停止/重试/过程 | §2.3 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/leads` | 队列/裁决/提升商机/分页 | §2.4 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/leads/:leadId` | 4 tabs/裁决/草稿/制裁/决策人 | §2.5 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/qgos` | 状态筛选/接受/拒绝/结果 | §2.6 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/campaigns` | 创建/列表 CTA | §2.7 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/campaigns/:id` | 起草/提交/批准/拒绝/时间线 | §2.8 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/companies` | 建档/编辑/资料/事实/冲突 | §2.9 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/growth` | 6 tab 可深链 | §2.10 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/tasks` | 列表/最近运行 | §2.11 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/tasks/:id` | 历史/重试 | §2.12 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/notifications` | 分组/已读/全部已读 | §2.13 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/settings/members` | 邀请/改角色/移除 | §2.14 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/settings/suppressions` | 加入/解除申请/更多 | §2.15 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/settings/sources` | 渠道启停/导入预览/提交 | §2.16 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/settings/privacy` | 删除请求/查询/本地跟踪 | §2.17 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/settings/audit` | 筛选/导出/更多 | §2.18 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/auth/login` | 登录/校验/忘记密码提示 | §3.1 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| `/auth/register` | 注册/邀请/企业已存在 | §3.2 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
+| legacy 7 条 | redirect 目标 | §0.2 | ✅ 对零 | 见 p2/p3/p4 对零文档 |
 
 ---
 
@@ -1382,3 +1382,58 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 
 
+
+
+---
+
+## 10. P5 最终对零声明（2026-11-22）
+
+### 10.1 路由
+
+- 产品路由 19 条（含 `/settings` 与 5 个子页）与 legacy 7 条重定向：**path / name / component 未改、未增、未删**。
+- `/auth/forget-password` 仍是 redirect 到 `/auth/login`，未按禁令改动。
+- `/ops`、`/auth/login`、`/auth/register`、`/onboarding` 未改造；只继承全局 AntDV token 的自然影响。
+- 侧边栏分组是 Vben 菜单数据层的展示变换（`use-menu-groups.ts`），不新增嵌套路由。
+
+### 10.2 受保护路径
+
+`git diff ecebda2..HEAD -- apps/web/src/api apps/server packages/engine-client apps/web/src/store apps/web/src/router/guard.ts apps/web/src/router/access.ts apps/web/src/router/routes` 输出为空：
+- `api/` 一行未动；
+- `apps/server/**`、`packages/engine-client/**` 未动；
+- `store/**` 业务逻辑未动；
+- `router/guard.ts`、`router/access.ts`、所有路由模块未动。
+
+### 10.3 Locales
+
+- 既有 key 与 value **零改动**：`git diff -U0 ecebda2..HEAD -- apps/web/src/locales` 无删除行。
+- 仅新增 key（zh-CN / en-US 同步）：
+  - `gainos.menu.groupWorkspace/groupAcquisition/groupLeads/groupActivity/groupGrowth/groupSettings`
+  - `gainos.workspace.cockpitToday/cockpitStages/cockpitActions/cockpitAlerts/cockpitSuggestion/cockpitDataSynced/cockpitDataSyncing/cockpitDataFailed/cockpitTodo/cockpitArchived/cockpitArchive/cockpitRestore/cockpitActionsEmpty/cockpitActionsArchivedEmpty/cockpitAlertAbnormal/cockpitAlertOpportunity/cockpitAlertSuggestion`
+  - `gainos.members.emptyTitle`
+
+### 10.4 功能差异（均为有意变更，已逐项记录）
+
+| 差异 | 依据 | 记录 |
+|---|---|---|
+| 侧边栏从扁平 7 项改为 6 个业务分组（叶子项不变） | 任务视觉规格 | `p1` 提交 + `nav-shell`/`main-chain` 测试按分组展开 |
+| `/workspace` 删除问候标语、pipelineSummary、KPI 可见 hint、nextAction desc、通知 emoji；新增阶段漏斗/行动清单归档/提醒分类/同步状态 | AGENTS §5.1 简单性原则 | `p2-workspace-parity.md` |
+| 列表空状态增加 2–3 条真实路径 | 任务交互规格 + 准则第 6 条补充 | `p3-list-detail-parity.md` |
+| 设置页去掉重复的页内二级导航，统一主侧栏「设置」分组 | AGENTS §5.1；避免重复导航 | `p4-settings-parity.md` |
+| 设置页空响应改为空态（audit/suppressions/members/sources/privacy） | 防错/健壮性；不改 API | `p4-settings-parity.md` |
+| 登录页「忘记密码？」提示作为找回路径；登录/注册不改造 | 用户 2026-11-22 决策 | `inventory.md` §7 |
+| `nav-shell` / `main-chain` / `settings-shell` 测试按新 IA 展开分组 | 侧边栏分组后的等价断言 | 对应 spec 注释 |
+
+### 10.5 质量门
+
+- `pnpm typecheck` ✅
+- `pnpm build` ✅
+- `pnpm lint:terms` ✅
+- `pnpm lint:date` ✅
+- `pnpm e2e:nav`：**149 passed / 1 skipped**（P5 最终运行）。P2 全量曾出现 1 次 `leads-detail` 并发抖动，单独复跑通过。
+- a11y：WCAG 2.x A/AA 抽样全部通过；对比度修复见 `1a5a899`。
+- 深色：`dark-mode` 通过；所有新样式同时提供 `.dark` 值。
+- 响应式：`responsive` 通过；390×844 无横向溢出。
+
+### 10.6 已知待人工验收
+
+最终验收要求“没看过文档的人独立完成主流程：登录 → 工作空间 → 发起获客 → 查看线索详情 → 处理提醒”。自动化已覆盖主链路，但“点击次数/是否需要口头解释”必须由真实用户完成；本文件不替代该人工验收。
