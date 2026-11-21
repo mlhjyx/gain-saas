@@ -13,6 +13,8 @@ import '../shared/load-env.js';
  * 运行:pnpm bootstrap:consolidate [--apply]
  */
 import { PrismaService } from '../shared/prisma.service.js';
+// 与注册闸门同一套企业名比对(NFKC 归一化 + 精确/包含),避免"公司名1"式后缀漏配
+import { findEnterpriseConflict } from '../tenant/auth.service.js';
 
 const APPLY = process.argv.includes('--apply');
 
@@ -94,15 +96,20 @@ async function main(): Promise<void> {
     });
     log(`ACTIVE 工作空间共 ${workspaces.length} 个`);
 
-    // ── 1) 归一化分组找重复 ──
-    const normalize = (name: string): string => name.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-    const groups = new Map<string, typeof workspaces>();
+    // ── 1) 聚类找重复(与注册闸门同规则:精确或包含) ──
+    const clusters: Array<{ name: string; members: typeof workspaces }> = [];
     for (const w of workspaces) {
-      const key = normalize(w.name);
-      if (!key) continue;
-      groups.set(key, [...(groups.get(key) ?? []), w]);
+      const rep = findEnterpriseConflict(
+        w.name,
+        clusters.map((c) => c.name),
+      );
+      if (rep === null) {
+        clusters.push({ name: w.name, members: [w] });
+      } else {
+        clusters.find((c) => c.name === rep)!.members.push(w);
+      }
     }
-    const duplicates = [...groups.values()].filter((g) => g.length > 1);
+    const duplicates = clusters.filter((g) => g.members.length > 1).map((g) => g.members);
     for (const group of duplicates) {
       log(`\n重复组:${group.map((w) => `${w.name}(${w.id.slice(0, 8)}, ${w.createdAt.toISOString().slice(0, 10)})`).join(' / ')}`);
       const tallies = await Promise.all(group.map((w) => tally(prisma, w.id)));
