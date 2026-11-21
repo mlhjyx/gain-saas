@@ -36,7 +36,8 @@ describe('EngineContactEligibilityChecker', () => {
     expect(out.get(canonical)).toMatchObject({ found: true, state: 'VALID', score: 95 });
     expect(out.get(canonical)!.allowedActions).toContain('outreach');
     expect(call.mock.calls[0]![3]).toMatchObject({
-      body: { emails: [canonical] },
+      // 契约:引擎 DTO 必填 workspaceId——缺失会被 ValidationPipe 400(曾致 flag-on 全批拒绝)
+      body: { workspaceId: TENANT.workspaceId, emails: [canonical] },
       headers: { 'x-service-token': 'token-16-chars-ok' },
     });
   });
@@ -129,6 +130,20 @@ describe('OutreachBounceWritebackService', () => {
     expect(svc.prisma.outreachBounceWriteback.update).toHaveBeenCalledWith({
       where: { id: 'w-1' },
       data: expect.objectContaining({ status: 'FAILED', attempts: 1 }),
+    });
+  });
+
+  it('引擎 5xx → attempts+1 保持 PENDING(未达上限不终结)', async () => {
+    const svc = serviceWith({
+      status: 503,
+      token: 'token-16-chars-ok',
+      rows: [{ id: 'w-1', workspaceId: TENANT.workspaceId, contactPointId: POINT, event: 'soft_bounce', messageId: 'm-2', smtpCode: null, receivedAt: new Date(), attempts: 2 }],
+    });
+    const result = await svc.service.drain();
+    expect(result.skipped).toBe(1);
+    expect(svc.prisma.outreachBounceWriteback.update).toHaveBeenCalledWith({
+      where: { id: 'w-1' },
+      data: { status: 'PENDING', attempts: 3, lastError: expect.stringContaining('503') },
     });
   });
 

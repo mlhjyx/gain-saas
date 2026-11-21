@@ -1620,17 +1620,29 @@ describe('缺口 3：引擎可触达性门 + 退信回写', () => {
     const prisma = new FakeSendPrisma();
     approvedBatch(prisma);
     const transport = fakeTransport();
-    const { eligibility, writeback } = service(prisma, transport, true, new Map(), false, {});
-    const result = await eligibility; // 占位避免未用告警（实际断言在下方桩上）
-    void result;
-    // 重新构造:用返回的桩断言
-    const { send, eligibility: e2, writeback: w2 } = (() => {
-      const svc = service(prisma, transport, true, new Map(), false, {});
-      return svc;
-    })();
-    await send.sendBatch(tenantA, BATCH);
-    expect(e2.check).not.toHaveBeenCalled();
+    const { send, eligibility, writeback } = service(prisma, transport, true, new Map(), false, {});
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ sent: 2 });
+    expect(eligibility.check).not.toHaveBeenCalled();
+    expect(writeback.enqueue).not.toHaveBeenCalled();
     expect(transport.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag 开 + DNC 命中 → 合规门先行,被拦草稿不消耗引擎调用', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma);
+    const transport = fakeTransport();
+    const dncReasons = new Map([['buyer@example.de', ['tenant:unsubscribe']]]);
+    const results = eligibleMap([
+      ['buyer@example.de', { state: 'INVALID', allowedActions: ['display', 'match'] }],
+      ['einkauf@example.de', { state: 'VALID', allowedActions: ['display', 'match', 'outreach'] }],
+    ]);
+    const { send, eligibility } = service(prisma, transport, true, dncReasons, false, eligibilityOn, { results });
+    const result = await send.sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ sent: 1, skipped: 1 });
+    // 引擎只收到未被合规门拦下的那一封
+    expect(eligibility.check).toHaveBeenCalledTimes(1);
+    expect(eligibility.check.mock.calls[0]![1]).toEqual(['einkauf@example.de']);
   });
 
   it('flag 开 + 全部 VALID → 照常发送,检查按批调用', async () => {

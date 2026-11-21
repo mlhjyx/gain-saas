@@ -59,7 +59,8 @@ export class EngineContactEligibilityChecker implements OutreachEligibilityCheck
     for (let i = 0; i < canonical.length; i += ELIGIBILITY_MAX_EMAILS) {
       const chunk = canonical.slice(i, i + ELIGIBILITY_MAX_EMAILS);
       const result = await this.engine.call(tenant, 'POST', '/outreach/contact-eligibility', {
-        body: { emails: chunk },
+        // 引擎 DTO 必填 workspaceId(ValidationPipe whitelist → 缺失即 400)
+        body: { workspaceId: tenant.workspaceId, emails: chunk },
         headers: { 'x-service-token': this.config.OUTREACH_ENGINE_SERVICE_TOKEN ?? '' },
         timeoutMs: 10_000,
       });

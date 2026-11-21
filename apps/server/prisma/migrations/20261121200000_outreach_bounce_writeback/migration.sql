@@ -16,7 +16,7 @@ CREATE TABLE "outreach_bounce_writeback" (
     CONSTRAINT "outreach_bounce_writeback_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "outreach_bounce_writeback_point_message_idx"
+CREATE UNIQUE INDEX "outreach_bounce_writeback_contact_point_id_message_id_key"
     ON "outreach_bounce_writeback"("contact_point_id", "message_id");
-CREATE INDEX "outreach_bounce_writeback_status_created_idx"
+CREATE INDEX "outreach_bounce_writeback_status_created_at_idx"
     ON "outreach_bounce_writeback"("status", "created_at");

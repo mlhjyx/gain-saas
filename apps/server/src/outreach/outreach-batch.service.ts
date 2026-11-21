@@ -228,6 +228,11 @@ export class OutreachBatchService {
     const data: Partial<typeof normalized> = { ...normalized };
     if (input.countryCode === undefined) delete data.countryCode;
     if (input.contactPointId === undefined) delete data.contactPointId;
+    // 换了收件邮箱而未随附新通讯点 → 清空旧 pointId：回写按 pointId 寻址，
+    // 旧 id 绑新邮箱会把退信记到别人的联系点上（引擎侧 INVALID 是粘滞的）。
+    if (normalized.recipientEmail !== draft.recipientEmail && input.contactPointId === undefined) {
+      data.contactPointId = null;
+    }
     const updated = await this.prisma.outreachDraft.update({
       where: { id: draftId },
       data,
