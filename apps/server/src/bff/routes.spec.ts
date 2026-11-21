@@ -143,3 +143,42 @@ describe('判定复核队列与度量 BFF 路由', () => {
     }
   });
 });
+
+
+describe('market candidate nine thin routes', () => {
+  it.each([
+    ['GET', 'companies/:companyId/market-candidate-sets/latest', false, undefined],
+    ['GET', 'market-candidate-sets/:setId', false, undefined],
+    ['GET', 'market-candidate-sets/:setId/revisions', false, undefined],
+    ['GET', 'market-candidate-sets/:setId/revisions/:revision', false, undefined],
+    ['POST', 'market-candidate-sets/:setId/candidates/:candidateId/feedback', false, undefined],
+    ['POST', 'companies/:companyId/market-candidate-generations', false, undefined],
+    ['GET', 'market-candidate-generations/:generationId', false, undefined],
+    ['POST', 'market-candidate-generations/:generationId/execute', true, 240_000],
+    ['POST', 'market-candidate-generations/:generationId/recover', false, undefined],
+  ] as const)('registers %s %s with its exact authority and timeout', (method, saasPath, grant, timeoutMs) => {
+    const route = BFF_ROUTES.find((candidate) => candidate.method === method && candidate.saasPath === saasPath);
+    expect(route).toMatchObject({ method, saasPath, enginePath: `/${saasPath}`, access: 'member' });
+    expect(route?.grant).toBe(grant ? true : undefined);
+    expect(route?.timeoutMs).toBe(timeoutMs);
+  });
+});
+
+
+describe('market candidate execute quote preserves raw input', () => {
+  it.each([
+    { intentDigest: 'a'.repeat(64) },
+    { intentDigest: 'a'.repeat(64), actor: 'untrusted', attemptId: 'untrusted' },
+    {}, null, undefined,
+  ])('does not normalize or strip the actual quote body %j', (body) => {
+    const route = BFF_ROUTES.find((candidate) => candidate.enginePath === '/market-candidate-generations/:generationId/execute');
+    expect(route).toBeDefined();
+    const forwarded = engineRequestBody(route!, body);
+    expect(forwarded).toEqual(body);
+    expect(budgetQuoteRequest(route!, { generationId: '11111111-1111-4111-8111-111111111111' }, forwarded)).toEqual({
+      operation: 'POST /market-candidate-generations/:generationId/execute',
+      generationId: '11111111-1111-4111-8111-111111111111',
+      body,
+    });
+  });
+});

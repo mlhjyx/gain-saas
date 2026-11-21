@@ -57,6 +57,17 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'companies/:companyId/conflicts', enginePath: '/companies/:companyId/conflicts', access: 'member' },
   { method: 'POST', saasPath: 'conflicts/:conflictId/resolve', enginePath: '/conflicts/:conflictId/resolve', access: 'admin' },
 
+  // 市场候选薄消费：普通成员入口，只有明确 execute 获取执行预算。
+  { method: 'GET', saasPath: 'companies/:companyId/market-candidate-sets/latest', enginePath: '/companies/:companyId/market-candidate-sets/latest', access: 'member' },
+  { method: 'GET', saasPath: 'market-candidate-sets/:setId', enginePath: '/market-candidate-sets/:setId', access: 'member' },
+  { method: 'GET', saasPath: 'market-candidate-sets/:setId/revisions', enginePath: '/market-candidate-sets/:setId/revisions', access: 'member' },
+  { method: 'GET', saasPath: 'market-candidate-sets/:setId/revisions/:revision', enginePath: '/market-candidate-sets/:setId/revisions/:revision', access: 'member' },
+  { method: 'POST', saasPath: 'market-candidate-sets/:setId/candidates/:candidateId/feedback', enginePath: '/market-candidate-sets/:setId/candidates/:candidateId/feedback', access: 'member' },
+  { method: 'POST', saasPath: 'companies/:companyId/market-candidate-generations', enginePath: '/companies/:companyId/market-candidate-generations', access: 'member' },
+  { method: 'GET', saasPath: 'market-candidate-generations/:generationId', enginePath: '/market-candidate-generations/:generationId', access: 'member' },
+  { method: 'POST', saasPath: 'market-candidate-generations/:generationId/execute', enginePath: '/market-candidate-generations/:generationId/execute', access: 'member', grant: true, timeoutMs: 240_000 },
+  { method: 'POST', saasPath: 'market-candidate-generations/:generationId/recover', enginePath: '/market-candidate-generations/:generationId/recover', access: 'member' },
+
   // ── 模块 04 ICP 与发现 ──
   { method: 'POST', saasPath: 'companies/:companyId/icps', enginePath: '/companies/:companyId/icps', access: 'member', grant: true, timeoutMs: 240_000 },
   { method: 'GET', saasPath: 'icps', enginePath: '/icps', access: 'member' },
@@ -255,6 +266,8 @@ export function budgetQuoteRequest(
       return { operation: 'POST /query-plans/:planId/execute', planId: params.planId,
         ...(Object.keys(canonical).length ? { body: canonical } : {}) };
     }
+    case '/market-candidate-generations/:generationId/execute':
+      return { operation: 'POST /market-candidate-generations/:generationId/execute', generationId: params.generationId, body };
     case '/leads/:leadId/outreach-drafts':
       return { operation: 'POST /leads/:leadId/outreach-drafts', leadId: params.leadId };
     // 发现联系人绑定公司 ID；引擎支持 attemptId 后，把每次点击的幂等键并入请求哈希，

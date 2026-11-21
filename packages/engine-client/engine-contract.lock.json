@@ -1,7 +1,7 @@
 {
   "schemaVersion": "engine-contract-pin/v1",
-  "specDigest": "f76a8c528f376d9d-bb304cc1d214055c-ac0c0e14a0aea902-afb584768ecede77",
+  "specDigest": "7f50d42aa5948b44-202a4db2b2af831d-25d807bc646f9fe8-44399f14955dc15b",
   "pinnedAt": "2026-11-21",
-  "pinnedFrom": "global-backend source 9620adc5ee45d43c18582429d8d3a183b65ac11b; ghcr.io/mlhjyx/global-backend@sha256:2e7cc0ef645175fcee1248bfb6c85cb52f35dfbeb6fb7958c6bfe0312bcde85f; normal GET http://127.0.0.1:13010/api/docs-json after verified isolated-test adoption, 2026-11-21 Asia/Shanghai",
+  "pinnedFrom": "global-backend complete code-first artifact at source 31da69d57565b8d17a2c9bb033411be8a006ef5a; raw SHA-256 ca317fba1b4da919647177ea3049aa68f95ecd2c55649b8f20138978abf2474c; unmodified gen:engine via owned 127.0.0.1 ephemeral static fixture, not a deployed runtime; 2026-11-21",
   "action": "Upgrading the engine contract is a separate PR: run pnpm gen:engine against the target engine, review the OpenAPI diff (CI runs oasdiff breaking when this file changes), regenerate schema.d.ts, update specDigest here, and record the engine image/source SHA in the PR body."
 }

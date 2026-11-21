@@ -88,8 +88,10 @@ describe('执行预算 quote 映射', () => {
     for (const route of BFF_ROUTES.filter((r) => r.grant)) {
       const request = budgetQuoteRequest(
         route,
-        { id: 'c', companyId: 'c', icpId: 'i', planId: 'p', leadId: 'l', pointId: 'pt' },
-        { website: 'https://x.test' },
+        { id: 'c', companyId: 'c', icpId: 'i', planId: 'p', leadId: 'l', pointId: 'pt', generationId: '11111111-1111-4111-8111-111111111111' },
+        route.enginePath === '/market-candidate-generations/:generationId/execute'
+          ? { intentDigest: 'a'.repeat(64) }
+          : { website: 'https://x.test' },
       );
       expect(request, `${route.method} ${route.enginePath}`).not.toBeNull();
       expect(request!.operation).toContain('/');
