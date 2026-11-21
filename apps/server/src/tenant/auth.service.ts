@@ -73,36 +73,42 @@ export class AuthService {
     if (existing) {
       throw new UnauthorizedException({ error: { code: 'EMAIL_TAKEN', message: '该邮箱已注册,请直接登录' } });
     }
-    // 一企一空间：企业查重在任何写入之前(fail-fast,不落 user 行)。
-    const activeWorkspaces = await this.prisma.workspace.findMany({
-      where: { status: 'ACTIVE' },
-      select: { name: true, createdAt: true },
-    });
-    const conflict = findEnterpriseConflict(
-      companyName,
-      activeWorkspaces.map((w) => w.name),
-    );
-    if (conflict) {
-      const hit = activeWorkspaces.find((w) => w.name === conflict)!;
-      throw new ConflictException({
-        error: { code: 'COMPANY_WORKSPACE_EXISTS', message: '该企业已开通工作空间,请通过邀请加入' },
-        meta: {
-          existingWorkspaceName: hit.name,
-          existingCreatedAt: hit.createdAt.toISOString().slice(0, 10),
-        },
-      });
-    }
+    // 一企一空间：企业查重在下方的写入事务内(fail-fast;advisory lock 防并发同名)。
     const passwordHash = await argon2.hash(password);
-    const user = await this.prisma.user.create({ data: { email, passwordHash } });
-    // 工作空间 + 管理员成员 + 事件消费登记,一个事务
-    const workspace = await this.prisma.workspace.create({
-      data: {
-        id: randomUUID(),
-        name: companyName,
-        memberships: { create: { userId: user.id, role: 'admin' } },
-        registry: { create: {} },
-      },
-      include: { memberships: true },
+    // 查重 + user + workspace 一个事务,并用 advisory lock 串行化同名企业:
+    // 否则两个并发注册都能通过 findMany,各自建出重复空间(正是本功能要消灭的形态)。
+    const { user, workspace } = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizeCompanyName(companyName)}))`;
+      const activeWorkspaces = await tx.workspace.findMany({
+        where: { status: 'ACTIVE' },
+        select: { name: true, createdAt: true },
+      });
+      const conflict = findEnterpriseConflict(
+        companyName,
+        activeWorkspaces.map((w) => w.name),
+      );
+      if (conflict) {
+        const hit = activeWorkspaces.find((w) => w.name === conflict)!;
+        throw new ConflictException({
+          error: { code: 'COMPANY_WORKSPACE_EXISTS', message: '该企业已开通工作空间,请通过邀请加入' },
+          meta: {
+            existingWorkspaceName: hit.name,
+            existingCreatedAt: hit.createdAt.toISOString().slice(0, 10),
+          },
+        });
+      }
+      const createdUser = await tx.user.create({ data: { email, passwordHash } });
+      // 工作空间 + 管理员成员 + 事件消费登记,同一事务
+      const createdWorkspace = await tx.workspace.create({
+        data: {
+          id: randomUUID(),
+          name: companyName,
+          memberships: { create: { userId: createdUser.id, role: 'admin' } },
+          registry: { create: {} },
+        },
+        include: { memberships: true },
+      });
+      return { user: createdUser, workspace: createdWorkspace };
     });
     await this.audit.record({ realm: 'tenant', actorId: user.id, action: 'auth.register', target: workspace.id, detail: { email } });
     const membership = workspace.memberships[0];
