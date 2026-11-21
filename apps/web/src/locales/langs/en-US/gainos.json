@@ -934,6 +934,7 @@
   },
   "members": {
     "title": "Members & roles",
+    "emptyTitle": "No members yet",
     "subtitle": "Admins approve and export; members handle profiling and lead judging day to day.",
     "invite": "Invite member",
     "membersHeading": "Members",

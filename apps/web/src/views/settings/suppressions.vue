@@ -12,6 +12,7 @@ import { Alert, Button, Form, Input, Select, Spin, Table } from 'ant-design-vue'
 
 import { $t } from '#/locales';
 
+import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { formatDate } from '@gain-saas/shared';
@@ -69,8 +70,8 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     const page = await gainosApi.suppressions({ limit: limit.value });
-    rows.value = page.data ?? [];
-    hasMore.value = Boolean((page as unknown as { page?: { has_more?: boolean } }).page?.has_more);
+    rows.value = page?.data ?? [];
+    hasMore.value = Boolean(page?.page?.has_more);
   } catch (err) {
     error.value = failureText(err).title;
   } finally {
@@ -181,7 +182,12 @@ onMounted(load);
     </Alert>
     <section v-else class="sp__card">
       <h2>{{ $t('gainos.suppressions.listTitle', { count: rows.length }) }}</h2>
-      <p v-if="rows.length === 0" class="sp__empty">{{ $t('gainos.suppressions.empty') }}</p>
+      <EmptyState v-if="rows.length === 0" :title="$t('gainos.suppressions.empty')">
+        <template #actions>
+          <Button type="primary" @click="$router.push('/leads')">{{ $t('gainos.leads.title') }}</Button>
+          <Button @click="$router.push('/settings/audit')">{{ $t('gainos.audit.title') }}</Button>
+        </template>
+      </EmptyState>
       <Table
         v-else
         :columns="columns"

@@ -5,6 +5,7 @@ import { Alert, Button, Form, Input, Modal, RadioGroup, RadioButton, Spin } from
 
 import { $t } from '#/locales';
 
+import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { failureText, gainosApi, type MembersResponse } from '#/api/gainos';
@@ -26,7 +27,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    data.value = await gainosApi.members();
+    data.value = (await gainosApi.members()) ?? { members: [], invitations: [] };
   } catch (err) {
     error.value = failureText(err).title;
   } finally {
@@ -127,7 +128,16 @@ onMounted(load);
 
       <section class="mb__card">
         <h2>{{ $t('gainos.members.membersHeading') }}</h2>
-        <ul class="mb__list">
+        <EmptyState
+          v-if="data.members.length === 0"
+          :title="$t('gainos.members.emptyTitle')"
+        >
+          <template #actions>
+            <Button type="primary" @click="openInvite">{{ $t('gainos.members.invite') }}</Button>
+            <Button @click="$router.push('/workspace')">{{ $t('gainos.menu.groupWorkspace') }}</Button>
+          </template>
+        </EmptyState>
+        <ul v-else class="mb__list">
           <li v-for="m in data.members" :key="m.id" class="mb__row">
             <div class="mb__who">
               <strong>{{ m.email }}</strong>

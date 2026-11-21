@@ -7,10 +7,11 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { Alert, Button, DatePicker, Empty, Input, Table } from 'ant-design-vue';
+import { Alert, Button, DatePicker, Input, Table } from 'ant-design-vue';
 
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
+import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { $t } from '#/locales';
@@ -119,9 +120,15 @@ async function load(reset = true): Promise<void> {
       ...(reset ? {} : { cursor: nextCursor.value ?? undefined }),
       limit: 100,
     });
-    entries.value = reset ? (data.entries ?? []) : [...entries.value, ...(data.entries ?? [])];
-    total.value = typeof data.total === 'number' ? data.total : null;
-    nextCursor.value = data.nextCursor ?? null;
+    // 空响应按空页处理，避免把 null.entries 的运行时错误暴露给用户。
+    const page = data ?? {
+      entries: [] as AuditEntry[],
+      nextCursor: null as string | null,
+      total: 0,
+    };
+    entries.value = reset ? (page.entries ?? []) : [...entries.value, ...(page.entries ?? [])];
+    total.value = typeof page.total === 'number' ? page.total : null;
+    nextCursor.value = page.nextCursor ?? null;
   } catch (err) {
     error.value = failureText(err);
     if (reset) entries.value = [];
@@ -256,11 +263,12 @@ onMounted(() => {
       <div class="au__meta">
         <span>{{ loadedLabel }}</span>
       </div>
-      <Empty
-        v-if="entries.length === 0"
-        :description="$t('gainos.audit.empty')"
-        :image="Empty.PRESENTED_IMAGE_SIMPLE"
-      />
+      <EmptyState v-if="entries.length === 0" :title="$t('gainos.audit.empty')">
+        <template #actions>
+          <Button type="primary" @click="$router.push('/workspace')">{{ $t('gainos.menu.groupWorkspace') }}</Button>
+          <Button @click="$router.push('/settings/members')">{{ $t('gainos.members.title') }}</Button>
+        </template>
+      </EmptyState>
       <Table
         v-else
         :columns="columns"

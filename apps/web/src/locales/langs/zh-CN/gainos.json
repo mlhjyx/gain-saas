@@ -934,6 +934,7 @@
   },
   "members": {
     "title": "成员与角色",
+    "emptyTitle": "还没有成员",
     "subtitle": "管理员可以审批与导出；成员负责日常建档与线索判断。",
     "invite": "邀请成员",
     "membersHeading": "成员",
