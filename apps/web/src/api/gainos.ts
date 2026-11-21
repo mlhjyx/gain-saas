@@ -1049,7 +1049,6 @@ export const gainosApi = {
   recordDiscoveryRun: (input: { runId: string; planId: string; icpId: string }) =>
     requestClient.post<DiscoveryRunLink>('/runs', input),
   workspaces: () => requestClient.get<WorkspaceSummary[]>('/workspaces'),
-  createWorkspace: (name: string) => requestClient.post<WorkspaceSummary>('/workspaces', { name }),
   renameWorkspace: (workspaceId: string, name: string) =>
     requestClient.request<{ id: string; name: string }>(`/workspaces/${workspaceId}`, {
       data: { name },

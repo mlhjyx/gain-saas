@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { APP_CONFIG } from '../shared/config.module.js';
@@ -19,6 +19,30 @@ import { SessionService } from './session.service.js';
  * SD6:INVITE_CODE 配置时注册需邀请码(公开自助在 design partner 阶段不开放)。
  * 工作空间 UUID = 引擎租户 id;workspace_registry 同步登记(事件消费遍历用,SD4)。
  */
+/**
+ * 一企一空间（2026-11-21 产品决策）：企业名的归一化比对。
+ * 归一化 = NFKC → 去全部空白 → 小写；"琏升科技股份有限公司1"这类后缀重复靠
+ * 包含关系兜住（较短方 ≥6 字符，避免"11"vs"111"式测试名误伤；
+ * "宁波市盛源鑫实业"与"东莞市盛源鑫实业"互不包含，正常放行）。
+ */
+export function normalizeCompanyName(name: string): string {
+  return name.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+}
+
+export function findEnterpriseConflict(input: string, existing: readonly string[]): string | null {
+  const a = normalizeCompanyName(input);
+  if (!a) return null;
+  for (const name of existing) {
+    const b = normalizeCompanyName(name);
+    if (!b) continue;
+    if (a === b) return name;
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length <= b.length ? b : a;
+    if (shorter.length >= 6 && longer.includes(shorter)) return name;
+  }
+  return null;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -48,6 +72,25 @@ export class AuthService {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new UnauthorizedException({ error: { code: 'EMAIL_TAKEN', message: '该邮箱已注册,请直接登录' } });
+    }
+    // 一企一空间：企业查重在任何写入之前(fail-fast,不落 user 行)。
+    const activeWorkspaces = await this.prisma.workspace.findMany({
+      where: { status: 'ACTIVE' },
+      select: { name: true, createdAt: true },
+    });
+    const conflict = findEnterpriseConflict(
+      companyName,
+      activeWorkspaces.map((w) => w.name),
+    );
+    if (conflict) {
+      const hit = activeWorkspaces.find((w) => w.name === conflict)!;
+      throw new ConflictException({
+        error: { code: 'COMPANY_WORKSPACE_EXISTS', message: '该企业已开通工作空间,请通过邀请加入' },
+        meta: {
+          existingWorkspaceName: hit.name,
+          existingCreatedAt: hit.createdAt.toISOString().slice(0, 10),
+        },
+      });
     }
     const passwordHash = await argon2.hash(password);
     const user = await this.prisma.user.create({ data: { email, passwordHash } });

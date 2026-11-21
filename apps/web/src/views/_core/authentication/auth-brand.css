@@ -174,6 +174,17 @@
   margin: 0 0 18px; padding: 11px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6;
   background: var(--gs-danger-bg); color: var(--gs-danger); border: 1px solid var(--gs-danger-border);
 }
+
+/* 一企一空间:企业已开通 → 加入引导面板(警示底色+可读层级,同设计语言) */
+.g-enterprise-exists {
+  margin: 0 0 18px; padding: 13px 14px; border-radius: 10px; font-size: 13px; line-height: 1.7;
+  background: var(--gs-danger-bg); color: var(--gs-danger); border: 1px solid var(--gs-danger-border);
+}
+.g-enterprise-exists p { margin: 0; }
+.g-enterprise-exists__title { font-weight: 650; color: var(--gs-danger); }
+.g-enterprise-exists__why { margin-top: 3px !important; color: var(--gs-fg-2); }
+.g-enterprise-exists__next { margin-top: 3px !important; color: var(--gs-fg-muted); }
+.g-enterprise-exists__next a { color: var(--gs-danger); font-weight: 550; text-decoration: underline; text-underline-offset: 2px; }
 .g-fade-enter-active { transition: all .25s ease; }
 .g-fade-enter-from { opacity: 0; transform: translateY(-4px); }
 

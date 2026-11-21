@@ -38,6 +38,8 @@ const form = reactive({
 const errors = reactive<Record<string, string | undefined>>({});
 const submitting = ref(false);
 const failure = ref<string | null>(null);
+/** 一企一空间：企业已开通时给出加入引导，而不是泛泛的失败文案。 */
+const enterpriseExists = ref<{ name: string; date: string } | null>(null);
 
 /** 邀请码只在部署侧配置了 INVITE_CODE 时显示（SD6，2026-11-03）。 */
 const inviteCodeRequired = ref(false);
@@ -100,6 +102,7 @@ function errText(error: unknown): string {
 
 async function onSubmit() {
   failure.value = null;
+  enterpriseExists.value = null;
   if (!validate()) return;
   submitting.value = true;
   try {
@@ -127,7 +130,25 @@ async function onSubmit() {
     }
     await router.push('/workspace');
   } catch (error) {
-    failure.value = errText(error);
+    // 一企一空间：企业已开通（409 COMPANY_WORKSPACE_EXISTS）→ 专属加入引导
+    const detail = (
+      error as {
+        response?: {
+          data?: {
+            error?: { code?: string };
+            meta?: { existingWorkspaceName?: string; existingCreatedAt?: string };
+          };
+        };
+      }
+    )?.response?.data;
+    if (detail?.error?.code === 'COMPANY_WORKSPACE_EXISTS') {
+      enterpriseExists.value = {
+        name: detail.meta?.existingWorkspaceName ?? form.companyName.trim(),
+        date: detail.meta?.existingCreatedAt ?? '',
+      };
+    } else {
+      failure.value = errText(error);
+    }
   } finally {
     submitting.value = false;
   }
@@ -223,6 +244,19 @@ async function onSubmit() {
               <input v-model="form.inviteCode" type="text" :placeholder="$t('gainos.register.inviteCodePlaceholder')" />
             </div>
           </label>
+
+          <Transition name="g-fade">
+            <div v-if="enterpriseExists" class="g-enterprise-exists" role="alert">
+              <p class="g-enterprise-exists__title">{{ $t('gainos.register.enterpriseExists.title') }}</p>
+              <p class="g-enterprise-exists__why">
+                {{ $t('gainos.register.enterpriseExists.why', { name: enterpriseExists.name, date: enterpriseExists.date }) }}
+              </p>
+              <p class="g-enterprise-exists__next">
+                {{ $t('gainos.register.enterpriseExists.next') }}
+                <RouterLink to="/auth/login">{{ $t('gainos.register.enterpriseExists.goLogin') }}</RouterLink>
+              </p>
+            </div>
+          </Transition>
 
           <Transition name="g-fade">
             <p v-if="failure" class="g-failure" role="alert">{{ failure }}</p>
