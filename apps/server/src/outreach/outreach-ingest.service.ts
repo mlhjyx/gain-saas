@@ -11,6 +11,7 @@ import {
   parseEmail,
 } from './outreach-email-ingest.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
+import { OutreachBounceWritebackService } from './outreach-bounce-writeback.service.js';
 
 const MAX_RAW_BYTES = 256 * 1024;
 
@@ -49,6 +50,7 @@ export class OutreachIngestService {
     private readonly prisma: PrismaService,
     private readonly replies: OutreachReplyService,
     private readonly audit: AuditService,
+    private readonly writeback: OutreachBounceWritebackService,
   ) {}
 
   async ingest(tenant: OutreachTenant, raw: string): Promise<OutreachIngestOutcome> {
@@ -101,7 +103,7 @@ export class OutreachIngestService {
     }
     const draft = await this.prisma.outreachDraft.findFirst({
       where: { id: send.draftId, workspaceId: tenant.workspaceId },
-      select: { contactRef: true },
+      select: { contactRef: true, contactPointId: true },
     });
     if (!draft) {
       await this.recordUnmatched(tenant, externalId, 'DRAFT_NOT_FOUND');
@@ -133,6 +135,18 @@ export class OutreachIngestService {
         return { outcome: 'DUPLICATE', externalId };
       }
       throw error;
+    }
+    // 退信回写（缺口 3）：DSN 退信 → 引擎账本（hard→INVALID；soft ×3→UNKNOWN+24h 重验）。
+    // legacy 草稿无 contactPointId 时跳过（无法寻址）。
+    if (kind === 'BOUNCE' && draft.contactPointId) {
+      await this.writeback
+        .enqueue(tenant, {
+          contactPointId: draft.contactPointId,
+          event: hardBounce ? 'hard_bounce' : 'soft_bounce',
+          messageId: externalId,
+          receivedAt: new Date(),
+        })
+        .catch(() => undefined);
     }
     await this.audit.record({
       realm: 'tenant',

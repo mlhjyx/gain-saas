@@ -16,6 +16,8 @@ import {
   type OutreachTenant,
 } from './outreach-consent.service.js';
 import type { OutreachDncChecker } from './outreach-dnc.checker.js';
+import { OUTREACH_ELIGIBILITY_CHECKER, type OutreachEligibilityChecker } from './outreach-eligibility.checker.js';
+import { OutreachBounceWritebackService } from './outreach-bounce-writeback.service.js';
 import {
   OutreachAuthorizationConsumer,
   type OutreachAuthorizationGrant,
@@ -122,6 +124,8 @@ export class OutreachSendService {
     private readonly gate: OutreachSendGate,
     @Inject(OUTREACH_TRANSPORT) private readonly transport: OutreachTransport,
     @Inject(OUTREACH_DNC_CHECKER) private readonly dnc: OutreachDncChecker,
+    @Inject(OUTREACH_ELIGIBILITY_CHECKER) private readonly eligibility: OutreachEligibilityChecker,
+    private readonly writeback: OutreachBounceWritebackService,
     private readonly unsubscribe: OutreachUnsubscribeService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly controls: OutreachSendControls,
@@ -578,6 +582,19 @@ export class OutreachSendService {
             smtpStatusCode: telemetry.smtpStatusCode,
             response: telemetry.smtpResponse,
           });
+          // 退信回写（缺口 3）：SMTP 5xx 硬拒 → 引擎四态账本置 INVALID（粘滞）。
+          // legacy 草稿无 contactPointId 时丢弃（enqueue 内幂等）。
+          if (draft.contactPointId) {
+            await this.writeback
+              .enqueue(tenant, {
+                contactPointId: draft.contactPointId,
+                event: 'hard_bounce',
+                messageId: `saas-smtp-${draft.id}-${attempt}`,
+                smtpCode: telemetry.smtpStatusCode !== undefined ? String(telemetry.smtpStatusCode) : undefined,
+                receivedAt: now,
+              })
+              .catch(() => undefined);
+          }
         }
         results.push({ draftId: draft.id, status: 'FAILED', error: message });
       }
@@ -834,6 +851,41 @@ export class OutreachSendService {
             countryCode: normalizeCountry(draft.countryCode),
             jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
           };
+        }
+      }
+    }
+    // 可投递性预检（缺口 3，P1-16 接线）：置于 DNC 合规门之后——合规优先，
+    // 且被合规门拦下的草稿不再消耗引擎调用。质量门：引擎四态里只有 state=VALID
+    // （allowedActions 含 outreach）放行；引擎不可达与合规门同语义 fail-closed
+    // （整批拒绝），开关关闭时不调用。
+    if (this.config.OUTREACH_ENGINE_ELIGIBILITY_ENABLED === true) {
+      const forCheck = drafts.filter((draft) => !result.get(draft.id)?.skip);
+      if (forCheck.length > 0) {
+        let outcomes: Map<string, { state: string; allowedActions: string[] }>;
+        try {
+          outcomes = await this.eligibility.check(
+            tenant,
+            forCheck.map((draft) => draft.recipientEmail),
+          );
+        } catch {
+          throw new ServiceUnavailableException({
+            error: {
+              code: 'OUTREACH_ELIGIBILITY_UNAVAILABLE',
+              message: '联系人可触达性检查失败，拒绝发送',
+            },
+          });
+        }
+        for (const draft of forCheck) {
+          const outcome = outcomes.get(draft.recipientEmail.trim().toLowerCase());
+          if (!outcome || !outcome.allowedActions.includes('outreach')) {
+            const entry = result.get(draft.id)!;
+            entry.skip = {
+              code: `OUTREACH_ELIGIBILITY_BLOCKED: ${outcome?.state ?? 'UNKNOWN'}`,
+              message: '引擎联系人核验未通过（仅核验有效 VALID 的邮箱可发送）',
+              countryCode: normalizeCountry(draft.countryCode),
+              jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+            };
+          }
         }
       }
     }

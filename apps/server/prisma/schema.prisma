@@ -399,6 +399,9 @@ model OutreachDraft {
   workspaceId     String              @map("workspace_id") @db.Uuid
   batchId         String              @map("batch_id") @db.Uuid
   contactRef      String              @map("contact_ref") @db.Uuid
+  /// 引擎 contact_point id（email 通讯点）；退信回写 /contact-points/{pointId}/bounce-events 的寻址键。
+  /// legacy 草稿为 NULL——回写队列按计数跳过，不阻塞发送。
+  contactPointId  String?             @map("contact_point_id") @db.Uuid
   recipientEmail  String              @map("recipient_email") @db.VarChar(320)
   /// 收件人国家（ISO 3166-1 alpha-2，P4-01）；缺失/未知按 REVIEW_REQUIRED fail-closed。
   countryCode     String?             @map("country_code") @db.Char(2)
@@ -907,6 +910,26 @@ model OutreachReply {
   @@index([workspaceId, contactRef, receivedAt])
   @@index([workspaceId, kind, receivedAt])
   @@map("outreach_reply")
+}
+
+/// 退信回写待发队列（缺口 3）：SMTP 硬拒/DSN 退信 → 引擎 bounce-events；
+/// messageId 为引擎侧幂等键，(contactPointId, messageId) 唯一吸收重复入队。
+model OutreachBounceWriteback {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  contactPointId String   @map("contact_point_id") @db.Uuid
+  event          String   @db.VarChar(32)
+  messageId      String   @map("message_id") @db.VarChar(256)
+  smtpCode       String?  @map("smtp_code") @db.VarChar(64)
+  receivedAt     DateTime @default(now()) @map("received_at")
+  status         String   @default("PENDING") @db.VarChar(16)
+  attempts       Int      @default(0)
+  lastError      String?  @map("last_error") @db.VarChar(300)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([contactPointId, messageId])
+  @@index([status, createdAt])
+  @@map("outreach_bounce_writeback")
 }
 
 /// workspace 累计预算/配额（Phase 1b 拒绝钱包攻击）。

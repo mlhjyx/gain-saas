@@ -131,7 +131,7 @@ async function main(): Promise<void> {
   await prisma.$connect();
   const audit = new AuditService(prisma);
   const replies = new OutreachReplyService(prisma, audit);
-  const ingest = new OutreachIngestService(prisma, replies, audit);
+  const ingest = new OutreachIngestService(prisma, replies, audit, { enqueue: async () => undefined } as never);
   const poller = new OutreachImapPoller(
     prisma,
     ingest,

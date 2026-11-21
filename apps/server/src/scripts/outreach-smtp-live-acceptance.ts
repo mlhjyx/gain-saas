@@ -171,6 +171,9 @@ async function main(): Promise<void> {
     gate,
     transport,
     dnc,
+    // 脚本手 new 依赖：可触达性检查默认关闭（flag off），桩实现永不被调用
+    { check: async () => new Map() },
+    { enqueue: async () => undefined } as never,
     unsubscribe,
     config,
     controls,
@@ -180,7 +183,7 @@ async function main(): Promise<void> {
     experiments,
   );
   const replies = new OutreachReplyService(prisma, audit);
-  const ingest = new OutreachIngestService(prisma, replies, audit);
+  const ingest = new OutreachIngestService(prisma, replies, audit, { enqueue: async () => undefined } as never);
   const poller = new OutreachImapPoller(prisma, ingest, new ImapFlowClient(config), config);
 
   const workspaceId = randomUUID();

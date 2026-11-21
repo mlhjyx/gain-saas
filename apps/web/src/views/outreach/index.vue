@@ -37,6 +37,7 @@ const batchName = ref('');
 
 interface DraftForm {
   contactRef: string;
+  contactPointId: string;
   recipientEmail: string;
   companyName: string;
   subject: string;
@@ -49,7 +50,7 @@ const draftError = ref<string | null>(null);
 const decisionReason = ref('');
 
 function emptyDraft(): DraftForm {
-  return { contactRef: '', recipientEmail: '', companyName: '', subject: '', body: '' };
+  return { contactRef: '', contactPointId: '', recipientEmail: '', companyName: '', subject: '', body: '' };
 }
 
 function label(domain: 'outreachBatch' | 'outreachDraft', value: string | undefined | null): string {
@@ -164,6 +165,8 @@ async function loadPickerContacts(): Promise<void> {
 function pickContact(contact: CanonicalContact): void {
   const email = (contact.contactPoints ?? []).find((point) => String(point.type ?? '').toLowerCase() === 'email');
   draftForm.value.contactRef = contact.id;
+  // 引擎 contact_point id：发送前可触达性预检与退信回写（bounce-events）的寻址键
+  draftForm.value.contactPointId = email?.id ?? '';
   if (email?.value) draftForm.value.recipientEmail = email.value;
   if (pickerLeadName.value) draftForm.value.companyName = pickerLeadName.value;
   pickerOpen.value = false;
@@ -171,6 +174,7 @@ function pickContact(contact: CanonicalContact): void {
 function openEditDraft(draft: OutreachDraftView): void {
   draftForm.value = {
     contactRef: draft.contactRef,
+    contactPointId: '',
     recipientEmail: draft.recipientEmail,
     companyName: draft.companyName ?? '',
     subject: draft.subject,
@@ -185,6 +189,7 @@ async function saveDraft(): Promise<void> {
   draftError.value = null;
   const input = {
     contactRef: draftForm.value.contactRef.trim(),
+    ...(draftForm.value.contactPointId.trim() ? { contactPointId: draftForm.value.contactPointId.trim() } : {}),
     recipientEmail: draftForm.value.recipientEmail.trim(),
     ...(draftForm.value.companyName.trim() ? { companyName: draftForm.value.companyName.trim() } : {}),
     subject: draftForm.value.subject.trim(),

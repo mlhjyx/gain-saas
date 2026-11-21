@@ -38,6 +38,8 @@ function conflict(code: string, message: string): never {
 
 export interface OutreachDraftInput {
   contactRef: string;
+  /** 引擎 contact_point id（email 通讯点）；退信回写寻址用，可空（legacy 兼容）。 */
+  contactPointId?: string | null;
   recipientEmail: string;
   companyName?: string | null;
   subject: string;
@@ -49,6 +51,9 @@ export interface OutreachDraftInput {
 function normalizeDraft(input: OutreachDraftInput) {
   if (!UUID_RE.test(input.contactRef)) {
     invalid('VALIDATION_ERROR', 'contactRef must be a UUID');
+  }
+  if (input.contactPointId !== undefined && input.contactPointId !== null && !UUID_RE.test(input.contactPointId)) {
+    invalid('VALIDATION_ERROR', 'contactPointId must be a UUID');
   }
   const recipientEmail = input.recipientEmail.trim().toLowerCase();
   if (!EMAIL_RE.test(recipientEmail) || recipientEmail.length > 320) {
@@ -72,6 +77,7 @@ function normalizeDraft(input: OutreachDraftInput) {
   }
   return {
     contactRef: input.contactRef,
+    contactPointId: input.contactPointId?.trim() || null,
     recipientEmail,
     companyName,
     subject,
@@ -221,6 +227,12 @@ export class OutreachBatchService {
     // PATCH 语义：未提供 countryCode 时保留原值，不能被整体替换悄悄清空。
     const data: Partial<typeof normalized> = { ...normalized };
     if (input.countryCode === undefined) delete data.countryCode;
+    if (input.contactPointId === undefined) delete data.contactPointId;
+    // 换了收件邮箱而未随附新通讯点 → 清空旧 pointId：回写按 pointId 寻址，
+    // 旧 id 绑新邮箱会把退信记到别人的联系点上（引擎侧 INVALID 是粘滞的）。
+    if (normalized.recipientEmail !== draft.recipientEmail && input.contactPointId === undefined) {
+      data.contactPointId = null;
+    }
     const updated = await this.prisma.outreachDraft.update({
       where: { id: draftId },
       data,
