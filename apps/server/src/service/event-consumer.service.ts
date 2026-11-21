@@ -470,6 +470,57 @@ export class EventConsumerService implements OnModuleInit {
       return;
     }
 
+    if (type === 'SanctionsListStale') {
+      // ch08 §3.1.12：制裁名单过期/临近过期（L0 门与 accept 第五道硬门同源告警）。
+      // 引擎侧已按 (workspace, freshness, 名单源) 6h 窗口去重；不同名单源组合可能再发，
+      // 这里按 workspace 24h 限频，避免铃铛被同一根因淹没。
+      const recent = await tx.notification.findFirst({
+        where: { workspaceId, type: 'SanctionsListStale', createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) } },
+        select: { id: true },
+      });
+      if (recent) return;
+      const freshness = payload.freshness === 'yellow' ? 'yellow' : payload.freshness === 'red' ? 'red' : 'red';
+      const icpId = typeof payload.icpId === 'string' && UUID.test(payload.icpId) ? payload.icpId : aggregateId;
+      await this.notify(
+        tx,
+        workspaceId,
+        'SanctionsListStale',
+        icpId,
+        freshness === 'yellow'
+          ? '制裁名单临近更新时限，接受新线索可能被暂缓'
+          : '制裁名单已过更新时限，暂时无法接受新线索',
+        freshness === 'yellow'
+          ? 'The sanctions list is nearing its refresh deadline — accepting new leads may be paused'
+          : 'The sanctions list is past its refresh deadline — accepting new leads is paused for now',
+      );
+      return;
+    }
+
+    if (type === 'CampaignPlanJobFailed') {
+      // ch08 §3.1.4 双通道兜底：控制面 PATCH 重试耗尽后引擎发此事件。
+      // 把仍处 PENDING/RUNNING 的方案 job 置 FAILED（payload.jobId 即 SaaS 的
+      // campaign_plan_job.id）；已终结的幂等跳过。issues 为引擎有界清单，透传存证。
+      const jobId = typeof payload.jobId === 'string' && UUID.test(payload.jobId) ? payload.jobId : '';
+      if (!jobId) return;
+      const error = typeof payload.error === 'string' && payload.error ? payload.error.slice(0, 200) : 'CAMPAIGN_PLAN_JOB_FAILED';
+      const issues = Array.isArray(payload.issues) ? (payload.issues as Prisma.InputJsonValue) : undefined;
+      const updated = await tx.campaignPlanJob.updateMany({
+        where: { id: jobId, workspaceId, state: { in: ['PENDING', 'RUNNING'] } },
+        data: { state: 'FAILED', error, ...(issues !== undefined ? { issues } : {}) },
+      });
+      if (updated.count !== 1) return; // 已被主通道(PATCH)终结 → 幂等
+      const campaignId = typeof payload.campaignId === 'string' ? payload.campaignId : jobId;
+      await this.notify(
+        tx,
+        workspaceId,
+        'CampaignPlanJobFailed',
+        campaignId,
+        '战役方案生成失败，可在战役页重新发起',
+        'The campaign plan failed to generate — you can start it again on the campaign page',
+      );
+      return;
+    }
+
     // 单条事实审批不生成站内通知：一次理解会产生上百条 Claim，逐条通知会把铃铛淹没。
     // 审批结果仍在企业事实页与审计中可见。
   }

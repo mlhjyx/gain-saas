@@ -117,7 +117,11 @@
     "markAll": "全部标为已读",
     "markAllConfirm": "确认全部已读",
     "markAllDone": "已全部标为已读",
-    "groupCount": "共 {count} 条"
+    "groupCount": "共 {count} 条",
+    "sanctionsStale": "合规筛查暂停",
+    "sanctionsStaleMessage": "制裁名单已过更新时限，暂时无法接受新线索；名单刷新后自动恢复。",
+    "planJobFailed": "战役方案生成失败",
+    "planJobFailedMessage": "可以在战役页重新发起方案生成。"
   },
   "brand": {
     "tagline": "海外增长机会操作系统",

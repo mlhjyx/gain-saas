@@ -430,6 +430,16 @@ export const ENGINE_ERROR_COPY = {
       next: "Sign in instead; use the reset flow if you forgot the password.",
     },
   },
+  SANCTIONS_LIST_STALE: {
+    title: '合规筛查暂停，暂时不能接受这条线索',
+    why: '合规核查用的制裁名单数据已超过更新时限（或名单源异常），筛查不能自动放行——这是合规保护，不是你的操作有问题。',
+    next: '名单刷新后会自动恢复；请联系运营确认刷新进度，稍后再来接受这条线索。',
+    en: {
+      title: "Compliance screening is paused for this lead",
+      why: "The sanctions list used for compliance checks is past its refresh deadline (or a list source is failing), so screening cannot auto-approve — this is a compliance safeguard, not a mistake on your side.",
+      next: "It recovers automatically once the list refreshes; ask operations for the refresh status and retry later.",
+    },
+  },
   COMPANY_WORKSPACE_EXISTS: {
     title: '贵司已开通工作空间',
     why: '该企业已注册过工作空间。按「一企一空间」原则，同一企业只有一个工作空间，同事通过邀请加入，不再重复开通。',

@@ -117,7 +117,11 @@
     "markAll": "Mark all as read",
     "markAllConfirm": "Confirm mark all",
     "markAllDone": "All notifications marked as read",
-    "groupCount": "{count} in total"
+    "groupCount": "{count} in total",
+    "sanctionsStale": "Compliance screening paused",
+    "sanctionsStaleMessage": "The sanctions list is past its refresh deadline — accepting new leads is paused; it recovers automatically.",
+    "planJobFailed": "Campaign plan failed",
+    "planJobFailedMessage": "You can start the plan again on the campaign page."
   },
   "brand": {
     "tagline": "Export growth opportunity OS",

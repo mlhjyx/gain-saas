@@ -12,10 +12,11 @@ function createService(cursor: string | null) {
   const update = vi.fn(async () => ({}));
   const tx = {
     eventInbox: { updateMany: vi.fn(async () => ({ count: 1 })) },
-    notification: { create: vi.fn(async () => ({})) },
+    notification: { create: vi.fn(async () => ({})), findFirst: vi.fn(async () => null) },
     qualifiedLead: { create: vi.fn(async () => ({})) },
     costLedger: { createMany: vi.fn(async () => ({ count: 1 })) },
     taskRun: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    campaignPlanJob: { updateMany: vi.fn(async () => ({ count: 1 })) },
   };
   const prisma = {
     workspaceRegistry: {
@@ -412,6 +413,100 @@ describe('M2 步 10：CandidateBatchCompleted 消费（兼容旧 run 回放）',
 
   it('旧 run 回放（缺新字段/空载荷）→ 兼容消费不报错', async () => {
     const tx = await consumeBatch({});
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('缺口补齐：SanctionsListStale / CampaignPlanJobFailed', () => {
+  // 1b describe 内的助手是块级作用域,这里复制同款(签名一致)
+  function eventPage(eventType: string, payload: Record<string, unknown>, occurredAt = '2026-10-01T08:30:00.000Z') {
+    return {
+      data: [
+        {
+          event_id: EVENT_ID,
+          event_type: eventType,
+          workspace_id: WORKSPACE,
+          occurred_at: occurredAt,
+          aggregate_id: DISCOVERY_RUN_ID,
+          payload,
+        },
+      ],
+      page: { next_cursor: null, has_more: false },
+    };
+  }
+
+  async function consumeSingle(eventType: string, payload: Record<string, unknown>) {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(eventPage(eventType, payload)), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    await service.consumeOnce();
+    return tx;
+  }
+
+  it('SanctionsListStale(red) → 站内通知,refId=icpId', async () => {
+    const tx = await consumeSingle('SanctionsListStale', {
+      code: 'SANCTIONS_LIST_STALE',
+      freshness: 'red',
+      icpId: '21f3c0a1-e005-4d8f-9d06-75224ed4abc3',
+      dedupeKey: 'k1',
+    });
+    expect(tx.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: WORKSPACE,
+        type: 'SanctionsListStale',
+        refId: '21f3c0a1-e005-4d8f-9d06-75224ed4abc3',
+        title: expect.stringContaining('暂时无法接受新线索'),
+      }),
+    });
+  });
+
+  it('24h 内已有同类通知 → 不再轰炸(限频)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(eventPage('SanctionsListStale', { freshness: 'red', icpId: '21f3c0a1-e005-4d8f-9d06-75224ed4abc3' })), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    (tx.notification.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 'n-1' });
+    await service.consumeOnce();
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+
+  it('CampaignPlanJobFailed → PENDING job 置 FAILED + issues 存证 + 通知', async () => {
+    const tx = await consumeSingle('CampaignPlanJobFailed', {
+      jobId: '46ecb9d9-1d64-46de-8a14-26bbcae3f311',
+      campaignId: '22578ceb-26b4-4fbc-b814-8e8cf5b70048',
+      error: 'CAMPAIGN_PLAN_INPUT_INVALID',
+      issues: [{ path: 'objective', message: '缺少目标' }],
+    });
+    expect(tx.campaignPlanJob.updateMany).toHaveBeenCalledWith({
+      where: { id: '46ecb9d9-1d64-46de-8a14-26bbcae3f311', workspaceId: WORKSPACE, state: { in: ['PENDING', 'RUNNING'] } },
+      data: { state: 'FAILED', error: 'CAMPAIGN_PLAN_INPUT_INVALID', issues: [{ path: 'objective', message: '缺少目标' }] },
+    });
+    expect(tx.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'CampaignPlanJobFailed', refId: '22578ceb-26b4-4fbc-b814-8e8cf5b70048' }),
+    });
+  });
+
+  it('job 已被主通道终结(updateMany count=0) → 幂等不通知', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(eventPage('CampaignPlanJobFailed', { jobId: '46ecb9d9-1d64-46de-8a14-26bbcae3f311', error: 'X' })), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    (tx.campaignPlanJob.updateMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ count: 0 });
+    await service.consumeOnce();
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+
+  it('畸形容载(jobId 非法/缺失) → 不抛错不写库,直接吸收', async () => {
+    const tx = await consumeSingle('CampaignPlanJobFailed', { jobId: 'not-a-uuid', error: 'X' });
+    expect(tx.campaignPlanJob.updateMany).not.toHaveBeenCalled();
     expect(tx.notification.create).not.toHaveBeenCalled();
   });
 });
