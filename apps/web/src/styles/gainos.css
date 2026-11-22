@@ -361,9 +361,17 @@ h6 {
   padding-right: 12px;
 }
 
-/* 标签条永远不出现滚动条：溢出时靠滚轮/拖动滚动，两侧由 Vben 的
-   渐隐遮罩提示还有内容（.left-shadow/.right-shadow 的 mask）。 */
+/* 标签条永远不出现滚动条。
+   仅靠 `scrollbar-width:none` / `::-webkit-scrollbar` 在部分环境不够：
+   reka 的 viewport 是 `overflow: scroll`，Windows 的「始终显示滚动条」
+   或旧内核会把「无溢出的 scroll 容器」的空滚动条也画出来（2026-11-23
+   线上实测横向滚动条）。这里把 viewport 直接改为 overflow:hidden：
+   - 不出现任何原生滚动条（所有浏览器/系统设置下）
+   - 程序化滚动仍然可用：Vben 的滚轮 handler 用 scrollBy、翻页按钮用
+     scrollBy、切换页签用 scrollIntoView，都会照常工作。 */
 [data-layout-region='header'] [data-slot='scroll-area-viewport'] {
+  overflow: hidden !important;
+  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
