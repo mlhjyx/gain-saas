@@ -69,6 +69,9 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('nav-workspace.png') });
 
+  // pass3 B：顶栏（banner）不得出现任何菜单项；导航只存在于侧边栏。
+  await expect(page.getByRole('banner').getByRole('menuitem')).toHaveCount(0);
+
   // 六个业务分组齐全；没有「周报」项；战役计划不占一级导航
   for (const group of NAV_GROUPS) {
     await expect(groupLocator(page, group.group)).toBeVisible();

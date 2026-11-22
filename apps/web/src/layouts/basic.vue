@@ -15,16 +15,19 @@ import {
 import { preferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 
+import { Popover } from 'ant-design-vue';
+
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
+import CommandPalette from '#/components/gainos/command-palette.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 // 侧栏标记显式传入:覆盖 localStorage 里可能残留的旧 logo
-const logoGainos = '/logo-gainos.svg';
+const logoGainos = '/logo-gainos.svg?v=pass3';
 
 const notifications = ref<NotificationItem[]>([]);
 const notificationLoading = ref(false);
@@ -36,6 +39,13 @@ const authStore = useAuthStore();
 const accessStore = useAccessStore();
 // 路由仍是扁平结构；只把 Vben 的菜单数据收进 6 个业务组（工作空间/获客/线索/活动/增长/设置）。
 useMenuGroups();
+
+// pass3 C1：命令面板（⌘K），替换 Vben 内置搜索（widget.globalSearch=false）。
+const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
+const isEnglish = computed(() => preferences.app.locale === 'en-US');
+const searchLabel = computed(() =>
+  isEnglish.value ? 'Search or jump to…' : '搜索或跳转…',
+);
 const { destroyWatermark, updateWatermark } = useWatermark();
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
 const appVersion = __APP_VERSION__;
@@ -71,11 +81,9 @@ watch(
   },
 );
 
-const avatar = computed(() => {
-  const raw = userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
-  // 后端 initialAvatar() 仍使用旧品牌绿；API 文件本轮不动，在 UI 层做一次颜色归一。
-  return typeof raw === 'string' ? raw.replace(/00b96b/gi, '335CFF') : raw;
-});
+const avatar = computed(
+  () => userStore.userInfo?.avatar ?? preferences.app.defaultAvatar,
+);
 
 /** 服务端标题按界面语言选择（en 优先 titleEn，历史行回落中文）。 */
 function serverTitle(row: AppNotification): string | undefined {
@@ -270,6 +278,21 @@ onUnmounted(() => {
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
   >
+    <template #header-right-1>
+      <button
+        type="button"
+        class="cmdk-trigger"
+        :aria-label="searchLabel"
+        :title="`${searchLabel} (⌘K)`"
+        @click="paletteRef?.toggle()"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" />
+        </svg>
+        <span class="cmdk-trigger__label">{{ searchLabel }}</span>
+        <kbd>⌘K</kbd>
+      </button>
+    </template>
     <template #user-dropdown>
       <UserDropdown
         :avatar
@@ -312,6 +335,36 @@ onUnmounted(() => {
   >
     {{ versionLabel }}
   </div>
+
+  <!-- pass3 B2：侧栏底部帮助入口（折叠开关是 Vben 内置的左下按钮）。 -->
+  <div
+    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
+    class="app-help"
+    :style="{ left: `${preferences.sidebar.width - 44}px` }"
+  >
+    <Popover placement="topRight" trigger="click">
+      <template #content>
+        <div class="app-help__panel">
+          <p class="app-help__title">{{ isEnglish ? 'Shortcuts' : '快捷键' }}</p>
+          <p><kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> — {{ isEnglish ? 'Command palette' : '命令面板' }}</p>
+          <p class="app-help__muted">
+            {{ isEnglish ? 'Theme and language live in the top bar.' : '主题与语言切换在顶栏右侧。' }}
+          </p>
+        </div>
+      </template>
+      <button
+        type="button"
+        class="app-help__btn"
+        :aria-label="isEnglish ? 'Help' : '帮助'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" /><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2.1-2.5 3.6" /><circle cx="12" cy="17" r=".4" fill="currentColor" />
+        </svg>
+      </button>
+    </Popover>
+  </div>
+
+  <CommandPalette ref="paletteRef" />
 </template>
 
 <style scoped>
@@ -334,6 +387,66 @@ onUnmounted(() => {
   pointer-events: none;
   opacity: 0.75;
   transition: width 0.3s;
+}
+
+/* pass3 C1：顶栏命令面板触发按钮（替代内置搜索）。窄屏只留图标。 */
+.cmdk-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin-right: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 999px;
+  background: var(--gs-surface);
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.cmdk-trigger:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
+.cmdk-trigger svg { width: 15px; height: 15px; }
+.cmdk-trigger kbd {
+  padding: 0 5px;
+  border: 1px solid var(--gs-border);
+  border-radius: 5px;
+  background: var(--gs-surface-2);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+}
+.cmdk-trigger__label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) {
+  .cmdk-trigger__label { display: none; }
+}
+
+/* pass3 B2：侧栏底部帮助按钮（折叠开关在左下，帮助在右下）。 */
+.app-help { position: fixed; bottom: 6px; z-index: 202; transition: left 0.3s; }
+.app-help__btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gs-fg-subtle);
+  cursor: pointer;
+}
+.app-help__btn:hover { background: var(--gs-surface-2); color: var(--gs-fg); }
+.app-help__btn svg { width: 16px; height: 16px; }
+.app-help__panel { display: grid; gap: 6px; max-width: 260px; font-size: 12.5px; }
+.app-help__panel p { margin: 0; }
+.app-help__title { font-weight: 500; }
+.app-help__muted { color: var(--gs-fg-muted); }
+.app-help__panel kbd {
+  padding: 0 5px;
+  border: 1px solid var(--gs-border);
+  border-radius: 5px;
+  background: var(--gs-surface-2);
+  font-family: inherit;
+  font-size: 10.5px;
 }
 
 /* AgentSDR 侧栏规格（2026-11-22 pass2）
