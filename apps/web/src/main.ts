@@ -33,7 +33,11 @@ async function initApplication() {
   // 用于区分不同项目的偏好设置以及存储数据的key前缀以及其他一些需要隔离的数据
   const env = import.meta.env.PROD ? 'prod' : 'dev';
   const appVersion = import.meta.env.VITE_APP_VERSION;
-  const namespace = `${import.meta.env.VITE_APP_NAMESPACE}-${appVersion}-${env}`;
+  // pass3：namespace 必须跨环境确定。.env 是 gitignored 文件，CI 构建拿不到
+  // VITE_APP_NAMESPACE 时会得到 `undefined-…`，导致偏好缓存 key 与生产不一致
+  // （缓存归一回归测试因此误判）。回退到与 .env 相同的默认值。
+  const appNamespace = import.meta.env.VITE_APP_NAMESPACE || 'vben-web-antd';
+  const namespace = `${appNamespace}-${appVersion}-${env}`;
 
   // app偏好设置初始化
   await initPreferences({
