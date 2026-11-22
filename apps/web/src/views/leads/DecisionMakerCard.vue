@@ -495,13 +495,13 @@ a.dm__value { color: var(--gs-accent-strong); text-decoration: underline; }
 .dm__source { display: inline-flex; gap: 4px; align-items: center; }
 .dm__source a { color: var(--gs-accent-strong); text-decoration: underline; }
 .dm__overlay {
-  position: fixed; inset: 0; z-index: 1020; background: rgba(15, 23, 42, .58); backdrop-filter: blur(2px);
+  position: fixed; inset: 0; z-index: 1020; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .dm__dialog {
   width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; box-sizing: border-box;
   background: var(--gs-surface); border-radius: 16px; padding: 18px 20px 20px; display: grid; gap: 10px;
-  box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .4); outline: none;
+  box-shadow: 0 24px 60px -20px rgba(23,23,23,.4); outline: none;
 }
 .dm__dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .dm__dialog-head h4 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); }

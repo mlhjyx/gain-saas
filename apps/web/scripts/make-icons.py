@@ -10,7 +10,7 @@ GainOS 图标生成器(与 src/assets/logo-gainos.svg 同源几何)
   开口:自 -58° 到 -6° 的径向切口,横杠正好落在 0°(3 点钟)
   横杠:厚 8.4,自 x=53.6(与环外缘齐平)向左到 x=34.4,内侧圆头
   横杠与环的右侧柱合并成一个 G
-底:圆角矩形 + 深海军蓝→墨绿对角渐变 + 14% 白内描边
+底:圆角矩形 + 中性深灰对角渐变 + 14% 白内描边
 
 位图用 Pillow 以超采样绘制;渐变在低分辨率生成后放大(渐变平滑,
 无需逐像素,避免慢)。小尺寸自动关闭非必要细节。
@@ -24,10 +24,10 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'public'
 
-C_TILE_A = (17, 32, 60)     # #11203C
-C_TILE_B = (8, 38, 30)      # #08261E
-C_MINT = (92, 242, 182)     # #5CF2B6
-C_GREEN = (0, 185, 107)     # #00B96B
+C_TILE_A = (23, 23, 23)     # #171717
+C_TILE_B = (15, 15, 15)     # #0F0F0F
+C_BLUE = (51, 92, 255)      # #335CFF
+C_BLUE_DARK = (53, 89, 233) # #3559E9
 
 CX = CY = 32.0
 R_OUT, R_IN = 20.4, 12.4          # 略收,四周留呼吸
@@ -127,7 +127,7 @@ def build(size):
     )
 
     # ── 字形上渐变 ──
-    mark_grad = _gradient(s, C_MINT, C_GREEN, 62).convert('RGBA')
+    mark_grad = _gradient(s, C_BLUE, C_BLUE_DARK, 62).convert('RGBA')
     mark = Image.new('RGBA', (s, s), (0, 0, 0, 0))
     mark.paste(mark_grad, (0, 0), glyph)
     icon = Image.alpha_composite(icon, mark)

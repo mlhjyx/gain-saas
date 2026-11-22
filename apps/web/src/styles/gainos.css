@@ -43,11 +43,11 @@
 
   /* 装饰 */
   --gs-grid-line: rgba(23, 23, 23, 0.04);
-  --gs-shadow-card: 0 1px 2px 0 rgba(10, 13, 20, 0.031);
-  --gs-shadow-xs: 0 1px 2px 0 rgba(10, 13, 20, 0.031);
+  --gs-shadow-card: 0 1px 2px 0 rgba(10,10,10,.031);
+  --gs-shadow-xs: 0 1px 2px 0 rgba(10,10,10,.031);
   --gs-shadow-sm: 0 2px 4px rgba(27, 28, 29, 0.039);
-  --gs-shadow-modal: 0 16px 32px -12px rgba(14, 18, 27, 0.1);
-  --gs-shadow-tooltip: 0 12px 24px 0 rgba(14, 18, 27, 0.059), 0 1px 2px 0 rgba(14, 18, 27, 0.031);
+  --gs-shadow-modal: 0 16px 32px -12px rgba(10,10,10,.10);
+  --gs-shadow-tooltip: 0 12px 24px 0 rgba(10,10,10,.059), 0 1px 2px 0 rgba(10,10,10,.031);
   --gs-shadow-focus: 0 0 0 2px var(--gs-surface), 0 0 0 4px rgba(51, 92, 255, 0.16);
   --gs-mask: rgba(23, 23, 23, 0.24);
 
@@ -58,10 +58,10 @@
   --gs-mono: var(--gs-font-mono);
   --gs-fg-1: var(--gs-fg);
   --gs-fg-3: var(--gs-fg-subtle);
-  --gs-accent-strong: #2547d0;
+  --gs-accent-strong: #3559e9;
   --gs-accent-cta: #335cff;
-  --gs-accent-cta-hover: #2547d0;
-  --gs-accent-cta-active: #1f3bad;
+  --gs-accent-cta-hover: #3559e9;
+  --gs-accent-cta-active: #3559e9;
   --gs-accent-cta-fg: #ffffff;
   --gs-accent-soft: #ebf1ff;
   --gs-accent-soft-border: #c0d5ff;
@@ -70,24 +70,24 @@
 
   /* 语义色：500 档做图标/边框/浅底；文字用 600/700/800 档达 AA */
   --gs-warn: #b75310;
-  --gs-warn-bg: rgba(250, 115, 25, 0.1);
+  --gs-warn-bg: rgba(183, 83, 16, 0.10);
   --gs-danger: #d02533;
-  --gs-danger-bg: rgba(251, 55, 72, 0.08);
-  --gs-danger-border: #ffc3c8;
+  --gs-danger-bg: rgba(208, 37, 51, 0.08);
+  --gs-danger-border: rgba(208, 37, 51, 0.24);
   --gs-success: #1a7544;
-  --gs-success-bg: rgba(31, 193, 107, 0.1);
+  --gs-success-bg: rgba(26, 117, 68, 0.10);
   --gs-indigo-soft: #ebf1ff;
   --gs-indigo: #335cff;
 
   /* 深色 hero / 品牌面板（登录页当前不改；保留蓝化后的固定值） */
-  --gs-hero-from: #0b1023;
-  --gs-hero-via: #132244;
-  --gs-hero-to: #1f3bad;
-  --gs-hero-fg: #f5f7fa;
-  --gs-hero-fg-soft: rgba(245, 247, 250, 0.72);
-  --gs-hero-fg-dim: rgba(245, 247, 250, 0.52);
-  --gs-hero-divider: rgba(245, 247, 250, 0.1);
-  --gs-hero-accent: #4d82ff;
+  --gs-hero-from: #171717;
+  --gs-hero-via: #1c1c1c;
+  --gs-hero-to: #171717;
+  --gs-hero-fg: #F7F7F7;
+  --gs-hero-fg-soft: rgba(247,247,247,.72);
+  --gs-hero-fg-dim: rgba(247,247,247,.52);
+  --gs-hero-divider: rgba(247,247,247,.10);
+  --gs-hero-accent: #335cff;
 
   /* 圆角 / 排版 / 间距（与 token-mapping.md 一致） */
   --gs-radius-10: 10px;
@@ -147,25 +147,25 @@
   --gs-mask: rgba(0, 0, 0, 0.68);
 
   --gs-accent: #335cff;
-  --gs-accent-strong: #4d82ff;
+  --gs-accent-strong: #3559e9;
   --gs-accent-cta: #335cff;
-  --gs-accent-cta-hover: #4d82ff;
-  --gs-accent-cta-active: #2547d0;
+  --gs-accent-cta-hover: #3559e9;
+  --gs-accent-cta-active: #3559e9;
   --gs-accent-cta-fg: #ffffff;
   --gs-accent-soft: rgba(51, 92, 255, 0.16);
   --gs-accent-soft-border: rgba(51, 92, 255, 0.24);
   --gs-accent-glow: rgba(51, 92, 255, 0.35);
   --gs-accent-glow-strong: rgba(51, 92, 255, 0.5);
 
-  --gs-warn: #ffa468;
-  --gs-warn-bg: rgba(255, 164, 104, 0.12);
-  --gs-danger: #ff6875;
-  --gs-danger-bg: rgba(255, 104, 117, 0.12);
-  --gs-danger-border: rgba(255, 104, 117, 0.32);
-  --gs-success: #3ee089;
-  --gs-success-bg: rgba(62, 224, 137, 0.12);
+  --gs-warn: #b75310;
+  --gs-warn-bg: rgba(183, 83, 16, 0.18);
+  --gs-danger: #d02533;
+  --gs-danger-bg: rgba(208, 37, 51, 0.18);
+  --gs-danger-border: rgba(208, 37, 51, 0.32);
+  --gs-success: #1a7544;
+  --gs-success-bg: rgba(26, 117, 68, 0.18);
   --gs-indigo-soft: rgba(51, 92, 255, 0.16);
-  --gs-indigo: #4d82ff;
+  --gs-indigo: #335cff;
 
   /* hero 面板保持固定深色，不跟随页面明暗（登录页不改造） */
   color-scheme: dark;
@@ -274,6 +274,58 @@ h6 {
   font-weight: 500;
 }
 
+
+/* ── pass2：卡片/表格统一质感（AgentSDR：白底 + 1px 灰边 + subtle 阴影 + 10px）── */
+.fb__card,
+.ld__lead,
+.cp__item,
+.qg__card,
+.qg__evidence-card,
+.mb__card,
+.sp__card,
+.src__card,
+.pv__card,
+.au__card,
+.au__filters,
+.ob__list,
+.ob__detail,
+.rv__card,
+.rv__tablewrap,
+.mt__card,
+.mt__tablewrap,
+.cd__card,
+.cp__table-wrap,
+.gpc .ant-table-wrapper,
+.fb__empty,
+.ld__empty,
+.cp__state,
+.rv__empty,
+.mt__empty,
+.mb__state,
+.src__state {
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-10) !important;
+  box-shadow: var(--gs-shadow-card);
+}
+
+/* ── pass2：主行动按钮全圆（次按钮保持 10px / 描边）── */
+.fb__cta,
+.cp__cta,
+.cp__confirm,
+.cp__btn--primary,
+.qg__cta-link,
+.ld__cta,
+.rv__primary,
+.mt__primary,
+.dm__action--primary,
+.run__action--primary,
+.ld__action--accept,
+.wk__cta,
+.cd__primary,
+.ant-btn-primary {
+  border-radius: 9999px !important;
+}
+
 /* 可访问性基线：键盘焦点可见 */
 :focus-visible {
   outline: 2px solid var(--gs-accent);
@@ -284,4 +336,126 @@ h6 {
   outline: 2px solid var(--gs-fg);
   outline-offset: 2px;
   box-shadow: 0 0 0 2px var(--gs-surface);
+}
+
+/* pass2：把 Vben 壳层的中性色也收敛到纯中性灰（默认 zinc/slate 带蓝紫调，
+   会形成第二套灰）。 */
+:root:root:root {
+  --foreground: 0 0% 9%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 40%;
+  --accent-foreground: 0 0% 9%;
+  --heavy-foreground: 0 0% 9%;
+  --background: 0 0% 100%;
+  --background-deep: 0 0% 95%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --border: 0 0% 92%;
+  --input: 0 0% 92%;
+  --input-placeholder: 0 0% 64%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 9%;
+  --accent: 0 0% 96%;
+  --primary: 228 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 228 100% 60%;
+  --success: 148 64% 28%;
+  --success-foreground: 0 0% 100%;
+  --warning: 24 84% 39%;
+  --warning-foreground: 0 0% 100%;
+  --destructive: 355 70% 48%;
+  --destructive-foreground: 0 0% 100%;
+}
+
+:root:root:root.dark {
+  --foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --accent-foreground: 0 0% 100%;
+  --heavy-foreground: 0 0% 100%;
+  --background: 0 0% 9%;
+  --background-deep: 0 0% 7%;
+  --card: 0 0% 11%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 100%;
+  --border: 0 0% 15%;
+  --input: 0 0% 15%;
+  --input-placeholder: 0 0% 45%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 100%;
+  --accent: 0 0% 15%;
+  --primary: 228 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 228 100% 60%;
+  --success: 148 64% 28%;
+  --success-foreground: 0 0% 100%;
+  --warning: 24 84% 39%;
+  --warning-foreground: 0 0% 100%;
+  --destructive: 355 70% 48%;
+  --destructive-foreground: 0 0% 100%;
+}
+
+.light.light,
+.light.light[data-theme='default'],
+.light.light[data-theme='custom'] {
+  --foreground: 0 0% 9%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 40%;
+  --accent-foreground: 0 0% 9%;
+  --heavy-foreground: 0 0% 9%;
+  --background: 0 0% 100%;
+  --background-deep: 0 0% 95%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --border: 0 0% 92%;
+  --input: 0 0% 92%;
+  --input-placeholder: 0 0% 64%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 9%;
+  --accent: 0 0% 96%;
+  --primary: 228 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 228 100% 60%;
+  --success: 148 64% 28%;
+  --success-foreground: 0 0% 100%;
+  --warning: 24 84% 39%;
+  --warning-foreground: 0 0% 100%;
+  --destructive: 355 70% 48%;
+  --destructive-foreground: 0 0% 100%;
+}
+
+.dark.dark,
+.dark.dark[data-theme='dark'],
+.dark.dark[data-theme='custom'] {
+  --foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --accent-foreground: 0 0% 100%;
+  --heavy-foreground: 0 0% 100%;
+  --background: 0 0% 9%;
+  --background-deep: 0 0% 7%;
+  --card: 0 0% 11%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 100%;
+  --border: 0 0% 15%;
+  --input: 0 0% 15%;
+  --input-placeholder: 0 0% 45%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 100%;
+  --accent: 0 0% 15%;
+  --primary: 228 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 228 100% 60%;
+  --success: 148 64% 28%;
+  --success-foreground: 0 0% 100%;
+  --warning: 24 84% 39%;
+  --warning-foreground: 0 0% 100%;
+  --destructive: 355 70% 48%;
+  --destructive-foreground: 0 0% 100%;
 }

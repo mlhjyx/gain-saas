@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-11-22T03:13:24.048Z",
+  "leads": {
+    "queueCards": 0,
+    "toolbar": 1,
+    "search": 1,
+    "acceptRadius": "9999px",
+    "cardRadius": "10px",
+    "cardShadow": "rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
+  },
+  "workspace": {
+    "groupLabel": {
+      "count": 6,
+      "fontSize": "14px",
+      "height": 36,
+      "titleFontSize": "11px",
+      "html": "<div class=\"vben-sub-menu-content is-active\"><!----><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" aria-hidden=\"true\" role=\"img\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" class=\"iconify iconify--lucide vben-menu__icon\"><g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><path d=\"M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16\"></path><rect width=\"20\" height=\"14\" x=\"2\" y=\"6\" rx=\"2\"></rect></g></svg><div class=\"vben-sub-menu-content__title\"><span>工作空间</span></div><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" "
+    },
+    "items": {
+      "count": 1,
+      "fontSize": "14px",
+      "fontWeight": "500",
+      "heights": [
+        32
+      ]
+    },
+    "active": {
+      "background": "rgb(245, 245, 245)",
+      "color": "rgb(51, 92, 255)",
+      "indicatorWidth": "3px"
+    },
+    "card": {
+      "border": "1px solid rgb(235, 235, 235)",
+      "radius": "10px",
+      "shadow": "rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
+    },
+    "mainCtaRadius": "9999px"
+  }
+}

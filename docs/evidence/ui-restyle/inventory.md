@@ -1437,3 +1437,56 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 ### 10.6 已知待人工验收
 
 最终验收要求“没看过文档的人独立完成主流程：登录 → 工作空间 → 发起获客 → 查看线索详情 → 处理提醒”。自动化已覆盖主链路，但“点击次数/是否需要口头解释”必须由真实用户完成；本文件不替代该人工验收。
+
+
+---
+
+## 11. Pass2 修复对零（2026-11-22）
+
+### 11.1 修复 1：主题色统一
+
+- 品牌蓝只保留 `#335CFF` + hover/active `#3559E9`（blue-600）+ 浅底/描边衍生档；删除 `#2547D0`、`#1F3BAD`、`#4D82FF`、`#2563eb`、`#4f46e5` 等第二套蓝。
+- success 只保留一个绿 `#1A7544`（AntDV `colorSuccess` 同值），删除 `#1FC16B` / `#3EE089` / `#00B96B` / `#008f52` / `#e8f9f0` / `#dcfce7` 等装饰绿。
+- warning 只保留 `#B75310`，error 只保留 `#D02533`；删除 `#FA7319` / `#FFA468` / `#FB3748` / `#FF6875` 等硬编码色。
+- logo / favicon / apple-touch-icon / 登录注册品牌面板 / loading 页：装饰性绿全部改为品牌蓝或中性灰；登录/注册结构、文案、行为未改。
+- Vben 壳层中性 token 覆盖为纯中性灰（`--foreground`/`--muted-foreground`/`--border` 等），避免 zinc/slate 的第二套灰。
+- `apps/web/src/api/core/user.ts` 的 `initialAvatar` 仍使用旧绿色（本轮禁止修改 api/）；在 `layouts/basic.vue` UI 层把 data URI 中的旧绿归一为 `#335CFF`，渲染结果不再出现绿色。
+- **源码扫描**：`docs/evidence/ui-restyle/pass2/source-color-scan.py`，85 个文件，0 违规。
+- **渲染 DOM 扫描**：`apps/web/e2e/pass2-color-scan.spec.ts`，15 个页面 × 明暗两主题，10,963 个颜色样本；分类：中性 10,249 / 品牌蓝 686 / success 12 / warning 14 / error 2；**unknown 0**。结果：`color-scan.txt` / `color-scan.json`。
+
+### 11.2 修复 2：菜单/卡片/按钮/列表
+
+- 侧边栏：6 个分组标签（36px 行高、11px/500/字距 0.08em、subtle 灰）；叶子菜单项 32px、水平 padding 8px、14px/500；active = 品牌蓝左指示条 3px + 蓝字 + `#F5F5F5` 浅灰底；hover 浅灰。
+- 卡片：1px `#EBEBEB` 边 + `0 1px 2px rgba(10,10,10,.03)` 阴影 + 10px 圆角；大容器/弹层保持 20px。
+- 主行动按钮：9999px 全圆（含 AntDV `type="primary"` 与页面原生主按钮）；次按钮保持描边/10px。
+- `/leads`：删除 5 张常驻队列卡，改为页头下工具栏：队列 chips（原 5 个队列、计数、点击语义不变）+ 搜索框；表格/列表通栏。搜索为**纯前端过滤已加载线索**（公司名/域名/国家），不新增 API、不改变队列筛选语义。
+- 量测：`measurements.json`（groupLabel 36 / title 11px / leaf 32 / weight 500 / active bar 3px / card 10px+1px+shadow / main CTA 9999px / `/leads` queueCards 0、toolbar 1、search 1）。
+
+### 11.3 修复 3：Sondara 闭环
+
+- 今日建议（位于提醒之后）：一句话 `nextAction.title` + 全圆主按钮「立即处理」，点击 `router.push(nextAction.to)`。交互测试已点通到 `/companies`。
+- 经营提醒：每条为「主行 + 右侧去处理按钮」；主行/按钮均可点击，通知类先调 `POST /notifications/:id/read` 再按 link 跳转。交互测试已点通到 `/leads`，并断言 read 调用 1 次。
+- 今日行动清单：所有条目由现有业务状态派生，**没有完成 API**；本轮保持只读，行内标注「在目标页完成」，不伪造完成状态。用户到目标页完成操作后返回工作台，`load()` 重新派生，清单与「今日脉搏 · 待办」计数同步更新。此只读决定即本条要求的标注。
+- 所有跳转目标已对照路由基线：`/companies`、`/find-buyers`、`/tasks`、`/leads?queue=...`、`/runs/:id`、`/workspace`，无新增路由、无死链。
+
+### 11.4 功能守恒
+
+- `api/`、`apps/server/**`、`packages/**`、`store/**`、`router/guard.ts`、`router/access.ts`、所有路由模块：**零改动**。
+- 既有 locales key 与 value：**零改动**；「立即处理」「去处理」「在目标页完成」为组件内按 `preferences.app.locale` 生成的展示文案，未新增/修改 locale key。
+- 表单字段/校验/表格列/弹窗/权限点：未改。
+- 有意展示差异：删除 `/leads` 常驻队列卡（改为 chips+搜索）、侧边栏分组标签/尺寸、登录注册 ops 仅颜色归一、行动清单只读标注。均已在本节记录。
+
+### 11.5 质量门
+
+- `pnpm typecheck` ✅
+- `pnpm build` ✅
+- `pnpm lint:terms` ✅
+- `pnpm lint:date` ✅
+- `pnpm e2e:nav` ✅：152 passed / 1 skipped（153 个用例，含 3 个 pass2 新增 spec；1 skipped 为真栈冒烟）
+
+### 11.6 证据
+
+- 前后对比：`docs/evidence/ui-restyle/pass2/before-*.png` / `after-*.png`（workspace、leads、settings/members，明暗各一套）。
+- 颜色：`color-scan.txt` / `color-scan.json` / `source-color-scan.txt` / `source-color-scan.py`。
+- 量测：`measurements.json`。
+- 交互：`apps/web/e2e/pass2-interactions.spec.ts`（自动化点通）。

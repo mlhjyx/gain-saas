@@ -1,0 +1,5 @@
+# pass2 source color scan
+files: 85
+classCounts: {'neutral': 152, 'brand': 114, 'success': 10, 'warning': 12, 'error': 14}
+violations: 0
+

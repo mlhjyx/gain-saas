@@ -146,10 +146,10 @@ const { renderEcharts } = useEcharts(chartRef);
 const { isDark } = usePreferences();
 
 function buildChartOption(): ChartOption {
-  const axisColor = cssVar('--gs-fg-subtle', '#6b7280');
-  const gridColor = cssVar('--gs-divider', '#f3f4f6');
-  const strictColor = cssVar('--gs-accent-strong', '#007a47');
-  const plusColor = cssVar('--gs-indigo', '#4f46e5');
+  const axisColor = cssVar('--gs-fg-subtle', '#5C5C5C');
+  const gridColor = cssVar('--gs-divider', '#F5F5F5');
+  const strictColor = cssVar('--gs-accent-strong', '#335CFF');
+  const plusColor = cssVar('--gs-indigo', '#3559E9');
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: [strictLabel.value, plusLabel.value], textStyle: { color: axisColor } },

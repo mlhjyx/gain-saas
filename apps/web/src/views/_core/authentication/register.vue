@@ -165,9 +165,9 @@ async function onSubmit() {
       <div class="g-brand__glow g-brand__glow--b"></div>
       <svg class="g-brand__net" viewBox="0 0 640 640" fill="none" preserveAspectRatio="xMidYMid slice">
         <g class="g-brand__layer g-brand__layer--slow">
-          <path d="M100 460 L220 340 L340 400 L460 240 L580 280" stroke="rgba(94,234,212,.18)" stroke-width="1" />
-          <circle cx="220" cy="340" r="3" fill="#5EEAD4" /><circle cx="340" cy="400" r="2.4" fill="#34D399" opacity=".8" />
-          <circle cx="460" cy="240" r="3.6" fill="#00B96B" /><circle cx="580" cy="280" r="2" fill="#5EEAD4" opacity=".6" />
+          <path d="M100 460 L220 340 L340 400 L460 240 L580 280" stroke="rgba(51,92,255,.18)" stroke-width="1" />
+          <circle cx="220" cy="340" r="3" fill="#335CFF" /><circle cx="340" cy="400" r="2.4" fill="#3559E9" opacity=".8" />
+          <circle cx="460" cy="240" r="3.6" fill="#335CFF" /><circle cx="580" cy="280" r="2" fill="#335CFF" opacity=".6" />
         </g>
       </svg>
       <header class="g-brand__mark">
@@ -279,5 +279,5 @@ async function onSubmit() {
 
 <style scoped src="./auth-brand.css"></style>
 <style scoped>
-.g-field__optional { font-style: normal; font-weight: 400; color: #9ca3af; margin-left: 6px; font-size: 12px; }
+.g-field__optional { font-style: normal; font-weight: 400; color: var(--gs-fg-subtle); margin-left: 6px; font-size: 12px; }
 </style>

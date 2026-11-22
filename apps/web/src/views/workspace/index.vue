@@ -153,6 +153,16 @@ const greeting = computed(() =>
         : $t('gainos.workspace.greetingEvening'),
 );
 
+const actNowLabel = computed(() =>
+  preferences.app.locale === 'en-US' ? 'Handle now' : '立即处理',
+);
+const handleLabel = computed(() =>
+  preferences.app.locale === 'en-US' ? 'Handle' : '去处理',
+);
+const readonlyLabel = computed(() =>
+  preferences.app.locale === 'en-US' ? 'Complete on target page' : '在目标页完成',
+);
+
 const displayName = computed(() => {
   const name = userStore.userInfo?.realName?.trim() ?? '';
   return name && name !== workspaceName.value ? name : '';
@@ -1414,7 +1424,7 @@ onUnmounted(() => {
               <h2>{{ $t('gainos.workspace.cockpitToday') }}</h2>
               <p class="wk__section-sub">
                 {{ $t('gainos.workspace.stepProgress', { current: currentStep, total: STEPS.length }) }}
-                · {{ currentStepLabel }}
+                · {{ currentStepLabel }} · {{ $t('gainos.workspace.cockpitTodo') }} {{ visibleActions.length }}
               </p>
             </div>
           </header>
@@ -1517,6 +1527,7 @@ onUnmounted(() => {
                   >
                     {{ actionView === 'todo' ? $t('gainos.workspace.cockpitArchive') : $t('gainos.workspace.cockpitRestore') }}
                   </button>
+                  <span class="wk__action-readonly" :title="readonlyLabel">{{ readonlyLabel }}</span>
                 </div>
               </div>
             </li>
@@ -1561,8 +1572,8 @@ onUnmounted(() => {
             </button>
           </div>
           <ul v-else-if="alertRows.length" class="wk__alert-list">
-            <li v-for="alert in alertRows" :key="alert.key">
-              <button type="button" class="wk__alert" @click="handleAlert(alert)">
+            <li v-for="alert in alertRows" :key="alert.key" class="wk__alert">
+              <button type="button" class="wk__alert-main" @click="handleAlert(alert)">
                 <span class="gs-badge" :class="alertBadgeClass(alert)">
                   {{ alertCategoryLabel(alert) }}
                 </span>
@@ -1570,14 +1581,22 @@ onUnmounted(() => {
                   <strong>{{ alert.title }}</strong>
                   <small v-if="alert.detail">{{ alert.detail }}</small>
                 </span>
-                <span class="wk__alert-side">
-                  <time v-if="alert.time">{{ alert.time }}</time>
-                  <span
-                    v-if="alert.notification && !alert.notification.readAt"
-                    class="wk__dot"
-                    aria-hidden="true"
-                  ></span>
-                </span>
+              </button>
+              <span class="wk__alert-side">
+                <time v-if="alert.time">{{ alert.time }}</time>
+                <span
+                  v-if="alert.notification && !alert.notification.readAt"
+                  class="wk__dot"
+                  aria-hidden="true"
+                ></span>
+              </span>
+              <button
+                type="button"
+                class="wk__alert-go"
+                :aria-label="`${handleLabel}：${alert.title}`"
+                @click="handleAlert(alert)"
+              >
+                {{ handleLabel }} <span aria-hidden="true">→</span>
               </button>
             </li>
           </ul>
@@ -1596,7 +1615,7 @@ onUnmounted(() => {
             :disabled="loading"
             @click="router.push(nextAction.to)"
           >
-            {{ nextAction.action }} <span aria-hidden="true">→</span>
+            {{ actNowLabel }} <span aria-hidden="true">→</span>
           </button>
         </section>
 
@@ -1952,6 +1971,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .wk__action-go:hover { color: var(--gs-accent); }
+.wk__action-readonly { color: var(--gs-fg-subtle); font-size: 11px; line-height: 16px; }
 
 .wk__text-btn {
   padding: 0;
@@ -1987,18 +2007,40 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  width: 100%;
-  padding: 10px 8px;
-  border: 0;
+  padding: 8px;
   border-radius: var(--gs-radius-10);
+  background: transparent;
+}
+.wk__alert:hover { background: var(--gs-surface-2); }
+.wk__alert-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.wk__alert:hover { background: var(--gs-surface-2); }
-.wk__alert .gs-badge { flex: none; margin-top: 1px; }
+.wk__alert-main .gs-badge { flex: none; margin-top: 1px; }
+.wk__alert-go {
+  flex: none;
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 999px;
+  background: var(--gs-surface);
+  color: var(--gs-accent-strong);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wk__alert-go:hover { border-color: var(--gs-accent); background: var(--gs-accent-soft); }
 .wk__alert-body { display: grid; gap: 2px; min-width: 0; flex: 1; }
 .wk__alert-body strong {
   color: var(--gs-fg);

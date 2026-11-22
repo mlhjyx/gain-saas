@@ -1491,7 +1491,7 @@ onUnmounted(() => {
   width: 100%; box-sizing: border-box; border: 1.5px solid var(--gs-border-strong); border-radius: 11px;
   padding: 11px 14px; font-size: 14.5px; outline: 0; transition: border-color .16s ease, box-shadow .16s ease;
 }
-.cp__field input:focus { border-color: var(--gs-accent); box-shadow: 0 0 0 4px rgba(0,185,107,.12); }
+.cp__field input:focus { border-color: var(--gs-accent); box-shadow: 0 0 0 4px rgba(51,92,255,.16); }
 .cp__form-err { margin: 0 0 12px; font-size: 13px; color: var(--gs-danger); background: var(--gs-danger-bg); border: 1px solid var(--gs-danger-border); border-radius: 9px; padding: 9px 12px; }
 .cp__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .cp__candidates { margin: 4px 0 16px; }
@@ -1566,7 +1566,7 @@ onUnmounted(() => {
   border: 1.5px solid var(--gs-border-strong); border-radius: 10px;
   padding: 9px 12px; font-size: 13.5px; outline: 0;
 }
-.cp__claim-search:focus { border-color: var(--gs-accent); box-shadow: 0 0 0 4px rgba(0,185,107,.12); }
+.cp__claim-search:focus { border-color: var(--gs-accent); box-shadow: 0 0 0 4px rgba(51,92,255,.16); }
 .cp__claims {
   list-style: none; margin: 0; padding: 0;
   border-top: 1px solid var(--gs-border); border-bottom: 1px solid var(--gs-border);
