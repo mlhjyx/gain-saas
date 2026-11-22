@@ -72,13 +72,18 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   expect(inactiveStyles.bg).toBe('rgba(0, 0, 0, 0)');
   expect(inactiveStyles.color).toBe('rgb(92, 92, 92)');
 
-  // 标签条永不出现滚动条（溢出靠滚轮/拖动 + 两端渐隐提示）。
+  // 标签条永不出现滚动条：viewport 直接 overflow:hidden（reka 默认
+  // overflow:scroll，Windows「始终显示滚动条」下会画出一条空滚动条），
+  // 滚轮/翻页按钮/切签仍靠程序化滚动工作。
   const viewport = page.locator(
     "[data-layout-region='header'] [data-slot='scroll-area-viewport']",
   );
-  expect(
-    await viewport.evaluate((el) => getComputedStyle(el).scrollbarWidth),
-  ).toBe('none');
+  const vpStyle = await viewport.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { overflowX: cs.overflowX, scrollbarWidth: cs.scrollbarWidth };
+  });
+  expect(vpStyle.overflowX).toBe('hidden');
+  expect(vpStyle.scrollbarWidth).toBe('none');
 
   // 非当前标签：关闭符隐藏且不可点（防误关）。
   const inactiveClose = page
