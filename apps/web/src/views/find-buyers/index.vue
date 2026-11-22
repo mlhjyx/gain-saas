@@ -1150,13 +1150,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 .fb__chip { font-size: 11.5px; background: var(--gs-divider); color: var(--gs-fg-2); border-radius: 999px; padding: 3px 9px; }
 .fb__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
 .fb__overlay {
-  position: fixed; inset: 0; z-index: 1000; background: rgba(15,23,42,.58); backdrop-filter: blur(2px);
+  position: fixed; inset: 0; z-index: 1000; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden;
 }
 .fb__overlay--top { z-index: 1010; }
 .fb__modal {
   width: min(920px, 100%); max-height: calc(100dvh - 48px); box-sizing: border-box; min-width: 0;
-  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(15,23,42,.4);
+  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(23,23,23,.4);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .fb__modal--narrow { width: min(560px, 100%); }

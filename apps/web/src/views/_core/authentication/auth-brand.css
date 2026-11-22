@@ -6,12 +6,12 @@
   position: relative; flex: 0 0 52%; overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between;
   padding: clamp(28px, 4vw, 56px);
-  background: linear-gradient(158deg, var(--gs-hero-from) 0%, #101A3C 58%, var(--gs-hero-to) 100%);
+  background: linear-gradient(158deg, var(--gs-hero-from) 0%, var(--gs-hero-via) 58%, var(--gs-hero-to) 100%);
   color: var(--gs-hero-fg);
 }
 .g-brand__glow { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; }
-.g-brand__glow--a { width: 46vw; height: 46vw; right: -14vw; top: -12vw; background: rgba(0, 185, 107, .16); animation: g-drift 26s ease-in-out infinite alternate; }
-.g-brand__glow--b { width: 34vw; height: 34vw; left: -10vw; bottom: -12vw; background: rgba(99, 102, 241, .14); animation: g-drift 32s ease-in-out infinite alternate-reverse; }
+.g-brand__glow--a { width: 46vw; height: 46vw; right: -14vw; top: -12vw; background: rgba(51, 92, 255, .16); animation: g-drift 26s ease-in-out infinite alternate; }
+.g-brand__glow--b { width: 34vw; height: 34vw; left: -10vw; bottom: -12vw; background: rgba(51, 92, 255, .14); animation: g-drift 32s ease-in-out infinite alternate-reverse; }
 @keyframes g-drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(4vw,3vw,0) scale(1.12); } }
 
 .g-brand__net { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .72; }
@@ -33,7 +33,7 @@
   width: 44px;
   height: 44px;
   flex: none;
-  filter: drop-shadow(0 6px 16px rgba(0, 185, 107, 0.22));
+  filter: drop-shadow(0 6px 16px rgba(51, 92, 255, 0.22));
 }
 
 .g-brand__mark-text {
@@ -69,7 +69,7 @@
 .g-brand__title em { font-style: normal; color: var(--gs-hero-accent); position: relative; white-space: nowrap; }
 .g-brand__title em::after {
   content: ''; position: absolute; left: 0; right: 0; bottom: .08em; height: .3em;
-  background: linear-gradient(90deg, rgba(0,214,143,.38), rgba(0,214,143,0));
+  background: linear-gradient(90deg, rgba(51,92,255,.38), rgba(51,92,255,0));
   border-radius: 3px; transform: skewX(-8deg);
 }
 .g-brand__hero::before {
@@ -81,8 +81,8 @@
   /* 文字保护晕:让网络装饰在标题区自然退后,不干扰阅读 */
   background: radial-gradient(
     58% 64% at 24% 44%,
-    rgba(8, 12, 26, 0.82),
-    rgba(8, 12, 26, 0.34) 62%,
+    rgba(17,17,17,.82),
+    rgba(17,17,17,.34) 62%,
     transparent 80%
   );
 }
@@ -291,7 +291,7 @@
 }
 
 .dark .g-brand {
-  background: linear-gradient(158deg, #070b15 0%, #0d1830 58%, #0a2019 100%);
+  background: linear-gradient(158deg, #070707 0%, #171717 58%, #171717 100%);
 }
 
 .dark .g-field__wrap {

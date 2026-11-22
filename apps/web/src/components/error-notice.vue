@@ -28,8 +28,8 @@ defineProps<{
 
 <style scoped>
 .error-notice {
-  border: 1px solid var(--gs-danger-border, #f3c0c0);
-  background: var(--gs-danger-bg, #fdf2f2);
+  border: 1px solid var(--gs-danger-border, var(--gs-danger-border));
+  background: var(--gs-danger-bg, var(--gs-danger-bg));
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 13px;

@@ -72,7 +72,9 @@ watch(
 );
 
 const avatar = computed(() => {
-  return userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
+  const raw = userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
+  // 后端 initialAvatar() 仍使用旧品牌绿；API 文件本轮不动，在 UI 层做一次颜色归一。
+  return typeof raw === 'string' ? raw.replace(/00b96b/gi, '335CFF') : raw;
 });
 
 /** 服务端标题按界面语言选择（en 优先 titleEn，历史行回落中文）。 */
@@ -332,5 +334,77 @@ onUnmounted(() => {
   pointer-events: none;
   opacity: 0.75;
   transition: width 0.3s;
+}
+
+/* AgentSDR 侧栏规格（2026-11-22 pass2）
+   Vben 只暴露一组菜单高度变量；这里用组件级 :deep 收敛：
+   一级 36px / 二级 32px / 组标签 11px / active 蓝左条 + 蓝字 + 浅灰底。 */
+:deep(.vben-menu) {
+  --menu-font-size: 14px;
+  --menu-item-height: 36px;
+  --menu-item-padding-y: 0px;
+  --menu-item-padding-x: 8px;
+  --menu-item-margin-y: 2px;
+  --menu-item-margin-x: 6px;
+  --menu-item-radius: 8px;
+  --menu-item-color: var(--gs-fg-2);
+  --menu-item-hover-background-color: var(--gs-surface-2);
+  --menu-item-hover-color: var(--gs-fg);
+  --menu-item-active-background-color: var(--gs-surface-2);
+  --menu-item-active-color: var(--gs-accent);
+}
+:deep(.vben-sub-menu .vben-menu) {
+  --menu-item-height: 32px;
+}
+:deep(.vben-menu-item) {
+  font-weight: 500;
+}
+:deep(.vben-menu-item.is-active) {
+  font-weight: 500;
+}
+:deep(.vben-menu-item.is-active::before) {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--gs-accent);
+  transform: translateY(-50%);
+}
+:deep(.vben-sub-menu > .vben-sub-menu-content) {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  min-height: 36px;
+  margin: 6px 6px 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--gs-fg-subtle);
+  background: transparent;
+}
+:deep(.vben-menu > .vben-sub-menu:first-child > .vben-sub-menu-content) {
+  margin-top: 0;
+}
+:deep(.vben-sub-menu-content__title) {
+  color: inherit;
+  font-size: 11px !important;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+:deep(.vben-sub-menu > .vben-sub-menu-content > .vben-menu__icon),
+:deep(.vben-sub-menu > .vben-sub-menu-content > .vben-sub-menu-content__icon-arrow) {
+  display: none;
+}
+:deep(.vben-sub-menu-content:hover) {
+  color: var(--gs-fg-2);
+  background: transparent;
+}
+:deep(.vben-sub-menu-content.is-active) {
+  color: var(--gs-fg-subtle);
+  background: transparent;
 }
 </style>

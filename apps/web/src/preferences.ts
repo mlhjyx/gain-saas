@@ -38,7 +38,7 @@ export const overridesPreferences = defineOverridesPreferences({
   theme: {
     // AgentSDR 品牌蓝 blue-500 ≈#335CFF（白字 5.10:1，达 AA）。
     // hsl(228 100% 60%) 与 #335CFF 同值；侧栏激活项与 vben 派生控件一并蓝化。
-    colorPrimary: 'hsl(228 100% 60%)',
+    colorPrimary: '#335CFF',
     // 默认浅色；顶栏主题按钮仍可切到深色（两套 token 同时维护）。
     mode: 'light',
   },

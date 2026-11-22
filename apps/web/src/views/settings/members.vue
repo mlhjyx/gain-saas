@@ -203,7 +203,7 @@ onMounted(load);
 .mb__state { background: var(--gs-surface); border: 1px dashed var(--gs-border-dashed); border-radius: 14px; padding: 40px; text-align: center; display: grid; gap: 10px; place-items: center; }
 .mb__tip { line-height: 1.8; }
 .mb__tipline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.mb__tip code { background: rgba(0,185,107,.08); border-radius: 6px; padding: 4px 10px; font-size: 12px; word-break: break-all; color: var(--gs-fg-2); }
+.mb__tip code { background: rgba(51,92,255,.10); border-radius: 6px; padding: 4px 10px; font-size: 12px; word-break: break-all; color: var(--gs-fg-2); }
 .mb__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 16px; padding: 20px 22px; }
 .mb__card h2 { margin: 0 0 14px; font-size: 15.5px; font-weight: 700; color: var(--gs-fg); }
 .mb__list { list-style: none; margin: 0; padding: 0; display: grid; }

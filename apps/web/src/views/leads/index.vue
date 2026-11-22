@@ -80,6 +80,18 @@ const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
 
 const activeQueue = ref<string>(queueFromRoute() ?? 'needs_review');
 const leads = ref<Lead[]>([]);
+const searchQuery = ref('');
+const filteredLeads = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return leads.value;
+  return leads.value.filter((lead) => {
+    const haystack = [lead.company?.name, lead.company?.domain, lead.company?.country]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
 const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
 const notice = ref<string | null>(null);
@@ -425,23 +437,30 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 
     <p v-if="notice" class="ld__notice" role="status">{{ notice }}</p>
 
-    <nav v-if="activeIcpId" class="ld__queues" :aria-label="$t('gainos.leads.title')">
-      <button
-        v-for="queue in QUEUES"
-        :key="queue.key"
-        type="button"
-        class="ld__q"
-        :class="[`ld__q--${queue.tone}`, { 'is-active': activeQueue === queue.key }]"
-        :aria-pressed="activeQueue === queue.key"
-        @click="activeQueue = queue.key"
-      >
-        <div class="ld__q-head">
-          <h2>{{ queue.label }}</h2>
-          <span v-if="queueCount(queue.key) !== undefined" class="ld__q-count">{{ queueCount(queue.key) }}</span>
-        </div>
-        <p>{{ queue.desc }}</p>
-      </button>
-    </nav>
+    <div v-if="activeIcpId" class="ld__toolbar">
+      <div class="ld__chips" role="group" :aria-label="$t('gainos.leads.title')">
+        <button
+          v-for="queue in QUEUES"
+          :key="queue.key"
+          type="button"
+          class="ld__chip"
+          :class="{ 'is-active': activeQueue === queue.key }"
+          :aria-pressed="activeQueue === queue.key"
+          @click="activeQueue = queue.key"
+        >
+          {{ queue.label }}
+          <span v-if="queueCount(queue.key) !== undefined" class="ld__chip-count">{{ queueCount(queue.key) }}</span>
+        </button>
+      </div>
+      <label class="ld__search">
+        <input
+          v-model="searchQuery"
+          type="search"
+          :placeholder="$t('gainos.companies.searchPlaceholder')"
+          :aria-label="$t('gainos.companies.searchPlaceholder')"
+        />
+      </label>
+    </div>
 
     <button
       v-if="activeIcpId && activeQueue !== 'sanctions_hold' && (queueCounts?.sanctions_hold ?? 0) > 0"
@@ -479,7 +498,10 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
     </section>
 
     <section v-else class="ld__list">
-      <article v-for="lead in leads" :key="lead.id" class="ld__lead">
+      <p v-if="leads.length > 0 && filteredLeads.length === 0" class="ld__no-match">
+        {{ $t('gainos.companies.noMatch') }}
+      </p>
+      <article v-for="lead in filteredLeads" :key="lead.id" class="ld__lead">
         <header class="ld__lead-head">
           <div>
             <h2>
@@ -648,16 +670,57 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__title-link { color: inherit; text-decoration: none; }
 .ld__title-link:hover { color: var(--gs-accent-strong); text-decoration: underline; }
 .ld__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; font-weight: 600; }
-.ld__queues { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
-.ld__q {
-  text-align: left; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 14px 16px;
-  display: grid; gap: 6px; cursor: pointer; transition: border-color .15s ease, background .15s ease;
+.ld__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-border);
+  border-radius: var(--gs-radius-10);
+  box-shadow: var(--gs-shadow-card);
 }
-.ld__q h2 { margin: 0; font-size: 14px; font-weight: 650; color: var(--gs-fg); }
-.ld__q p { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.6; }
-.ld__q.is-active { border-color: var(--gs-accent); background: var(--gs-surface-3); }
-.ld__q--primary h2 { color: var(--gs-accent-strong); }
-.ld__q--warn h2 { color: var(--gs-warn); }
+.ld__chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ld__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gs-fg-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ld__chip:hover { background: var(--gs-surface-2); }
+.ld__chip.is-active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.ld__chip-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.ld__chip.is-active .ld__chip-count { background: var(--gs-surface); color: var(--gs-accent-strong); }
+.ld__search input {
+  width: min(280px, 70vw);
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--gs-border);
+  border-radius: 999px;
+  background: var(--gs-surface);
+  color: var(--gs-fg);
+  font-size: 13px;
+}
+.ld__search input:focus { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
+.ld__no-match { margin: 0; padding: 24px 8px; color: var(--gs-fg-muted); font-size: 13px; text-align: center; }
 .ld__error { background: var(--gs-surface); border: 1px solid var(--gs-warn); border-radius: 14px; padding: 20px; display: grid; gap: 8px; }
 .ld__error h2 { margin: 0; font-size: 15px; color: var(--gs-warn); }
 .ld__error p { margin: 0; font-size: 13px; color: var(--gs-fg-muted); }
@@ -706,13 +769,13 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__sanctions-actions { display: grid; gap: 8px; margin-top: 6px; }
 .ld__sanctions-actions > div { display: flex; gap: 8px; flex-wrap: wrap; }
 .ld__overlay {
-  position: fixed; inset: 0; z-index: 1000; background: rgba(15, 23, 42, .58); backdrop-filter: blur(2px);
+  position: fixed; inset: 0; z-index: 1000; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden;
 }
 .ld__overlay--top { z-index: 1010; }
 .ld__modal {
   width: min(860px, 100%); max-height: calc(100dvh - 48px); overflow: hidden; box-sizing: border-box;
-  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .4);
+  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(23,23,23,.4);
   display: flex; flex-direction: column;
 }
 .ld__modal--narrow { width: min(520px, 100%); }

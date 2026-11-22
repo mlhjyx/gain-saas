@@ -91,20 +91,20 @@ async function onSubmit() {
       <div class="g-brand__glow g-brand__glow--b"></div>
       <svg class="g-brand__net" viewBox="0 0 640 640" fill="none" preserveAspectRatio="xMidYMid slice">
         <g class="g-brand__layer g-brand__layer--slow">
-          <path d="M80 480 L200 360 L320 420 L440 260 L560 300" stroke="rgba(94,234,212,.20)" stroke-width="1" />
-          <path d="M120 200 L240 260 L360 180 L480 240 L600 140" stroke="rgba(52,211,153,.14)" stroke-width="1" />
-          <path d="M60 320 L180 300 L300 340 L420 220 L540 180" stroke="rgba(99,102,241,.16)" stroke-width="1" />
-          <circle cx="200" cy="360" r="3" fill="#5EEAD4" /><circle cx="320" cy="420" r="2.4" fill="#34D399" opacity=".8" />
-          <circle cx="440" cy="260" r="3.6" fill="#00B96B" /><circle cx="240" cy="260" r="2" fill="#5EEAD4" opacity=".7" />
-          <circle cx="360" cy="180" r="2.8" fill="#34D399" opacity=".85" /><circle cx="560" cy="300" r="2" fill="#5EEAD4" opacity=".6" />
-          <circle cx="480" cy="240" r="3.2" fill="#00B96B" opacity=".9" /><circle cx="120" cy="200" r="2.2" fill="#5EEAD4" opacity=".6" />
-          <circle cx="600" cy="140" r="2.6" fill="#34D399" opacity=".7" /><circle cx="180" cy="300" r="2" fill="#818CF8" opacity=".7" />
-          <circle cx="60" cy="320" r="2.4" fill="#5EEAD4" opacity=".55" /><circle cx="540" cy="180" r="3" fill="#00B96B" opacity=".75" />
+          <path d="M80 480 L200 360 L320 420 L440 260 L560 300" stroke="rgba(51,92,255,.20)" stroke-width="1" />
+          <path d="M120 200 L240 260 L360 180 L480 240 L600 140" stroke="rgba(53,89,233,.14)" stroke-width="1" />
+          <path d="M60 320 L180 300 L300 340 L420 220 L540 180" stroke="rgba(51,92,255,.16)" stroke-width="1" />
+          <circle cx="200" cy="360" r="3" fill="#335CFF" /><circle cx="320" cy="420" r="2.4" fill="#3559E9" opacity=".8" />
+          <circle cx="440" cy="260" r="3.6" fill="#335CFF" /><circle cx="240" cy="260" r="2" fill="#335CFF" opacity=".7" />
+          <circle cx="360" cy="180" r="2.8" fill="#3559E9" opacity=".85" /><circle cx="560" cy="300" r="2" fill="#335CFF" opacity=".6" />
+          <circle cx="480" cy="240" r="3.2" fill="#335CFF" opacity=".9" /><circle cx="120" cy="200" r="2.2" fill="#335CFF" opacity=".6" />
+          <circle cx="600" cy="140" r="2.6" fill="#3559E9" opacity=".7" /><circle cx="180" cy="300" r="2" fill="#3559E9" opacity=".7" />
+          <circle cx="60" cy="320" r="2.4" fill="#335CFF" opacity=".55" /><circle cx="540" cy="180" r="3" fill="#335CFF" opacity=".75" />
         </g>
         <g class="g-brand__layer g-brand__layer--fast">
-          <path d="M40 560 L160 500 L280 540 L400 420 L520 460 L620 380" stroke="rgba(94,234,212,.10)" stroke-width="1" />
-          <circle cx="160" cy="500" r="2" fill="#5EEAD4" opacity=".45" /><circle cx="400" cy="420" r="2.6" fill="#34D399" opacity=".5" />
-          <circle cx="520" cy="460" r="2" fill="#5EEAD4" opacity=".4" /><circle cx="620" cy="380" r="2.2" fill="#34D399" opacity=".45" />
+          <path d="M40 560 L160 500 L280 540 L400 420 L520 460 L620 380" stroke="rgba(51,92,255,.10)" stroke-width="1" />
+          <circle cx="160" cy="500" r="2" fill="#335CFF" opacity=".45" /><circle cx="400" cy="420" r="2.6" fill="#3559E9" opacity=".5" />
+          <circle cx="520" cy="460" r="2" fill="#335CFF" opacity=".4" /><circle cx="620" cy="380" r="2.2" fill="#3559E9" opacity=".45" />
         </g>
       </svg>
 
