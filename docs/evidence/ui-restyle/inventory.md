@@ -1584,3 +1584,44 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 折叠窄栏 e2e 点通（图标导航 + 展开恢复）。
 - 颜色：pass4 渲染扫描 13,946 样本 violations 0（含侧栏覆盖层）；源码 88 文件 0 违规。
 - 截图：`pass4/sidebar-{light,dark}.png`、`sidebar-collapsed-light.png`、`after-{workspace,leads}-*.png`。
+
+## 14. Pass5 修复对零（2026-11-22）：左下角操作区 + 顶部标签页
+
+任务（用户原话要点）：参考 AgentSDR 把登录/设置/通知移到左下角；顶部改成标签页，
+解决页面太多的问题；以 Awwwards/Webby/FWA 获奖级网站为标准自检优化。
+
+### 14.1 布局变化（全部 preference/CSS 驱动，packages/ 零改动）
+
+| 变化 | 实现 |
+|---|---|
+| 顶栏整体隐藏 | `preferences.header.hidden: true`（+ BRAND_PREFERENCES 缓存归一） |
+| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card'}`；高度 38px |
+| 标签风格 | gainos.css：灰底药丸 active（rgb(245,245,245) + rgb(23,23,23)，与侧栏 active 同款），1px 灰边 + xs 阴影，8px 圆角，字重 500 |
+| 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（→/settings/members）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
+| 工作空间账号卡 | 头像/首字母兜底 + 空间名 + 账号 + ⋮ Dropdown（空间头 + 通知/设置/退出登录 danger） |
+| 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言 |
+| 折叠 rail | 宽度 = collapseWidth(60px)；底部 = 展开按钮（panel-left-open）+ 账号头像（未读点 + 同款 Dropdown） |
+| 移动端抽屉 | 顶栏隐藏殃及 Vben burger → `.sdr-mobile-burger`（标签栏左侧固定，代理 click 隐藏开关）；标签栏 padding-left 44px 让位 |
+| 通知部件 | widget.notification=false（入口在侧栏底部行 + 账号菜单）；basic.vue 轮询保留供未读数 |
+
+### 14.2 功能守恒
+
+- 路由/api/server/packages/store/guard/access/locales key-value：零改动。
+- 全局操作迁移等价表：顶栏主题/语言→品牌行（pass4 已做）；顶栏通知→侧栏底部行+账号菜单（未读数轮询同源）；顶栏用户菜单→账号卡 Dropdown（退出登录/设置等价）；顶栏刷新→标签栏右侧工具（Vben 自带）；帮助+版本→帮助行 Popover（pass4 overlay 等价迁移）。
+- 删除的仅为死代码：basic.vue 通知槽位处理器（markRead/remove/handleMakeAll/viewAll/handleClick/navigateTo）、UserDropdown 槽位、版本号常量（功能分别由通知页自身/侧栏账号卡/帮助弹层承载）。
+- 顶栏隐藏后 `<header>` 仍在 DOM（margin-top 滑出）；既有 spec 的 `banner menuitem=0` 断言继续成立。
+
+### 14.3 视觉自检（获奖级标准逐项）
+
+- 排版/留白：标签 14px/500、侧栏 footer 行 13px/32px、账号卡 13/11px 两级；rail 60px 列 40px 内容。
+- 色彩：active 药丸灰底近黑字（组件级 computed 断言钉住），无蓝底蓝字残留（group-variant text-primary 用 `[data-tab-item][data-tab-item][data-tab-item] *` + !important 终结）。
+- 动效/微交互：标签 bg/color/border/阴影 150ms 过渡；账号卡 hover 边框加深。
+- 响应式：移动端 burger+标签栏无重叠（390px 实测）、抽屉可用；桌面 rail 不再覆盖内容（宽度修复）。
+- 顶栏工具组右侧补 6px 呼吸（原本最后一个按钮顶到视口边缘）。
+
+### 14.4 测试与证据
+
+- 新 spec `pass5-shell.spec.ts`：标签页留痕/切换/关闭/active 样式、侧栏底部三行+账号卡+帮助弹层、折叠 rail 宽度 60/展开入口、移动端 burger 开抽屉（4 用例）。
+- 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
+- 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
+- 截图：`pass5/{light,dark}-{workspace,tabs-leads}.png`、`light-tabs-switched/account-menu/help-popover/rail.png`、`mobile-{workspace,drawer}.png`（10 张，settle 1200ms 避开路由加载条）。

@@ -335,6 +335,64 @@ h6 {
   }
 }
 
+/* ── pass5：顶部标签页（AgentSDR 风格）──
+   顶栏隐藏后 tabbar 是顶部唯一元素；Vben card 式默认蓝底/蓝字
+   （bg-primary/15 + text-primary），品牌方向改成与侧栏一致的
+   中性灰药丸 + fg 文字。选择器用组件自带的 data-tab-item。 */
+[data-layout-region='header'] section {
+  border-bottom: 1px solid var(--gs-border);
+}
+
+/* 右侧工具组（更多/刷新/最大化）最后一个按钮默认顶到视口边缘，补右侧呼吸。 */
+[data-layout-region='header'] section > div:last-child {
+  padding-right: 6px;
+}
+
+[data-tab-item] {
+  height: calc(100% - 8px);
+  margin-left: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gs-fg-2);
+  font-weight: 500;
+}
+
+[data-tab-item]:hover {
+  background: var(--gs-surface-2);
+  color: var(--gs-fg);
+}
+
+[data-tab-item].is-active {
+  border-color: var(--gs-border);
+  background: var(--gs-surface-2);
+  color: var(--gs-fg);
+  box-shadow: var(--gs-shadow-xs);
+}
+
+/* 标题/图标/关闭符随 tab 前景走。Vben 把 text-primary 挂在中间层 div 上、
+   由 span 继承，所以这里对全部后代统一 inherit（Tailwind 任意变体选择器
+   权重更高，用 !important 终结；范围仅限 tab 内部）。 */
+[data-tab-item][data-tab-item][data-tab-item] * {
+  color: inherit !important;
+}
+
+[data-tab-item] svg {
+  stroke: currentColor !important;
+}
+
+[data-tab-item] {
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 移动端：抽屉开关固定在标签栏左侧（basic.vue .sdr-mobile-burger），标签让位。 */
+@media (max-width: 767px) {
+  [data-layout-region='header'] section {
+    padding-left: 44px;
+  }
+}
+
 /* ── pass3 C9：微交互统一（仅 CSS，无动画库）── */
 /* 主按钮：hover 微上移 + 阴影，active 下压 */
 .gs-card > button,

@@ -47,18 +47,26 @@ export const overridesPreferences = defineOverridesPreferences({
     // 默认浅色；顶栏主题按钮仍可切到深色（两套 token 同时维护）。
     mode: 'light',
   },
-  // 六页产品不需要多标签页与面包屑：去掉重复的标题层级，信息更聚焦
+  // pass5：顶部 = 标签页（用户要求：页面多以标签页承载切换，顶栏不再是操作区）。
+  // 卡片式药丸标签，配合 token 已归一的 primary/accent/border 保持 AgentSDR 质感。
   tabbar: {
-    enable: false,
+    enable: true,
+    showIcon: true,
+    styleType: 'card',
   },
   breadcrumb: {
     enable: false,
+  },
+  // pass5：藏掉 Vben 顶栏——操作全部在左侧栏（主题/语言/折叠在品牌行，
+  // 通知/设置/账号在侧栏底部）；刷新由标签栏右侧工具按钮承担。
+  header: {
+    hidden: true,
   },
   // 顶栏只保留与产品相关的能力:搜索、主题、语言、全屏、刷新、通知、退出。
   // 去掉锁屏 / 时区 / 设置抽屉入口(后者在移动端会浮在内容之上)。
   // 注意：**不要在这里重写 widget.order** —— vben 的偏好合并用 defu，数组是拼接
   // 而不是覆盖，再写一遍会让每个控件渲染两次（2026-11-09 全站顶栏重复的根因）。
-  // pass4：顶栏只留刷新/通知/用户；主题与语言在侧栏品牌行（SDR 同款），
+  // pass4→pass5：通知移入侧栏底部；刷新由标签栏工具承担；顶栏整体隐藏。
   // 登录/注册页另有独立的同功能控件(AuthTools)。
   widget: {
     // pass3 C1：内置搜索由自定义命令面板替代（页面 + 动作 + ⌘K）。
@@ -67,6 +75,7 @@ export const overridesPreferences = defineOverridesPreferences({
     // 顶栏只留刷新/通知/用户。
     themeToggle: false,
     languageToggle: false,
+    notification: false,
     lockScreen: false,
     timezone: false,
     fullscreen: false,

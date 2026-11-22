@@ -76,7 +76,8 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   for (const group of NAV_GROUPS) {
     await expect(groupLocator(page, group.group)).toBeVisible();
   }
-  await expect(page.locator('[data-sdr-nav]').getByText('设置', { exact: true })).toBeVisible();
+  // pass5 起侧栏底部也有「设置」行；导航分组断言收窄到组标签。
+  await expect(page.locator('.sdr-section__label').filter({ hasText: '设置' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
@@ -89,8 +90,7 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
     }
   }
 
-  // 设置是含子项的分组：展开后进入「成员与角色」
-  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
+  // 设置组：SDR 扁平导航叶子常驻可见，直接进入「成员与角色」
   await page.getByRole('menuitem', { name: '成员与角色' }).click();
   await page.waitForURL((url) => url.pathname === '/settings/members');
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();

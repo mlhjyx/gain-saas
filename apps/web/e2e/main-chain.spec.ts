@@ -579,8 +579,7 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
   ]);
 
   await loginAs(page);
-  // 设置 → 禁联名单
-  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
+  // 设置 → 禁联名单（SDR 扁平导航叶子常驻可见，直接点击）
   await page.getByRole('menuitem', { name: '禁联名单' }).click();
   await page.waitForURL(/\/settings\/suppressions/);
   await expect(page.getByRole('heading', { name: '禁联名单', exact: true })).toBeVisible();
