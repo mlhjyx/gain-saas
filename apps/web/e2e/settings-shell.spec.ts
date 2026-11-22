@@ -1,5 +1,6 @@
 /**
- * P5b-13：设置壳五个子页共用同一导航；审计页筛选/导出控件与空态可用。
+ * P5b-13：设置五个子页共用主侧栏「设置」分组；审计页筛选/导出控件与空态可用。
+ * 2026-11-22 UI 重设计：去掉设置页内部的重复二级导航，统一由主侧栏承担。
  */
 import { expect, test } from '@playwright/test';
 
@@ -13,10 +14,17 @@ test('设置子导航切换审计页，筛选与导出控件可用', async ({ pa
   await page.goto('/settings/members');
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
 
-  const nav = page.locator('nav[aria-label="设置导航"]');
-  await expect(nav.getByRole('link')).toHaveCount(5);
+  const menu = page.locator('.vben-menu');
+  const auditItem = page.getByRole('menuitem', { name: '审计' });
+  if (!(await auditItem.isVisible().catch(() => false))) {
+    await menu.getByText('设置', { exact: true }).click();
+    await page.waitForTimeout(200);
+  }
+  for (const name of ['成员与角色', '禁联名单', '数据源', '数据与隐私', '审计']) {
+    await expect(page.getByRole('menuitem', { name })).toBeVisible();
+  }
 
-  await nav.getByRole('link', { name: '审计' }).click();
+  await auditItem.click();
   await page.waitForURL((url) => url.pathname === '/settings/audit');
 
   await expect(page.getByRole('heading', { level: 1, name: '操作审计' })).toBeVisible();

@@ -36,11 +36,10 @@ export const overridesPreferences = defineOverridesPreferences({
     sourceDark: LOGO_SRC,
   },
   theme: {
-    // AA：原 hsl(160 84% 39%)≈#10b77f 与白字/浅底对比度仅 2.2–2.6:1；
-    // 加深到 hsl(155 100% 24%)≈#007a47（白底 5.4:1），侧栏激活项与 vben 派生控件一并达标。
-    colorPrimary: 'hsl(155 100% 24%)',
-    // GainOS 采用浅色品牌设计(深色品牌面板在登录页内自持):
-    // 整体 UI 固定浅色，避免跟随系统深色导致对比度失效。
+    // AgentSDR 品牌蓝 blue-500 ≈#335CFF（白字 5.10:1，达 AA）。
+    // hsl(228 100% 60%) 与 #335CFF 同值；侧栏激活项与 vben 派生控件一并蓝化。
+    colorPrimary: 'hsl(228 100% 60%)',
+    // 默认浅色；顶栏主题按钮仍可切到深色（两套 token 同时维护）。
     mode: 'light',
   },
   // 六页产品不需要多标签页与面包屑：去掉重复的标题层级，信息更聚焦

@@ -5,6 +5,7 @@ import { Alert, Button, Form, Input, Select, Table } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
+import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { formatDateTime } from '@gain-saas/shared';
@@ -39,7 +40,7 @@ const companyOptions = ref<Array<{ id: string; name: string }>>([]);
 async function loadCompanies(): Promise<void> {
   try {
     const data = await gainosApi.companies();
-    const rows = Array.isArray(data) ? data : (data.data ?? []);
+    const rows = Array.isArray(data) ? data : (data?.data ?? []);
     companyOptions.value = rows.flatMap((row) =>
       row.id
         ? [{ id: row.id, name: row.name?.trim() || row.domain || row.id.slice(0, 8) }]
@@ -250,7 +251,12 @@ onMounted(() => {
         <template #message>{{ lookupError.title }}</template>
         <template v-if="lookupError.next" #description>{{ lookupError.next }}</template>
       </Alert>
-      <p v-if="tracked.length === 0" class="pv__muted">{{ $t('gainos.privacy.noTracked') }}</p>
+      <EmptyState v-if="tracked.length === 0" :title="$t('gainos.privacy.noTracked')">
+        <template #actions>
+          <Button type="primary" @click="$router.push('/companies')">{{ $t('gainos.companies.title') }}</Button>
+          <Button @click="$router.push('/settings/audit')">{{ $t('gainos.audit.title') }}</Button>
+        </template>
+      </EmptyState>
       <Table
         v-else
         :columns="columns"

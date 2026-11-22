@@ -10,6 +10,7 @@ import { $t } from '#/locales';
 import { formatDateTime } from '@gain-saas/shared';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import EmptyState from '#/components/gainos/empty-state.vue';
 import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
@@ -96,7 +97,16 @@ const columns = [
       @retry="load"
     >
       <template #empty>
-        <p>{{ $t('gainos.replies.empty') }}</p>
+        <EmptyState :title="$t('gainos.replies.empty')">
+          <template #actions>
+            <Button type="primary" @click="$router.push('/growth?tab=outreach')">
+              {{ $t('gainos.outreach.title') }}
+            </Button>
+            <Button @click="$router.push('/leads')">
+              {{ $t('gainos.leads.title') }}
+            </Button>
+          </template>
+        </EmptyState>
       </template>
       <Table
         :columns="columns"

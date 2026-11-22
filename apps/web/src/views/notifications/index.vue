@@ -20,6 +20,7 @@ import PageContainer from '#/components/gainos/page-container.vue';
 import { formatDateTime } from '@gain-saas/shared';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import EmptyState from '#/components/gainos/empty-state.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
@@ -178,7 +179,16 @@ onMounted(load);
       @retry="load"
     >
       <template #empty>
-        <p>{{ $t('gainos.notifications.empty') }}</p>
+        <EmptyState :title="$t('gainos.notifications.empty')">
+          <template #actions>
+            <Button type="primary" @click="router.push('/workspace')">
+              {{ $t('gainos.menu.groupWorkspace') }}
+            </Button>
+            <Button @click="router.push('/leads')">
+              {{ $t('gainos.leads.title') }}
+            </Button>
+          </template>
+        </EmptyState>
       </template>
 
       <ol class="nt__list">

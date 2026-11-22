@@ -5,6 +5,7 @@ import { Alert, Button, Select, Spin, Table, Upload } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
+import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import {
@@ -60,7 +61,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    available.value = await gainosApi.availableChannels();
+    available.value = (await gainosApi.availableChannels()) ?? [];
   } catch (err) {
     error.value = failureText(err);
   } finally {
@@ -230,7 +231,12 @@ onMounted(load);
             </div>
           </li>
         </ul>
-        <p v-else class="src__muted">{{ $t('gainos.sources.availableEmpty') }}</p>
+        <EmptyState v-else :title="$t('gainos.sources.availableEmpty')">
+          <template #actions>
+            <Button type="primary" @click="load">{{ $t('gainos.common.refresh') }}</Button>
+            <Button @click="$router.push('/settings/audit')">{{ $t('gainos.audit.title') }}</Button>
+          </template>
+        </EmptyState>
         <p class="src__muted">{{ $t('gainos.sources.crawlGateNote') }}</p>
       </section>
 

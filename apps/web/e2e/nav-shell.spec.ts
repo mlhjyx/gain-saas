@@ -13,13 +13,55 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-const TOP_NAV = [
-  { landmark: '.wk', name: '工作台', path: '/workspace' },
-  { landmark: '.cp', name: '公司档案', path: '/companies' },
-  { landmark: '.fb', name: '找买家', path: '/find-buyers' },
-  { landmark: '.ld', name: '买家线索', path: '/leads' },
-  { landmark: '.gr', name: '商机与触达', path: '/growth' },
+/**
+ * 2026-11-22 UI 重设计：一级导航按业务分组（工作空间/获客/线索/活动/增长/设置）。
+ * 路由仍是扁平的；分组只是 Vben 菜单数据的展示层。测试按“组 → 叶子”点击，
+ * 并保留原断言：所有页面可达、无死链、无「周报」、战役计划不占一级导航。
+ */
+const NAV_GROUPS = [
+  {
+    group: '工作空间',
+    items: [{ landmark: '.wk', name: '工作台', path: '/workspace' }],
+  },
+  {
+    group: '获客',
+    items: [
+      { landmark: '.cp', name: '公司档案', path: '/companies' },
+      { landmark: '.fb', name: '找买家', path: '/find-buyers' },
+    ],
+  },
+  {
+    group: '线索',
+    items: [{ landmark: '.ld', name: '买家线索', path: '/leads' }],
+  },
+  {
+    group: '活动',
+    items: [{ landmark: '.gpc', name: '挖掘任务', path: '/tasks' }],
+  },
+  {
+    group: '增长',
+    items: [{ landmark: '.gr', name: '商机与触达', path: '/growth' }],
+  },
 ] as const;
+
+function groupLocator(
+  page: import('@playwright/test').Page,
+  group: string,
+) {
+  // Vben 的分组标题是 submenu 的 toggle，不是 menuitem；按可见文本定位。
+  return page.locator('.vben-menu').getByText(group, { exact: true });
+}
+
+async function ensureLeafVisible(
+  page: import('@playwright/test').Page,
+  group: string,
+  leaf: string,
+): Promise<void> {
+  const item = page.getByRole('menuitem', { name: leaf });
+  if (await item.isVisible().catch(() => false)) return;
+  await groupLocator(page, group).click();
+  await page.waitForTimeout(200);
+}
 
 test('六项导航可点、无死链，周报已下线', async ({ page }, testInfo) => {
   await installMockBackend(page);
@@ -27,19 +69,21 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('nav-workspace.png') });
 
-  // 五项一级导航齐全，且没有「周报」项
-  for (const item of TOP_NAV) {
-    await expect(page.getByRole('menuitem', { name: item.name })).toBeVisible();
+  // 六个业务分组齐全；没有「周报」项；战役计划不占一级导航
+  for (const group of NAV_GROUPS) {
+    await expect(groupLocator(page, group.group)).toBeVisible();
   }
   await expect(page.locator('.vben-menu').getByText('设置', { exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
-  // 战役计划收编在「商机与触达」入口内（D-14-a），不占一级导航
   await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
-  for (const item of TOP_NAV) {
-    await page.getByRole('menuitem', { name: item.name }).click();
-    await page.waitForURL((url) => url.pathname === item.path);
-    await expect(page.locator(item.landmark)).toBeVisible();
+  for (const group of NAV_GROUPS) {
+    for (const item of group.items) {
+      await ensureLeafVisible(page, group.group, item.name);
+      await page.getByRole('menuitem', { name: item.name }).click();
+      await page.waitForURL((url) => url.pathname === item.path);
+      await expect(page.locator(item.landmark)).toBeVisible();
+    }
   }
 
   // 设置是含子项的分组：展开后进入「成员与角色」
@@ -57,6 +101,7 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
 test('商机与触达：多 tab 内嵌真实页面、运行期语义与词表', async ({ page }, testInfo) => {
   await installMockBackend(page);
   await loginAs(page);
+  await ensureLeafVisible(page, '增长', '商机与触达');
   await page.getByRole('menuitem', { name: '商机与触达' }).click();
 
   // 枢纽页头与运行期徽标（2026-11-10 起取消影子期：按授权执行）

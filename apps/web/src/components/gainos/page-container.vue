@@ -21,13 +21,14 @@ withDefaults(defineProps<{
 <style scoped>
 .gpc {
   display: grid;
-  gap: 18px;
-  max-width: 1280px;
+  gap: 24px;
+  max-width: var(--gs-page-max, 1280px);
   margin: 0 auto;
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
+  padding: var(--gs-page-pad, 24px);
+  padding-bottom: clamp(32px, 4vh, 48px);
 }
 
-.gpc--compact { gap: 12px; }
+.gpc--compact { gap: 16px; }
 
 .gpc--narrow { max-width: 840px; }
 </style>

@@ -387,6 +387,10 @@ onBeforeUnmount(() => {
         <p class="rv__empty-title">{{ $t('gainos.reviews.emptyTitle') }}</p>
         <p class="rv__muted">{{ $t('gainos.reviews.emptyDesc') }}</p>
       </template>
+      <div class="rv__empty-actions">
+        <RouterLink class="rv__empty-link is-primary" to="/growth?tab=metrics">{{ $t('gainos.metrics.tab') }}</RouterLink>
+        <RouterLink class="rv__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+      </div>
     </div>
 
     <template v-else>
@@ -646,6 +650,15 @@ onBeforeUnmount(() => {
 .rv__error button { justify-self: start; }
 .rv__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface); padding: 40px 24px; text-align: center; display: grid; gap: 6px; }
 .rv__empty-title { margin: 0; font-weight: 600; color: var(--gs-fg-2); }
+.rv__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.rv__empty-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 8px 16px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
+}
+.rv__empty-link.is-primary { border-color: transparent; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
+.rv__empty-link:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
+.rv__empty-link.is-primary:hover { background: var(--gs-accent-cta-hover); color: var(--gs-accent-cta-fg); }
 .rv__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .rv__drawer { position: fixed; inset: 0; background: var(--gs-mask); display: flex; justify-content: flex-end; z-index: 40; }
 .rv__card { width: min(600px, 100%); height: 100%; overflow: auto; background: var(--gs-surface); padding: 22px clamp(16px, 3vw, 26px) 40px; display: grid; gap: 16px; align-content: start; box-shadow: var(--gs-shadow-modal); }

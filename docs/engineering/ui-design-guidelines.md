@@ -61,3 +61,38 @@ Avoid unnecessary secondary labels and descriptions. Let the layout do the expla
     - 主流程超过 3 步、或需要解释内部概念才能完成，即判定不合格，回到设计而不是加说明。
 
 判断标准一句话：**运营不需要知道 new-api、模型别名或接口路径，也能把 AI 配好并看到成功。**
+
+### 空状态补充（2026-11-22）
+
+空态不再只给 1 条路径：给 **2–3 条真实可行的起步路径**（例如新建 / 导入 / 从上游转入），但视觉最强的主行动仍只保留一个。禁止只写“暂无数据”。
+
+## 2026-11 视觉与交互基线
+
+### 简单性原则
+
+目标简单，设计简单，实现简单。砍掉标语、提示文字和次要标签；如果一个页面非得靠这些东西才看得懂，那就去改布局。每个决定都要同时提升客户体验（UX）、开发者体验（DX）和智能体体验（AX），而且不能弄坏任何东西。
+
+- 适用范围：用户登录后的系统内页面；平台运营台 `/ops` 与登录/注册页不因视觉改造而动。
+- 功能守恒：可以删除装饰性标语、重复提示与次要标签；表单标签、校验规则、错误/空状态、操作入口与 API 调用不得删除。
+- AX：保留语义化标题、可读的控件名称与稳定测试锚点；不用视觉层级替代 DOM 语义。
+
+### 视觉 token
+
+- 来源：AgentSDR AlignUI（`/home/xin/gain-ref/AgentSDR/src/app/globals.css`）。
+- 完整映射：`docs/evidence/ui-restyle/token-mapping.md`。
+- 品牌蓝 `#335CFF`（白字 5.10:1）；主按钮全圆 9999px；卡片/输入 10px；弹层 20px；字体系统栈；标题 500 字重。
+- 明暗双主题同批交付；AntDV 走 `ConfigProvider` token，页面表面走 `--gs-*`。
+
+### 布局与交互
+
+- 侧边栏按业务分组：工作空间 / 获客 / 线索 / 活动 / 增长 / 设置；路由仍保持扁平，不新增层级路由。
+- 首页 `/workspace` 是行动驾驶舱：今日摘要 → 阶段漏斗 → 行动清单（待办/已归档）→ 提醒（异常/机会/建议）→ 今日建议。
+- 列表页统一「筛选区 + 表格/列表 + 空状态 2–3 路径」；详情页统一 `PageHeader`（24/500 + 16/24）。
+- 设置五页只保留主侧栏「设置」分组的一份导航；不再在页内重复二级导航。
+
+### 证据与对零
+
+- 盘点：`docs/evidence/ui-restyle/inventory.md`。
+- 分阶段对零：`p2-workspace-parity.md`、`p3-list-detail-parity.md`、`p4-settings-parity.md`。
+- 截图：`docs/evidence/ui-restyle/*.png`。
+- 受保护路径零差异：`apps/web/src/api/**`、`apps/server/**`、`packages/engine-client/**`、`store/**`、`router/guard.ts`、`router/access.ts`、所有路由模块。

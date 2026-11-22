@@ -409,7 +409,11 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
     <section v-if="!loading && !activeIcpId" class="ld__empty">
       <p class="ld__empty-title">{{ $t('gainos.leads.noIcpTitle') }}</p>
       <p class="ld__empty-desc">{{ $t('gainos.leads.noIcpDesc') }}</p>
-      <button type="button" class="ld__cta" @click="$router.push('/find-buyers')">{{ $t('gainos.leads.goFindBuyers') }}</button>
+      <div class="ld__empty-actions">
+        <button type="button" class="ld__cta" @click="$router.push('/find-buyers')">{{ $t('gainos.leads.goFindBuyers') }}</button>
+        <RouterLink class="ld__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
+        <RouterLink class="ld__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
+      </div>
     </section>
 
     <ol class="ld__steps" :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })">
@@ -467,7 +471,11 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
       </div>
       <p class="ld__empty-title">{{ $t('gainos.leads.emptyTitle') }}</p>
       <p class="ld__empty-desc">{{ $t('gainos.leads.emptyDesc') }}</p>
-      <RouterLink class="ld__cta" to="/find-buyers">{{ $t('gainos.leads.emptyCta') }}</RouterLink>
+      <div class="ld__empty-actions">
+        <RouterLink class="ld__cta" to="/find-buyers">{{ $t('gainos.leads.emptyCta') }}</RouterLink>
+        <RouterLink class="ld__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
+        <RouterLink class="ld__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
+      </div>
     </section>
 
     <section v-else class="ld__list">
@@ -623,9 +631,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 }
 .ld__sanctions-banner:disabled { cursor: default; }
 .ld__sanctions-banner span { font-weight: 600; white-space: nowrap; }
-.ld__stage { font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
-.ld__head h1 { margin: 6px 0 0; font-size: 24px; font-weight: 700; color: var(--gs-fg); }
-.ld__head p { margin: 8px 0 0; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 620px; line-height: 1.7; }
+.ld__stage { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .04em; color: var(--gs-accent-strong); }
+.ld__head h1 { margin: 6px 0 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
+.ld__head p { margin: 8px 0 0; font-size: 16px; line-height: 24px; letter-spacing: -.011em; color: var(--gs-fg-muted); max-width: 620px; }
 .ld__refresh {
   border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 10px; padding: 8px 16px;
   font-size: 13px; color: var(--gs-fg-2); cursor: pointer; white-space: nowrap;
@@ -665,7 +673,14 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 .ld__empty-mark svg { width: 26px; height: 26px; }
 .ld__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
 .ld__empty-desc { margin: 0 0 14px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 520px; line-height: 1.75; }
-.ld__cta { border-radius: 11px; padding: 10px 20px; font-size: 13.5px; font-weight: 600; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none; }
+.ld__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.ld__cta { border: 0; border-radius: 999px; padding: 10px 20px; font-size: 13.5px; font-weight: 500; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none; cursor: pointer; }
+.ld__cta-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
+}
+.ld__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .ld__list { display: grid; gap: 12px; }
 .ld__more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 8px 0 4px; }
 .ld__lead { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }

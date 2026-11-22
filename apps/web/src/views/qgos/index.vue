@@ -228,7 +228,11 @@ onMounted(load);
     <section v-else-if="!loadError && rows.length === 0" class="qg__empty">
       <p class="qg__empty-title">{{ $t('gainos.qgos.emptyTitle') }}</p>
       <p class="qg__empty-desc">{{ $t('gainos.qgos.emptyDesc') }}</p>
-      <RouterLink class="qg__cta-link" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</RouterLink>
+      <div class="qg__empty-actions">
+        <RouterLink class="qg__cta-link" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</RouterLink>
+        <RouterLink class="qg__cta-secondary" to="/growth?tab=campaigns">{{ $t('gainos.campaigns.title') }}</RouterLink>
+        <RouterLink class="qg__cta-secondary" to="/growth?tab=outreach">{{ $t('gainos.growth.outreachTitle') }}</RouterLink>
+      </div>
     </section>
 
     <ol v-else class="qg__list">
@@ -345,6 +349,14 @@ onMounted(load);
   font-size: 13.5px; font-weight: 600; text-decoration: none;
 }
 .qg__cta-link:hover { background: var(--gs-accent-cta-hover); color: var(--gs-accent-cta-fg); }
+.qg__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.qg__empty-actions .qg__cta-link { margin-top: 0; }
+.qg__cta-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
+  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
+}
+.qg__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .qg--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
 .qg__embedded-head { display: flex; justify-content: flex-end; }
 .qg__more { margin: 8px 0 0; text-align: center; }
