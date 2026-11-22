@@ -14,6 +14,7 @@ import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
 import CommandPalette from '#/components/gainos/command-palette.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
+import SettingsDialog from '#/components/gainos/settings-dialog.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
@@ -34,6 +35,8 @@ useMenuGroups();
 
 // pass3 C1：命令面板（⌘K）。pass4：搜索入口移入 SDR 侧栏，顶栏不再承载搜索。
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
+// pass5：设置弹窗（SDR SettingsShell）——侧栏底部「设置」与账号菜单共享入口。
+const settingsOpen = ref(false);
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
 
 // pass4：主题 / 语言切换从顶栏移入侧栏品牌行（AgentSDR 同款位置）。
@@ -311,8 +314,10 @@ onUnmounted(() => {
     :workspace-name="companyName"
     @logout="handleLogout"
     @open-search="paletteRef?.open()"
+    @open-settings="settingsOpen = true"
     @toggle-collapse="toggleSidebarCollapse"
   />
+  <SettingsDialog v-model:open="settingsOpen" />
   <CommandPalette ref="paletteRef" />
 </template>
 

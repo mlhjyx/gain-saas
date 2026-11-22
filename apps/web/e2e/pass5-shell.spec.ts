@@ -104,6 +104,18 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
     'e2e@gainos.local',
   );
 
+  // 侧栏不再列设置子页；「设置」行打开设置弹窗（SDR 同款）。
+  await expect(
+    page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' }),
+  ).toHaveCount(0);
+  await footer.getByText('设置', { exact: true }).click();
+  await expect(page.locator('.gs-settings__panel')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: '成员与角色' }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
+
   // 通知行直达通知页。
   await footer.getByText('通知', { exact: true }).click();
   await page.waitForURL((url) => url.pathname === '/notifications');
@@ -124,6 +136,11 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
   ).toBeVisible();
   await expect(menu.getByText('通知', { exact: true })).toBeVisible();
   await expect(menu.getByText('设置', { exact: true })).toBeVisible();
+  // 账号菜单的「设置」同样打开弹窗。
+  await menu.getByText('设置', { exact: true }).click();
+  await expect(page.locator('.gs-settings__panel')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
 });
 
 test('折叠 rail：品牌行折叠 → 展开入口回到完整侧栏', async ({ page }) => {

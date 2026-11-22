@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T15:14:51.399Z",
+  "generatedAt": "2026-11-22T15:34:55.858Z",
   "leads": {
     "queueCards": 0,
     "toolbar": 1,
@@ -10,14 +10,14 @@
   },
   "workspace": {
     "groupLabel": {
-      "count": 6,
+      "count": 5,
       "fontSize": "12px",
       "height": 20,
       "titleFontSize": "12px",
-      "html": "<p data-v-6ae12d0a=\"\" class=\"sdr-section__label\">工作空间</p>"
+      "html": "<p data-v-b6527811=\"\" class=\"sdr-section__label\">工作空间</p>"
     },
     "items": {
-      "count": 14,
+      "count": 9,
       "fontSize": "14px",
       "fontWeight": "500",
       "heights": [

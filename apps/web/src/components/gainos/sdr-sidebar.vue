@@ -39,7 +39,12 @@ const props = defineProps<{
   workspaceName?: string;
 }>();
 
-const emit = defineEmits<{ logout: []; openSearch: []; toggleCollapse: [] }>();
+const emit = defineEmits<{
+  logout: [];
+  openSearch: [];
+  openSettings: [];
+  toggleCollapse: [];
+}>();
 
 const route = useRoute();
 const router = useRouter();
@@ -88,6 +93,8 @@ const sections = computed<NavSection[]>(() => {
         continue;
       }
       if (!menu.path || menu.path.startsWith('__')) continue;
+      // pass5：设置不再占导航分组——底部「设置」打开设置弹窗（SDR 同款）。
+      if (menu.path.startsWith('/settings')) continue;
       items.push({
         icon: typeof menu.icon === 'string' ? menu.icon : fallbackIcon,
         // 存的是 i18n key（模块加载早于 i18n 初始化时）或已译文本；渲染时统一过 $t。
@@ -100,7 +107,11 @@ const sections = computed<NavSection[]>(() => {
   for (const menu of accessStore.accessMenus) {
     if (menu.children?.length) {
       walk(menu.name || '', menu.children);
-    } else if (menu.path && !menu.path.startsWith('__')) {
+    } else if (
+      menu.path &&
+      !menu.path.startsWith('__') &&
+      !menu.path.startsWith('/settings')
+    ) {
       walk('', [menu]);
     }
   }
@@ -142,29 +153,14 @@ const initial = computed(() =>
   (props.workspaceName || props.userEmail || 'G').trim().slice(0, 1).toUpperCase(),
 );
 
-const footerRows = computed(() => [
-  {
-    dot: (props.unreadCount ?? 0) > 0,
-    icon: 'lucide:bell',
-    key: 'notifications',
-    label: footerLabels.value.notifications,
-    to: '/notifications',
-  },
-  {
-    dot: false,
-    icon: 'lucide:settings',
-    key: 'settings',
-    label: footerLabels.value.settings,
-    to: '/settings/members',
-  },
-]);
+const settingsActive = computed(() => route.path.startsWith('/settings'));
 
 const helpOpen = ref(false);
 
 function onUserMenuClick({ key }: { key: number | string }) {
   if (key === 'logout') emit('logout');
   if (key === 'notifications') go('/notifications');
-  if (key === 'settings') go('/settings/members');
+  if (key === 'settings') emit('openSettings');
 }
 </script>
 
@@ -217,16 +213,30 @@ function onUserMenuClick({ key }: { key: number | string }) {
     <footer class="sdr-footer">
       <div class="sdr-footer__rows" role="menu" :aria-label="footerLabels.settings">
         <RouterLink
-          v-for="row in footerRows"
-          :key="row.key"
-          :to="row.to"
+          to="/notifications"
           class="sdr-row sdr-footer__row"
           role="menuitem"
         >
-          <IconifyIcon :icon="row.icon" />
-          <span class="sdr-row__label">{{ row.label }}</span>
-          <span v-if="row.dot" class="sdr-footer__dot" aria-hidden="true"></span>
+          <IconifyIcon icon="lucide:bell" />
+          <span class="sdr-row__label">{{ footerLabels.notifications }}</span>
+          <span
+            v-if="(unreadCount ?? 0) > 0"
+            class="sdr-footer__dot"
+            aria-hidden="true"
+          ></span>
         </RouterLink>
+        <!-- pass5：设置打开设置弹窗（SDR 的 SettingsShell），不再占导航分组。 -->
+        <button
+          type="button"
+          class="sdr-row sdr-footer__row"
+          :class="{ 'is-active': settingsActive }"
+          role="menuitem"
+          :aria-current="settingsActive ? 'page' : undefined"
+          @click="emit('openSettings')"
+        >
+          <IconifyIcon icon="lucide:settings" />
+          <span class="sdr-row__label">{{ footerLabels.settings }}</span>
+        </button>
         <Popover v-model:open="helpOpen" placement="rightTop" trigger="click">
           <template #content>
             <div class="sdr-help">

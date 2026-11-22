@@ -1597,7 +1597,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 | 顶栏整体隐藏 | `preferences.header.hidden: true`（+ BRAND_PREFERENCES 缓存归一） |
 | 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card', height:40}`；40px 画布栏；`header.height: 40` 让侧栏品牌行与标签栏合成同一条顶部横带（接缝不错位） |
 | 标签风格 | 「白卡浮于画布」：标签栏取页面底色 `--gs-bg`，当前页 = 30px 白卡（`--gs-surface`）+ 1px 灰边 + 双层微阴影 + 8px 圆角 + 13px/500 近黑字；非当前页纯文字（muted），hover 浮出 5% 淡底；关闭符仅 hover/当前页出现（不可见时 pointer-events:none 防误关），右侧恒留 26px 关闭槽位保证宽度稳定；无关闭符时收回到 12px 左右对称；长标题 180px 截断；深色卡 edges 用 border-strong + 1px 内高光 |
-| 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（→/settings/members）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
+| 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（打开设置弹窗，替代原「设置」导航分组）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
+| 设置信息架构（SDR SettingsShell） | 侧栏不再列 成员与角色/禁联名单/数据源/数据与隐私/审计；底部「设置」打开 1080×780 浮层：左分区导航（accessMenus 同源、按权限过滤）+ 右侧真实页面（复用路由组件，Suspense 骨架）；Esc/遮罩/× 关闭，Tab 焦点圈定，背景路由变化自动关闭；直接访问 /settings/* 仍是整页（深链不变） |
 | 工作空间账号卡 | 头像/首字母兜底 + 空间名 + 账号 + ⋮ Dropdown（空间头 + 通知/设置/退出登录 danger） |
 | 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言 |
 | 折叠 rail | 宽度 = collapseWidth(60px)；底部 = 展开按钮（panel-left-open）+ 账号头像（未读点 + 同款 Dropdown） |
@@ -1608,6 +1609,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 - 路由/api/server/packages/store/guard/access/locales key-value：零改动。
 - 全局操作迁移等价表：顶栏主题/语言→品牌行（pass4 已做）；顶栏通知→侧栏底部行+账号菜单（未读数轮询同源）；顶栏用户菜单→账号卡 Dropdown（退出登录/设置等价）；顶栏刷新→标签栏右侧工具（Vben 自带）；帮助+版本→帮助行 Popover（pass4 overlay 等价迁移）。
+- 设置：五个设置页的入口从侧栏分组迁到设置弹窗（SDR 同款），路由/权限/页面组件零改动；`/settings/*` 深链、命令面板与旧链接（/profile、/settings/workspaces）行为不变。
+- 设置页内嵌时（设置弹窗中）不再读写 URL query（audit 筛选只存本地）——背景路由属于用户当前页面，避免污染；整页模式下 URL 同步保持原样（`SETTINGS_EMBEDDED_KEY` 注入，默认 false）。
 - 删除的仅为死代码：basic.vue 通知槽位处理器（markRead/remove/handleMakeAll/viewAll/handleClick/navigateTo）、UserDropdown 槽位、版本号常量（功能分别由通知页自身/侧栏账号卡/帮助弹层承载）。
 - 顶栏隐藏后 `<header>` 仍在 DOM（margin-top 滑出）；既有 spec 的 `banner menuitem=0` 断言继续成立。
 
@@ -1623,7 +1626,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 ### 14.4 测试与证据
 
-- 新 spec `pass5-shell.spec.ts`：标签页留痕/切换/关闭/active 样式、侧栏底部三行+账号卡+帮助弹层、折叠 rail 宽度 60/展开入口、移动端 burger 开抽屉（4 用例）。
+- 新 spec `pass5-shell.spec.ts`：标签页留痕/切换/关闭/active 样式、侧栏底部三行+账号卡+帮助弹层、设置弹窗开合（含账号菜单入口）、折叠 rail 宽度 60/展开入口、移动端 burger 开抽屉。
+- `settings-shell.spec.ts` 重写为弹窗口径：五分区切换、审计页控件、背景 URL 不变、Esc 关闭、深链仍是整页。
 - 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
 - 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
-- 截图：`pass5/{light,dark}-{workspace,tabs-leads}.png`、`light-tabs-switched/account-menu/help-popover/rail.png`、`mobile-{workspace,drawer}.png`（10 张，settle 1200ms 避开路由加载条）。
+- 截图：`pass5/{light,dark}-{workspace,tabs-leads}.png`、`light-tabs-switched/account-menu/help-popover/rail/tab-hover/tool-hover.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（17 张）。
