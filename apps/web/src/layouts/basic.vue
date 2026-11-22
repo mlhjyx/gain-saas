@@ -84,11 +84,14 @@ const companyName = computed(
 
 // 侧栏/菜单标题在路由模块加载时求值一次，切语言后不会热更新（审计 二-06）。
 // 语言切换后整页重载一次，保证导航、页面与通知全部即时切换（URL 与登录态保留）。
+// 2026-11-22：reload 必须等偏好持久化落盘——updatePreferences 的保存是 150ms
+// debounce，立即 reload 会在定时器触发前卸载页面，缓存仍是旧语言，重载后回退
+// （用户实测：切语言整页刷新且切换失败）。延迟 300ms（2×debounce）先存后刷。
 watch(
   () => preferences.app.locale,
   (next, prev) => {
     if (prev && next !== prev) {
-      window.location.reload();
+      window.setTimeout(() => window.location.reload(), 300);
     }
   },
 );

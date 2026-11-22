@@ -37,13 +37,20 @@ export default defineConfig(async () => {
         __APP_VERSION__: JSON.stringify(readAppVersion()),
         __APP_COMMIT__: JSON.stringify(readCommit()),
       },
+      // workspace 包构建产物是 CommonJS：Vite dev 对符号链接包不预打包、
+      // 直接以原生 ESM 加载会丢命名导出（"does not provide an export named 'navLabel'"）。
+      // include 进 optimizeDeps 让 esbuild 做 CJS→ESM 转换；仅影响 dev server。
+      optimizeDeps: {
+        include: ['@gain-saas/shared'],
+      },
       server: {
         proxy: {
           '/api': {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api/, ''),
-            // mock代理目标地址
-            target: 'http://localhost:5320/api',
+            // 开发预发代理：转发到本机 gain-saas-web（systemd 的 BFF，真实登录与数据）。
+            // 仓库内没有 @vben/backend-mock 包，原 nitro mock 目标(5320)不会被启用。
+            target: 'http://127.0.0.1:4020/api',
             ws: true,
           },
         },
