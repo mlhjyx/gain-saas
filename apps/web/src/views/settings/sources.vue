@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 
-import { Alert, Button, Select, Spin, Table, Upload } from 'ant-design-vue';
+import { Alert, Button, Select, Skeleton, Table, Upload } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
@@ -205,7 +205,10 @@ onMounted(load);
     </template>
 
     <Alert v-if="notice" :message="notice.text" show-icon :type="notice.tone === 'ok' ? 'success' : 'warning'" />
-    <div v-if="loading" class="src__state"><Spin /></div>
+    <div v-if="loading" class="src__state" role="status">
+      <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
+      <span class="src__state-sr">{ $t('gainos.common.loading') }</span>
+    </div>
     <Alert v-else-if="error" :message="error.title" :description="error.next" role="alert" show-icon type="warning" />
 
     <template v-else>
@@ -342,4 +345,11 @@ onMounted(load);
 .src__import-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .src__mapping { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .src__field { display: grid; gap: 4px; font-size: 12.5px; color: var(--gs-fg-muted); }
+.src__state-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
 </style>
