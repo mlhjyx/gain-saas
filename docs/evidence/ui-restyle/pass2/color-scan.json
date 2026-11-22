@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T03:14:26.590Z",
+  "generatedAt": "2026-11-22T04:48:54.290Z",
   "pages": [
     "/workspace",
     "/leads",
@@ -21,12 +21,12 @@
     "light",
     "dark"
   ],
-  "totalSamples": 10963,
+  "totalSamples": 11257,
   "classCounts": {
-    "brand": 686,
+    "brand": 690,
     "error": 2,
-    "neutral": 10249,
-    "success": 12,
+    "neutral": 10537,
+    "success": 14,
     "warning": 14
   },
   "unique": [
@@ -46,12 +46,12 @@
       "class": "neutral"
     },
     {
-      "count": 1608,
+      "count": 1614,
       "key": "dark | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 311,
+      "count": 461,
       "key": "dark | rgb(138, 138, 138)",
       "class": "neutral"
     },
@@ -61,7 +61,7 @@
       "class": "warning"
     },
     {
-      "count": 974,
+      "count": 975,
       "key": "dark | rgb(163, 163, 163)",
       "class": "neutral"
     },
@@ -81,12 +81,12 @@
       "class": "neutral"
     },
     {
-      "count": 1794,
+      "count": 1781,
       "key": "dark | rgb(255, 255, 255)",
       "class": "neutral"
     },
     {
-      "count": 6,
+      "count": 7,
       "key": "dark | rgb(26, 117, 68)",
       "class": "success"
     },
@@ -101,7 +101,7 @@
       "class": "brand"
     },
     {
-      "count": 41,
+      "count": 43,
       "key": "dark | rgb(53, 89, 233)",
       "class": "brand"
     },
@@ -141,12 +141,12 @@
       "class": "neutral"
     },
     {
-      "count": 1593,
+      "count": 1599,
       "key": "light | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 150,
+      "count": 15,
       "key": "light | rgb(102, 102, 102)",
       "class": "neutral"
     },
@@ -171,7 +171,7 @@
       "class": "neutral"
     },
     {
-      "count": 1704,
+      "count": 1691,
       "key": "light | rgb(23, 23, 23)",
       "class": "neutral"
     },
@@ -191,7 +191,7 @@
       "class": "neutral"
     },
     {
-      "count": 6,
+      "count": 7,
       "key": "light | rgb(26, 117, 68)",
       "class": "success"
     },
@@ -201,12 +201,12 @@
       "class": "brand"
     },
     {
-      "count": 41,
+      "count": 43,
       "key": "light | rgb(53, 89, 233)",
       "class": "brand"
     },
     {
-      "count": 1135,
+      "count": 1421,
       "key": "light | rgb(92, 92, 92)",
       "class": "neutral"
     },

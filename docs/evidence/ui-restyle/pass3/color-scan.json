@@ -1,0 +1,230 @@
+{
+  "generatedAt": "2026-11-22T04:48:58.281Z",
+  "pages": [
+    "/workspace",
+    "/leads",
+    "/companies",
+    "/find-buyers",
+    "/campaigns",
+    "/qgos",
+    "/tasks",
+    "/notifications",
+    "/growth?tab=reviews",
+    "/growth?tab=metrics",
+    "/settings/members",
+    "/settings/suppressions",
+    "/settings/sources",
+    "/settings/privacy",
+    "/settings/audit"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "totalSamples": 11229,
+  "classCounts": {
+    "brand": 688,
+    "error": 2,
+    "neutral": 10511,
+    "success": 14,
+    "warning": 14
+  },
+  "unique": [
+    {
+      "count": 180,
+      "key": "dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.6)",
+      "class": "neutral"
+    },
+    {
+      "count": 120,
+      "key": "dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.8)",
+      "class": "neutral"
+    },
+    {
+      "count": 90,
+      "key": "dark | oklab(0.999994 0.0000455678 0.0000200868 / 0.9)",
+      "class": "neutral"
+    },
+    {
+      "count": 1614,
+      "key": "dark | rgb(0, 0, 0)",
+      "class": "neutral"
+    },
+    {
+      "count": 461,
+      "key": "dark | rgb(138, 138, 138)",
+      "class": "neutral"
+    },
+    {
+      "count": 5,
+      "key": "dark | rgb(159, 74, 17)",
+      "class": "warning"
+    },
+    {
+      "count": 975,
+      "key": "dark | rgb(163, 163, 163)",
+      "class": "neutral"
+    },
+    {
+      "count": 2,
+      "key": "dark | rgb(183, 83, 16)",
+      "class": "warning"
+    },
+    {
+      "count": 1,
+      "key": "dark | rgb(208, 37, 51)",
+      "class": "error"
+    },
+    {
+      "count": 20,
+      "key": "dark | rgb(23, 23, 23)",
+      "class": "neutral"
+    },
+    {
+      "count": 1781,
+      "key": "dark | rgb(255, 255, 255)",
+      "class": "neutral"
+    },
+    {
+      "count": 7,
+      "key": "dark | rgb(26, 117, 68)",
+      "class": "success"
+    },
+    {
+      "count": 1,
+      "key": "dark | rgb(46, 81, 220)",
+      "class": "brand"
+    },
+    {
+      "count": 267,
+      "key": "dark | rgb(51, 92, 255)",
+      "class": "brand"
+    },
+    {
+      "count": 43,
+      "key": "dark | rgb(53, 89, 233)",
+      "class": "brand"
+    },
+    {
+      "count": 38,
+      "key": "dark | rgb(92, 92, 92)",
+      "class": "neutral"
+    },
+    {
+      "count": 30,
+      "key": "dark | rgba(0, 0, 0, 0.45)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
+      "key": "dark | rgba(51, 92, 255, 0.16)",
+      "class": "brand"
+    },
+    {
+      "count": 2,
+      "key": "dark | rgba(51, 92, 255, 0.35)",
+      "class": "brand"
+    },
+    {
+      "count": 180,
+      "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.6)",
+      "class": "neutral"
+    },
+    {
+      "count": 105,
+      "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.8)",
+      "class": "neutral"
+    },
+    {
+      "count": 75,
+      "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.9)",
+      "class": "neutral"
+    },
+    {
+      "count": 1601,
+      "key": "light | rgb(0, 0, 0)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
+      "key": "light | rgb(102, 102, 102)",
+      "class": "neutral"
+    },
+    {
+      "count": 24,
+      "key": "light | rgb(163, 163, 163)",
+      "class": "neutral"
+    },
+    {
+      "count": 7,
+      "key": "light | rgb(183, 83, 16)",
+      "class": "warning"
+    },
+    {
+      "count": 1,
+      "key": "light | rgb(208, 37, 51)",
+      "class": "error"
+    },
+    {
+      "count": 14,
+      "key": "light | rgb(209, 209, 209)",
+      "class": "neutral"
+    },
+    {
+      "count": 1691,
+      "key": "light | rgb(23, 23, 23)",
+      "class": "neutral"
+    },
+    {
+      "count": 1,
+      "key": "light | rgb(235, 241, 255)",
+      "class": "brand"
+    },
+    {
+      "count": 20,
+      "key": "light | rgb(250, 250, 250)",
+      "class": "neutral"
+    },
+    {
+      "count": 54,
+      "key": "light | rgb(255, 255, 255)",
+      "class": "neutral"
+    },
+    {
+      "count": 7,
+      "key": "light | rgb(26, 117, 68)",
+      "class": "success"
+    },
+    {
+      "count": 300,
+      "key": "light | rgb(51, 92, 255)",
+      "class": "brand"
+    },
+    {
+      "count": 43,
+      "key": "light | rgb(53, 89, 233)",
+      "class": "brand"
+    },
+    {
+      "count": 1393,
+      "key": "light | rgb(92, 92, 92)",
+      "class": "neutral"
+    },
+    {
+      "count": 30,
+      "key": "light | rgba(10, 10, 10, 0.03)",
+      "class": "neutral"
+    },
+    {
+      "count": 14,
+      "key": "light | rgba(5, 80, 255, 0.08)",
+      "class": "brand"
+    },
+    {
+      "count": 2,
+      "key": "light | rgba(51, 92, 255, 0.35)",
+      "class": "brand"
+    }
+  ],
+  "violations": []
+}
