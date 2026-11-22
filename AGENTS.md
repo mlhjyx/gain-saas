@@ -61,6 +61,21 @@
 - 纯文档/配置改动：本地 `lint:terms` + `lint:date` 过即可提 PR。
 - 等 main CI 期间可预构建（server 无改动时 web-only build 只要 ~15 秒），合并后直接部署。
 
+### 验收预发 = 生产构建预览（2026-11-23 改）
+
+- **5666 改跑 preview**：`pnpm preview:web`（先 build，再 `vite preview --port 5666 --strictPort`；`/api` 由 `vite.config.ts` 的 `preview.proxy` 转发到 4020，登录态与真实数据不变）。原因：dev 模式冷加载是 586 个模块请求 / 约 39MB（实测本机 2.0s，经 Tailscale/LAN 会成倍放大）；preview 是单个打包产物，实测冷加载 0.5s、90 个请求，且与线上同产物。preview 是静态服务：重建后无需重启进程，用户刷新即见新版本。
+- **HMR 只用于开发迭代**：另起端口跑 dev（`VITE_GLOB_API_URL= pnpm --filter @vben/web-antd exec vite --mode development --port 5667`），截图/量测用；验收结论以 5666 preview 为准。
+
+### dev 与 preview 的渲染差异（已踩坑）
+
+- `packages/vben` 模板里**仅靠 tailwind 工具类**隐藏/布局的元素，dev 的类名扫描范围与 build 不一致，可能出现“只在 dev 露出”的差异（实例：Vben ScrollBar 的 `hidden` 失效 → 标签栏横向滚动条）。验收以 preview 为准；这类元素在 apps 侧 CSS 用属性选择器显式兜底（如 `[data-slot='scroll-area-scrollbar']`）。
+
+### 迭代效率约定（2026-11-23）
+
+- 视觉迭代：一次改动 → dev HMR 截图/量测（不 build）；需求收口后才 build + preview 给用户验收。
+- 测试：每轮只跑受影响 spec；全量 e2e 交 CI（后台等待，不阻塞下一步）。
+- 动手前看 `uptime` 与 `ps aux --sort=-%cpu`：load > 4 时 dev 编译与浏览器渲染都会显著变慢（本机曾见 gnome-shell ~70% CPU、load 5）。
+
 ### 环境陷阱（每次建 worktree 后先做，免得白排查）
 
 - `.env*` 是 gitignored，worktree 里没有：`cp apps/web/.env apps/web/.env.development <worktree>/apps/web/`。缺 `.env` 会得到 `undefined-…` 偏好 namespace（缓存归一 e2e 误判）；缺 `.env.development` 则 dev 模式 apiURL 为空、不走 `/api` 代理。
