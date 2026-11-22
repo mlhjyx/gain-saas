@@ -27,8 +27,15 @@ const BRAND_PREFERENCES = {
     source: '/logo-gainos.svg?v=pass3',
     sourceDark: '/logo-gainos.svg?v=pass3',
   },
-  sidebar: { collapsedButton: false },
-  tabbar: { enable: true, height: 40, middleClickToClose: false },
+  // sidebar.hidden 归一：用户点过「内容最大化」会把缓存写成 hidden=true，
+  // 不归一的话 SDR 覆盖层会永远浮在内容上。
+  sidebar: { collapsedButton: false, hidden: false },
+  tabbar: {
+    enable: true,
+    height: 40,
+    middleClickToClose: false,
+    showMaximize: false,
+  },
   theme: { builtinType: 'default', colorPrimary: '#335CFF' },
   // pass4：顶栏部件清单也归一——老缓存里的 themeToggle/languageToggle=true
   // 会让顶栏重新长出主题/语言按钮（与侧栏重复）。

@@ -1595,7 +1595,7 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 | 变化 | 实现 |
 |---|---|
 | 顶栏整体隐藏 | `preferences.header.hidden: true`（+ BRAND_PREFERENCES 缓存归一） |
-| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card', height:40}`；40px 画布栏；`header.height: 40` 让侧栏品牌行与标签栏合成同一条顶部横带（接缝不错位） |
+| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card', height:40, showMaximize:false}`；40px 画布栏；`header.height: 40` 让侧栏品牌行与标签栏合成同一条顶部横带。Vben「内容最大化」会写 `header.hidden=false + sidebar.hidden=true`（翻出顶栏、只藏侧栏不藏 SDR 覆盖层）——该控件已移除，`sidebar.hidden:false` 进 BRAND 归一（救回被点坏的缓存）；SDR 覆盖层也尊重 `sidebar.hidden` |
 | 标签风格 | 「反白选中」：当前页 = 30px 实心药丸（浅色主题近黑底白字 / 深色主题白底深字）+ 8px 圆角 + 13px/500，非当前页 = 纯 muted 文字（透明底），hover 浮出 5% 淡底——选中与未选中一眼可辨；关闭符仅 hover/当前页出现（不可见时 pointer-events:none 防误关），右侧恒留 26px 关闭槽位保证宽度稳定，无关闭符时收回 12px；长标题 180px 截断 |
 | 标签条无滚动条 | 三路显式关闭：原生/overlay 滚动条（`scrollbar-width:none` + `::-webkit-scrollbar`）+ Vben 自带 ScrollBar（按 `data-slot='scroll-area-scrollbar'` 强制 `display:none`——它原本只靠 tailwind `hidden` 类，dev 下类名扫描差异会漏生成，5666 实测露出过）+ 溢出时靠滚轮横向滚动、两端渐隐 mask 与左右小圆角滚动按钮 |
 | 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（打开设置弹窗，替代原「设置」导航分组）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |

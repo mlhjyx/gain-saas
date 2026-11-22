@@ -23,6 +23,10 @@ const PREFS_KEY = 'vben-web-antd-5.8.0-prod-preferences';
 const STALE_PREFS = JSON.stringify({
   value: {
     app: { layout: 'header-nav', locale: 'zh-CN' },
+    // 用户点过 Vben「内容最大化」后的坏缓存：顶栏被翻回、侧栏被藏。
+    header: { hidden: false, height: 50 },
+    sidebar: { hidden: true },
+    tabbar: { enable: false, showMaximize: true },
     logo: { source: '/logo-gainos.svg', sourceDark: '/logo-gainos.svg' },
     theme: {
       builtinType: 'default',
@@ -94,7 +98,12 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
           app?: { layout?: string };
           header?: { height?: number; hidden?: boolean };
           logo?: { source?: string };
-          tabbar?: { enable?: boolean; height?: number };
+          sidebar?: { hidden?: boolean };
+          tabbar?: {
+            enable?: boolean;
+            height?: number;
+            showMaximize?: boolean;
+          };
           theme?: { colorPrimary?: string };
         };
       };
@@ -111,4 +120,7 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
   expect(persisted?.header?.hidden).toBe(true);
   expect(persisted?.tabbar?.enable).toBe(true);
   expect(persisted?.tabbar?.height).toBe(40);
+  // 「内容最大化」会写 header.hidden=false + sidebar.hidden=true，必须救回。
+  expect(persisted?.sidebar?.hidden).toBe(false);
+  expect(persisted?.tabbar?.showMaximize).toBe(false);
 });

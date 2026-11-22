@@ -130,7 +130,9 @@ function isActive(path: string): boolean {
   return current.startsWith(`${path}/`);
 }
 
-const showRail = computed(() => !isMobile.value && sidebarCollapsed.value);
+const showRail = computed(
+  () => !isMobile.value && sidebarCollapsed.value && !preferences.sidebar.hidden,
+);
 
 /** 侧栏 logo 行高度 = header 高度 - 1（layout-sidebar headerStyle）。 */
 const navStyle = computed(() => ({
@@ -143,7 +145,12 @@ const railStyle = computed(() => ({
   top: `${Math.max(0, preferences.header.height - 1)}px`,
   width: `${preferences.sidebar.collapseWidth}px`,
 }));
-const showFull = computed(() => !isMobile.value && !sidebarCollapsed.value);
+const showFull = computed(
+  () =>
+    !isMobile.value &&
+    !sidebarCollapsed.value &&
+    !preferences.sidebar.hidden,
+);
 
 function go(path: string): void {
   void router.push(path);

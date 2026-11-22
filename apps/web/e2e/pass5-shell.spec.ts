@@ -56,6 +56,13 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   expect(styles.height).toBe('30px');
   expect(styles.titleFont).toBe('13px');
 
+  // 顶栏恒隐藏 + 侧栏常显；工具组只有「更多/刷新」——Vben 的
+  // 「内容最大化」按钮会破坏 pass5 布局，已移除（2026-11-23 用户实测）。
+  const tools = page.locator(
+    "[data-layout-region='header'] section > div:last-child > *",
+  );
+  await expect(tools).toHaveCount(2);
+
   // 未选中 = 透明底 + muted 文字（与选中形成明确层级）。
   const inactive = page.locator('[data-tab-item]').first();
   const inactiveStyles = await inactive.evaluate((el) => {

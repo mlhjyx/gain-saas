@@ -56,6 +56,9 @@ export const overridesPreferences = defineOverridesPreferences({
     // 中键关闭由布局层在「释放」时处理（basic.vue），Vben 自带的按下即关
     // 行为关闭，保证与浏览器标签一致（按下不关、释放才关）。
     middleClickToClose: false,
+    // 顶栏已恒隐藏，Vben 的「内容最大化」会把它翻出来（且只藏侧栏不藏
+    // SDR 覆盖层）——该控件在 pass5 布局下无意义，关掉。
+    showMaximize: false,
     showIcon: true,
     styleType: 'card',
   },
