@@ -28,7 +28,7 @@ const BRAND_PREFERENCES = {
     sourceDark: '/logo-gainos.svg?v=pass3',
   },
   sidebar: { collapsedButton: false },
-  tabbar: { enable: true, height: 40 },
+  tabbar: { enable: true, height: 40, middleClickToClose: true },
   theme: { builtinType: 'default', colorPrimary: '#335CFF' },
   // pass4：顶栏部件清单也归一——老缓存里的 themeToggle/languageToggle=true
   // 会让顶栏重新长出主题/语言按钮（与侧栏重复）。

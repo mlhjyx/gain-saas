@@ -34,8 +34,8 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(3);
 
-  // active 是浮起的白卡（40px 画布栏内的 30px 卡片）：白底 + 灰边 + 近黑字，
-  // 非 Vben 默认的蓝底蓝字；关闭符只在 hover/当前页出现（不可见时不可点）。
+  // active 是反白实心药丸（浅色：近黑底白字；深色：白底深字），一眼可辨；
+  // 关闭符只在 hover/当前页出现（不可见时不可点）。
   const active = page.locator('[data-tab-item].is-active');
   await expect(active).toHaveText(/买家线索/);
   const styles = await active.evaluate((el) => {
@@ -50,12 +50,28 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
       titleFont: span ? getComputedStyle(span).fontSize : '',
     };
   });
-  expect(styles.bg).toBe('rgb(255, 255, 255)');
-  expect(styles.border).toBe('rgb(235, 235, 235)');
-  expect(styles.color).toBe('rgb(23, 23, 23)');
-  expect(styles.title).toBe('rgb(23, 23, 23)');
+  expect(styles.bg).toBe('rgb(23, 23, 23)');
+  expect(styles.color).toBe('rgb(255, 255, 255)');
+  expect(styles.title).toBe('rgb(255, 255, 255)');
   expect(styles.height).toBe('30px');
   expect(styles.titleFont).toBe('13px');
+
+  // 未选中 = 透明底 + muted 文字（与选中形成明确层级）。
+  const inactive = page.locator('[data-tab-item]').first();
+  const inactiveStyles = await inactive.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, color: cs.color };
+  });
+  expect(inactiveStyles.bg).toBe('rgba(0, 0, 0, 0)');
+  expect(inactiveStyles.color).toBe('rgb(92, 92, 92)');
+
+  // 标签条永不出现滚动条（溢出靠滚轮/拖动 + 两端渐隐提示）。
+  const viewport = page.locator(
+    "[data-layout-region='header'] [data-slot='scroll-area-viewport']",
+  );
+  expect(
+    await viewport.evaluate((el) => getComputedStyle(el).scrollbarWidth),
+  ).toBe('none');
 
   // 非当前标签：关闭符隐藏且不可点（防误关）。
   const inactiveClose = page
@@ -86,6 +102,16 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(2);
   await expect(page.locator('.wk')).toBeVisible();
+
+  // 鼠标中键关闭（浏览器标签同款）：新增一个页签后中键关闭非当前标签。
+  await page.getByRole('menuitem', { name: '公司档案' }).click();
+  await page.waitForURL((url) => url.pathname === '/companies');
+  await settle(page);
+  await expect(page.locator('[data-tab-item]')).toHaveCount(3);
+  await page.locator('[data-tab-item]').nth(1).click({ button: 'middle' });
+  await settle(page, 400);
+  await expect(page.locator('[data-tab-item]')).toHaveCount(2);
+  await expect(page.locator('.cp')).toBeVisible();
 });
 
 test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }) => {

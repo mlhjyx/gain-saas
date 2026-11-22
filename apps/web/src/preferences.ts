@@ -51,8 +51,10 @@ export const overridesPreferences = defineOverridesPreferences({
   // 卡片式药丸标签，配合 token 已归一的 primary/accent/border 保持 AgentSDR 质感。
   tabbar: {
     enable: true,
-    // 40px 栏 + 30px 浮卡：上下各 5px 呼吸，白卡才浮得起来。
+    // 40px 栏 + 30px 药丸：上下各 5px 呼吸。
     height: 40,
+    // 鼠标中键关闭标签（浏览器标签同款习惯）；Vben 在按下中键时处理。
+    middleClickToClose: true,
     showIcon: true,
     styleType: 'card',
   },

@@ -361,6 +361,19 @@ h6 {
   padding-right: 12px;
 }
 
+/* 标签条永远不出现滚动条：溢出时靠滚轮/拖动滚动，两侧由 Vben 的
+   渐隐遮罩提示还有内容（.left-shadow/.right-shadow 的 mask）。 */
+[data-layout-region='header'] [data-slot='scroll-area-viewport'] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-layout-region='header']
+  [data-slot='scroll-area-viewport']::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 [data-layout-region='header'] [data-tab-item] {
   height: 30px;
   margin-left: 0;
@@ -377,12 +390,14 @@ h6 {
   background: var(--gs-tab-hover);
   color: var(--gs-fg);
 }
+/* 当前页 = 反白实心药丸：浅色主题近黑底白字，深色主题白底深字。
+   与"灰底药丸"的侧栏不同，标签需要在多个同形项里立刻被认出来。 */
 [data-layout-region='header'] [data-tab-item].is-active {
-  border-color: var(--gs-border);
-  background: var(--gs-surface);
-  color: var(--gs-fg);
-  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.04),
-    0 2px 8px -3px rgba(10, 10, 10, 0.08);
+  border-color: transparent;
+  background: var(--gs-fg);
+  color: var(--gs-surface);
+  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.18),
+    0 4px 12px -6px rgba(10, 10, 10, 0.35);
 }
 [data-layout-region='header'] [data-tab-item]:active {
   transform: scale(0.985);
@@ -392,10 +407,8 @@ h6 {
   box-shadow: var(--gs-shadow-focus);
 }
 .dark [data-layout-region='header'] [data-tab-item].is-active {
-  border-color: var(--gs-border-strong);
-  /* 深色卡的材质感：顶部 1px 内高光，模拟受光面 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 6px 16px -8px rgba(0, 0, 0, 0.6);
 }
 
 /* 标题/图标/关闭符随 tab 前景走（Vben 把 text-primary 挂在中间层 div 上，
@@ -443,8 +456,35 @@ h6 {
   opacity: 0.55;
   transition: opacity 0.14s ease;
 }
+[data-layout-region='header'] [data-tab-item].is-active .absolute svg {
+  opacity: 0.72;
+}
 [data-layout-region='header'] [data-tab-item] .absolute svg:hover {
   opacity: 1;
+}
+
+/* 溢出时的左右滚动按钮：去掉竖分隔线，收成与标签同语言的小圆角热区。 */
+[data-layout-region='header'] section > div:first-child > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 30px;
+  align-self: center;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 8px;
+  color: var(--gs-fg-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+[data-layout-region='header'] section > div:first-child > span:hover {
+  background: var(--gs-tab-hover);
+  color: var(--gs-fg);
+}
+[data-layout-region='header'] section > div:first-child > span svg {
+  width: 15px;
+  height: 15px;
+  margin: 0 auto;
 }
 
 /* 右侧工具组：去掉 Vben 的竖分隔线与块状热区，改为同语言的小圆角按钮。
