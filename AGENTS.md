@@ -78,6 +78,7 @@
 
 ### 环境陷阱（每次建 worktree 后先做，免得白排查）
 
-- `.env*` 是 gitignored，worktree 里没有：`cp apps/web/.env apps/web/.env.development <worktree>/apps/web/`。缺 `.env` 会得到 `undefined-…` 偏好 namespace（缓存归一 e2e 误判）；缺 `.env.development` 则 dev 模式 apiURL 为空、不走 `/api` 代理。
-- 根 checkout 的 `.env.production` 设了 `VITE_GLOB_API_URL=/api`，会让 e2e mock（只匹配无 `/api` 前缀的路径）失效——**本地 e2e 一律在 worktree 里跑**，不要在根 checkout 跑。
+- `.env*` 是 gitignored，worktree 里没有：`cp apps/web/.env apps/web/.env.development apps/web/.env.production <worktree>/apps/web/`。缺 `.env` 会得到 `undefined-…` 偏好 namespace（缓存归一 e2e 误判）；缺 `.env.development` 则 dev 模式 apiURL 为空；**缺 `.env.production` 则构建产物 API 地址为空——Vben 把它写进 `dist/_app-config-*.js`，缺失时请求变成 `/auth/login`（无 `/api` 前缀），5666 预览直接 404（2026-11-23 用户实测登录失败）**。
+- 构建产物的 API 地址来自 `dist/_app-config-*.js`（vite 插件只读 env 文件，不读进程环境变量）；改 `.env.production` 后必须重新 build 才生效。
+- e2e mock 已自动去掉 `/api` 前缀匹配，带不带前缀的构建产物都能跑本地 e2e（不再需要避开根 checkout）。
 - e2e 前确认 4173 无残留 preview 进程：`ss -ltnp 'sport = :4173'`，有则 kill。
