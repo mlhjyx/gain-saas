@@ -20,7 +20,9 @@ import { overridesPreferences, preferencesExtension } from './preferences';
  */
 const BRAND_PREFERENCES = {
   app: { layout: 'sidebar-nav' },
-  header: { hidden: true },
+  // pass5：header.height 与 tabbar.height 必须同为 40，否则老缓存（50）
+  // 会让侧栏品牌行高于标签栏，接缝错位。
+  header: { height: 40, hidden: true },
   logo: {
     source: '/logo-gainos.svg?v=pass3',
     sourceDark: '/logo-gainos.svg?v=pass3',

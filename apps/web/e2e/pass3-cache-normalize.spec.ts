@@ -92,7 +92,9 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
       const envelope = JSON.parse(raw) as {
         value?: {
           app?: { layout?: string };
+          header?: { height?: number; hidden?: boolean };
           logo?: { source?: string };
+          tabbar?: { enable?: boolean; height?: number };
           theme?: { colorPrimary?: string };
         };
       };
@@ -104,4 +106,9 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
   expect(persisted?.app?.layout).toBe('sidebar-nav');
   expect(persisted?.theme?.colorPrimary?.toLowerCase()).toContain('335cff');
   expect(persisted?.logo?.source).toContain('v=pass3');
+  // pass5：顶部横带高度归一（老缓存 50 会让侧栏品牌行与标签栏错位）。
+  expect(persisted?.header?.height).toBe(40);
+  expect(persisted?.header?.hidden).toBe(true);
+  expect(persisted?.tabbar?.enable).toBe(true);
+  expect(persisted?.tabbar?.height).toBe(40);
 });
