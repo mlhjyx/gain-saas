@@ -520,6 +520,16 @@ h6 {
   color: var(--gs-fg) !important;
 }
 
+/* ── pass5：侧栏品牌行给右侧工具预留空间 ──
+   Vben 的 logo <a> 横跨整个侧栏，文字只在容器溢出时才省略；
+   字体渲染宽度因机器而异，固定 left 的工具按钮在不同字体下会压到
+   "GainOS" 上（CI 字体更宽，本地不复现）。这里从结构上把 logo 的
+   右内边距扩到工具宽度 + 间隙，文字必然在按钮前截断。 */
+aside[data-layout-region='sidebar']
+  [class*='gap-2'][class*='px-3'] {
+  padding-right: 104px;
+}
+
 /* 账号菜单浮层（sdr-account-menu）：接管 AntDV Popover 的默认内边距，
    面板样式（圆角/描边/阴影）由菜单组件自己提供。 */
 .gs-account-pop .ant-popover-inner {
