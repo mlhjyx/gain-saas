@@ -8,7 +8,7 @@
  */
 import { onMounted, reactive, ref } from 'vue';
 
-import { Alert, Button, Form, Input, Select, Spin, Table } from 'ant-design-vue';
+import { Alert, Button, Form, Input, Select, Skeleton, Table } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
@@ -169,7 +169,10 @@ onMounted(load);
       <p class="sp__hint">{{ $t('gainos.suppressions.addHint') }}</p>
     </section>
 
-    <div v-if="loading" class="sp__state"><Spin /></div>
+    <div v-if="loading" class="sp__state" role="status">
+      <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
+      <span class="sp__state-sr">{ $t('gainos.common.loading') }</span>
+    </div>
     <Alert
       v-else-if="error"
       :message="error"
@@ -240,4 +243,11 @@ onMounted(load);
 .sp__more { text-align: center; }
 .sp__empty { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .sp__value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sp__state-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
 </style>

@@ -450,6 +450,14 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         >
           {{ queue.label }}
           <span v-if="queueCount(queue.key) !== undefined" class="ld__chip-count">{{ queueCount(queue.key) }}</span>
+          <span
+            v-if="activeQueue === queue.key && queue.key !== 'needs_review'"
+            class="ld__chip-remove"
+            role="button"
+            tabindex="-1"
+            :aria-label="`${$t('gainos.common.cancel')}：${queue.label}`"
+            @click.stop="activeQueue = 'needs_review'"
+          >✕</span>
         </button>
       </div>
       <label class="ld__search">
@@ -709,6 +717,18 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
   text-align: center;
 }
 .ld__chip.is-active .ld__chip-count { background: var(--gs-surface); color: var(--gs-accent-strong); }
+.ld__chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  border-radius: 50%;
+  color: var(--gs-accent-strong);
+  font-size: 10px;
+  line-height: 1;
+}
+.ld__chip-remove:hover { background: var(--gs-surface); }
 .ld__search input {
   width: min(280px, 70vw);
   height: 36px;

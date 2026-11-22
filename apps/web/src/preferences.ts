@@ -9,7 +9,9 @@ import {
  * vben 会把偏好(含 logo.source)持久化,k 值/内联串一旦变化,
  * 老访客的 localStorage 仍指向旧图。稳定路径随文件内容更新。
  */
-const LOGO_SRC = '/logo-gainos.svg';
+// pass3：URL 带版本号做缓存击穿——logo 内容已改品牌蓝，但浏览器会按同 URL
+// 服务旧的绿色 SVG；老访客（含用户本人）必须拿到新图。
+const LOGO_SRC = '/logo-gainos.svg?v=pass3';
 
 interface WebAntdPreferencesExtension {
   defaultTableSize: number;
@@ -28,6 +30,9 @@ export const overridesPreferences = defineOverridesPreferences({
   app: {
     name: import.meta.env.VITE_APP_TITLE || 'GainOS',
     defaultHomePath: '/workspace',
+    // pass3：布局钉死为垂直侧边栏（B1）。缓存归一见 main.ts——此处默认值
+    // 仍会被 localStorage 旧值压过，强制归一在 initPreferences 之后执行。
+    layout: 'sidebar-nav',
     // 不显示浮动设置按钮(auto 会在右下角浮出并遮挡内容)
     preferencesButtonPosition: 'header',
   },
@@ -56,6 +61,8 @@ export const overridesPreferences = defineOverridesPreferences({
   // 默认 order 里已被下面布尔开关裁掉 preferences/timezone/fullscreen/lockScreenBtn，
   // 剩余可见序列（搜索→主题→语言→刷新→通知→退出）正是产品要的顺序。
   widget: {
+    // pass3 C1：内置搜索由自定义命令面板替代（页面 + 动作 + ⌘K）。
+    globalSearch: false,
     lockScreen: false,
     timezone: false,
     // 语言(中文/English)与主题(浅色/深色)都是一等能力:顶栏保留切换,

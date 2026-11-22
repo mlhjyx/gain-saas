@@ -1490,3 +1490,50 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 颜色：`color-scan.txt` / `color-scan.json` / `source-color-scan.txt` / `source-color-scan.py`。
 - 量测：`measurements.json`。
 - 交互：`apps/web/e2e/pass2-interactions.spec.ts`（自动化点通）。
+
+
+---
+
+## 12. Pass3 修复对零（2026-11-22）
+
+### 12.1 修复 A：缓存强制归一（根因）
+
+- **根因**：Vben 偏好合并是「localStorage 缓存优先于代码默认」；老访客把旧版绿色 `theme.colorPrimary`（经内联 `--primary` 驱动 nprogress 进度条/壳层派生色）与旧布局（header-nav 顶栏菜单）一直带在身上。logo 为同 URL 图片缓存（内容已改蓝但 URL 未变）。
+- **方案（b：initPreferences 后强制 merge）**：`main.ts` 在 `initPreferences` 之后调用 `updatePreferences(BRAND_PREFERENCES)`，无条件覆盖 `theme.colorPrimary=#335CFF`、`theme.builtinType=default`、`logo.source/sourceDark=/logo-gainos.svg?v=pass3`、`app.layout=sidebar-nav`，并随 debounce 回写缓存。`theme.mode`（明暗）、`sidebar.width/collapsed`、语言等用户偏好不动。未选方案 (a) 版本号 key：会一次性丢掉用户全部偏好（含明暗/语言），违反「保留用户选择」。
+- **代码级绿清零**：`api/core/user.ts:18` 头像兜底 `#00B96B` → `#335CFF`（任务点名要求的一行；除此之外 api/ 零改动）。
+- **A4 回归测试**：`pass3-cache-normalize.spec.ts` 预置旧缓存（含 StorageManager `{value:…}` 信封格式）→ 断言进度条色 `rgb(51,92,255)`、侧边栏渲染、banner 无菜单项、logo URL 带版本、明暗切换不受影响、归一结果已回写缓存。**已做反向验证**：临时禁用 `updatePreferences(BRAND_PREFERENCES)` 后该测试变红，恢复后变绿——测试确实覆盖归一代码路径。
+
+### 12.2 修复 B：纯侧边栏
+
+- 顶栏（banner）不再渲染任何菜单项（nav-shell 断言 `banner menuitem count = 0`）；布局钉死 sidebar-nav。
+- 侧边栏：pass2 规格保留（分组标签 11px/36px、叶子 32px/500、active 蓝左条+蓝字+浅灰底、hover 浅灰、8px 圆角）；底部左下折叠开关（Vben 内置）+ 右下帮助按钮（快捷键说明 Popover，pass3 新增，不涉路由）。
+- 折叠态 tooltip 为 Vben 内置行为（collapse 时 title 进 tooltip）。
+
+### 12.3 修复 C：交互
+
+| 项 | 交付 | 说明 |
+|---|---|---|
+| C1 命令面板 | `command-palette.vue` + 顶栏触发按钮 | ⌘K/Ctrl+K；模糊搜索 accessMenus 全部页面 + 6 个静态动作（去发现买家/新建战役计划/查看买家线索/邀请成员/查看通知/回复收件箱，全部指向既有路由）；键盘 ↑↓/回车/Esc；内置 Vben GlobalSearch 已在 preferences 关闭避免双 ⌘K |
+| C2 骨架屏 | AsyncSection/设置四页 | Spin/自绘 spinner → antd Skeleton；加载文案转 sr-only（innerText/读屏仍可用，既有断言不破） |
+| C3 数字动效 | `use-count-up.ts` | rAF 缓动 600ms；companies/pending/following/team 四个数值项；tabular-nums；KPI 卡入场错峰淡入；**环比箭头跳过：现有 API 无上期数据** |
+| C4 漏斗可点 | 已有 + hover 抬升 2px + 阴影 | 五阶段卡整体可点跳预筛列表（pass2 已接路由） |
+| C5 hero 卡 | 工作台最上方大卡 | 建议一句话 + 主 CTA「立即处理」（品牌蓝全圆）+ 次链接（按主目标互补派生，既有路由）；原侧栏建议卡移除 |
+| C6 完成反馈 | 行内「完成」按钮 | 划线动画 320ms → 归档（本机）→ 列表/「今日脉搏·待办」计数即时 -1 → antd message toast「已完成：…」；**无完成 API，完成=本机归档**（沿用 pass2 只读标注） |
+| C7 行内快捷操作 | **跳过** | 列表行已有常显操作列（leads 卡片操作、companies 表格操作列）；hover 浮现会与触控/可发现性冲突，维持常显（有意偏离，非 API 缺失） |
+| C8 chips 即时 | 已即时 + 激活 chip 可单独移除 | 移除=回到默认队列 needs_review；✕ 带 aria-label |
+| C9 微交互 | CSS only | 主按钮 hover 上移 1px+阴影/active 下压；列表卡 hover 抬升 1px；页面切换 fade-slide（Vben 默认已启用，确认无需改动） |
+| C10 空状态 | pass2 已统一 | 图标+标题+说明+主 CTA+次链接双路径，本轮无回归（zero-jargon/a11y 绿） |
+
+### 12.4 功能守恒
+
+- `api/`（除 user.ts:18 点名的一处色值）、`apps/server/**`、`packages/**`、`store/**`、`router/guard.ts`、`router/access.ts`、所有路由模块：零改动。
+- 既有 locales key/value：零改动；新增 UI 文案（搜索或跳转/命令面板/动作名/完成/已完成/快捷键/帮助）为组件内按 `preferences.app.locale` 生成的双语字符串，未新增 locale key。
+- 表单字段/校验/表格列/弹窗/权限点：未改。
+- 有意展示差异仅：hero 卡替代侧栏建议卡、Spin→Skeleton、顶栏搜索按钮换成命令面板触发、侧栏右下帮助按钮、行动清单新增「完成」按钮。均记录于本节。
+
+### 12.5 质量门与证据
+
+- `pnpm typecheck / build / lint:terms / lint:date / e2e:nav`：见 PR（含新增 pass3-cache-normalize / pass3-color-scan / pass3-interactions 三个 spec 与 nav-shell 顶栏断言）。
+- 颜色白名单（渲染 DOM，明暗两主题 + nprogress bar 显式断言 `rgb(51,92,255)`）：`pass3/color-scan.txt` — 11,259 样本，violations 0。
+- 前后对比截图：`pass3/before-*.png`（= pass2 后）/ `after-*.png`（workspace、leads、settings/members，明暗各一套）。
+- 盲测说明：自动化无法替代真人；PR 中列出 ≥5 处可感差异清单（命令面板、骨架屏、hero 卡、可点漏斗 hover、侧栏帮助/纯侧边栏、数字动效、完成反馈）供人工盲测核对。

@@ -1,0 +1,5 @@
+# pass3 source color scan (current HEAD)
+files: 87
+classCounts: {'neutral': 152, 'brand': 117, 'success': 10, 'warning': 12, 'error': 14}
+violations: 0
+

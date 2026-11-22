@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { onMounted, reactive, ref } from 'vue';
 
-import { Alert, Button, Form, Input, Modal, RadioGroup, RadioButton, Spin } from 'ant-design-vue';
+import { Alert, Button, Form, Input, Modal, RadioGroup, RadioButton, Skeleton } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
@@ -103,7 +103,10 @@ onMounted(load);
       </Button>
     </template>
 
-    <div v-if="loading" class="mb__state"><Spin /></div>
+    <div v-if="loading" class="mb__state" role="status">
+      <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
+      <span class="mb__state-sr">{ $t('gainos.common.loading') }</span>
+    </div>
     <Alert
       v-else-if="error"
       :message="error"
@@ -213,4 +216,11 @@ onMounted(load);
 .mb__who strong { font-size: 14px; color: var(--gs-fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .mb__who small { font-size: 12.5px; color: var(--gs-fg-subtle); }
 .mb__acts { display: flex; gap: 8px; flex: none; }
+.mb__state-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
 </style>

@@ -15,7 +15,7 @@ export interface GainosUserInfo extends UserInfo {
 /** 生成品牌色首字头像(vben 默认取 alt 末两字,中文长名会得到"公司"这类无意义片段) */
 function initialAvatar(name: string): string {
   const initial = (name.trim()[0] ?? 'G').toUpperCase();
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72"><rect width="72" height="72" rx="36" fill="#00B96B"/><text x="36" y="38" text-anchor="middle" dominant-baseline="central" font-size="32" font-family="PingFang SC,Microsoft YaHei,system-ui,sans-serif" fill="#ffffff">${initial}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72"><rect width="72" height="72" rx="36" fill="#335CFF"/><text x="36" y="38" text-anchor="middle" dominant-baseline="central" font-size="32" font-family="PingFang SC,Microsoft YaHei,system-ui,sans-serif" fill="#ffffff">${initial}</text></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 

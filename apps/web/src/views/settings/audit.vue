@@ -7,7 +7,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { Alert, Button, DatePicker, Input, Table } from 'ant-design-vue';
+import { Alert, Skeleton, Button, DatePicker, Input, Table } from 'ant-design-vue';
 
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
@@ -246,7 +246,10 @@ onMounted(() => {
       </div>
     </form>
 
-    <div v-if="loading" class="au__loading"><i class="au__spinner" aria-hidden="true"></i>{{ $t('gainos.common.loading') }}</div>
+    <div v-if="loading" class="au__loading" role="status">
+      <Skeleton active :title="false" :paragraph="{ rows: 5 }" />
+      <span class="au__sr-only">{{ $t('gainos.common.loading') }}</span>
+    </div>
     <Alert
       v-else-if="error"
       :message="error.title"
@@ -337,4 +340,11 @@ onMounted(() => {
 .au__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; overflow: auto; }
 .au__detail { word-break: break-all; color: var(--gs-fg-muted); }
 .au__more { margin: 0; padding: 10px 14px; text-align: right; border-top: 1px solid var(--gs-border); }
+.au__sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
 </style>
