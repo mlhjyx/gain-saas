@@ -51,6 +51,8 @@ export const overridesPreferences = defineOverridesPreferences({
   // 卡片式药丸标签，配合 token 已归一的 primary/accent/border 保持 AgentSDR 质感。
   tabbar: {
     enable: true,
+    // 40px 栏 + 30px 浮卡：上下各 5px 呼吸，白卡才浮得起来。
+    height: 40,
     showIcon: true,
     styleType: 'card',
   },
@@ -60,6 +62,8 @@ export const overridesPreferences = defineOverridesPreferences({
   // pass5：藏掉 Vben 顶栏——操作全部在左侧栏（主题/语言/折叠在品牌行，
   // 通知/设置/账号在侧栏底部）；刷新由标签栏右侧工具按钮承担。
   header: {
+    // 与标签栏同高（40px）：侧栏品牌行与标签栏合成一条顶部横带，接缝处不错位。
+    height: 40,
     hidden: true,
   },
   // 顶栏只保留与产品相关的能力:搜索、主题、语言、全屏、刷新、通知、退出。

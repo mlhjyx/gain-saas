@@ -1595,8 +1595,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 | 变化 | 实现 |
 |---|---|
 | 顶栏整体隐藏 | `preferences.header.hidden: true`（+ BRAND_PREFERENCES 缓存归一） |
-| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card'}`；高度 38px |
-| 标签风格 | gainos.css：灰底药丸 active（rgb(245,245,245) + rgb(23,23,23)，与侧栏 active 同款），1px 灰边 + xs 阴影，8px 圆角，字重 500 |
+| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card', height:40}`；40px 画布栏；`header.height: 40` 让侧栏品牌行与标签栏合成同一条顶部横带（接缝不错位） |
+| 标签风格 | 「白卡浮于画布」：标签栏取页面底色 `--gs-bg`，当前页 = 30px 白卡（`--gs-surface`）+ 1px 灰边 + 双层微阴影 + 8px 圆角 + 13px/500 近黑字；非当前页纯文字（muted），hover 浮出 5% 淡底；关闭符仅 hover/当前页出现（不可见时 pointer-events:none 防误关），右侧恒留 26px 关闭槽位保证宽度稳定；无关闭符时收回到 12px 左右对称；长标题 180px 截断；深色卡 edges 用 border-strong + 1px 内高光 |
 | 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（→/settings/members）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
 | 工作空间账号卡 | 头像/首字母兜底 + 空间名 + 账号 + ⋮ Dropdown（空间头 + 通知/设置/退出登录 danger） |
 | 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言 |
@@ -1613,11 +1613,13 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 
 ### 14.3 视觉自检（获奖级标准逐项）
 
-- 排版/留白：标签 14px/500、侧栏 footer 行 13px/32px、账号卡 13/11px 两级；rail 60px 列 40px 内容。
-- 色彩：active 药丸灰底近黑字（组件级 computed 断言钉住），无蓝底蓝字残留（group-variant text-primary 用 `[data-tab-item][data-tab-item][data-tab-item] *` + !important 终结）。
-- 动效/微交互：标签 bg/color/border/阴影 150ms 过渡；账号卡 hover 边框加深。
-- 响应式：移动端 burger+标签栏无重叠（390px 实测）、抽屉可用；桌面 rail 不再覆盖内容（宽度修复）。
-- 顶栏工具组右侧补 6px 呼吸（原本最后一个按钮顶到视口边缘）。
+- 排版：标签 13px/500、-0.011em；栏内 40px 高、30px 卡、上下各 5px 呼吸；左右 12px 与侧栏节奏对齐；标签间 2px。
+- 留白/层级：当前页白卡 + 微阴影浮于 `--gs-bg` 画布之上，非当前页只留文字——一眼可辨“我在哪、还能去哪”。
+- 色彩：全程中性（muted #5C5C5C on #F7F7F7 ≈ 6.2:1），品牌蓝只留给主行动与 focus 环；深色卡 #1C1C1C + border-strong #333 + 顶部 1px 内高光。
+- 动效：颜色/背景/描边/阴影 150ms；按压 scale .985（120ms）；关闭符 140ms 淡入；无布局动画。
+- 微交互：关闭符 hover 才出现且不可见时不可点；hover 淡底；工具按钮（更多/刷新/最大化）去掉竖分隔线改 30px 圆角热区，移动端 34px；focus-visible 品牌环。
+- 响应式：移动端 burger 44×40 + 标签栏 padding-left 44px 无重叠（390px 实测）；标签长标题 180px 截断。
+- 原创性：不做 Chrome 式“附着页签”，采用与侧栏 active 同语言的“白卡浮层”+ 恒留关闭槽位 + 按需出现关闭符，形成本产品自己的标签语言。
 
 ### 14.4 测试与证据
 

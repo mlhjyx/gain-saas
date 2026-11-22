@@ -34,29 +34,55 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(3);
 
-  // active 是灰底药丸 + 近黑文字（AgentSDR 规格，非蓝底蓝字）。
+  // active 是浮起的白卡（40px 画布栏内的 30px 卡片）：白底 + 灰边 + 近黑字，
+  // 非 Vben 默认的蓝底蓝字；关闭符只在 hover/当前页出现（不可见时不可点）。
   const active = page.locator('[data-tab-item].is-active');
   await expect(active).toHaveText(/买家线索/);
   const styles = await active.evaluate((el) => {
     const cs = getComputedStyle(el);
-    const span = el.querySelector('span');
+    const span = el.querySelector('span[class*="flex-1"]');
     return {
       bg: cs.backgroundColor,
+      border: cs.borderTopColor,
       color: cs.color,
+      height: cs.height,
       title: span ? getComputedStyle(span).color : '',
+      titleFont: span ? getComputedStyle(span).fontSize : '',
     };
   });
-  expect(styles.bg).toBe('rgb(245, 245, 245)');
+  expect(styles.bg).toBe('rgb(255, 255, 255)');
+  expect(styles.border).toBe('rgb(235, 235, 235)');
   expect(styles.color).toBe('rgb(23, 23, 23)');
   expect(styles.title).toBe('rgb(23, 23, 23)');
+  expect(styles.height).toBe('30px');
+  expect(styles.titleFont).toBe('13px');
+
+  // 非当前标签：关闭符隐藏且不可点（防误关）。
+  const inactiveClose = page
+    .locator('[data-tab-item]')
+    .first()
+    .locator('.absolute');
+  expect(await inactiveClose.evaluate((el) => getComputedStyle(el).opacity)).toBe('0');
+  expect(
+    await inactiveClose.evaluate((el) => getComputedStyle(el).pointerEvents),
+  ).toBe('none');
+  // hover 后浮出。
+  await page.locator('[data-tab-item]').first().hover();
+  await expect
+    .poll(async () =>
+      inactiveClose.evaluate((el) => getComputedStyle(el).opacity),
+    )
+    .toBe('1');
 
   // 点击第一个标签切回工作台（用户自由切换页签）。
   await page.locator('[data-tab-item]').first().click();
   await page.waitForURL((url) => url.pathname === '/workspace');
   await expect(page.locator('[data-tab-item].is-active')).toHaveText(/工作台/);
 
-  // 关闭非当前标签：数量减一，且不影响所在页。
-  await page.locator('[data-tab-item]').nth(1).locator('svg').first().click();
+  // 关闭非当前标签：关闭符 hover 才出现（pass5 交互），先悬停再点 ×。
+  const secondTab = page.locator('[data-tab-item]').nth(1);
+  await secondTab.hover();
+  await secondTab.locator('.absolute .lucide-x').click();
   await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(2);
   await expect(page.locator('.wk')).toBeVisible();

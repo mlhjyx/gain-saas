@@ -335,61 +335,155 @@ h6 {
   }
 }
 
-/* ── pass5：顶部标签页（AgentSDR 风格）──
-   顶栏隐藏后 tabbar 是顶部唯一元素；Vben card 式默认蓝底/蓝字
-   （bg-primary/15 + text-primary），品牌方向改成与侧栏一致的
-   中性灰药丸 + fg 文字。选择器用组件自带的 data-tab-item。 */
+/* ── pass5：顶部标签页（「白卡浮于画布」语言）──
+   顶栏隐藏后 tabbar 是顶部唯一元素。设计语言：
+   - 画布：标签栏取页面底色，白色侧栏与白色当前页卡片自然分层；
+   - 当前页：30px 白卡 + 1px 描边 + 微阴影，浮在 40px 栏内；
+   - 非当前页：纯文字，hover 浮出极浅底；关闭符只在 hover/当前页出现，
+     平时不可见也不可点（防误关），一排 × 的视觉噪音随之消失。
+   Vben card 式默认蓝底蓝字，全部由这里接管（packages/ 禁改）。 */
+[data-layout-region='header'] {
+  --gs-tab-hover: rgba(23, 23, 23, 0.05);
+}
+.dark [data-layout-region='header'] {
+  --gs-tab-hover: rgba(255, 255, 255, 0.07);
+}
+
 [data-layout-region='header'] section {
   border-bottom: 1px solid var(--gs-border);
+  background: var(--gs-bg);
 }
 
-/* 右侧工具组（更多/刷新/最大化）最后一个按钮默认顶到视口边缘，补右侧呼吸。 */
-[data-layout-region='header'] section > div:last-child {
-  padding-right: 6px;
+/* 标签条：8px 起止留白 + 2px 间隙（覆盖 Vben card 式的 ml-2 外边距） */
+[data-layout-region='header'] .vben-tabs-content {
+  gap: 2px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
-[data-tab-item] {
-  height: calc(100% - 8px);
-  margin-left: 4px;
+[data-layout-region='header'] [data-tab-item] {
+  height: 30px;
+  margin-left: 0;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: var(--gs-fg-2);
+  color: var(--gs-fg-muted);
   font-weight: 500;
+  transform: translateZ(0);
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
 }
-
-[data-tab-item]:hover {
-  background: var(--gs-surface-2);
+[data-layout-region='header'] [data-tab-item]:hover {
+  background: var(--gs-tab-hover);
   color: var(--gs-fg);
 }
-
-[data-tab-item].is-active {
+[data-layout-region='header'] [data-tab-item].is-active {
   border-color: var(--gs-border);
-  background: var(--gs-surface-2);
+  background: var(--gs-surface);
   color: var(--gs-fg);
-  box-shadow: var(--gs-shadow-xs);
+  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.04),
+    0 2px 8px -3px rgba(10, 10, 10, 0.08);
+}
+[data-layout-region='header'] [data-tab-item]:active {
+  transform: scale(0.985);
+}
+[data-layout-region='header'] [data-tab-item]:focus-visible {
+  outline: none;
+  box-shadow: var(--gs-shadow-focus);
+}
+.dark [data-layout-region='header'] [data-tab-item].is-active {
+  border-color: var(--gs-border-strong);
+  /* 深色卡的材质感：顶部 1px 内高光，模拟受光面 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
-/* 标题/图标/关闭符随 tab 前景走。Vben 把 text-primary 挂在中间层 div 上、
-   由 span 继承，所以这里对全部后代统一 inherit（Tailwind 任意变体选择器
-   权重更高，用 !important 终结；范围仅限 tab 内部）。 */
-[data-tab-item][data-tab-item][data-tab-item] * {
+/* 标题/图标/关闭符随 tab 前景走（Vben 把 text-primary 挂在中间层 div 上，
+   由子元素继承；这里对后代统一 inherit，并用 !important 压过 Tailwind 任意变体） */
+[data-layout-region='header'] [data-tab-item][data-tab-item][data-tab-item] * {
   color: inherit !important;
 }
-
-[data-tab-item] svg {
+[data-layout-region='header'] [data-tab-item] span {
+  font-size: 13px;
+  letter-spacing: -0.011em;
+}
+/* 长标题截断，避免一个页签吃掉整条标签栏 */
+[data-layout-region='header'] [data-tab-item] span[class*='flex-1'] {
+  max-width: 180px;
+}
+[data-layout-region='header'] [data-tab-item] svg {
   stroke: currentColor !important;
 }
 
-[data-tab-item] {
-  transition: background-color 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, box-shadow 0.15s ease;
+/* 标题内边距：左 12px；右侧预留关闭符槽位（12px 符 + 6px 边距 + 8px 间隙），
+   关闭符悬停出现时不会压住标题末字，且标签宽度稳定不跳动。 */
+[data-layout-region='header'] [data-tab-item] div[class*='mr-4'] {
+  margin: 0;
+  padding: 0 26px 0 12px;
+}
+/* 无关闭符（最后一个标签/不可关）时收回到 12px，单标签胶囊左右对称。 */
+[data-layout-region='header']
+  [data-tab-item]:has(.lucide-x[style*='display: none'])
+  div[class*='mr-4'] {
+  padding: 0 12px;
 }
 
-/* 移动端：抽屉开关固定在标签栏左侧（basic.vue .sdr-mobile-burger），标签让位。 */
+/* 关闭符：默认隐藏且不可点；hover / 当前页才出现 */
+[data-layout-region='header'] [data-tab-item] .absolute {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+[data-layout-region='header'] [data-tab-item]:hover .absolute,
+[data-layout-region='header'] [data-tab-item].is-active .absolute {
+  opacity: 1;
+  pointer-events: auto;
+}
+[data-layout-region='header'] [data-tab-item] .absolute svg {
+  opacity: 0.55;
+  transition: opacity 0.14s ease;
+}
+[data-layout-region='header'] [data-tab-item] .absolute svg:hover {
+  opacity: 1;
+}
+
+/* 右侧工具组：去掉 Vben 的竖分隔线与块状热区，改为同语言的小圆角按钮。
+   结构：div.flex-center > button(下拉触发器) > div.flex-center(真实热区) 或无触发器。 */
+[data-layout-region='header'] section > div:last-child {
+  gap: 2px;
+  padding-right: 12px;
+}
+[data-layout-region='header'] section > div:last-child > *,
+[data-layout-region='header'] section > div:last-child > * > div {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent;
+  color: var(--gs-fg-muted) !important;
+  font-size: 16px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+[data-layout-region='header'] section > div:last-child > *:hover,
+[data-layout-region='header'] section > div:last-child > *:hover > div {
+  background: var(--gs-tab-hover);
+  color: var(--gs-fg) !important;
+}
+
+/* 移动端：抽屉开关固定在标签栏左侧（basic.vue .sdr-mobile-burger），标签让位；
+   工具按钮放大到 34px，改善触屏命中率。 */
 @media (max-width: 767px) {
   [data-layout-region='header'] section {
     padding-left: 44px;
+  }
+  [data-layout-region='header'] section > div:last-child > *,
+  [data-layout-region='header'] section > div:last-child > * > div {
+    width: 34px;
+    height: 34px;
   }
 }
 
