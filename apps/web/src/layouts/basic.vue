@@ -4,10 +4,10 @@ import type { NotificationItem } from '@vben/layouts';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
-import { useWatermark } from '@vben/hooks';
+import { useTabs, useWatermark } from '@vben/hooks';
 import { BasicLayout, LockScreen } from '@vben/layouts';
 import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
-import { useAccessStore, useUserStore } from '@vben/stores';
+import { useAccessStore, useTabbarStore, useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
@@ -73,6 +73,35 @@ function openMobileDrawer(): void {
     ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 const { destroyWatermark, updateWatermark } = useWatermark();
+
+// pass5：中键关闭标签改为「释放时」触发（浏览器标签习惯）。
+// Vben 自带实现在 mousedown 就关，已通过 tabbar.middleClickToClose=false 关闭；
+// 这里在文档级监听 auxclick（中键释放）→ 按 data-index 找到页签 → 关闭。
+const tabbarStore = useTabbarStore();
+const { closeTabByKey } = useTabs();
+
+function closeByMiddle(event: MouseEvent): void {
+  if (event.button !== 1) return;
+  const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    '[data-tab-item]',
+  );
+  if (!el) return;
+  const tabs = tabbarStore.getTabs;
+  const tab = tabs[Number(el.dataset.index)];
+  if (!tab) return;
+  const closable =
+    Reflect.has(tab.meta, 'tabClosable') ? !!tab.meta.tabClosable : true;
+  if (!closable || tab.meta.affixTab || tabs.length <= 1) return;
+  event.preventDefault();
+  void closeTabByKey(tab.key as string);
+}
+
+/** 中键按下：只抑制 Chrome 的中键自动滚动，不关闭页签。 */
+function guardMiddleDown(event: MouseEvent): void {
+  if (event.button !== 1) return;
+  const el = (event.target as HTMLElement | null)?.closest('[data-tab-item]');
+  if (el) event.preventDefault();
+}
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
 // pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
 /** 侧栏底部通知行的未读红点数据源（通知部件已从顶栏移除，轮询保留）。 */
@@ -223,12 +252,16 @@ const onNotificationsChanged = () => {
 
 onMounted(() => {
   window.addEventListener('gainos:notifications-changed', onNotificationsChanged);
+  document.addEventListener('mousedown', guardMiddleDown, true);
+  document.addEventListener('auxclick', closeByMiddle, true);
   void loadNotifications();
   notificationTimer = setInterval(() => void loadNotifications(), 30_000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('gainos:notifications-changed', onNotificationsChanged);
+  document.removeEventListener('mousedown', guardMiddleDown, true);
+  document.removeEventListener('auxclick', closeByMiddle, true);
   if (notificationTimer) clearInterval(notificationTimer);
 });
 </script>

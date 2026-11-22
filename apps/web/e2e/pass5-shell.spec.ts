@@ -103,12 +103,18 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   await expect(page.locator('[data-tab-item]')).toHaveCount(2);
   await expect(page.locator('.wk')).toBeVisible();
 
-  // 鼠标中键关闭（浏览器标签同款）：新增一个页签后中键关闭非当前标签。
+  // 鼠标中键：按下不关、释放才关（浏览器标签习惯，2026-11-23 用户要求）。
   await page.getByRole('menuitem', { name: '公司档案' }).click();
   await page.waitForURL((url) => url.pathname === '/companies');
   await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(3);
-  await page.locator('[data-tab-item]').nth(1).click({ button: 'middle' });
+  const middleTab = page.locator('[data-tab-item]').nth(1);
+  // 只有 mousedown（没有 auxclick）→ 不关闭。
+  await middleTab.dispatchEvent('mousedown', { button: 1, bubbles: true });
+  await settle(page, 300);
+  await expect(page.locator('[data-tab-item]')).toHaveCount(3);
+  // 完整中键点击（按下 + 释放）→ 关闭。
+  await middleTab.click({ button: 'middle' });
   await settle(page, 400);
   await expect(page.locator('[data-tab-item]')).toHaveCount(2);
   await expect(page.locator('.cp')).toBeVisible();

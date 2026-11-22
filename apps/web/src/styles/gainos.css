@@ -373,6 +373,12 @@ h6 {
   width: 0;
   height: 0;
 }
+/* Vben 自带的 ScrollBar 靠 tailwind 的 hidden 隐藏；dev 下类名扫描差异
+   会让它露出来（用户 5666 实测）。这里按 data-slot 直接关掉，双环境一致。 */
+[data-layout-region='header'] [data-slot='scroll-area-scrollbar'],
+[data-layout-region='header'] [data-slot='scroll-area-corner'] {
+  display: none !important;
+}
 
 [data-layout-region='header'] [data-tab-item] {
   height: 30px;

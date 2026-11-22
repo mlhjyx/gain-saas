@@ -53,8 +53,9 @@ export const overridesPreferences = defineOverridesPreferences({
     enable: true,
     // 40px 栏 + 30px 药丸：上下各 5px 呼吸。
     height: 40,
-    // 鼠标中键关闭标签（浏览器标签同款习惯）；Vben 在按下中键时处理。
-    middleClickToClose: true,
+    // 中键关闭由布局层在「释放」时处理（basic.vue），Vben 自带的按下即关
+    // 行为关闭，保证与浏览器标签一致（按下不关、释放才关）。
+    middleClickToClose: false,
     showIcon: true,
     styleType: 'card',
   },
