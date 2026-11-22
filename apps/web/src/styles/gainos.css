@@ -326,6 +326,42 @@ h6 {
   border-radius: 9999px !important;
 }
 
+
+/* ── pass3 C9：微交互统一（仅 CSS，无动画库）── */
+/* 主按钮：hover 微上移 + 阴影，active 下压 */
+.gs-card > button,
+.wk__cta,
+.wk__hero .wk__cta {
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease, background 0.15s ease;
+}
+.wk__cta:hover:not(:disabled),
+.ant-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--gs-shadow-xs), 0 4px 12px -4px rgba(51, 92, 255, 0.35);
+}
+.wk__cta:active:not(:disabled),
+.ant-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--gs-shadow-xs);
+}
+
+/* 卡片 hover 抬升 1px + 阴影加深（列表卡片） */
+.ld__lead,
+.qg__card,
+.fb__card {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.ld__lead:hover,
+.qg__card:hover,
+.fb__card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--gs-shadow-sm);
+}
+
+/* 行动/提醒行 hover 已有浅灰底；补充 focus-visible 一致性由全局 :focus-visible 承担 */
+
 /* 可访问性基线：键盘焦点可见 */
 :focus-visible {
   outline: 2px solid var(--gs-accent);

@@ -1,14 +1,17 @@
 <script lang="ts" setup>
 import type { SessionInfo } from '#/api/gainos';
 
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+
+import { message } from 'ant-design-vue';
 
 import { formatDateTime, glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
+import { useCountUp } from '#/composables/use-count-up';
 
 import {
   failureText,
@@ -162,6 +165,40 @@ const handleLabel = computed(() =>
 const readonlyLabel = computed(() =>
   preferences.app.locale === 'en-US' ? 'Complete on target page' : '在目标页完成',
 );
+
+/* pass3 C6：行动清单完成反馈。无完成 API（inventory.md 已标注），完成 = 本机归档；
+   先播行内划线动画，300ms 后归档，列表与「今日脉搏 · 待办」计数即时同步，并弹 toast。 */
+const completingKey = ref<string | null>(null);
+
+const doneLabel = computed(() =>
+  preferences.app.locale === 'en-US' ? 'Done' : '完成',
+);
+
+/** hero 次链接：与主 CTA 互补的落点，全部是既有路由。 */
+const heroSecondary = computed(() => {
+  const en = preferences.app.locale === 'en-US';
+  if (nextAction.value.to.startsWith('/leads')) {
+    return { label: en ? 'Prospecting tasks' : '挖掘任务', to: '/tasks' };
+  }
+  if (nextAction.value.to.startsWith('/tasks') || nextAction.value.to.startsWith('/runs')) {
+    return { label: en ? 'Buyer leads' : '买家线索', to: '/leads' };
+  }
+  return { label: en ? 'Buyer leads' : '买家线索', to: '/leads?queue=recommended' };
+});
+
+function completeAction(item: CockpitAction): void {
+  if (completingKey.value) return;
+  completingKey.value = item.key;
+  window.setTimeout(() => {
+    toggleActionArchive(item.key);
+    completingKey.value = null;
+    void message.success(
+      preferences.app.locale === 'en-US'
+        ? `Done: ${item.title}`
+        : `已完成：${item.title}`,
+    );
+  }, 320);
+}
 
 const displayName = computed(() => {
   const name = userStore.userInfo?.realName?.trim() ?? '';
@@ -805,6 +842,22 @@ const visibleActions = computed(() =>
   ),
 );
 
+/* pass3 C3：KPI 数字 count-up。pending/following/team/companies 四个数值项滚动，
+   run/buyers 是文本状态不走动效；tabular-nums 已在样式中防抖动。
+   环比小箭头：现有 API 无上期数据，跳过（inventory.md §12 已标注）。 */
+const kpiNumericTargets = {
+  companies: computed(() => companies.value.length),
+  following: computed(() => recommendedLeadCount.value),
+  pending: computed(() => pendingLeadCount.value),
+  team: computed(() => memberCount.value),
+};
+const kpiCountUps: Record<string, Ref<number>> = {
+  companies: useCountUp(kpiNumericTargets.companies),
+  following: useCountUp(kpiNumericTargets.following),
+  pending: useCountUp(kpiNumericTargets.pending),
+  team: useCountUp(kpiNumericTargets.team),
+};
+
 const kpis = computed(() => {
   const loaded = !loading.value;
   const buyer = activeIcp.value;
@@ -1415,6 +1468,28 @@ onUnmounted(() => {
       </button>
     </header>
 
+    <!-- pass3 C5：今日建议 hero 大卡（工作台最上方，区别于普通卡）。 -->
+    <section class="wk__hero" :aria-label="$t('gainos.workspace.cockpitSuggestion')">
+      <div class="wk__hero-main">
+        <p class="wk__hero-kicker">{{ $t('gainos.workspace.cockpitSuggestion') }}</p>
+        <h2 class="wk__hero-title">{{ nextAction.title }}</h2>
+        <p v-if="nextAction.desc" class="wk__hero-desc">{{ nextAction.desc }}</p>
+      </div>
+      <div class="wk__hero-actions">
+        <button
+          type="button"
+          class="wk__cta"
+          :disabled="loading"
+          @click="router.push(nextAction.to)"
+        >
+          {{ actNowLabel }} <span aria-hidden="true">→</span>
+        </button>
+        <RouterLink class="wk__hero-link" :to="heroSecondary.to">
+          {{ heroSecondary.label }} <span aria-hidden="true">→</span>
+        </RouterLink>
+      </div>
+    </section>
+
     <div class="wk__grid">
       <div class="wk__main">
         <!-- 今日摘要：脉搏 + KPI。说明性文案放进 title，不占版面。 -->
@@ -1446,7 +1521,7 @@ onUnmounted(() => {
                 class="wk__kpi-value"
                 :class="[kpi.text ? 'is-text' : '', kpi.valueClass]"
               >
-                {{ kpi.value }}
+                {{ kpi.text ? kpi.value : (kpiCountUps[kpi.key]?.value ?? kpi.value) }}
               </strong>
             </button>
           </div>
@@ -1508,7 +1583,12 @@ onUnmounted(() => {
           </header>
 
           <ol v-if="visibleActions.length" class="wk__action-list">
-            <li v-for="(item, index) in visibleActions" :key="item.key" class="wk__action">
+            <li
+              v-for="(item, index) in visibleActions"
+              :key="item.key"
+              class="wk__action"
+              :class="{ 'is-completing': completingKey === item.key }"
+            >
               <span class="wk__action-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <div class="wk__action-body">
                 <div class="wk__action-head">
@@ -1518,6 +1598,15 @@ onUnmounted(() => {
                 <div class="wk__action-foot">
                   <button type="button" class="wk__action-go" @click="router.push(item.to)">
                     {{ item.actionLabel }} <span aria-hidden="true">→</span>
+                  </button>
+                  <button
+                    v-if="actionView === 'todo'"
+                    type="button"
+                    class="wk__text-btn wk__action-complete"
+                    :aria-label="`${doneLabel}：${item.title}`"
+                    @click="completeAction(item)"
+                  >
+                    {{ doneLabel }}
                   </button>
                   <button
                     type="button"
@@ -1601,22 +1690,6 @@ onUnmounted(() => {
             </li>
           </ul>
           <p v-else class="wk__empty">{{ $t('gainos.workspace.notificationsEmpty') }}</p>
-        </section>
-
-        <!-- 今日建议：一句话 + 唯一主按钮。 -->
-        <section class="gs-card wk__suggestion" :aria-label="$t('gainos.workspace.cockpitSuggestion')">
-          <h2>{{ $t('gainos.workspace.cockpitSuggestion') }}</h2>
-          <p class="wk__suggestion-title" :title="nextAction.desc">
-            {{ nextAction.title }}
-          </p>
-          <button
-            type="button"
-            class="wk__cta"
-            :disabled="loading"
-            @click="router.push(nextAction.to)"
-          >
-            {{ actNowLabel }} <span aria-hidden="true">→</span>
-          </button>
         </section>
 
         <!-- 最近线索：保留原有入口与行点击行为。 -->
@@ -1724,7 +1797,6 @@ onUnmounted(() => {
 .wk__stages,
 .wk__actions,
 .wk__alerts,
-.wk__suggestion,
 .wk__recent {
   min-width: 0;
   padding: 20px;
@@ -2067,25 +2139,6 @@ onUnmounted(() => {
   box-shadow: 0 0 0 4px var(--gs-accent-soft);
 }
 
-.wk__suggestion {
-  border-color: var(--gs-accent-soft-border);
-  background: var(--gs-accent-soft);
-}
-.wk__suggestion h2 {
-  margin: 0 0 10px;
-  color: var(--gs-accent-strong);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-}
-.wk__suggestion-title {
-  margin: 0 0 16px;
-  color: var(--gs-fg);
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
 .wk__cta {
   display: inline-flex;
   align-items: center;
@@ -2187,8 +2240,97 @@ onUnmounted(() => {
   .wk__stages,
   .wk__actions,
   .wk__alerts,
-  .wk__suggestion,
   .wk__recent { padding: 16px; }
   .wk__alerts { scroll-margin-top: 16px; }
 }
+
+/* ── pass3 C5：今日建议 hero 大卡 ── */
+.wk__hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 24px 28px;
+  border: 1px solid var(--gs-accent-soft-border);
+  border-radius: var(--gs-radius-20);
+  background: var(--gs-accent-soft);
+  box-shadow: var(--gs-shadow-card);
+}
+.wk__hero-main { min-width: 0; flex: 1; }
+.wk__hero-kicker {
+  margin: 0 0 6px;
+  color: var(--gs-accent-strong);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+.wk__hero-title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.wk__hero-desc {
+  margin: 6px 0 0;
+  max-width: 640px;
+  color: var(--gs-fg-muted);
+  font-size: 13.5px;
+  line-height: 20px;
+}
+.wk__hero-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.wk__hero-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gs-accent-strong);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.wk__hero-link:hover { color: var(--gs-accent); text-decoration: underline; }
+
+/* ── pass3 C4：漏斗阶段 hover 抬升 ── */
+.wk__stage {
+  transition: border-color 0.15s ease, background 0.15s ease,
+    transform 0.15s ease, box-shadow 0.15s ease;
+}
+.wk__stage:hover {
+  border-color: var(--gs-accent-soft-border);
+  background: var(--gs-surface);
+  transform: translateY(-2px);
+  box-shadow: var(--gs-shadow-sm);
+}
+
+/* ── pass3 C3：KPI 数字 tabular + 入场 ── */
+.wk__kpi-value { font-variant-numeric: tabular-nums; }
+.wk__kpi { animation: wk-kpi-in 0.4s ease both; }
+.wk__kpi:nth-child(2) { animation-delay: 0.05s; }
+.wk__kpi:nth-child(3) { animation-delay: 0.1s; }
+.wk__kpi:nth-child(4) { animation-delay: 0.15s; }
+.wk__kpi:nth-child(5) { animation-delay: 0.2s; }
+.wk__kpi:nth-child(6) { animation-delay: 0.25s; }
+@keyframes wk-kpi-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wk__kpi { animation: none; }
+}
+
+/* ── pass3 C6：完成划线动画 ── */
+.wk__action.is-completing .wk__action-head strong {
+  text-decoration: line-through;
+  color: var(--gs-fg-subtle);
+  transition: color 0.3s ease;
+}
+.wk__action.is-completing {
+  opacity: 0.55;
+  transition: opacity 0.3s ease;
+}
+.wk__action-complete { color: var(--gs-success); }
+.wk__action-complete:hover { color: var(--gs-success); text-decoration: underline; }
 </style>
