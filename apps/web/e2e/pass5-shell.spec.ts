@@ -153,18 +153,36 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
   await expect(page.locator('.sdr-help__version')).toHaveText(/^v[\d.]/);
   await page.keyboard.press('Escape');
 
-  // 账号卡下拉：工作空间头 + 通知/设置/退出登录（不点退出，保持登录态）。
+  // 账号菜单（SDR Dropdown 同款）：抬头 + 通知/设置/搜索或跳转 + 退出登录。
   await page.locator('.sdr-account').click();
-  const menu = page.locator('.ant-dropdown-menu');
-  await expect(menu.locator('li').filter({ hasText: 'E2E 测试公司' })).toBeVisible();
+  const menu = page.locator('.gs-account-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('.gs-account-menu__name')).toHaveText('E2E 测试公司');
+  await expect(menu.locator('.gs-account-menu__mail')).toHaveText('e2e@gainos.local');
+  await expect(menu.getByRole('menuitem', { name: '通知' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '设置' })).toBeVisible();
   await expect(
-    menu.getByText('退出登录', { exact: true }),
+    menu.getByRole('menuitem', { name: /搜索或跳转/ }),
   ).toBeVisible();
-  await expect(menu.getByText('通知', { exact: true })).toBeVisible();
-  await expect(menu.getByText('设置', { exact: true })).toBeVisible();
-  // 账号菜单的「设置」同样打开弹窗。
-  await menu.getByText('设置', { exact: true }).click();
+  await expect(
+    menu.getByRole('menuitem', { name: '退出登录' }),
+  ).toBeVisible();
+
+  // 「搜索或跳转」直达命令面板。
+  await menu.getByRole('menuitem', { name: /搜索或跳转/ }).click();
+  await expect(page.getByRole('dialog').filter({ has: page.locator('.cmdk__list') })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.cmdk__list')).toHaveCount(0);
+
+  // 「设置」同样打开设置弹窗，遮罩带 SDR 同款模糊。
+  await page.locator('.sdr-account').click();
+  await menu.getByRole('menuitem', { name: '设置' }).click();
   await expect(page.locator('.gs-settings__panel')).toBeVisible();
+  expect(
+    await page
+      .locator('.gs-settings')
+      .evaluate((el) => getComputedStyle(el).backdropFilter),
+  ).toContain('blur');
   await page.keyboard.press('Escape');
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
 });

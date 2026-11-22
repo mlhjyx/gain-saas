@@ -225,6 +225,9 @@ onBeforeUnmount(() => {
   place-items: center;
   padding: 32px;
   background: rgba(23, 23, 23, 0.32);
+  /* SDR Modal Overlay：bg-overlay + backdrop-blur-[3px] */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
 }
 :global(.dark) .gs-settings {
   background: rgba(0, 0, 0, 0.62);

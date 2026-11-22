@@ -514,6 +514,19 @@ h6 {
   color: var(--gs-fg) !important;
 }
 
+/* 账号菜单浮层（sdr-account-menu）：接管 AntDV Popover 的默认内边距，
+   面板样式（圆角/描边/阴影）由菜单组件自己提供。 */
+.gs-account-pop .ant-popover-inner {
+  padding: 0;
+  border: 1px solid var(--gs-border);
+  border-radius: 16px;
+  background: var(--gs-surface);
+  box-shadow: var(--gs-shadow-tooltip);
+}
+.gs-account-pop .ant-popover-arrow {
+  display: none;
+}
+
 /* 移动端：抽屉开关固定在标签栏左侧（basic.vue .sdr-mobile-burger），标签让位；
    工具按钮放大到 34px，改善触屏命中率。 */
 @media (max-width: 767px) {

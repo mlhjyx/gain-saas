@@ -22,7 +22,9 @@ import { useAccessStore } from '@vben/stores';
 
 import { IconifyIcon } from '@vben/icons';
 
-import { Dropdown, Menu, MenuItem, Popover } from 'ant-design-vue';
+import { Popover } from 'ant-design-vue';
+
+import SdrAccountMenu from './sdr-account-menu.vue';
 
 import { $t } from '#/locales';
 
@@ -63,7 +65,6 @@ const footerLabels = computed(() =>
 );
 const accountLabels = computed(() => ({
   expand: isEnglish.value ? 'Expand sidebar' : '展开侧栏',
-  logout: isEnglish.value ? 'Sign out' : '退出登录',
   shortcuts: isEnglish.value ? 'Shortcuts' : '快捷键',
 }));
 
@@ -157,10 +158,16 @@ const settingsActive = computed(() => route.path.startsWith('/settings'));
 
 const helpOpen = ref(false);
 
-function onUserMenuClick({ key }: { key: number | string }) {
-  if (key === 'logout') emit('logout');
-  if (key === 'notifications') go('/notifications');
-  if (key === 'settings') emit('openSettings');
+// 账号菜单（SdrAccountMenu）的动作：先收起浮层再执行。
+const accountOpen = ref(false);
+const railAccountOpen = ref(false);
+function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings') {
+  accountOpen.value = false;
+  railAccountOpen.value = false;
+  if (action === 'logout') emit('logout');
+  if (action === 'notifications') go('/notifications');
+  if (action === 'search') emit('openSearch');
+  if (action === 'settings') emit('openSettings');
 }
 </script>
 
@@ -255,7 +262,24 @@ function onUserMenuClick({ key }: { key: number | string }) {
         </Popover>
       </div>
 
-      <Dropdown placement="topLeft" trigger="click">
+      <Popover
+        v-model:open="accountOpen"
+        trigger="click"
+        placement="topLeft"
+        :arrow="false"
+        overlay-class-name="gs-account-pop"
+      >
+        <template #content>
+          <SdrAccountMenu
+            :unread-count="unreadCount"
+            :user-email="userEmail"
+            :workspace-name="workspaceName"
+            @logout="accountAction('logout')"
+            @notifications="accountAction('notifications')"
+            @search="accountAction('search')"
+            @settings="accountAction('settings')"
+          />
+        </template>
         <button
           type="button"
           class="sdr-account"
@@ -275,26 +299,7 @@ function onUserMenuClick({ key }: { key: number | string }) {
             <circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none" />
           </svg>
         </button>
-        <template #overlay>
-          <Menu @click="onUserMenuClick">
-            <MenuItem key="header" disabled>
-              <div class="sdr-account-menu">
-                <strong>{{ workspaceName || 'GainOS' }}</strong>
-                <small>{{ userEmail || '—' }}</small>
-              </div>
-            </MenuItem>
-            <MenuItem key="notifications">
-              {{ footerLabels.notifications }}
-            </MenuItem>
-            <MenuItem key="settings">
-              {{ footerLabels.settings }}
-            </MenuItem>
-            <MenuItem key="logout" danger>
-              {{ accountLabels.logout }}
-            </MenuItem>
-          </Menu>
-        </template>
-      </Dropdown>
+      </Popover>
     </footer>
   </nav>
 
@@ -340,7 +345,24 @@ function onUserMenuClick({ key }: { key: number | string }) {
       >
         <IconifyIcon icon="lucide:panel-left-open" />
       </button>
-      <Dropdown placement="topLeft" trigger="click">
+      <Popover
+        v-model:open="railAccountOpen"
+        trigger="click"
+        placement="rightTop"
+        :arrow="false"
+        overlay-class-name="gs-account-pop"
+      >
+        <template #content>
+          <SdrAccountMenu
+            :unread-count="unreadCount"
+            :user-email="userEmail"
+            :workspace-name="workspaceName"
+            @logout="accountAction('logout')"
+            @notifications="accountAction('notifications')"
+            @search="accountAction('search')"
+            @settings="accountAction('settings')"
+          />
+        </template>
         <button
           type="button"
           class="sdr-rail__account"
@@ -355,26 +377,7 @@ function onUserMenuClick({ key }: { key: number | string }) {
             aria-hidden="true"
           ></i>
         </button>
-        <template #overlay>
-          <Menu @click="onUserMenuClick">
-            <MenuItem key="header" disabled>
-              <div class="sdr-account-menu">
-                <strong>{{ workspaceName || 'GainOS' }}</strong>
-                <small>{{ userEmail || '—' }}</small>
-              </div>
-            </MenuItem>
-            <MenuItem key="notifications">
-              {{ footerLabels.notifications }}
-            </MenuItem>
-            <MenuItem key="settings">
-              {{ footerLabels.settings }}
-            </MenuItem>
-            <MenuItem key="logout" danger>
-              {{ accountLabels.logout }}
-            </MenuItem>
-          </Menu>
-        </template>
-      </Dropdown>
+      </Popover>
     </div>
   </nav>
 </template>
@@ -542,7 +545,7 @@ function onUserMenuClick({ key }: { key: number | string }) {
   width: 100%;
   padding: 7px 8px;
   border: 1px solid var(--gs-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--gs-surface);
   cursor: pointer;
   text-align: left;
@@ -594,13 +597,6 @@ function onUserMenuClick({ key }: { key: number | string }) {
   flex: none;
   color: var(--gs-fg-subtle);
 }
-.sdr-account-menu {
-  display: grid;
-  gap: 2px;
-  line-height: 1.4;
-}
-.sdr-account-menu small { color: var(--gs-fg-muted); }
-
 .sdr-help {
   display: grid;
   gap: 6px;

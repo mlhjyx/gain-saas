@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T15:49:10.118Z",
+  "generatedAt": "2026-11-22T16:07:59.932Z",
   "leads": {
     "queueCards": 0,
     "toolbar": 1,
@@ -14,7 +14,7 @@
       "fontSize": "12px",
       "height": 20,
       "titleFontSize": "12px",
-      "html": "<p data-v-b6527811=\"\" class=\"sdr-section__label\">工作空间</p>"
+      "html": "<p data-v-70d12eeb=\"\" class=\"sdr-section__label\">工作空间</p>"
     },
     "items": {
       "count": 9,

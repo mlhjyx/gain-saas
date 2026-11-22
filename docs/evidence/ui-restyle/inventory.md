@@ -1600,7 +1600,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 | 标签条无滚动条 | 隐藏原生/overlay 滚动条（`scrollbar-width:none` + `::-webkit-scrollbar`），溢出时滚轮横向滚动（Vben 处理）+ 两端渐隐 mask + 左右小圆角滚动按钮（有溢出才出现）；`middleClickToClose: true` 支持鼠标中键关闭 |
 | 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（打开设置弹窗，替代原「设置」导航分组）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
 | 设置信息架构（SDR SettingsShell） | 侧栏不再列 成员与角色/禁联名单/数据源/数据与隐私/审计；底部「设置」打开 1080×780 浮层：左分区导航（accessMenus 同源、按权限过滤）+ 右侧真实页面（复用路由组件，Suspense 骨架）；Esc/遮罩/× 关闭，Tab 焦点圈定，背景路由变化自动关闭；直接访问 /settings/* 仍是整页（深链不变） |
-| 工作空间账号卡 | 头像/首字母兜底 + 空间名 + 账号 + ⋮ Dropdown（空间头 + 通知/设置/退出登录 danger） |
+| 工作空间账号卡 | 12px 圆角卡：头像/首字母兜底 + 空间名 + 账号 + ⋮；点开 = SDR Dropdown 同款面板（264px、16px 圆角、1px 描边、tooltip 阴影：抬头 名称/邮箱 → 分隔线 → 通知/设置/搜索或跳转(⌘K) → 分隔线 → 退出登录 红字红底 hover） |
+| 设置弹窗遮罩 | SDR Modal Overlay 同款：暗化 32% + `backdrop-filter: blur(3px)`（深色 62%），弹层下内容真实模糊 |
 | 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言 |
 | 折叠 rail | 宽度 = collapseWidth(60px)；底部 = 展开按钮（panel-left-open）+ 账号头像（未读点 + 同款 Dropdown） |
 | 移动端抽屉 | 顶栏隐藏殃及 Vben burger → `.sdr-mobile-burger`（标签栏左侧固定，代理 click 隐藏开关）；标签栏 padding-left 44px 让位 |
@@ -1620,7 +1621,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 排版：标签 13px/500、-0.011em；栏内 40px 高、30px 卡、上下各 5px 呼吸；左右 12px 与侧栏节奏对齐；标签间 2px。
 - 留白/层级：当前页白卡 + 微阴影浮于 `--gs-bg` 画布之上，非当前页只留文字——一眼可辨“我在哪、还能去哪”。
 - 色彩：选中 = 反白实心药丸（#171717/白字，深色反转），未选中 = #5C5C5C muted 文字；品牌蓝只留给主行动与 focus 环。
-- 动效：颜色/背景/阴影 150ms；按压 scale .985（120ms）；关闭符 140ms 淡入；溢出溢出滚动由 Vben 以瞬移（非平滑）执行，避免长列表的拖影。
+- 动效：颜色/背景/阴影 150ms；按压 scale .985（120ms）；关闭符 140ms 淡入；标签溢出滚动由 Vben 以瞬移（非平滑）执行，避免长列表的拖影。
+- 账号菜单：对齐 AlignUI Dropdown（rounded-2xl / p-2 / ring-1 / 36px 条目 / 18px 图标 / 全幅分隔线 / destructive 红字红底），条目含 ⌘K 提示与未读点。
 - 微交互：关闭符 hover 才出现且不可见时不可点；hover 淡底；工具按钮（更多/刷新/最大化）去掉竖分隔线改 30px 圆角热区，移动端 34px；focus-visible 品牌环。
 - 响应式：移动端 burger 44×40 + 标签栏 padding-left 44px 无重叠（390px 实测）；标签长标题 180px 截断。
 - 原创性：不做 Chrome 式“附着页签”，采用与侧栏 active 同语言的“白卡浮层”+ 恒留关闭槽位 + 按需出现关闭符，形成本产品自己的标签语言。
@@ -1631,4 +1633,4 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - `settings-shell.spec.ts` 重写为弹窗口径：五分区切换、审计页控件、背景 URL 不变、Esc 关闭、深链仍是整页。
 - 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
 - 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
-- 截图：`pass5/{light,dark}-{workspace,tabs-many}.png`、`light-tabs-overflow.png`（1100px 溢出态：无滚动条、两端滚动钮）、`light-tab-hover/account-menu/help-popover/rail/tool-hover.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（17 张）。
+- 截图：`pass5/{light,dark}-{workspace,tabs-many}.png`、`light-tabs-overflow.png`（1100px 溢出态：无滚动条、两端滚动钮）、`light-tab-hover/tool-hover/help-popover/rail/rail-account-menu.png`、`{light,dark}-account-menu.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（18 张）。
