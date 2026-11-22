@@ -29,6 +29,16 @@ function readCommit(): string {
   }
 }
 
+/** 开发/预发共用的 /api 代理：转发到本机 gain-saas-web（systemd 的 BFF）。 */
+const PREVIEW_PROXY = {
+  '/api': {
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/api/, ''),
+    target: 'http://127.0.0.1:4020/api',
+    ws: true,
+  },
+};
+
 export default defineConfig(async () => {
   return {
     application: {},
@@ -44,16 +54,13 @@ export default defineConfig(async () => {
         include: ['@gain-saas/shared'],
       },
       server: {
-        proxy: {
-          '/api': {
-            changeOrigin: true,
-            rewrite: (path) => path.replace(/^\/api/, ''),
-            // 开发预发代理：转发到本机 gain-saas-web（systemd 的 BFF，真实登录与数据）。
-            // 仓库内没有 @vben/backend-mock 包，原 nitro mock 目标(5320)不会被启用。
-            target: 'http://127.0.0.1:4020/api',
-            ws: true,
-          },
-        },
+        proxy: PREVIEW_PROXY,
+      },
+      // 预发（5666）= 生产构建 + 同一套 /api 代理：冷加载是单个打包产物，
+      // 不再有 dev 的数百个模块请求；行为与线上一致（含 tailwind 类名）。
+      preview: {
+        host: true,
+        proxy: PREVIEW_PROXY,
       },
     },
   };

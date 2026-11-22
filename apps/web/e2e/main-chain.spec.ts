@@ -579,10 +579,10 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
   ]);
 
   await loginAs(page);
-  // 设置 → 禁联名单
-  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
-  await page.getByRole('menuitem', { name: '禁联名单' }).click();
-  await page.waitForURL(/\/settings\/suppressions/);
+  // 设置 → 禁联名单（pass5：底部「设置」打开设置弹窗，分区在弹窗内切换）
+  await page.locator('.sdr-footer__row', { hasText: '设置' }).click();
+  await page.locator('.gs-settings__row', { hasText: '禁联名单' }).click();
+  await expect(page.locator('.gs-settings__panel')).toBeVisible();
   await expect(page.getByRole('heading', { name: '禁联名单', exact: true })).toBeVisible();
   await expect(page.getByText('名单还是空的')).toBeVisible();
 

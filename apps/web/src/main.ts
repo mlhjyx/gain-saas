@@ -20,16 +20,31 @@ import { overridesPreferences, preferencesExtension } from './preferences';
  */
 const BRAND_PREFERENCES = {
   app: { layout: 'sidebar-nav' },
+  // pass5：header.height 与 tabbar.height 必须同为 40，否则老缓存（50）
+  // 会让侧栏品牌行高于标签栏，接缝错位。
+  header: { height: 40, hidden: true },
   logo: {
     source: '/logo-gainos.svg?v=pass3',
     sourceDark: '/logo-gainos.svg?v=pass3',
   },
+  // sidebar.hidden 归一：用户点过「内容最大化」会把缓存写成 hidden=true，
+  // 不归一的话 SDR 覆盖层会永远浮在内容上。
+  sidebar: { collapsedButton: false, hidden: false },
+  tabbar: {
+    enable: true,
+    height: 40,
+    middleClickToClose: false,
+    showMaximize: false,
+  },
   theme: { builtinType: 'default', colorPrimary: '#335CFF' },
   // pass4：顶栏部件清单也归一——老缓存里的 themeToggle/languageToggle=true
   // 会让顶栏重新长出主题/语言按钮（与侧栏重复）。
+  // pass5：notification 同理（移入侧栏底部），tabbar.enable/header.hidden
+  // 也一并归一（老缓存存的是 tabbar=false 的旧默认）。
   widget: {
     globalSearch: false,
     languageToggle: false,
+    notification: false,
     themeToggle: false,
   },
 } as const;

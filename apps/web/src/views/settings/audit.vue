@@ -4,7 +4,7 @@
  * 游标分页（at+id 复合键）+ 动作/日期筛选 + 已加载内 CSV 导出；筛选条件进 URL，
  * 刷新/分享不丢状态。只显示本人 tenant 审计（服务端按 actorId 过滤）。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, inject, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { Alert, Skeleton, Button, DatePicker, Input, Table } from 'ant-design-vue';
@@ -12,6 +12,7 @@ import { Alert, Skeleton, Button, DatePicker, Input, Table } from 'ant-design-vu
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
 import EmptyState from '#/components/gainos/empty-state.vue';
+import { SETTINGS_EMBEDDED_KEY } from '#/components/gainos/settings-dialog-context';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { $t } from '#/locales';
@@ -22,6 +23,8 @@ defineOptions({ name: 'SettingsAudit' });
 
 const route = useRoute();
 const router = useRouter();
+// 被设置弹窗嵌入时，背景路由是用户当前页面：筛选只存本地，不写 URL query。
+const embedded = inject(SETTINGS_EMBEDDED_KEY, false);
 
 const entries = ref<AuditEntry[]>([]);
 const total = ref<number | null>(null);
@@ -93,6 +96,10 @@ function fromDate(value?: string | null): string {
 }
 
 function readQuery(): void {
+  if (embedded) {
+    applied.value = { action: '', from: '', to: '' };
+    return;
+  }
   const q = route.query;
   filters.action = typeof q.action === 'string' ? q.action : '';
   filters.from = typeof q.from === 'string' ? q.from : '';
@@ -101,6 +108,7 @@ function readQuery(): void {
 }
 
 function syncQuery(): void {
+  if (embedded) return;
   const query: Record<string, string> = {};
   if (applied.value.action) query.action = applied.value.action;
   if (applied.value.from) query.from = applied.value.from;

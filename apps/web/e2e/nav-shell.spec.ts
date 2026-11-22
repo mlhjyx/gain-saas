@@ -76,7 +76,13 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   for (const group of NAV_GROUPS) {
     await expect(groupLocator(page, group.group)).toBeVisible();
   }
-  await expect(page.locator('[data-sdr-nav]').getByText('设置', { exact: true })).toBeVisible();
+  // pass5：设置不再占导航分组（SDR 同款：底部「设置」打开设置弹窗）。
+  await expect(
+    page.locator('.sdr-section__label').filter({ hasText: '设置' }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' }),
+  ).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
@@ -89,11 +95,12 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
     }
   }
 
-  // 设置是含子项的分组：展开后进入「成员与角色」
-  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
-  await page.getByRole('menuitem', { name: '成员与角色' }).click();
-  await page.waitForURL((url) => url.pathname === '/settings/members');
+  // 设置：底部入口打开设置弹窗（SDR SettingsShell），默认分区「成员与角色」。
+  await page.locator('.sdr-footer__row', { hasText: '设置' }).click();
+  await expect(page.locator('.gs-settings__panel')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
 
   // 周报已下线：/reports 深链回 SPA 壳（无周报内容渲染）
   await page.goto('/reports');

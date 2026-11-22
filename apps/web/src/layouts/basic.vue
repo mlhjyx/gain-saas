@@ -2,26 +2,19 @@
 import type { NotificationItem } from '@vben/layouts';
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
-import { useWatermark } from '@vben/hooks';
-import {
-  BasicLayout,
-  LockScreen,
-  Notification,
-  UserDropdown,
-} from '@vben/layouts';
+import { useTabs, useWatermark } from '@vben/hooks';
+import { BasicLayout, LockScreen } from '@vben/layouts';
 import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
-import { useAccessStore, useUserStore } from '@vben/stores';
-
-import { Popover } from 'ant-design-vue';
+import { useAccessStore, useTabbarStore, useUserStore } from '@vben/stores';
 
 import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
 import CommandPalette from '#/components/gainos/command-palette.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
+import SettingsDialog from '#/components/gainos/settings-dialog.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
@@ -34,7 +27,6 @@ const notifications = ref<NotificationItem[]>([]);
 const notificationLoading = ref(false);
 let notificationTimer: ReturnType<typeof setInterval> | null = null;
 
-const router = useRouter();
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
@@ -43,6 +35,8 @@ useMenuGroups();
 
 // pass3 C1：命令面板（⌘K）。pass4：搜索入口移入 SDR 侧栏，顶栏不再承载搜索。
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
+// pass5：设置弹窗（SDR SettingsShell）——侧栏底部「设置」与账号菜单共享入口。
+const settingsOpen = ref(false);
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
 
 // pass4：主题 / 语言切换从顶栏移入侧栏品牌行（AgentSDR 同款位置）。
@@ -57,24 +51,79 @@ function toggleLocale(): void {
   void preferences.app.locale;
   updatePreferences({ app: { locale: isEnglish.value ? 'zh-CN' : 'en-US' } });
 }
+
+// pass5：折叠开关也在品牌行（Vben 侧栏左下角按钮已通过 sidebar.collapsedButton=false 关闭）。
+const collapseToggleLabel = computed(() =>
+  isEnglish.value ? 'Toggle sidebar' : '切换侧边栏',
+);
+function toggleSidebarCollapse(): void {
+  updatePreferences({ sidebar: { collapsed: !sidebarCollapsed.value } });
+}
+
+// pass5：顶栏隐藏后 Vben 的移动端抽屉开关（在顶栏里）被一并藏起，
+// 这里在标签栏左侧放一个可见按钮，代理点击那个隐藏开关打开抽屉。
+const mobileMenuLabel = computed(() =>
+  isEnglish.value ? 'Open menu' : '打开菜单',
+);
+function openMobileDrawer(): void {
+  document
+    .querySelector(
+      "[data-layout-region='header'] [data-layout-action='toggle-sidebar']",
+    )
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
 const { destroyWatermark, updateWatermark } = useWatermark();
+
+// pass5：中键关闭标签改为「释放时」触发（浏览器标签习惯）。
+// Vben 自带实现在 mousedown 就关，已通过 tabbar.middleClickToClose=false 关闭；
+// 这里在文档级监听 auxclick（中键释放）→ 按 data-index 找到页签 → 关闭。
+const tabbarStore = useTabbarStore();
+const { closeTabByKey } = useTabs();
+
+function closeByMiddle(event: MouseEvent): void {
+  if (event.button !== 1) return;
+  const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    '[data-tab-item]',
+  );
+  if (!el) return;
+  const tabs = tabbarStore.getTabs;
+  const tab = tabs[Number(el.dataset.index)];
+  if (!tab) return;
+  const closable =
+    Reflect.has(tab.meta, 'tabClosable') ? !!tab.meta.tabClosable : true;
+  if (!closable || tab.meta.affixTab || tabs.length <= 1) return;
+  event.preventDefault();
+  void closeTabByKey(tab.key as string);
+}
+
+/** 中键按下：只抑制 Chrome 的中键自动滚动，不关闭页签。 */
+function guardMiddleDown(event: MouseEvent): void {
+  if (event.button !== 1) return;
+  const el = (event.target as HTMLElement | null)?.closest('[data-tab-item]');
+  if (el) event.preventDefault();
+}
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
+
+// pass5：侧栏可拖拽（Vben 允许拖到 60px），但品牌行 logo 与右侧工具是
+// 固定布局——低于 224px 会重叠。这里给拖拽结果兜底一个最小宽度。
+const SIDEBAR_MIN_WIDTH = 224;
+watch(
+  () => preferences.sidebar.width,
+  (width) => {
+    if (!isSideMode.value) return;
+    if (width < SIDEBAR_MIN_WIDTH) {
+      updatePreferences({ sidebar: { width: SIDEBAR_MIN_WIDTH } });
+    }
+  },
+  { immediate: true },
+);
 // pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
-const appVersion = __APP_VERSION__;
-const appCommit = __APP_COMMIT__;
-const versionLabel = computed(() =>
-  appCommit ? `v${appVersion} · ${appCommit}` : `v${appVersion}`,
-);
-const versionTitle = computed(() =>
-  appCommit ? `GainOS v${appVersion} · ${appCommit}` : `GainOS v${appVersion}`,
-);
-const showDot = computed(() =>
-  notifications.value.some((item) => !item.isRead),
+/** 侧栏底部通知行的未读红点数据源（通知部件已从顶栏移除，轮询保留）。 */
+const unreadCount = computed(
+  () => notifications.value.filter((item) => !item.isRead).length,
 );
 
-const menus = computed(() => []);
-
-/** 顶栏展示公司名；人（realName）只出现在问候与水印里（P5b-14）。 */
+/** 侧栏底部账号卡展示公司名；人（realName）只出现在问候与水印里（P5b-14）。 */
 const companyName = computed(
   () =>
     (userStore.userInfo as GainosUserInfo | null)?.workspaceName ??
@@ -175,59 +224,6 @@ async function handleLogout() {
   await authStore.logout(false);
 }
 
-async function handleNoticeClear() {
-  notifications.value = [];
-  await gainosApi.readAllNotifications().catch(() => undefined);
-}
-
-async function markRead(id: number | string) {
-  const item = notifications.value.find((item) => item.id === id);
-  if (!item || item.isRead) return;
-  await gainosApi.readNotification(String(id)).catch(() => undefined);
-  item.isRead = true;
-}
-
-async function remove(id: number | string) {
-  await gainosApi.deleteNotification(String(id)).catch(() => undefined);
-  notifications.value = notifications.value.filter((item) => item.id !== id);
-}
-
-async function handleMakeAll() {
-  notifications.value.forEach((item) => (item.isRead = true));
-  await gainosApi.readAllNotifications().catch(() => undefined);
-}
-
-const viewAll = () => {
-  void router.push('/notifications');
-};
-
-const handleClick = async (item: NotificationItem) => {
-  await markRead(item.id);
-  // 如果通知项有链接，点击时跳转
-  if (item.link) {
-    navigateTo(item.link, item.query, item.state);
-  }
-};
-
-function navigateTo(
-  link: string,
-  query?: Record<string, any>,
-  state?: Record<string, any>,
-) {
-  if (link.startsWith('http://') || link.startsWith('https://')) {
-    // 外部链接，在新标签页打开
-    window.open(link, '_blank');
-  } else {
-    // 内部路由链接，支持 query 参数和 state
-    const resolved = router.resolve(link);
-    router.push({
-      path: resolved.path,
-      query: { ...resolved.query, ...(query || {}) },
-      state,
-    });
-  }
-}
-
 watch(
   () => ({
     enable: preferences.app.watermark,
@@ -273,12 +269,16 @@ const onNotificationsChanged = () => {
 
 onMounted(() => {
   window.addEventListener('gainos:notifications-changed', onNotificationsChanged);
+  document.addEventListener('mousedown', guardMiddleDown, true);
+  document.addEventListener('auxclick', closeByMiddle, true);
   void loadNotifications();
   notificationTimer = setInterval(() => void loadNotifications(), 30_000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('gainos:notifications-changed', onNotificationsChanged);
+  document.removeEventListener('mousedown', guardMiddleDown, true);
+  document.removeEventListener('auxclick', closeByMiddle, true);
   if (notificationTimer) clearInterval(notificationTimer);
 });
 </script>
@@ -293,28 +293,6 @@ onUnmounted(() => {
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
   >
-    <template #user-dropdown>
-      <UserDropdown
-        :avatar
-        :menus
-        :text="companyName"
-        :description="userStore.userInfo?.username"
-        @clear-preferences-and-logout="handleLogout"
-        @logout="handleLogout"
-      />
-    </template>
-    <template #notification>
-      <Notification
-        :dot="showDot"
-        :notifications="notifications"
-        @clear="handleNoticeClear"
-        @read="(item) => item.id && markRead(item.id)"
-        @remove="(item) => item.id && remove(item.id)"
-        @make-all="handleMakeAll"
-        @on-click="handleClick"
-        @view-all="viewAll"
-      />
-    </template>
     <template #extra>
       <AuthenticationLoginExpiredModal
         v-model:open="accessStore.loginExpired"
@@ -327,52 +305,25 @@ onUnmounted(() => {
       <LockScreen :avatar @to-login="handleLogout" />
     </template>
   </BasicLayout>
-  <div
-    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
-    class="app-version"
-    :style="{ width: `${preferences.sidebar.width}px` }"
-    :title="versionTitle"
-  >
-    {{ versionLabel }}
-  </div>
 
-  <!-- pass3 B2：侧栏底部帮助入口（折叠开关是 Vben 内置的左下按钮）。 -->
-  <div
-    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
-    class="app-help"
-    :style="{ left: `${preferences.sidebar.width - 44}px` }"
-  >
-    <Popover placement="topRight" trigger="click">
-      <template #content>
-        <div class="app-help__panel">
-          <p class="app-help__title">{{ isEnglish ? 'Shortcuts' : '快捷键' }}</p>
-          <p><kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> — {{ isEnglish ? 'Command palette' : '命令面板' }}</p>
-          <p class="app-help__muted">
-            {{ isEnglish ? 'Theme and language live in the top bar.' : '主题与语言切换在顶栏右侧。' }}
-          </p>
-        </div>
-      </template>
-      <button
-        type="button"
-        class="app-help__btn"
-        :aria-label="isEnglish ? 'Help' : '帮助'"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" /><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2.1-2.5 3.6" /><circle cx="12" cy="17" r=".4" fill="currentColor" />
-        </svg>
-      </button>
-    </Popover>
-  </div>
-
-  <!-- pass4：主题/语言切换放在侧栏品牌行右侧（AgentSDR 同款位置）。 -->
+  <!-- pass4/5：主题/语言/折叠都在侧栏品牌行右侧（AgentSDR 同款位置）。 -->
   <div
     v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
     class="sdr-brandtools"
     :style="{
-      left: `${preferences.sidebar.width - 78}px`,
-      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 16)}px`,
+      left: `${preferences.sidebar.width - 100}px`,
+      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 14)}px`,
     }"
   >
+    <button
+      type="button"
+      class="sdr-brandtools__btn"
+      :aria-label="collapseToggleLabel"
+      :title="collapseToggleLabel"
+      @click="toggleSidebarCollapse"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9.5 4v16" /></svg>
+    </button>
     <button
       type="button"
       class="sdr-brandtools__btn"
@@ -394,31 +345,33 @@ onUnmounted(() => {
     </button>
   </div>
 
-  <SdrSidebar @open-search="paletteRef?.open()" />
+  <!-- pass5：移动端抽屉开关（顶栏隐藏后 Vben 的 burger 不可见，代理点击它）。 -->
+  <button
+    v-if="isMobile"
+    type="button"
+    class="sdr-mobile-burger"
+    :aria-label="mobileMenuLabel"
+    :aria-expanded="false"
+    @click="openMobileDrawer"
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" /></svg>
+  </button>
+
+  <SdrSidebar
+    :unread-count="unreadCount"
+    :user-avatar="avatar"
+    :user-email="userStore.userInfo?.username ?? ''"
+    :workspace-name="companyName"
+    @logout="handleLogout"
+    @open-search="paletteRef?.open()"
+    @open-settings="settingsOpen = true"
+    @toggle-collapse="toggleSidebarCollapse"
+  />
+  <SettingsDialog v-model:open="settingsOpen" />
   <CommandPalette ref="paletteRef" />
 </template>
 
 <style scoped>
-/* 侧栏底部（折叠/固定按钮之间）显示产品版本与构建 SHA；折叠或移动端隐藏。
-   侧栏 aside 自身 z-index=201，fixed 标签必须高于它才不会被侧栏底色盖住。 */
-.app-version {
-  position: fixed;
-  bottom: 10px;
-  left: 0;
-  z-index: 202;
-  box-sizing: border-box;
-  padding: 0 44px;
-  overflow: hidden;
-  font-size: 10px;
-  line-height: 16px;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0.75;
-  transition: width 0.3s;
-}
 
 /* pass4：侧栏品牌行右侧的主题/语言切换（AgentSDR 同款位置）。 */
 .sdr-brandtools {
@@ -432,8 +385,8 @@ onUnmounted(() => {
 .sdr-brandtools__btn {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -444,36 +397,26 @@ onUnmounted(() => {
   background: var(--gs-surface-2);
   color: var(--gs-fg);
 }
-.sdr-brandtools__btn svg { width: 17px; height: 17px; }
+.sdr-brandtools__btn svg { width: 16px; height: 16px; }
 .sdr-brandtools__lang { font-size: 12px; font-weight: 500; }
 
-/* pass3 B2：侧栏底部帮助按钮（折叠开关在左下，帮助在右下）。 */
-.app-help { position: fixed; bottom: 6px; z-index: 202; transition: left 0.3s; }
-.app-help__btn {
+/* pass5：移动端抽屉开关——贴在标签栏左侧（标签栏高 40，见 gainos.css 让位）。 */
+.sdr-mobile-burger {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 202;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 40px;
   border: 0;
-  border-radius: 8px;
   background: transparent;
-  color: var(--gs-fg-subtle);
+  color: var(--gs-fg-2);
   cursor: pointer;
 }
-.app-help__btn:hover { background: var(--gs-surface-2); color: var(--gs-fg); }
-.app-help__btn svg { width: 16px; height: 16px; }
-.app-help__panel { display: grid; gap: 6px; max-width: 260px; font-size: 12.5px; }
-.app-help__panel p { margin: 0; }
-.app-help__title { font-weight: 500; }
-.app-help__muted { color: var(--gs-fg-muted); }
-.app-help__panel kbd {
-  padding: 0 5px;
-  border: 1px solid var(--gs-border);
-  border-radius: 5px;
-  background: var(--gs-surface-2);
-  font-family: inherit;
-  font-size: 10.5px;
-}
+.sdr-mobile-burger svg { width: 20px; height: 20px; }
+
 
 /* AgentSDR 侧栏规格（2026-11-22 pass2）
    Vben 只暴露一组菜单高度变量；这里用组件级 :deep 收敛：

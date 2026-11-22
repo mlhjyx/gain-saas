@@ -167,7 +167,11 @@ export async function installMockBackend(
     if (url.origin !== 'http://127.0.0.1:4173') return route.continue();
     // 整页导航（document 请求）交给 vite preview 的 SPA fallback，不当 API 拦截。
     if (request.isNavigationRequest() && request.resourceType() === 'document') return route.continue();
-    const path = url.pathname;
+    // 构建带 `VITE_GLOB_API_URL=/api` 时请求会带 /api 前缀；统一去掉再匹配，
+    // 这样同一份构建产物既能本地 e2e（mock），也能 5666 预览（preview 代理）。
+    const path = url.pathname.startsWith('/api/')
+      ? url.pathname.slice(4)
+      : url.pathname;
     if (
       request.method() === 'GET' &&
       (path === '/' || path.startsWith('/assets/') || /\.(?:css|ico|js|json|map|png|svg|woff2?)$/.test(path))

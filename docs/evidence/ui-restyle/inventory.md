@@ -1584,3 +1584,54 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 折叠窄栏 e2e 点通（图标导航 + 展开恢复）。
 - 颜色：pass4 渲染扫描 13,946 样本 violations 0（含侧栏覆盖层）；源码 88 文件 0 违规。
 - 截图：`pass4/sidebar-{light,dark}.png`、`sidebar-collapsed-light.png`、`after-{workspace,leads}-*.png`。
+
+## 14. Pass5 修复对零（2026-11-22）：左下角操作区 + 顶部标签页
+
+任务（用户原话要点）：参考 AgentSDR 把登录/设置/通知移到左下角；顶部改成标签页，
+解决页面太多的问题；以 Awwwards/Webby/FWA 获奖级网站为标准自检优化。
+
+### 14.1 布局变化（全部 preference/CSS 驱动，packages/ 零改动）
+
+| 变化 | 实现 |
+|---|---|
+| 顶栏整体隐藏 | `preferences.header.hidden: true`（+ BRAND_PREFERENCES 缓存归一） |
+| 顶部 = 标签栏 | `tabbar: {enable, showIcon, styleType:'card', height:40, showMaximize:false}`；40px 画布栏；`header.height: 40` 让侧栏品牌行与标签栏合成同一条顶部横带。Vben「内容最大化」会写 `header.hidden=false + sidebar.hidden=true`（翻出顶栏、只藏侧栏不藏 SDR 覆盖层）——该控件已移除，`sidebar.hidden:false` 进 BRAND 归一（救回被点坏的缓存）；SDR 覆盖层也尊重 `sidebar.hidden` |
+| 标签风格 | 「反白选中」：当前页 = 30px 实心药丸（浅色主题近黑底白字 / 深色主题白底深字）+ 8px 圆角 + 13px/500，非当前页 = 纯 muted 文字（透明底），hover 浮出 5% 淡底——选中与未选中一眼可辨；关闭符仅 hover/当前页出现（不可见时 pointer-events:none 防误关），右侧恒留 26px 关闭槽位保证宽度稳定，无关闭符时收回 12px；长标题 180px 截断 |
+| 标签条无滚动条 | 三路显式关闭：原生/overlay 滚动条（`scrollbar-width:none` + `::-webkit-scrollbar`）+ Vben 自带 ScrollBar（按 `data-slot='scroll-area-scrollbar'` 强制 `display:none`——它原本只靠 tailwind `hidden` 类，dev 下类名扫描差异会漏生成，5666 实测露出过）+ 溢出时靠滚轮横向滚动、两端渐隐 mask 与左右小圆角滚动按钮 |
+| 侧栏左下角操作区 | sdr-sidebar footer：分隔线 + 通知行（未读红点→/notifications）+ 设置行（打开设置弹窗，替代原「设置」导航分组）+ 帮助行（Popover：⌘K 快捷键 + 版本号） |
+| 设置信息架构（SDR SettingsShell） | 侧栏不再列 成员与角色/禁联名单/数据源/数据与隐私/审计；底部「设置」打开 1080×780 浮层：左分区导航（accessMenus 同源、按权限过滤）+ 右侧真实页面（复用路由组件，Suspense 骨架）；Esc/遮罩/× 关闭，Tab 焦点圈定，背景路由变化自动关闭；直接访问 /settings/* 仍是整页（深链不变） |
+| 工作空间账号卡 | 12px 圆角卡：头像/首字母兜底 + 空间名 + 账号 + ⋮；点开 = SDR Dropdown 同款面板（264px、16px 圆角、1px 描边、tooltip 阴影：抬头 名称/邮箱 → 分隔线 → 通知/设置/搜索或跳转(⌘K) → 分隔线 → 退出登录 红字红底 hover） |
+| 设置弹窗遮罩 | SDR Modal Overlay 同款：暗化 32% + `backdrop-filter: blur(3px)`（深色 62%），弹层下内容真实模糊 |
+| 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言；按钮 28px、右缘对齐侧栏 12px 内边距。侧栏可拖拽（Vben 允许 60–320px），布局层兜底**最小宽度 224px**（低于即拉回）——否则品牌行 logo 与工具按钮重叠（2026-11-23 用户实测） |
+| 折叠 rail | 宽度 = collapseWidth(60px)；底部 = 展开按钮（panel-left-open）+ 账号头像（未读点 + 同款 Dropdown） |
+| 移动端抽屉 | 顶栏隐藏殃及 Vben burger → `.sdr-mobile-burger`（标签栏左侧固定，代理 click 隐藏开关）；标签栏 padding-left 44px 让位 |
+| 通知部件 | widget.notification=false（入口在侧栏底部行 + 账号菜单）；basic.vue 轮询保留供未读数 |
+
+### 14.2 功能守恒
+
+- 路由/api/server/packages/store/guard/access/locales key-value：零改动。
+- 全局操作迁移等价表：顶栏主题/语言→品牌行（pass4 已做）；顶栏通知→侧栏底部行+账号菜单（未读数轮询同源）；顶栏用户菜单→账号卡 Dropdown（退出登录/设置等价）；顶栏刷新→标签栏右侧工具（Vben 自带）；帮助+版本→帮助行 Popover（pass4 overlay 等价迁移）。
+- 设置：五个设置页的入口从侧栏分组迁到设置弹窗（SDR 同款），路由/权限/页面组件零改动；`/settings/*` 深链、命令面板与旧链接（/profile、/settings/workspaces）行为不变。
+- 设置页内嵌时（设置弹窗中）不再读写 URL query（audit 筛选只存本地）——背景路由属于用户当前页面，避免污染；整页模式下 URL 同步保持原样（`SETTINGS_EMBEDDED_KEY` 注入，默认 false）。
+- 删除的仅为死代码：basic.vue 通知槽位处理器（markRead/remove/handleMakeAll/viewAll/handleClick/navigateTo）、UserDropdown 槽位、版本号常量（功能分别由通知页自身/侧栏账号卡/帮助弹层承载）。
+- 顶栏隐藏后 `<header>` 仍在 DOM（margin-top 滑出）；既有 spec 的 `banner menuitem=0` 断言继续成立。
+
+### 14.3 视觉自检（获奖级标准逐项）
+
+- 排版：标签 13px/500、-0.011em；栏内 40px 高、30px 卡、上下各 5px 呼吸；左右 12px 与侧栏节奏对齐；标签间 2px。
+- 留白/层级：当前页白卡 + 微阴影浮于 `--gs-bg` 画布之上，非当前页只留文字——一眼可辨“我在哪、还能去哪”。
+- 色彩：选中 = 反白实心药丸（#171717/白字，深色反转），未选中 = #5C5C5C muted 文字；品牌蓝只留给主行动与 focus 环。
+- 动效：颜色/背景/阴影 150ms；按压 scale .985（120ms）；关闭符 140ms 淡入；标签溢出滚动由 Vben 以瞬移（非平滑）执行，避免长列表的拖影。
+- 账号菜单：对齐 AlignUI Dropdown（rounded-2xl / p-2 / ring-1 / 36px 条目 / 18px 图标 / 全幅分隔线 / destructive 红字红底），条目含 ⌘K 提示与未读点。
+- 中键关闭：按下只抑制浏览器中键自动滚动，**释放（auxclick）才关闭**（`tabbar.middleClickToClose=false` + basic.vue 文档级监听，按 `data-index` 定位页签；与浏览器标签一致）。
+- 微交互：关闭符 hover 才出现且不可见时不可点；hover 淡底；工具按钮（更多/刷新/最大化）去掉竖分隔线改 30px 圆角热区，移动端 34px；focus-visible 品牌环。
+- 响应式：移动端 burger 44×40 + 标签栏 padding-left 44px 无重叠（390px 实测）；标签长标题 180px 截断。
+- 原创性：不做 Chrome 式“附着页签”，采用与侧栏 active 同语言的“白卡浮层”+ 恒留关闭槽位 + 按需出现关闭符，形成本产品自己的标签语言。
+
+### 14.4 测试与证据
+
+- 新 spec `pass5-shell.spec.ts`：标签页留痕/切换/关闭/active 样式、侧栏底部三行+账号卡+帮助弹层、设置弹窗开合（含账号菜单入口）、折叠 rail 宽度 60/展开入口、移动端 burger 开抽屉。
+- `settings-shell.spec.ts` 重写为弹窗口径：五分区切换、审计页控件、背景 URL 不变、Esc 关闭、深链仍是整页。
+- 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
+- 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
+- 截图：`pass5/{light,dark}-{workspace,tabs-many}.png`、`light-command-palette.png`、`light-tabs-overflow.png`（1100px 溢出态：无滚动条、两端滚动钮）、`light-tab-hover/tool-hover/help-popover/rail/rail-account-menu.png`、`{light,dark}-account-menu.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（18 张）。

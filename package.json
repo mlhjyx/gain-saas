@@ -34,6 +34,7 @@
     "bootstrap:operator": "pnpm --filter @gain-saas/server bootstrap:operator",
     "bootstrap:backfill": "pnpm --filter @gain-saas/server bootstrap:backfill",
     "db:migrate": "pnpm --filter @gain-saas/server db:migrate",
-    "db:generate": "pnpm --filter @gain-saas/server db:generate"
+    "db:generate": "pnpm --filter @gain-saas/server db:generate",
+    "preview:web": "pnpm --filter @vben/web-antd build && pnpm --filter @vben/web-antd preview --port 5666 --strictPort"
   }
 }
