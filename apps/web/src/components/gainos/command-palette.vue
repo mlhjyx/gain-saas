@@ -18,6 +18,8 @@ import { useAccessStore } from '@vben/stores';
 
 import { useMagicKeys, whenever } from '@vueuse/core';
 
+import { $t } from '#/locales';
+
 defineOptions({ name: 'CommandPalette' });
 
 interface PaletteItem {
@@ -85,11 +87,13 @@ const pageItems = computed<PaletteItem[]>(() => {
         continue;
       }
       if (!menu.path || menu.path.startsWith('__')) continue;
+      // 菜单 name 可能是 i18n key（路由 meta 在 i18n 初始化前求值），
+      // 统一过 $t 再展示/匹配——与侧边栏同款，避免出现 gainos.menu.* 原文。
       rows.push({
-        hint: hint || menu.name,
+        hint: hint || $t(menu.name),
         id: `page-${menu.path}`,
         kind: 'page',
-        label: menu.name,
+        label: $t(menu.name),
         path: menu.path,
         query: menu.query as Record<string, string> | undefined,
       });

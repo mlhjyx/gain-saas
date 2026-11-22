@@ -181,9 +181,12 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
     menu.getByRole('menuitem', { name: '退出登录' }),
   ).toBeVisible();
 
-  // 「搜索或跳转」直达命令面板。
+  // 「搜索或跳转」直达命令面板；标签必须是译文，不能出现 gainos.menu.* 原文。
   await menu.getByRole('menuitem', { name: /搜索或跳转/ }).click();
   await expect(page.getByRole('dialog').filter({ has: page.locator('.cmdk__list') })).toBeVisible();
+  await expect(page.locator('.cmdk__list')).toContainText('挖掘任务');
+  await expect(page.locator('.cmdk__list')).toContainText('成员与角色');
+  await expect(page.locator('.cmdk__list')).not.toContainText('gainos.menu.');
   await page.keyboard.press('Escape');
   await expect(page.locator('.cmdk__list')).toHaveCount(0);
 
