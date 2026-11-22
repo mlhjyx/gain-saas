@@ -12,7 +12,7 @@ import {
   Notification,
   UserDropdown,
 } from '@vben/layouts';
-import { preferences, usePreferences } from '@vben/preferences';
+import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { Popover } from 'ant-design-vue';
@@ -21,6 +21,7 @@ import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
 import CommandPalette from '#/components/gainos/command-palette.vue';
+import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
@@ -40,14 +41,25 @@ const accessStore = useAccessStore();
 // 路由仍是扁平结构；只把 Vben 的菜单数据收进 6 个业务组（工作空间/获客/线索/活动/增长/设置）。
 useMenuGroups();
 
-// pass3 C1：命令面板（⌘K），替换 Vben 内置搜索（widget.globalSearch=false）。
+// pass3 C1：命令面板（⌘K）。pass4：搜索入口移入 SDR 侧栏，顶栏不再承载搜索。
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
-const searchLabel = computed(() =>
-  isEnglish.value ? 'Search or jump to…' : '搜索或跳转…',
+
+// pass4：主题 / 语言切换从顶栏移入侧栏品牌行（AgentSDR 同款位置）。
+const themeToggleLabel = computed(() => (isDark.value ? 'light' : 'dark'));
+function toggleTheme(): void {
+  updatePreferences({ theme: { mode: isDark.value ? 'light' : 'dark' } });
+}
+const langToggleLabel = computed(() =>
+  isEnglish.value ? 'Switch to Chinese' : '切换到 English',
 );
+function toggleLocale(): void {
+  void preferences.app.locale;
+  updatePreferences({ app: { locale: isEnglish.value ? 'zh-CN' : 'en-US' } });
+}
 const { destroyWatermark, updateWatermark } = useWatermark();
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
+// pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
 const appVersion = __APP_VERSION__;
 const appCommit = __APP_COMMIT__;
 const versionLabel = computed(() =>
@@ -278,21 +290,6 @@ onUnmounted(() => {
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
   >
-    <template #header-right-1>
-      <button
-        type="button"
-        class="cmdk-trigger"
-        :aria-label="searchLabel"
-        :title="`${searchLabel} (⌘K)`"
-        @click="paletteRef?.toggle()"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" />
-        </svg>
-        <span class="cmdk-trigger__label">{{ searchLabel }}</span>
-        <kbd>⌘K</kbd>
-      </button>
-    </template>
     <template #user-dropdown>
       <UserDropdown
         :avatar
@@ -364,6 +361,37 @@ onUnmounted(() => {
     </Popover>
   </div>
 
+  <!-- pass4：主题/语言切换放在侧栏品牌行右侧（AgentSDR 同款位置）。 -->
+  <div
+    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
+    class="sdr-brandtools"
+    :style="{
+      left: `${preferences.sidebar.width - 78}px`,
+      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 16)}px`,
+    }"
+  >
+    <button
+      type="button"
+      class="sdr-brandtools__btn"
+      :aria-label="themeToggleLabel"
+      :title="themeToggleLabel"
+      @click="toggleTheme"
+    >
+      <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4.4" /><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>
+    </button>
+    <button
+      type="button"
+      class="sdr-brandtools__btn sdr-brandtools__lang"
+      :aria-label="langToggleLabel"
+      :title="langToggleLabel"
+      @click="toggleLocale"
+    >
+      {{ isEnglish ? 'EN' : '中' }}
+    </button>
+  </div>
+
+  <SdrSidebar @open-search="paletteRef?.open()" />
   <CommandPalette ref="paletteRef" />
 </template>
 
@@ -389,37 +417,32 @@ onUnmounted(() => {
   transition: width 0.3s;
 }
 
-/* pass3 C1：顶栏命令面板触发按钮（替代内置搜索）。窄屏只留图标。 */
-.cmdk-trigger {
-  display: inline-flex;
+/* pass4：侧栏品牌行右侧的主题/语言切换（AgentSDR 同款位置）。 */
+.sdr-brandtools {
+  position: fixed;
+  z-index: 202;
+  display: flex;
+  gap: 2px;
   align-items: center;
-  gap: 8px;
+  transition: left 0.3s;
+}
+.sdr-brandtools__btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
   height: 32px;
-  margin-right: 4px;
-  padding: 0 10px;
-  border: 1px solid var(--gs-border);
-  border-radius: 999px;
-  background: var(--gs-surface);
-  color: var(--gs-fg-muted);
-  font-size: 13px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gs-fg-subtle);
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
 }
-.cmdk-trigger:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.cmdk-trigger svg { width: 15px; height: 15px; }
-.cmdk-trigger kbd {
-  padding: 0 5px;
-  border: 1px solid var(--gs-border);
-  border-radius: 5px;
+.sdr-brandtools__btn:hover {
   background: var(--gs-surface-2);
-  font-family: inherit;
-  font-size: 10.5px;
-  line-height: 15px;
+  color: var(--gs-fg);
 }
-.cmdk-trigger__label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 900px) {
-  .cmdk-trigger__label { display: none; }
-}
+.sdr-brandtools__btn svg { width: 17px; height: 17px; }
+.sdr-brandtools__lang { font-size: 12px; font-weight: 500; }
 
 /* pass3 B2：侧栏底部帮助按钮（折叠开关在左下，帮助在右下）。 */
 .app-help { position: fixed; bottom: 6px; z-index: 202; transition: left 0.3s; }
@@ -464,7 +487,7 @@ onUnmounted(() => {
   --menu-item-hover-background-color: var(--gs-surface-2);
   --menu-item-hover-color: var(--gs-fg);
   --menu-item-active-background-color: var(--gs-surface-2);
-  --menu-item-active-color: var(--gs-accent);
+  --menu-item-active-color: var(--gs-fg);
 }
 :deep(.vben-sub-menu .vben-menu) {
   --menu-item-height: 32px;
@@ -474,17 +497,6 @@ onUnmounted(() => {
 }
 :deep(.vben-menu-item.is-active) {
   font-weight: 500;
-}
-:deep(.vben-menu-item.is-active::before) {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 3px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--gs-accent);
-  transform: translateY(-50%);
 }
 :deep(.vben-sub-menu > .vben-sub-menu-content) {
   display: flex;

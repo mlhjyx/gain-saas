@@ -141,7 +141,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   );
 
   await loginAs(page);
-  await page.locator('.vben-menu').getByText('获客', { exact: true }).click();
+  await page.locator('[data-sdr-nav]').getByText('获客', { exact: true }).click();
   await page.getByRole('menuitem', { name: '公司档案' }).click();
   await page.waitForURL(/\/companies/);
   await page.getByRole('button', { name: '查看档案' }).click();
@@ -580,7 +580,7 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
 
   await loginAs(page);
   // 设置 → 禁联名单
-  await page.locator('.vben-menu').getByText('设置', { exact: true }).click();
+  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
   await page.getByRole('menuitem', { name: '禁联名单' }).click();
   await page.waitForURL(/\/settings\/suppressions/);
   await expect(page.getByRole('heading', { name: '禁联名单', exact: true })).toBeVisible();

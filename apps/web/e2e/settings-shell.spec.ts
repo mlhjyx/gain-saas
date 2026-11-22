@@ -14,7 +14,7 @@ test('设置子导航切换审计页，筛选与导出控件可用', async ({ pa
   await page.goto('/settings/members');
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
 
-  const menu = page.locator('.vben-menu');
+  const menu = page.locator('[data-sdr-nav]');
   const auditItem = page.getByRole('menuitem', { name: '审计' });
   if (!(await auditItem.isVisible().catch(() => false))) {
     await menu.getByText('设置', { exact: true }).click();
