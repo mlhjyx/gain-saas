@@ -14,6 +14,8 @@ import { overridesPreferences, preferencesExtension } from './preferences';
  *   （nprogress 进度条、壳层派生色全部跟随）；
  * - logo.source/sourceDark：带版本号的 logo URL，击穿浏览器图片缓存；
  * - app.layout：垂直侧边栏，顶栏不再渲染菜单。
+ * - widget.themeToggle/languageToggle/globalSearch：顶栏部件归一
+ *   （主题/语言在侧栏品牌行，搜索在侧栏 ⌘K 框）。
  * 其余字段（theme.mode 明暗、sidebar.width/collapsed、语言等用户偏好）尊重缓存。
  */
 const BRAND_PREFERENCES = {
@@ -23,6 +25,13 @@ const BRAND_PREFERENCES = {
     sourceDark: '/logo-gainos.svg?v=pass3',
   },
   theme: { builtinType: 'default', colorPrimary: '#335CFF' },
+  // pass4：顶栏部件清单也归一——老缓存里的 themeToggle/languageToggle=true
+  // 会让顶栏重新长出主题/语言按钮（与侧栏重复）。
+  widget: {
+    globalSearch: false,
+    languageToggle: false,
+    themeToggle: false,
+  },
 } as const;
 
 /**

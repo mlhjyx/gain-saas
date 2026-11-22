@@ -49,7 +49,7 @@ function groupLocator(
   group: string,
 ) {
   // Vben 的分组标题是 submenu 的 toggle，不是 menuitem；按可见文本定位。
-  return page.locator('.vben-menu').getByText(group, { exact: true });
+  return page.locator('[data-sdr-nav]').getByText(group, { exact: true });
 }
 
 async function ensureLeafVisible(
@@ -76,7 +76,7 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   for (const group of NAV_GROUPS) {
     await expect(groupLocator(page, group.group)).toBeVisible();
   }
-  await expect(page.locator('.vben-menu').getByText('设置', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-sdr-nav]').getByText('设置', { exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
@@ -90,7 +90,7 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   }
 
   // 设置是含子项的分组：展开后进入「成员与角色」
-  await page.locator('.vben-menu').getByText('设置', { exact: true }).click();
+  await page.locator('[data-sdr-nav]').getByText('设置', { exact: true }).click();
   await page.getByRole('menuitem', { name: '成员与角色' }).click();
   await page.waitForURL((url) => url.pathname === '/settings/members');
   await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();

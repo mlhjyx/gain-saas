@@ -58,17 +58,17 @@ export const overridesPreferences = defineOverridesPreferences({
   // 去掉锁屏 / 时区 / 设置抽屉入口(后者在移动端会浮在内容之上)。
   // 注意：**不要在这里重写 widget.order** —— vben 的偏好合并用 defu，数组是拼接
   // 而不是覆盖，再写一遍会让每个控件渲染两次（2026-11-09 全站顶栏重复的根因）。
-  // 默认 order 里已被下面布尔开关裁掉 preferences/timezone/fullscreen/lockScreenBtn，
-  // 剩余可见序列（搜索→主题→语言→刷新→通知→退出）正是产品要的顺序。
+  // pass4：顶栏只留刷新/通知/用户；主题与语言在侧栏品牌行（SDR 同款），
+  // 登录/注册页另有独立的同功能控件(AuthTools)。
   widget: {
     // pass3 C1：内置搜索由自定义命令面板替代（页面 + 动作 + ⌘K）。
     globalSearch: false,
+    // pass4：主题/语言切换移入侧栏品牌行（basic.vue sdr-brandtools），
+    // 顶栏只留刷新/通知/用户。
+    themeToggle: false,
+    languageToggle: false,
     lockScreen: false,
     timezone: false,
-    // 语言(中文/English)与主题(浅色/深色)都是一等能力:顶栏保留切换,
-    // 登录/注册页另有独立的同功能控件(AuthTools)。
-    languageToggle: true,
-    themeToggle: true,
     fullscreen: false,
   },
   copyright: appCopyrightPreferences,

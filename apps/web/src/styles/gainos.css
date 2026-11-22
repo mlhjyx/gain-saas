@@ -327,6 +327,14 @@ h6 {
 }
 
 
+/* ── pass4：桌面侧栏菜单由 SDR 覆盖层（sdr-sidebar.vue）渲染，
+   隐藏 Vben 菜单避免重复 menuitem；<768px 的移动抽屉仍用 Vben 菜单。 ── */
+@media (min-width: 768px) {
+  aside[data-layout-region='sidebar'] .vben-menu {
+    display: none;
+  }
+}
+
 /* ── pass3 C9：微交互统一（仅 CSS，无动画库）── */
 /* 主按钮：hover 微上移 + 阴影，active 下压 */
 .gs-card > button,

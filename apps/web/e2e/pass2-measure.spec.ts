@@ -51,13 +51,13 @@ test('pass2 measurable specs', async ({ page }) => {
   const workspace = await page.evaluate(() => {
     const style = (el: Element | null) => (el ? getComputedStyle(el) : null);
     const rect = (el: Element | null) => (el ? el.getBoundingClientRect() : null);
-    const groupLabels = [...document.querySelectorAll('.vben-sub-menu-content')];
-    const items = [...document.querySelectorAll('.vben-menu-item')].filter((el) => {
+    const groupLabels = [...document.querySelectorAll('.sdr-section__label')];
+    const items = [...document.querySelectorAll('.sdr-row')].filter((el) => {
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     });
-    const groupTitle = document.querySelector('.vben-sub-menu-content__title');
-    const active = document.querySelector('.vben-menu-item.is-active');
+    const groupTitle = document.querySelector('.sdr-section__label');
+    const active = document.querySelector('.sdr-row.is-active');
     const card = document.querySelector('.wk__summary');
     const cta = document.querySelector('.wk__cta');
     return {
@@ -77,8 +77,8 @@ test('pass2 measurable specs', async ({ page }) => {
       active: active
         ? {
             background: style(active)?.backgroundColor,
+            borderRadius: style(active)?.borderRadius,
             color: style(active)?.color,
-            indicatorWidth: getComputedStyle(active, '::before').width,
           }
         : null,
       card: card
@@ -116,11 +116,12 @@ test('pass2 measurable specs', async ({ page }) => {
   );
   console.log('PASS2_MEASUREMENTS', JSON.stringify(report));
 
-  expect(workspace.groupLabel.height).toBeGreaterThanOrEqual(35);
+  expect(workspace.groupLabel.titleFontSize).toBe('12px');
   expect(workspace.items.fontWeight).toBe('500');
-  expect(workspace.items.heights).toContain(32);
-  expect(workspace.groupLabel.titleFontSize).toBe('11px');
-  expect(workspace.active?.indicatorWidth).toBe('3px');
+  expect(workspace.items.heights).toContain(36);
+  // SDR active：灰底药丸 + 近黑文字（无彩条）。
+  expect(workspace.active?.background).toBe('rgb(245, 245, 245)');
+  expect(workspace.active?.color).toBe('rgb(23, 23, 23)');
   expect(workspace.mainCtaRadius).toBe('9999px');
   expect(workspace.card?.radius).toBe('10px');
   expect(workspace.card?.shadow).not.toBe('none');

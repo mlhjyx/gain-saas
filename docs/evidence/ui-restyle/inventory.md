@@ -1537,3 +1537,50 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 颜色白名单（渲染 DOM，明暗两主题 + nprogress bar 显式断言 `rgb(51,92,255)`）：`pass3/color-scan.txt` — 11,259 样本，violations 0。
 - 前后对比截图：`pass3/before-*.png`（= pass2 后）/ `after-*.png`（workspace、leads、settings/members，明暗各一套）。
 - 盲测说明：自动化无法替代真人；PR 中列出 ≥5 处可感差异清单（命令面板、骨架屏、hero 卡、可点漏斗 hover、侧栏帮助/纯侧边栏、数字动效、完成反馈）供人工盲测核对。
+
+
+---
+
+## 13. Pass4 修复对零（2026-11-22）：SDR 侧栏对齐
+
+### 13.1 问题与方案
+
+用户实测：菜单栏未按 SDR 风格改造。根因有二：
+1. Vben 菜单按「可折叠分组（手风琴）」渲染，多数菜单项默认收起，与 SDR「分组标签 + 全部可见」结构不符；
+2. 主题/语言/搜索仍在顶栏，与 SDR「操作都在左侧栏」不符。
+
+方案：新增 `components/gainos/sdr-sidebar.vue` 以 fixed 覆盖层渲染 SDR 原版结构（packages/ 禁改，无法替换 Vben 菜单插槽）；桌面隐藏 Vben 菜单（gainos.css，<768px 移动抽屉仍用 Vben 菜单）。
+
+### 13.2 SDR 规格落地（Sidebar.tsx 逐项对照）
+
+| SDR 规格 | 实现 | 量测（measurements.json） |
+|---|---|---|
+| 分组小标签 12px 灰 | `.sdr-section__label` 12px/500 subtle 灰 | titleFontSize 12px |
+| 行 h-9(36px)/px-2(8px)/rounded-lg(8px)/500 | `.sdr-row` | height 36 / fontSize 14 / weight 500 / radius 8 |
+| active = bg-bg-weak-50 + text-strong-950（灰底药丸+近黑字，无彩条） | `.sdr-row.is-active` | bg rgb(245,245,245) / color rgb(23,23,23) |
+| hover = 同灰底 | `.sdr-row:hover` | — |
+| 图标：active 实心近黑 / 非激活 soft 灰 | icon 颜色随状态 | — |
+| 分组永远可见（无手风琴） | sections 拍平 accessMenus | 11 个 menuitem 全部直接可见 |
+| Jump to 搜索框在侧栏顶部（h-9 ring-1 + ⌘K） | `.sdr-search` → 打开命令面板 | — |
+| 折叠为图标窄栏 + tooltip | `.sdr-rail`（Vben 左下折叠按钮触发） | e2e 点通 |
+| 品牌行右侧主题切换 | `sdr-brandtools`（aria-label dark/light 保持 e2e 兼容） | — |
+| 顶栏无菜单、无主题/语言/搜索 | widget 缓存归一 + overlay | banner menuitem=0 |
+
+### 13.3 缓存归一扩展
+
+`BRAND_PREFERENCES` 新增 `widget.{themeToggle,languageToggle,globalSearch}=false`：老缓存里这些顶栏开关=true 会让顶栏重新长出主题/语言按钮（与侧栏重复）。
+
+### 13.4 功能守恒
+
+- 路由/api/server/packages/store/guard/access：零改动（新增组件 + CSS + preferences + 布局文件内 wiring）。
+- 既有 locales key/value 零改动；侧栏标签/搜索文案经 `$t(menu.name)`（Vben wrapperMenus 同款，i18n key 或已译文本都正确）。
+- 顶栏保留：侧栏开关、刷新、通知、用户菜单（通知/用户无侧栏承载位，保留为 SDR 页面级能力的等价物；SDR 本身无此二者，删除断功能不可接受）。
+- 移动端抽屉仍用 Vben 菜单（<768px 覆盖层隐藏），active 已同步改为 SDR 灰底药丸。
+- 有意展示差异仅：桌面侧栏菜单由覆盖层渲染、顶栏部件收窄、折叠态为图标窄栏。
+
+### 13.5 测试与证据
+
+- 规格迁移：nav-shell/settings-shell/main-chain/pass3-cache-normalize 的 `.vben-menu` 作用域 → `[data-sdr-nav]`；pass2-measure 断言改为 SDR 量测（36px/12px/灰底 active/8px 圆角）。
+- 折叠窄栏 e2e 点通（图标导航 + 展开恢复）。
+- 颜色：pass4 渲染扫描 13,946 样本 violations 0（含侧栏覆盖层）；源码 88 文件 0 违规。
+- 截图：`pass4/sidebar-{light,dark}.png`、`sidebar-collapsed-light.png`、`after-{workspace,leads}-*.png`。

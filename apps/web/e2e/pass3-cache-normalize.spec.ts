@@ -70,9 +70,9 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
   );
 
   // 2) 垂直侧边栏渲染，且顶栏（banner）没有任何菜单项。
-  await expect(page.getByRole('complementary').locator('.vben-menu').first()).toBeVisible();
+  await expect(page.locator('[data-sdr-nav]')).toBeVisible();
   await expect(page.getByRole('banner').getByRole('menuitem')).toHaveCount(0);
-  await expect(page.getByRole('complementary').getByRole('menuitem').first()).toBeVisible();
+  await expect(page.locator('[data-sdr-nav]').getByRole('menuitem').first()).toBeVisible();
 
   // 3) logo URL 已带版本号（击穿图片缓存）。banner 里第一张 img 是用户头像
   //    （mock 数据 URI），品牌 logo 按 src 选择器定位。
