@@ -1602,7 +1602,7 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 | 设置信息架构（SDR SettingsShell） | 侧栏不再列 成员与角色/禁联名单/数据源/数据与隐私/审计；底部「设置」打开 1080×780 浮层：左分区导航（accessMenus 同源、按权限过滤）+ 右侧真实页面（复用路由组件，Suspense 骨架）；Esc/遮罩/× 关闭，Tab 焦点圈定，背景路由变化自动关闭；直接访问 /settings/* 仍是整页（深链不变） |
 | 工作空间账号卡 | 12px 圆角卡：头像/首字母兜底 + 空间名 + 账号 + ⋮；点开 = SDR Dropdown 同款面板（264px、16px 圆角、1px 描边、tooltip 阴影：抬头 名称/邮箱 → 分隔线 → 通知/设置/搜索或跳转(⌘K) → 分隔线 → 退出登录 红字红底 hover） |
 | 设置弹窗遮罩 | SDR Modal Overlay 同款：暗化 32% + `backdrop-filter: blur(3px)`（深色 62%），弹层下内容真实模糊 |
-| 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言 |
+| 品牌行三按钮 | 折叠（sidebar.collapsedButton=false 后 Vben 左下按钮关闭）、主题、语言；按钮 28px、右缘对齐侧栏 12px 内边距。侧栏可拖拽（Vben 允许 60–320px），布局层兜底**最小宽度 224px**（低于即拉回）——否则品牌行 logo 与工具按钮重叠（2026-11-23 用户实测） |
 | 折叠 rail | 宽度 = collapseWidth(60px)；底部 = 展开按钮（panel-left-open）+ 账号头像（未读点 + 同款 Dropdown） |
 | 移动端抽屉 | 顶栏隐藏殃及 Vben burger → `.sdr-mobile-burger`（标签栏左侧固定，代理 click 隐藏开关）；标签栏 padding-left 44px 让位 |
 | 通知部件 | widget.notification=false（入口在侧栏底部行 + 账号菜单）；basic.vue 轮询保留供未读数 |

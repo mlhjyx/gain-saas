@@ -231,6 +231,48 @@ test('折叠 rail：品牌行折叠 → 展开入口回到完整侧栏', async (
   await expect(page.locator('.sdr-rail')).toBeHidden();
 });
 
+test('侧栏拖拽有最小宽度：低于 224px 时拉回且品牌行不重叠', async ({ page }) => {
+  // 预置一个被拖窄的缓存（Vben 允许拖到 60px，品牌行会叠在一起）。
+  await page.addInitScript(
+    ([key, value]) => {
+      if (!window.localStorage.getItem('min-width-injected')) {
+        window.localStorage.setItem(key!, value!);
+        window.localStorage.setItem('min-width-injected', '1');
+      }
+    },
+    [
+      'vben-web-antd-5.8.0-prod-preferences',
+      JSON.stringify({ value: { sidebar: { width: 150 } } }),
+    ],
+  );
+  await installMockBackend(page);
+  await loginAs(page);
+  await page.goto('/workspace');
+  await settle(page);
+
+  const geo = await page.evaluate(() => {
+    const aside = document.querySelector(
+      "aside[data-layout-region='sidebar']",
+    ) as HTMLElement;
+    const tools = document.querySelector('.sdr-brandtools') as HTMLElement;
+    const logoText = [
+      ...document.querySelectorAll("aside[data-layout-region='sidebar'] *"),
+    ].find(
+      (el) => el.textContent?.trim() === 'GainOS' && el.children.length === 0,
+    ) as HTMLElement | null;
+    return {
+      asideW: Math.round(aside.getBoundingClientRect().width),
+      brandOverlap:
+        logoText && tools
+          ? tools.getBoundingClientRect().left <
+            logoText.getBoundingClientRect().right
+          : null,
+    };
+  });
+  expect(geo.asideW).toBeGreaterThanOrEqual(224);
+  expect(geo.brandOverlap, '品牌行 logo 与工具按钮不得重叠').toBe(false);
+});
+
 test('移动端：burger 代理打开抽屉导航', async ({ browser }) => {
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 },

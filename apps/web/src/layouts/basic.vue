@@ -103,6 +103,20 @@ function guardMiddleDown(event: MouseEvent): void {
   if (el) event.preventDefault();
 }
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
+
+// pass5：侧栏可拖拽（Vben 允许拖到 60px），但品牌行 logo 与右侧工具是
+// 固定布局——低于 224px 会重叠。这里给拖拽结果兜底一个最小宽度。
+const SIDEBAR_MIN_WIDTH = 224;
+watch(
+  () => preferences.sidebar.width,
+  (width) => {
+    if (!isSideMode.value) return;
+    if (width < SIDEBAR_MIN_WIDTH) {
+      updatePreferences({ sidebar: { width: SIDEBAR_MIN_WIDTH } });
+    }
+  },
+  { immediate: true },
+);
 // pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
 /** 侧栏底部通知行的未读红点数据源（通知部件已从顶栏移除，轮询保留）。 */
 const unreadCount = computed(
@@ -297,8 +311,8 @@ onUnmounted(() => {
     v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
     class="sdr-brandtools"
     :style="{
-      left: `${preferences.sidebar.width - 112}px`,
-      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 16)}px`,
+      left: `${preferences.sidebar.width - 100}px`,
+      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 14)}px`,
     }"
   >
     <button
@@ -371,8 +385,8 @@ onUnmounted(() => {
 .sdr-brandtools__btn {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -383,7 +397,7 @@ onUnmounted(() => {
   background: var(--gs-surface-2);
   color: var(--gs-fg);
 }
-.sdr-brandtools__btn svg { width: 17px; height: 17px; }
+.sdr-brandtools__btn svg { width: 16px; height: 16px; }
 .sdr-brandtools__lang { font-size: 12px; font-weight: 500; }
 
 /* pass5：移动端抽屉开关——贴在标签栏左侧（标签栏高 40，见 gainos.css 让位）。 */
