@@ -45,3 +45,24 @@
 - 适用范围：用户登录后的系统内页面；平台运营台 `/ops` 与登录/注册页不因视觉改造而动。
 - 功能守恒：可以删除装饰性标语、重复提示与次要标签；表单标签、校验规则、错误/空状态、操作入口与 API 调用不得删除。
 - AX：保留语义化标题、可读的控件名称与稳定的测试锚点；不要用视觉层级替代 DOM 语义。
+
+## 6. 开发预发与本地验证（2026-11-22 增补）
+
+### 开发预发：用户先验收，再部署
+
+- **dev server 是用户验收入口**：`pnpm dev:web`（端口 5666；vite.config.ts 把 `/api` 代理到本机 4020 的 gain-saas-web，走真实登录与数据；仓库无 `@vben/backend-mock` 包，nitro mock 自动跳过）。用户在 `http://127.0.0.1:5666` 验收通过后才走 PR → CI → 合并 → 部署，避免"部署到线上才发现不对"。
+- **从哪跑**：改动在哪个 worktree，dev server 就从那个 worktree 启动（HMR 即时反映）；合并后需要长期预览时从根 checkout 重启。
+- dev server 是开发工具，不受 systemd 约束，但**禁止占用 4020/5433/18446**（生产端口）。挂了重跑 `pnpm dev:web` 即可。
+- 登录态：cookie 不分端口，用户在 4020 已登录则 5666 直接共享同一会话。
+
+### 本地测试分层：别和 CI 重复跑全量
+
+- 改动后本地只跑**受影响的定向 spec**（分钟级，如 nav-shell / settings-shell / cache-normalize）；全量 `pnpm e2e:nav` 交给 CI。定向本地绿 + CI 全量绿 = 通过；本地和 CI 各跑一遍全量纯属浪费（~12 分钟 ×2）。
+- 纯文档/配置改动：本地 `lint:terms` + `lint:date` 过即可提 PR。
+- 等 main CI 期间可预构建（server 无改动时 web-only build 只要 ~15 秒），合并后直接部署。
+
+### 环境陷阱（每次建 worktree 后先做，免得白排查）
+
+- `.env*` 是 gitignored，worktree 里没有：`cp apps/web/.env apps/web/.env.development <worktree>/apps/web/`。缺 `.env` 会得到 `undefined-…` 偏好 namespace（缓存归一 e2e 误判）；缺 `.env.development` 则 dev 模式 apiURL 为空、不走 `/api` 代理。
+- 根 checkout 的 `.env.production` 设了 `VITE_GLOB_API_URL=/api`，会让 e2e mock（只匹配无 `/api` 前缀的路径）失效——**本地 e2e 一律在 worktree 里跑**，不要在根 checkout 跑。
+- e2e 前确认 4173 无残留 preview 进程：`ss -ltnp 'sport = :4173'`，有则 kill。
