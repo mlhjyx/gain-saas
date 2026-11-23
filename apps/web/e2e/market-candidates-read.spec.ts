@@ -763,10 +763,12 @@ test.describe("service authorization collision and post-prepare read stages", ()
     h.state.deny = "write";
     await h.button("prepare").click();
     await expect(h.button("prepare")).toBeDisabled();
-    const posts = h.requests.filter((request) => request.method === "POST").length;
+    const postCount = () => h.requests.filter((request) => request.method === "POST").length;
+    await expect.poll(postCount).toBe(1);
+    const posts = postCount();
     h.state.deny = "";
     await page.waitForTimeout(200);
-    expect(h.requests.filter((request) => request.method === "POST").length).toBe(posts);
+    expect(postCount()).toBe(posts);
   });
 
   test("post-prepare cold-read error keeps its trusted read copy, not the prepare copy", async ({
