@@ -616,6 +616,7 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
 // ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
 const docsOpen = ref(false);
 const docsRecoveryReadOnly = ref(false);
+let docsEpoch = 0;
 const docsCompany = ref<CompanyProfile | null>(null);
 const docs = ref<SellerDocument[]>([]);
 const docsCursor = ref<string | undefined>(undefined);
@@ -668,6 +669,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsCompany.value = company;
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
+  docsEpoch += 1;
   await nextTick();
   docsPanel.value?.focus();
   docsError.value = null;
@@ -695,6 +697,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
 function closeDocuments(): void {
   docsOpen.value = false;
   docsRecoveryReadOnly.value = false;
+  docsEpoch += 1;
   if (docsTimer) {
     clearInterval(docsTimer);
     docsTimer = null;
@@ -703,20 +706,23 @@ function closeDocuments(): void {
 
 async function loadDocuments(silent = false, reset = true): Promise<void> {
   const companyId = docsCompany.value?.id;
+  const epoch = docsEpoch;
   if (!companyId) return;
+  const current = () => docsCompany.value?.id === companyId && docsEpoch === epoch;
   if (!silent) docsLoading.value = true;
   try {
     // P5b-09：资料库改游标分页；reset 拉第一页，否则按 docsCursor 追加。
     const page = await gainosApi.sellerDocuments(companyId, reset ? undefined : docsCursor.value);
+    if (!current()) return;
     const rows = page?.data ?? [];
     docs.value = reset ? rows : [...docs.value, ...rows];
     docsCursor.value = page?.page?.next_cursor ?? undefined;
     docsHasMore.value = Boolean(page?.page?.has_more && page?.page?.next_cursor);
     docsError.value = null;
   } catch (err) {
-    if (!silent) docsError.value = failureText(err).title;
+    if (current() && !silent) docsError.value = failureText(err).title;
   } finally {
-    docsLoading.value = false;
+    if (current()) docsLoading.value = false;
   }
 }
 

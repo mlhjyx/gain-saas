@@ -14,7 +14,7 @@
 - `apps/web/src/api/request.ts`：只对**当前 client 的初始 prepare POST、数值 400、精确码 `VALIDATION_ERROR`/`NO_APPROVED_CLAIMS`、精确 `/companies/{UUID}/market-candidate-generations` 路径**抑制全局 toast，由面板显示行内错误；cold-read/execute/recover/feedback/5xx/域 403 等仍保留同源 toast，不靠中文标题子串判断。市场候选请求不再受旧“授权对接”中文分支影响，旧页面行为不变。
 - 被动恢复：仅在初始 prepare 未收到成功响应、同 epoch/context、数值 400 且精确上述两码时出现；面板发出 `{companyId,destination:'facts'|'documents'}`，父组件校验同一公司/上下文后调用既有 facts/claims 或 seller-documents 弹层的**只读模式**（隐藏上传/重试/删除/手动事实/批量审批/冲突裁决，保留读取、下载与搜索 GET）。打开期间候选 hook 保持挂载但隐藏/不可聚焦，返回后焦点回到实际触发按钮；只 GET 同公司只读端点，无写、上传、审批、understand、prepare、execute 或换 nonce。
 - 身份文案：BFF 服务身份 401/403→502 分支改为按 `Accept-Language` 输出中性双语 P 文案（服务授权校验暂未通过 / Service authorization could not be verified），保留原 code/502/不登出，不再承诺保留、费用、不会重执行或稍后重试。显示服务端可信 `userCopy`；无安全 copy 时用中性双语回退，不回显 `error.message`/`meta.engineMessage`；个人断言改为中性阻断提示。初始 prepare 的两码 400 使用 P v3 canonical 中英 title/why/next（不称买家画像、不说公司无任何 Claim、不要求修正不存在的标红字段）。只有 SaaS 确认的 `AUTH_REQUIRED`/`SESSION_EXPIRED`/`NOT_A_MEMBER`/`WORKSPACE_DISABLED` 才粘滞阻断；HTTP 403/404、引擎 `SCOPE_REQUIRED`/`FORBIDDEN`、同名 code 或后缀都不判个人无权，服务 502 后动作保持可重试。
-- 迟到隔离：`loadClaims`/`loadCompanyOverview`/`loadConflicts` 在请求时捕获 company+epoch，响应应用、错误与 loading 清理都校验仍是当前；旧公司迟到响应不会写入新上下文。
+- 迟到隔离：`loadClaims`/`loadCompanyOverview`/`loadConflicts`/`loadDocuments` 在请求时捕获 company+epoch，响应应用、错误与 loading 清理都校验仍是当前；旧公司迟到响应不会写入新上下文。
 - 执行预派发：BFF 在 engine.call 前拒绝的 `EXECUTION_BUDGET_QUOTE_UNAVAILABLE`/`_QUOTE_INVALID`/`_GRANT_FAILED` 保持 PREPARED、重置 attempted 并允许用户显式重试；只有真正未知才 RESULT_UNKNOWN。
 - 焦点：详情容器（tabindex=-1）内 Tab 交给原生顺序；反馈对话框打开时 focusout 边界收敛到对话框，busy 无控件时 Tab 仍留在 dialog；隐藏市场面板 inert/aria-hidden。
 
