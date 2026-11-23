@@ -107,6 +107,10 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/accept-invite')) {
         return;
       }
+      // 市场候选面板自行显示即时且稳定的行内错误；按请求配置而非文案语言/错误码决定通知归属。
+      if (error?.config?.errorToastHandledInline === true) {
+        return;
+      }
       const userCopy = error?.response?.data?.error?.userCopy;
       // 引擎对接未就绪(502 降级)由各页面就地说明，不再弹全局 toast
       if (userCopy?.title?.includes('授权对接')) {

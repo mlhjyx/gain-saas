@@ -43,6 +43,8 @@ export interface MockBackend {
 }
 
 export interface MockBackendOptions {
+  /** Optional private test origin. Existing defaults are unchanged. */
+  origin?: string;
   displayName?: string;
   onboardingComplete?: boolean;
   role?: 'admin' | 'member';
@@ -164,7 +166,7 @@ export async function installMockBackend(
   await page.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (url.origin !== 'http://127.0.0.1:4173') return route.continue();
+    if (url.origin !== (options.origin ?? 'http://127.0.0.1:4173')) return route.continue();
     // 整页导航（document 请求）交给 vite preview 的 SPA fallback，不当 API 拦截。
     if (request.isNavigationRequest() && request.resourceType() === 'document') return route.continue();
     // 构建带 `VITE_GLOB_API_URL=/api` 时请求会带 /api 前缀；统一去掉再匹配，

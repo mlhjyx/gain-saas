@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 import { formatDate } from '@gain-saas/shared';
 import { newAttemptId } from '#/utils/attempt-id';
 import ErrorNotice from '#/components/error-notice.vue';
+import MarketCandidatesPanel from './market-candidates/market-candidates-panel.vue';
 
 import {
   failureText,
@@ -23,6 +24,23 @@ import {
 defineOptions({ name: 'Companies' });
 
 const router = useRouter();
+const marketCompany = ref<CompanyProfile | null>(null);
+const factsPanel = ref<HTMLElement | null>(null);
+const marketContext = ref('');
+let marketFocus: HTMLElement | null = null;
+function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
+  if (!marketContext.value || !company.id) return;
+  const details = (event.currentTarget as HTMLElement).closest('details');
+  marketFocus = details?.querySelector('summary') ?? event.currentTarget as HTMLElement;
+  if (details) details.open = false;
+  marketCompany.value = company;
+}
+function closeMarketCandidates() { marketCompany.value = null; marketFocus?.focus(); }
+function openMarketFacts() {
+  if (!marketCompany.value) return;
+  void openClaims(marketCompany.value);
+}
+onDeactivated(() => { marketCompany.value = null; });
 
 const STATUS_KEY: Record<string, string> = {
   DRAFT: 'gainos.companies.statusDraft',
@@ -147,6 +165,8 @@ async function openClaims(company: CompanyProfile): Promise<void> {
   manualStatement.value = '';
   manualEvidence.value = '';
   manualError.value = null;
+  await nextTick();
+  factsPanel.value?.focus();
   await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
 }
 
@@ -833,6 +853,7 @@ onMounted(async () => {
   try {
     const session = await gainosApi.session();
     isAdmin.value = session.workspace?.role === 'admin';
+    marketContext.value = JSON.stringify([session.workspace.id, session.user.id]);
   } catch {
     isAdmin.value = false;
   }
@@ -953,6 +974,7 @@ onUnmounted(() => {
                   <summary>{{ $t('gainos.companies.more') }}</summary>
                   <div class="cp__menu">
                     <button type="button" @click="openDocuments(c)">{{ $t('gainos.companies.documents') }}</button>
+                    <button type="button" :disabled="!marketContext" @click="openMarketCandidates(c, $event)">{{ $t('gainos.companies.marketCandidates') }}</button>
                     <button v-if="understandingFailed(c)" type="button" :disabled="retryingId === c.id" @click="retryUnderstanding(c)">
                       {{ $t('gainos.companies.retryUnderstanding') }}
                     </button>
@@ -974,6 +996,8 @@ onUnmounted(() => {
         </table>
       </div>
     </template>
+
+    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @view-facts="openMarketFacts" />
 
     <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
@@ -1145,7 +1169,7 @@ onUnmounted(() => {
         :aria-label="$t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' })"
       >
         <div class="cp__modal-mask" @click="closeClaims"></div>
-        <div class="cp__modal-body cp__facts-panel" tabindex="-1" @keydown.esc="closeClaims">
+        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" tabindex="-1" @keydown.stop @keydown.esc="closeClaims">
           <header class="cp__facts-head">
             <div>
               <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>
