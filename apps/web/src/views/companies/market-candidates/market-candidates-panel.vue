@@ -141,6 +141,17 @@ async function cancelFeedback() {
   state.closeFeedback();
   await returnFocus(feedbackFocus);
 }
+function focusout(event: FocusEvent) {
+  if (props.hidden) return;
+  const related = event.relatedTarget;
+  if (related instanceof Node && root.value?.contains(related)) return;
+  void nextTick(() => {
+    if (props.hidden) return;
+    if (root.value && !root.value.contains(globalThis.document.activeElement)) {
+      root.value.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
+    }
+  });
+}
 function keydown(event: KeyboardEvent) {
   // 面板是模态目标，键盘事件不向全局命令面板/布局冒泡；否则全局 Enter 会触发无关导航。
   event.stopPropagation();
@@ -182,7 +193,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 </script>
 <template>
   <Teleport to="body"
-    ><div v-show="!hidden" class="mc-overlay" @keydown="keydown">
+    ><div v-show="!hidden" class="mc-overlay" @focusout="focusout" @keydown="keydown">
       <section
         ref="root"
         class="mc-panel"

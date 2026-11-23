@@ -33,6 +33,7 @@
 - `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：19/19 通过；V07 覆盖服务 502/未知 502/预算拒绝的同源 toast、两码 400 静默行内、无 userCopy 时 toast 与行内均中性且不含 raw。
 - `corepack pnpm exec playwright test apps/web/e2e/market-candidates-read.spec.ts --project=desktop --grep "zh-CN-light-narrow"`：16/16 通过；窄屏覆盖两码恢复、单一可见 dialog、焦点返回与只读 GET。
 - `corepack pnpm exec playwright test apps/web/e2e/market-candidates-feedback.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：14/14 通过。
+- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "en-US-light-desktop.*V17 only explicit"`：1/1 通过；新增 focusout 兜底后，重渲染丢失焦点的面板会回到关闭按钮/面板内，不把焦点留在 body。
 - 本地未跑全量 392 格：全量 e2e 交 PR CI；本机仅跑受影响单格。CI 结果以 PR 检查为准。
 - 集成中发现新 main 的命令面板 `Enter` 全局监听会在任意焦点触发无关导航（`apps/web/src/components/gainos/command-palette.vue`）；市场面板已对自身键盘事件 `stopPropagation` 隔离，未改全局组件。该全局缺陷仍影响其他页面，交 T/P/D 判断是否另行修复。
 - 真实权限、费用、持久化、部署与 8 分类实栈证据：NOT_RUN。
