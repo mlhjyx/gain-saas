@@ -5,6 +5,8 @@
  */
 import type { TableProps } from 'ant-design-vue';
 
+import { Table } from 'ant-design-vue';
+
 defineOptions({ name: 'GsTable', inheritAttrs: false });
 
 const props = withDefaults(
@@ -14,7 +16,7 @@ const props = withDefaults(
 </script>
 
 <template>
-  <a-table
+  <Table
     v-bind="$attrs"
     :loading="loading"
     :pagination="props.pagination"
@@ -25,7 +27,7 @@ const props = withDefaults(
     <template v-for="(_, name) in $slots" #[name]="slotData">
       <slot :name="name" v-bind="slotData ?? {}"></slot>
     </template>
-  </a-table>
+  </Table>
 </template>
 
 <style scoped>

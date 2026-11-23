@@ -1,20 +1,24 @@
 <script lang="ts" setup>
 /** 卡片（设计系统 §4/§5）：白底 + 1px 边 + 10px 圆角 + xs 阴影。 */
+import { Card } from 'ant-design-vue';
+
 defineOptions({ name: 'GsCard' });
 
 defineProps<{ title?: string }>();
 </script>
 
 <template>
-  <a-card class="gs-card" :bordered="true" :body-style="{ padding: '20px' }">
+  <Card class="gs-card" :bordered="true" :body-style="{ padding: '24px' }">
     <template v-if="title || $slots.title" #title>
-      <slot name="title">{{ title }}</slot>
+      <span class="gs-card__title" role="heading" aria-level="2">
+        <slot name="title">{{ title }}</slot>
+      </span>
     </template>
     <template v-if="$slots.extra" #extra>
       <slot name="extra"></slot>
     </template>
     <slot></slot>
-  </a-card>
+  </Card>
 </template>
 
 <style scoped>
@@ -29,5 +33,8 @@ defineProps<{ title?: string }>();
 .gs-card :deep(.ant-card-head-title) {
   font-size: 16px;
   font-weight: 600;
+}
+.gs-card__title {
+  display: inline-block;
 }
 </style>

@@ -1681,3 +1681,9 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 新增 `e2e/leads-judge.spec.ts`：用用户给出的真实形状数据锁定「列表/详情不出现 C1_MATERIAL / judge-aggregate / reasonCodes / ICP」「展开可见逐维理由」「技术详情内可见机器码」「详情雷达 role=img」。
 - 回归：nav-shell、main-chain（9 条）、idempotency、a11y、resilience、pass2-measure（按钮 40px）、color-scan（pass2/pass3）、dark-mode、responsive、locale-toggle、zero-jargon 全绿；`resilience` 的旧 `.ld__lead` 锚点改 `data-gs="lead-card"`。
 - 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-{light,dark}.png`、`leads-detail-judge-{light,dark}.png`。
+
+### 16.5 边距回归修复（2026-11-23）
+用户验收反馈「页面没有边距」。根因不在页面 padding，而在批次 1 的封装层：`GsCard/GsTag/GsEmpty/GsModal/GsTable/GsStat` 使用了 `<a-card>`/`<a-tag>` 字符串标签，但本应用从未全局注册 AntDV → 浏览器把它们当自定义元素 `A-CARD` 渲染，`body-style` 变成 `[object Object]` 属性，卡片 body padding=0、card head/title 与作用域插槽全部丢失，Tag 退化为纯文本。
+- 修复：六个封装改为显式 `import { Card, Tag, Empty, Modal, Table, Statistic }` 并使用 PascalCase 组件；`GsCard` body padding 24px；`GsEmpty` 的操作区移到 Empty 下方（不再占用 image 槽）；卡片标题包 `role="heading" aria-level="2"`。
+- 页面留白：列表/详情根容器改用 `--gs-page-max`（1280）与 `--gs-page-pad`（桌面 32px），卡片与页面边缘都有可见留白。
+- 验证：typecheck / lint 全绿；定向 e2e 34 项全绿（含 color-scan ×2、a11y、dark、responsive、zero-jargon、main-chain、leads-judge）；证据重拍 `antd-system/leads-*`、`pass2/*`、`pass3/*`。

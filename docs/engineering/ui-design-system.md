@@ -8,6 +8,7 @@
 
 - 交互组件一律使用 **ant-design-vue 4.x**（Button/Input/Select/Form/Table/Modal/Drawer/Tabs/Steps/Alert/Tag/Empty/Skeleton…）。
 - 页面不允许再新增自定义按钮/输入/表格/弹层类；确需组合时使用 `components/gainos/ui/` 下的 `Gs*` 薄封装。
+- 封装内部必须 `import { Card, Tag, Empty, Modal, Table, Statistic } from 'ant-design-vue'` 后用 PascalCase 组件；**禁止写 `<a-card>`/`<a-tag>` 字符串标签**——本应用没有全局注册 AntDV，字符串标签会渲染成无样式自定义元素（卡片 0 padding、标题/标签丢失）。
 - 页面级 `<style scoped>` 目标为 0 行；布局用 `a-row/a-col/a-space/a-flex`，视觉全部来自 token。
 - 主题唯一来源：`app.vue` 的 `ConfigProvider`（`GS_BRAND` + `componentTokens`）。禁止在页面里写 `.ant-* { … !important }`。
 - 反馈（成功/失败提示、确认框、顶部通知）一律走 `apps/web/src/feedback.ts`（`App.useApp()` 上下文），不使用静态 `message/notification/Modal.confirm`，不使用 `window.confirm/alert`。
@@ -26,7 +27,8 @@
 ## 3. 间距与布局
 
 - 间距刻度：4 / 8 / 12 / 16 / 24 / 32（`--gs-space-*`）。
-- 页面：内容区左右 `24px`（`PageContainer` 负责），区块之间 `24px`，区块标题与内容 `12px`。
+- 页面：内容区左右 `--gs-page-pad`（clamp 20–32px，桌面 32px），最大宽度 `--gs-page-max`（1280px）；区块之间 `24px`，区块标题与内容 `12px`。
+- 卡片：body padding 24px（`GsCard`），卡片间距 16–24px；页面边缘与卡片边缘都必须留出可见留白。
 - 栅格：12 列；桌面卡片最小宽度 280px；窄屏单列。
 
 ## 4. 圆角与边框

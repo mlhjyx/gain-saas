@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 /** KPI 卡（设计系统 §5）：a-card + a-statistic，数字 tabular-nums。 */
+import { Card, Statistic } from 'ant-design-vue';
+
 defineOptions({ name: 'GsStat' });
 
 defineProps<{
@@ -11,13 +13,13 @@ defineProps<{
 </script>
 
 <template>
-  <a-card class="gs-stat" :body-style="{ padding: '16px 20px' }" data-gs="stat">
-    <a-statistic :loading="loading" :title="label" :value="value">
+  <Card class="gs-stat" :body-style="{ padding: '16px 20px' }" data-gs="stat">
+    <Statistic :loading="loading" :title="label" :value="value">
       <template v-if="suffix" #suffix>
         <span class="gs-stat__suffix">{{ suffix }}</span>
       </template>
-    </a-statistic>
-  </a-card>
+    </Statistic>
+  </Card>
 </template>
 
 <style scoped>

@@ -42,6 +42,7 @@
 
 - **唯一实现路径**：登录后业务页面（`/ops`、登录/注册/异常页除外）一律使用 ant-design-vue 组件；页面级 `<style scoped>` 目标为 0 行，视觉来自 `app.vue` 的 ConfigProvider token。规范见 [界面设计系统](docs/engineering/ui-design-system.md)。
 - **薄封装**：需要统一默认值时用 `apps/web/src/components/gainos/ui/`（GsPage/GsCard/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsToolbar/GsSelect），不在页面里重造按钮/输入/表格/弹层。
+- **薄封装必须是真组件**：封装内禁止写 `<a-card>`/`<a-tag>` 这类字符串标签（本应用没有全局注册 AntDV，会渲染成无样式自定义元素，表现为卡片 0 padding、标题/标签丢失）；必须显式 `import { Card, Tag, … }` 后用 PascalCase。
 - **反馈统一**：成功/失败提示用 `#/feedback` 的 `feedback.message.*`，确认框用 `feedback.confirm`（danger 显式声明），顶部通知用 `feedback.notification.*`；禁止 `window.confirm/alert` 与静态 `message/notification`。
 - **测试锚点**：页面 DOM 只承诺 role/aria-label 与 `data-gs="<area>"`；旧 BEM 页面类（`.wk__*` / `.ld__*` / `.cp__*` …）迁移后不保留，e2e 同步改写。
 - **判定文本**：引擎的聚合判定（`judge-aggregate` / `C1_MATERIAL…` / `reasonCodes`）不得直接上屏；一律经 `apps/web/src/views/leads/judge.ts` 解析成五维业务语言，原文与机器码只进「技术详情」折叠区（规范 §11）。

@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 /** 空态（设计系统 §6）：a-empty + 标题/说明/操作槽位。 */
+import { Empty } from 'ant-design-vue';
+
 defineOptions({ name: 'GsEmpty' });
 
 defineProps<{ description?: string; title?: string }>();
@@ -7,17 +9,15 @@ defineProps<{ description?: string; title?: string }>();
 
 <template>
   <div class="gs-empty" data-gs="empty">
-    <a-empty>
-      <template v-if="title" #description>
-        <p class="gs-empty__title">{{ title }}</p>
+    <Empty>
+      <template v-if="title || description" #description>
+        <p v-if="title" class="gs-empty__title">{{ title }}</p>
         <p v-if="description" class="gs-empty__desc">{{ description }}</p>
       </template>
-      <template v-if="$slots.actions" #default>
-        <div class="gs-empty__actions">
-          <slot name="actions"></slot>
-        </div>
-      </template>
-    </a-empty>
+    </Empty>
+    <div v-if="$slots.actions" class="gs-empty__actions">
+      <slot name="actions"></slot>
+    </div>
   </div>
 </template>
 

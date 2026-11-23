@@ -2,6 +2,8 @@
 /** 状态标签（设计系统 §5）：状态色只出现在这里。 */
 import { computed } from 'vue';
 
+import { Tag } from 'ant-design-vue';
+
 defineOptions({ name: 'GsTag' });
 
 const props = withDefaults(
@@ -31,9 +33,9 @@ const color = computed(() => {
 </script>
 
 <template>
-  <a-tag :color="color" class="gs-tag" data-gs="tag">
+  <Tag :color="color" class="gs-tag" data-gs="tag">
     <slot></slot>
-  </a-tag>
+  </Tag>
 </template>
 
 <style scoped>

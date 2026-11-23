@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-23T07:23:51.175Z",
+  "generatedAt": "2026-11-23T08:02:50.167Z",
   "pages": [
     "/workspace",
     "/leads",
@@ -21,12 +21,12 @@
     "light",
     "dark"
   ],
-  "totalSamples": 21328,
+  "totalSamples": 20589,
   "classCounts": {
-    "brand": 264,
-    "neutral": 21032,
-    "success": 16,
-    "warning": 16
+    "brand": 277,
+    "neutral": 20282,
+    "success": 15,
+    "warning": 15
   },
   "unique": [
     {
@@ -35,12 +35,12 @@
       "class": "neutral"
     },
     {
-      "count": 3435,
+      "count": 3437,
       "key": "dark | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 1380,
+      "count": 1381,
       "key": "dark | rgb(138, 138, 138)",
       "class": "neutral"
     },
@@ -85,7 +85,7 @@
       "class": "neutral"
     },
     {
-      "count": 25,
+      "count": 26,
       "key": "dark | rgb(46, 81, 220)",
       "class": "brand"
     },
@@ -140,17 +140,17 @@
       "class": "neutral"
     },
     {
-      "count": 2946,
+      "count": 2868,
       "key": "light | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 30,
+      "count": 24,
       "key": "light | rgb(163, 163, 163)",
       "class": "neutral"
     },
     {
-      "count": 8,
+      "count": 7,
       "key": "light | rgb(183, 83, 16)",
       "class": "warning"
     },
@@ -160,7 +160,7 @@
       "class": "neutral"
     },
     {
-      "count": 1797,
+      "count": 1728,
       "key": "light | rgb(23, 23, 23)",
       "class": "neutral"
     },
@@ -170,22 +170,22 @@
       "class": "brand"
     },
     {
-      "count": 23,
+      "count": 22,
       "key": "light | rgb(250, 250, 250)",
       "class": "neutral"
     },
     {
-      "count": 339,
+      "count": 305,
       "key": "light | rgb(255, 255, 255)",
       "class": "neutral"
     },
     {
-      "count": 8,
+      "count": 7,
       "key": "light | rgb(26, 117, 68)",
       "class": "success"
     },
     {
-      "count": 87,
+      "count": 100,
       "key": "light | rgb(51, 92, 255)",
       "class": "brand"
     },
@@ -195,12 +195,12 @@
       "class": "brand"
     },
     {
-      "count": 4027,
+      "count": 3468,
       "key": "light | rgb(92, 92, 92)",
       "class": "neutral"
     },
     {
-      "count": 44,
+      "count": 38,
       "key": "light | rgba(10, 10, 10, 0.03)",
       "class": "neutral"
     },
@@ -215,7 +215,7 @@
       "class": "neutral"
     },
     {
-      "count": 15,
+      "count": 14,
       "key": "light | rgba(5, 80, 255, 0.08)",
       "class": "brand"
     },

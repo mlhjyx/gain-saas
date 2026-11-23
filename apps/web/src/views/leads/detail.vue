@@ -495,7 +495,7 @@ watch(tab, (next) => {
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[1280px] gap-6 px-6 pb-12 pt-6">
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-6 px-[var(--gs-page-pad)] pb-12 pt-6">
     <GsPage
       :kicker="$t('gainos.leads.stage')"
       :subtitle="pkg ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"

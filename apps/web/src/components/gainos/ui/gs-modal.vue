@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 /** 弹层（设计系统 §8）：10px 圆角、标准页脚、danger/pending 支持。 */
+import { Modal } from 'ant-design-vue';
+
 defineOptions({ name: 'GsModal' });
 
 withDefaults(
@@ -19,7 +21,7 @@ const emit = defineEmits<{ cancel: []; ok: [] }>();
 </script>
 
 <template>
-  <a-modal
+  <Modal
     v-model:open="open"
     :cancel-text="cancelText"
     :confirm-loading="confirmLoading"
@@ -37,5 +39,5 @@ const emit = defineEmits<{ cancel: []; ok: [] }>();
     <template v-if="$slots.footer" #footer>
       <slot name="footer"></slot>
     </template>
-  </a-modal>
+  </Modal>
 </template>
