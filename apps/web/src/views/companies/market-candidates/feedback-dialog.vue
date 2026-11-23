@@ -191,7 +191,11 @@ function keydown(event: KeyboardEvent) {
         "button:not([disabled]),textarea:not([disabled]),select:not([disabled]),input:not([disabled])",
       ) ?? []),
     ].filter((e) => e.getClientRects().length);
-    if (!nodes.length) return;
+    if (!nodes.length) {
+      event.preventDefault();
+      root.value?.focus();
+      return;
+    }
     const index = nodes.findIndex((e) => e === document.activeElement);
     if (event.shiftKey && index <= 0) {
       event.preventDefault();

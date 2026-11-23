@@ -1,4 +1,3 @@
-import { copyForError } from "@gain-saas/shared";
 import { expect, test } from "@playwright/test";
 import {
   captureState,
@@ -7,6 +6,7 @@ import {
   ID,
   keyboardActivate,
   matrix,
+  prepareCopy,
   revision,
   setup,
 } from "./support/market-candidates-fixtures";
@@ -295,7 +295,7 @@ for (const cell of matrix) {
           body = await response.json();
         expect(response.status()).toBe(400);
         expect(body).toMatchObject({ error: { code } });
-        const copy = copyForError(code, cell.lang);
+        const copy = prepareCopy(code, cell.lang);
         await expect(h.button("error")).toContainText(copy.title);
         await expect(h.button("error-why")).toHaveText(copy.why);
         await expect(h.button("error-next")).toHaveText(copy.next);
@@ -319,6 +319,15 @@ for (const cell of matrix) {
         await keyboardActivate(page, cell, `recover-${destination}`, recoveryTrigger);
         const recoveryPanel = destination === "facts" ? ".cp__facts-panel" : ".cp__docs-panel";
         await expect(page.locator(recoveryPanel)).toBeVisible();
+        await expect(page.locator(recoveryPanel)).toHaveAttribute("data-readonly", "true");
+        if (destination === "facts") {
+          await expect(page.locator(".cp__manual-bar")).toHaveCount(0);
+          await expect(page.locator(".cp__claim-bar")).toHaveCount(0);
+          await expect(page.locator(".cp__claim-check")).toHaveCount(0);
+        } else {
+          await expect(page.locator(".cp__docs-panel input[type=file]")).toHaveCount(0);
+          await expect(page.locator(".cp__docs-actions")).toHaveCount(0);
+        }
         const recoveryRequest = await recoveryRequestPromise;
         expect(recoveryRequest.method()).toBe("GET");
         await page.waitForLoadState("networkidle");
@@ -329,6 +338,10 @@ for (const cell of matrix) {
         ).toBe(true);
         await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
         await expect(page.getByTestId("mc-panel")).toBeHidden();
+        await expect(page.getByTestId("mc-panel").locator("xpath=..")).toHaveAttribute(
+          "aria-hidden",
+          "true",
+        );
         await page.keyboard.press("Escape");
         await expect(page.locator(recoveryPanel)).toHaveCount(0);
         await expect(page.getByTestId("mc-panel")).toBeVisible();

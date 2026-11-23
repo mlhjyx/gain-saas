@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   keyboardActivate,
+  prepareCopy,
   safeErrorCopy,
   captureState,
   accessibleState,
@@ -209,7 +210,7 @@ for (const cell of matrix)
       h.state.prepareError = "SCOPE_REQUIRED";
       await h.open();
       const checkCopy = async (code: string) => {
-        const copy = safeErrorCopy(code, cell.lang);
+        const copy = prepareCopy(code, cell.lang);
         await expect(h.button("error")).toContainText(copy.title);
         await expect(h.button("error-why")).toHaveText(copy.why);
         await expect(h.button("error-next")).toHaveText(copy.next);
@@ -243,13 +244,10 @@ for (const cell of matrix)
       };
       await h.button("prepare").click();
       await checkCopy("SCOPE_REQUIRED");
-      await expect(page.getByTestId("mc-panel")).toContainText(
-        cell.lang === "zh-CN" ? "当前暂不能执行此操作" : "This action is currently unavailable",
-      );
       await expect(page.getByTestId("mc-panel")).not.toContainText(
         cell.lang === "zh-CN" ? "你没有执行此操作的授权" : "This operation is not authorized",
       );
-      await expect(h.button("prepare")).toBeDisabled();
+      await expect(h.button("prepare")).toBeEnabled();
       await expect(page.getByTestId("mc-card")).toHaveCount(2);
       await h.button("close").click();
       h.state.prepareError = "";

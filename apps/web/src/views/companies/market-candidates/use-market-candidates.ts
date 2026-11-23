@@ -193,6 +193,33 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
           : $t("gainos.marketCandidates.errorFallbackNext"),
     };
   }
+  function prepareCopy(err: unknown) {
+    if (errorStatus(err) !== 400) return null;
+    const code = errorCode(err);
+    if (code === "VALIDATION_ERROR")
+      return {
+        title: $t("gainos.marketCandidates.prepareValidationTitle"),
+        why: $t("gainos.marketCandidates.prepareValidationWhy"),
+        next: $t("gainos.marketCandidates.prepareValidationNext"),
+      };
+    if (code === "NO_APPROVED_CLAIMS")
+      return {
+        title: $t("gainos.marketCandidates.prepareNoClaimsTitle"),
+        why: $t("gainos.marketCandidates.prepareNoClaimsWhy"),
+        next: $t("gainos.marketCandidates.prepareNoClaimsNext"),
+      };
+    return null;
+  }
+  function setPrepareError(err: unknown) {
+    const copy = prepareCopy(err);
+    if (copy) {
+      error.value = copy.title;
+      errorWhy.value = copy.why;
+      errorNext.value = copy.next;
+      return;
+    }
+    setError(err);
+  }
   function clearError() {
     error.value = "";
     errorWhy.value = "";
@@ -227,27 +254,10 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     return safeErrorCopy(e).title;
   }
   function denied(e: unknown) {
-    const p = (
-      e as {
-        response?: {
-          status?: number;
-          data?: {
-            error?: { code?: string };
-            meta?: { engineStatus?: number; engineCode?: string };
-          };
-        };
-      }
-    )?.response;
-    const code = p?.data?.error?.code ?? p?.data?.meta?.engineCode ?? "";
-    return (
-      p?.status === 403 ||
-      p?.status === 404 ||
-      p?.data?.meta?.engineStatus === 403 ||
-      ["FORBIDDEN", "NOT_FOUND", "NOT_A_MEMBER", "SCOPE_REQUIRED", "SCOPE_MISMATCH"].includes(
-        code,
-      ) ||
-      code.endsWith("_SCOPE_MISMATCH") ||
-      code.endsWith("_FORBIDDEN")
+    // Only trusted SaaS session/tenant rejections sticky-block the action. HTTP status,
+    // engine SCOPE_REQUIRED/FORBIDDEN, 404 and suffix matching do not prove personal denial.
+    return ["AUTH_REQUIRED", "SESSION_EXPIRED", "NOT_A_MEMBER", "WORKSPACE_DISABLED"].includes(
+      errorCode(e),
     );
   }
   function clearReadable(withdrawGeneration = true) {
@@ -365,7 +375,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       await applyGeneration(result, e);
     } catch (err) {
       if (e === epoch) {
-        setError(err);
+        setPrepareError(err);
         if (!received && denied(err)) writeDenied.value = true;
         recoveryAvailable.value =
           !received &&

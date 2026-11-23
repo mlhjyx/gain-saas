@@ -39,8 +39,8 @@ function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
 function closeMarketCandidates() { marketCompany.value = null; marketFocus?.focus(); }
 function recoverMarketView(payload: { companyId: string; destination: 'facts' | 'documents' }) {
   if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
-  if (payload.destination === 'facts') void openClaims(marketCompany.value);
-  else if (payload.destination === 'documents') void openDocuments(marketCompany.value);
+  if (payload.destination === 'facts') void openClaims(marketCompany.value, { readOnly: true });
+  else if (payload.destination === 'documents') void openDocuments(marketCompany.value, { readOnly: true });
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -96,6 +96,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
 const claimsOpen = ref(false);
+const claimsRecoveryReadOnly = ref(false);
 const claimsCompany = ref<CompanyProfile | null>(null);
 const claims = ref<CompanyClaim[]>([]);
 const claimsLoading = ref(false);
@@ -153,10 +154,11 @@ function claimTypeLabel(type: string): string {
   return label === key ? type : label;
 }
 
-async function openClaims(company: CompanyProfile): Promise<void> {
+async function openClaims(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   if (!company.id) return;
   claimsCompany.value = company;
   claimsOpen.value = true;
+  claimsRecoveryReadOnly.value = options.readOnly === true;
   claimTab.value = 'NEEDS_REVIEW';
   claimQuery.value = '';
   selectedClaimIds.value = [];
@@ -164,6 +166,7 @@ async function openClaims(company: CompanyProfile): Promise<void> {
   claimNotice.value = null;
   rejectArmed.value = false;
   manualOpen.value = false;
+  if (claimsRecoveryReadOnly.value) selectedClaimIds.value = [];
   manualStatement.value = '';
   manualEvidence.value = '';
   manualError.value = null;
@@ -175,6 +178,7 @@ async function openClaims(company: CompanyProfile): Promise<void> {
 function closeClaims(): void {
   if (claimBusy.value) return;
   claimsOpen.value = false;
+  claimsRecoveryReadOnly.value = false;
   claimsCompany.value = null;
   claims.value = [];
   companyOverview.value = null;
@@ -597,6 +601,7 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
 
 // ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
 const docsOpen = ref(false);
+const docsRecoveryReadOnly = ref(false);
 const docsCompany = ref<CompanyProfile | null>(null);
 const docs = ref<SellerDocument[]>([]);
 const docsCursor = ref<string | undefined>(undefined);
@@ -645,9 +650,10 @@ function docStatusLabel(status: string): string {
   return $t(DOC_STATUS_KEY[status] ?? 'gainos.companies.documentStatusQueued');
 }
 
-async function openDocuments(company: CompanyProfile): Promise<void> {
+async function openDocuments(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   docsCompany.value = company;
   docsOpen.value = true;
+  docsRecoveryReadOnly.value = options.readOnly === true;
   await nextTick();
   docsPanel.value?.focus();
   docsError.value = null;
@@ -674,6 +680,7 @@ async function openDocuments(company: CompanyProfile): Promise<void> {
 
 function closeDocuments(): void {
   docsOpen.value = false;
+  docsRecoveryReadOnly.value = false;
   if (docsTimer) {
     clearInterval(docsTimer);
     docsTimer = null;
@@ -1101,13 +1108,13 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
         <div class="cp__modal-mask" @click="closeDocuments"></div>
-        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" tabindex="-1" @keydown.stop @keydown.esc="closeDocuments">
+        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" :data-readonly="docsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeDocuments">
           <header>
             <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
           </header>
           <p class="cp__modal-hint">{{ $t('gainos.companies.documentsHint') }}</p>
-          <div class="cp__docs-actions">
+          <div v-if="!docsRecoveryReadOnly" class="cp__docs-actions">
             <label class="cp__btn cp__btn--primary cp__docs-upload" :class="{ 'cp__btn--busy': docsUploading }">
               {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
               <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md" :disabled="docsUploading" @change="uploadDocument" />
@@ -1128,10 +1135,10 @@ onUnmounted(() => {
                 <button v-if="row.status === 'ready'" type="button" class="cp__confirm" @click="downloadDocument(row)">
                   {{ $t('gainos.companies.download') }}
                 </button>
-                <button v-if="row.status === 'failed_terminal' || row.status === 'queued'" type="button" class="cp__confirm" @click="retryDocument(row)">
+                <button v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')" type="button" class="cp__confirm" @click="retryDocument(row)">
                   {{ $t('gainos.companies.retryUnderstanding') }}
                 </button>
-                <button type="button" class="cp__confirm" @click="removeDocument(row)">
+                <button v-if="!docsRecoveryReadOnly" type="button" class="cp__confirm" @click="removeDocument(row)">
                   {{ $t('gainos.companies.delete') }}
                 </button>
               </div>
@@ -1173,7 +1180,7 @@ onUnmounted(() => {
         :aria-label="$t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' })"
       >
         <div class="cp__modal-mask" @click="closeClaims"></div>
-        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" tabindex="-1" @keydown.stop @keydown.esc="closeClaims">
+        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeClaims">
           <header class="cp__facts-head">
             <div>
               <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>
@@ -1230,13 +1237,13 @@ onUnmounted(() => {
               <div class="cp__conflict-grid">
                 <div class="cp__conflict-side">
                   <p>{{ conflict.claimA?.statement || '—' }}</p>
-                  <button v-if="isAdmin" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'a')">
+                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'a')">
                     {{ $t('gainos.companies.keepThis') }}
                   </button>
                 </div>
                 <div class="cp__conflict-side">
                   <p>{{ conflict.claimB?.statement || '—' }}</p>
-                  <button v-if="isAdmin" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'b')">
+                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'b')">
                     {{ $t('gainos.companies.keepThis') }}
                   </button>
                 </div>
@@ -1277,7 +1284,7 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div v-if="isAdmin" class="cp__manual-bar">
+          <div v-if="isAdmin && !claimsRecoveryReadOnly" class="cp__manual-bar">
             <button type="button" class="cp__manual-toggle" @click="manualOpen = !manualOpen">
               {{ manualOpen ? $t('gainos.companies.manualCancel') : $t('gainos.companies.manualAdd') }}
             </button>
@@ -1286,7 +1293,7 @@ onUnmounted(() => {
             </button>
             <span class="cp__muted">{{ $t('gainos.companies.synthesizeDraftsHint') }}</span>
           </div>
-          <div v-if="manualOpen" class="cp__manual-form">
+          <div v-if="manualOpen && !claimsRecoveryReadOnly" class="cp__manual-form">
             <label class="cp__field">
               <span>{{ $t('gainos.companies.manualStatement') }}</span>
               <textarea v-model="manualStatement" rows="3" maxlength="2000" :placeholder="$t('gainos.companies.manualStatementHint')"></textarea>
@@ -1336,7 +1343,7 @@ onUnmounted(() => {
 
           <ul v-else class="cp__claims">
             <li v-for="claim in visibleClaims" :key="claim.id" class="cp__claim">
-              <label v-if="isAdmin && claim.status === 'NEEDS_REVIEW'" class="cp__claim-check">
+              <label v-if="isAdmin && claim.status === 'NEEDS_REVIEW' && !claimsRecoveryReadOnly" class="cp__claim-check">
                 <input
                   type="checkbox"
                   :checked="selectedClaimIds.includes(claim.id)"
@@ -1351,7 +1358,7 @@ onUnmounted(() => {
                     {{ Math.round(claim.confidence * 100) }}%
                   </span>
                   <button
-                    v-if="isAdmin && claim.status === 'APPROVED'"
+                    v-if="isAdmin && claim.status === 'APPROVED' && !claimsRecoveryReadOnly"
                     type="button"
                     class="cp__claim-revoke"
                     :disabled="revokingId === claim.id"
@@ -1375,7 +1382,7 @@ onUnmounted(() => {
           <p v-if="claimNotice" class="cp__claim-notice" role="status">{{ claimNotice }}</p>
           </div>
 
-          <div v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0" class="cp__claim-bar">
+          <div v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0 && !claimsRecoveryReadOnly" class="cp__claim-bar">
             <label class="cp__claim-selectall">
               <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
               {{ $t('gainos.companies.selectAll') }}

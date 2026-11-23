@@ -1940,6 +1940,12 @@
     "errorFallbackNext": "Check the existing operation, if any. If you still cannot continue, contact your workspace admin or platform support.",
     "recoveryHint": "You can view this company's facts or documents first; these entries are read-only and never generate or execute automatically.",
     "recoveryFacts": "View company facts",
-    "recoveryDocuments": "View documents"
+    "recoveryDocuments": "View documents",
+    "prepareValidationTitle": "Market candidates could not be prepared",
+    "prepareValidationWhy": "The input or basis did not pass validation. This error code alone does not identify the specific cause.",
+    "prepareValidationNext": "Use View profile if shown for this company, or More → Documents to check source material. If no suitable entry is available or preparation still fails, contact a workspace admin.",
+    "prepareNoClaimsTitle": "No approved facts are available for this preparation",
+    "prepareNoClaimsWhy": "Market candidates require valid, approved facts for this company.",
+    "prepareNoClaimsNext": "Where View profile is available, review To review and Approved facts with an authorized admin. If no entry is available or preparation still fails, contact an admin, then retry explicitly."
   }
 }

@@ -303,7 +303,7 @@ export async function setup(page: Page, cell: Cell) {
       (state.deny === "write" && write && !feedback) ||
       (state.deny === "review" && feedback)
     )
-      return sendError(route, "SCOPE_REQUIRED");
+      return sendError(route, "NOT_A_MEMBER", 403);
     const reply = (data: unknown) =>
       route.fulfill({
         status: 200,
@@ -314,7 +314,7 @@ export async function setup(page: Page, cell: Cell) {
       return sendError(route, "CLIENT_GRANT_FORBIDDEN", 400);
     if (method === "GET" && path === `/companies/${ID.company}/market-candidate-sets/latest`) {
       if (state.latestWait) await state.latestWait;
-      if (state.deny === "read") return sendError(route, "SCOPE_REQUIRED");
+      if (state.deny === "read") return sendError(route, "NOT_A_MEMBER", 403);
       if (state.latest.result)
         revisions.set(state.latest.result.document.revision, structuredClone(state.latest.result));
       return reply(state.malformed ? { status: "AVAILABLE", result: {} } : state.latest);
@@ -691,6 +691,33 @@ export async function captureState(page: Page, cell: Cell, label: string, anchor
 }
 
 /** Exact frozen BFF error-copy projection; this is synthetic response data, not real permission evidence. */
+export function prepareCopy(code: string, lang: string) {
+  if (code === "VALIDATION_ERROR")
+    return lang === "zh-CN"
+      ? {
+          title: "暂时无法准备市场候选",
+          why: "本次输入或依据未通过校验，仅凭此错误码不能确定具体原因。",
+          next: "该公司行有“查看档案”时可核对已有事实，也可从“更多 → 资料库”核对原文；没有可用入口或仍失败时联系管理员。",
+        }
+      : {
+          title: "Market candidates could not be prepared",
+          why: "The input or basis did not pass validation. This error code alone does not identify the specific cause.",
+          next: "Use View profile if shown for this company, or More → Documents to check source material. If no suitable entry is available or preparation still fails, contact a workspace admin.",
+        };
+  if (code === "NO_APPROVED_CLAIMS")
+    return lang === "zh-CN"
+      ? {
+          title: "没有可用于本次准备的已批准企业事实",
+          why: "市场候选需要有效且已批准的本公司事实。",
+          next: "该公司行有“查看档案”时，核对“待确认/已通过”事实并请有权限的管理员处理；没有入口或仍失败时联系管理员，再由用户明确重试。",
+        }
+      : {
+          title: "No approved facts are available for this preparation",
+          why: "Market candidates require valid, approved facts for this company.",
+          next: "Where View profile is available, review To review and Approved facts with an authorized admin. If no entry is available or preparation still fails, contact an admin, then retry explicitly.",
+        };
+  return safeErrorCopy(code, lang);
+}
 export function safeErrorCopy(code: string, lang: string) {
   if (code === "SCOPE_REQUIRED")
     return {

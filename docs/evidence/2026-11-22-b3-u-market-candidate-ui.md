@@ -12,8 +12,8 @@
 
 - 原 17 路径：公司更多菜单进入市场候选面板，读取当前/历史文档、依据可用性、支持与反证、双国家及未知、原始提议与用户纠正；准备、执行、查询、恢复为明确动作；反馈四动作固定原 idempotency-key/body/所见修订；历史只读。
 - `apps/web/src/api/request.ts`：只对**当前 client 的初始 prepare POST、数值 400、精确码 `VALIDATION_ERROR`/`NO_APPROVED_CLAIMS`、精确 `/companies/{UUID}/market-candidate-generations` 路径**抑制全局 toast，由面板显示行内错误；cold-read/execute/recover/feedback/5xx/域 403 等仍保留同源 toast，不靠中文标题子串判断。市场候选请求不再受旧“授权对接”中文分支影响，旧页面行为不变。
-- 被动恢复：仅在初始 prepare 未收到成功响应、同 epoch/context、数值 400 且精确上述两码时出现；面板发出 `{companyId,destination:'facts'|'documents'}`，父组件校验同一公司/上下文后调用既有 facts/claims 或 seller-documents 只读弹层。打开期间候选 hook 保持挂载但隐藏/不可聚焦，返回后焦点回到实际触发按钮；只 GET 同公司只读端点，无写、上传、审批、understand、prepare、execute 或换 nonce。
-- 身份文案：显示服务端可信 `userCopy`；无安全 copy 时用中性双语回退，不回显 `error.message`/`meta.engineMessage`；`scopeDenied` 个人断言改为中性阻断提示。前端不按 HTTP 状态、同名 code/后缀或 member/admin 猜个人无权。身份 shared/BFF 三接缝未改，仍待 Root 精确 freeze。
+- 被动恢复：仅在初始 prepare 未收到成功响应、同 epoch/context、数值 400 且精确上述两码时出现；面板发出 `{companyId,destination:'facts'|'documents'}`，父组件校验同一公司/上下文后调用既有 facts/claims 或 seller-documents 弹层的**只读模式**（隐藏上传/重试/删除/手动事实/批量审批/冲突裁决，保留读取、下载与搜索 GET）。打开期间候选 hook 保持挂载但隐藏/不可聚焦，返回后焦点回到实际触发按钮；只 GET 同公司只读端点，无写、上传、审批、understand、prepare、execute 或换 nonce。
+- 身份文案：显示服务端可信 `userCopy`；无安全 copy 时用中性双语回退，不回显 `error.message`/`meta.engineMessage`；个人断言改为中性阻断提示。初始 prepare 的两码 400 使用 P v3 canonical 中英 title/why/next（不称买家画像、不说公司无任何 Claim、不要求修正不存在的标红字段）。只有 SaaS 确认的 `AUTH_REQUIRED`/`SESSION_EXPIRED`/`NOT_A_MEMBER`/`WORKSPACE_DISABLED` 才粘滞阻断；HTTP 403/404、引擎 `SCOPE_REQUIRED`/`FORBIDDEN`、同名 code 或后缀都不判个人无权，服务 502 后动作保持可重试。身份 shared/BFF 三接缝未改，仍待 Root 精确 freeze。
 
 ## 未做与交 T/P/D
 
@@ -29,11 +29,12 @@
 - `corepack pnpm lint:terms`：通过。
 - `corepack pnpm lint:date`：通过。
 - `corepack pnpm --filter @vben/web-antd build`：通过。
+- 临时 strict tsconfig 对三个 market-candidates spec + fixture 做 `tsc --noEmit`：通过。
 - `corepack pnpm exec playwright test apps/web/e2e/market-candidates-read.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：16/16 通过；V01 覆盖两码 400 的 facts/documents 被动 GET、单一可见 dialog、面板隐藏/焦点返回与两码无 toast。
-- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：19/19 通过；V07 覆盖服务 502/未知 502/预算拒绝的同源 toast、两码 400 静默行内、无 userCopy 时 toast 与行内均中性且不含 raw。
+- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：19/19 通过；V07 覆盖服务 502/未知 502/预算拒绝的同源 toast、两码 400 静默行内、无 userCopy 时 toast 与行内均中性且不含 raw；服务 502 不粘滞禁用 prepare，可信租户拒绝才禁用。
 - `corepack pnpm exec playwright test apps/web/e2e/market-candidates-read.spec.ts --project=desktop --grep "zh-CN-light-narrow"`：16/16 通过；窄屏覆盖两码恢复、单一可见 dialog、焦点返回与只读 GET。
-- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-feedback.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：14/14 通过。
-- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "en-US-light-desktop.*V17 only explicit"`：1/1 通过；新增 focusout 兜底后，重渲染丢失焦点的面板会回到关闭按钮/面板内，不把焦点留在 body。
+- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-feedback.spec.ts --project=desktop --grep "zh-CN-light-desktop"`：14/14 通过；V14 覆盖在途 busy 时遮罩点击/Tab/Shift+Tab 焦点仍在反馈对话框内，Escape 不丢弃冻结请求；V16 使用可信租户拒绝而非 SCOPE_REQUIRED 个人化。
+- `corepack pnpm exec playwright test apps/web/e2e/market-candidates-generation.spec.ts --project=desktop --grep "en-US-light-desktop.*V17 only explicit"`：1/1 通过；新增 focusout 兜底后，重渲染丢失焦点的面板会回到关闭按钮/面板内，不把焦点留在 body；反馈对话框打开时边界收敛到该对话框。
 - 本地未跑全量 392 格：全量 e2e 交 PR CI；本机仅跑受影响单格。CI 结果以 PR 检查为准。
 - 集成中发现新 main 的命令面板 `Enter` 全局监听会在任意焦点触发无关导航（`apps/web/src/components/gainos/command-palette.vue`）；市场面板已对自身键盘事件 `stopPropagation` 隔离，未改全局组件。该全局缺陷仍影响其他页面，交 T/P/D 判断是否另行修复。
 - 真实权限、费用、持久化、部署与 8 分类实栈证据：NOT_RUN。

@@ -127,9 +127,18 @@ for (const cell of matrix)
       h.state.feedbackWait = gate.promise;
       await h.button("feedback-save").click();
       await expect(h.button("feedback-save")).toBeDisabled();
+      const busyDialog = h.button("feedback-dialog");
+      await page.locator(".mc-feedback-mask").click({ position: { x: 2, y: 2 } });
+      await expect
+        .poll(() => busyDialog.evaluate((el) => el.contains(document.activeElement)))
+        .toBe(true);
+      await page.keyboard.press("Tab");
+      expect(await busyDialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+      await page.keyboard.press("Shift+Tab");
+      expect(await busyDialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
       page.once("dialog", (d) => d.accept());
       await page.keyboard.press("Escape");
-      await expect(h.button("feedback-dialog")).toBeVisible();
+      await expect(busyDialog).toBeVisible();
       await captureState(page, cell, "feedback-dialog-open-inflight");
       gate.resolve();
       await expect(h.button("feedback-dialog")).toHaveCount(0);
@@ -387,7 +396,7 @@ for (const cell of matrix)
       await h.button("reason").fill("Not granted");
       await h.button("feedback-save").click();
       await expect(h.button("feedback-error")).toBeVisible();
-      const safe = safeErrorCopy("SCOPE_REQUIRED", cell.lang);
+      const safe = safeErrorCopy("NOT_A_MEMBER", cell.lang);
       await expect(h.button("feedback-error-why")).toHaveText(safe.why);
       await expect(h.button("feedback-error-next")).toHaveText(safe.next);
       await expect(h.button("feedback-dialog")).not.toContainText(

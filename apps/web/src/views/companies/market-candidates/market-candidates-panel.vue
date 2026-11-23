@@ -132,6 +132,7 @@ function close() {
 }
 let recoveryTrigger: HTMLElement | null = null;
 function requestRecovery(destination: "facts" | "documents", event: MouseEvent) {
+  if (busy.value || feedbackBusy.value || historyBusy.value) return;
   if (!canLeave()) return;
   if (event.currentTarget instanceof HTMLElement) recoveryTrigger = event.currentTarget;
   emit("recover", { companyId: props.companyId, destination });
@@ -141,15 +142,27 @@ async function cancelFeedback() {
   state.closeFeedback();
   await returnFocus(feedbackFocus);
 }
+function focusBoundary() {
+  return feedbackCandidate.value
+    ? root.value?.querySelector<HTMLElement>('[data-testid="mc-feedback-dialog"]')
+    : root.value;
+}
+function restoreFocus() {
+  const boundary = focusBoundary();
+  if (!boundary || boundary.contains(globalThis.document.activeElement)) return;
+  const target =
+    boundary.querySelector<HTMLElement>(
+      "button:not([disabled]),select:not([disabled]),textarea:not([disabled]),input:not([disabled])",
+    ) ?? boundary;
+  target.focus();
+}
 function focusout(event: FocusEvent) {
   if (props.hidden) return;
   const related = event.relatedTarget;
-  if (related instanceof Node && root.value?.contains(related)) return;
+  const boundary = focusBoundary();
+  if (boundary && related instanceof Node && boundary.contains(related)) return;
   void nextTick(() => {
-    if (props.hidden) return;
-    if (root.value && !root.value.contains(globalThis.document.activeElement)) {
-      root.value.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
-    }
+    if (!props.hidden) restoreFocus();
   });
 }
 function keydown(event: KeyboardEvent) {
@@ -193,12 +206,12 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 </script>
 <template>
   <Teleport to="body"
-    ><div v-show="!hidden" class="mc-overlay" @focusout="focusout" @keydown="keydown">
+    ><div v-show="!hidden" class="mc-overlay" :inert="hidden" :aria-hidden="hidden ? 'true' : undefined" @focusout="focusout" @keydown="keydown">
       <section
         ref="root"
         class="mc-panel"
         role="dialog"
-        aria-modal="true"
+        :aria-modal="hidden ? 'false' : 'true'"
         :aria-label="$t('gainos.marketCandidates.title')"
         data-testid="mc-panel"
         tabindex="-1"
@@ -246,9 +259,9 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
         </section>
         <section v-if="recoveryAvailable" class="mc-recovery" data-testid="mc-recovery">
           <p>{{ $t("gainos.marketCandidates.recoveryHint") }}</p>
-          <button type="button" data-testid="mc-recover-facts" :disabled="busy || feedbackBusy" @click="requestRecovery('facts', $event)">
+          <button type="button" data-testid="mc-recover-facts" :disabled="busy || feedbackBusy || historyBusy" @click="requestRecovery('facts', $event)">
             {{ $t("gainos.marketCandidates.recoveryFacts") }}</button
-          ><button type="button" data-testid="mc-recover-documents" :disabled="busy || feedbackBusy" @click="requestRecovery('documents', $event)">
+          ><button type="button" data-testid="mc-recover-documents" :disabled="busy || feedbackBusy || historyBusy" @click="requestRecovery('documents', $event)">
             {{ $t("gainos.marketCandidates.recoveryDocuments") }}
           </button>
         </section>

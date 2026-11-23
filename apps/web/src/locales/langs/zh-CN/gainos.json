@@ -1940,6 +1940,12 @@
     "errorFallbackNext": "有原操作时先查看其状态；仍无法继续时，请联系工作空间管理员或平台运营。",
     "recoveryHint": "可先查看同公司的企业事实或资料库；这些入口只读，不会自动生成或执行。",
     "recoveryFacts": "查看企业事实",
-    "recoveryDocuments": "查看资料库"
+    "recoveryDocuments": "查看资料库",
+    "prepareValidationTitle": "暂时无法准备市场候选",
+    "prepareValidationWhy": "本次输入或依据未通过校验，仅凭此错误码不能确定具体原因。",
+    "prepareValidationNext": "该公司行有“查看档案”时可核对已有事实，也可从“更多 → 资料库”核对原文；没有可用入口或仍失败时联系管理员。",
+    "prepareNoClaimsTitle": "没有可用于本次准备的已批准企业事实",
+    "prepareNoClaimsWhy": "市场候选需要有效且已批准的本公司事实。",
+    "prepareNoClaimsNext": "该公司行有“查看档案”时，核对“待确认/已通过”事实并请有权限的管理员处理；没有入口或仍失败时联系管理员，再由用户明确重试。"
   }
 }
