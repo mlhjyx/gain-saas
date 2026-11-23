@@ -455,6 +455,76 @@ for (const cell of matrix) {
       await expect(page.locator(".cp__facts-panel")).not.toContainText("A-ONLY-CLAIM");
       h.check();
     });
+    test("V01c late document search never writes the current company or query", async ({
+      page,
+    }) => {
+      const h = await setup(page, cell);
+      const bGate = deferred(),
+        solarGate = deferred();
+      const hit = (text: string) => ({
+        documentId: `${ID.company}-doc`,
+        filename: `${text}.pdf`,
+        seq: 1,
+        text,
+        score: 1,
+      });
+      const fulfill = (route: import("@playwright/test").Route, data: unknown) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data }),
+        });
+      await page.route(`**/api/companies/${ID.second}/seller-documents/search**`, async (route) => {
+        await bGate.promise;
+        await fulfill(route, [hit("B-PUMP-ONLY")]);
+      });
+      await page.route(`**/api/companies/${ID.company}/seller-documents/search**`, async (route) => {
+        const q = new URL(route.request().url()).searchParams.get("q");
+        if (q === "solar") await solarGate.promise;
+        await fulfill(route, [hit(q === "solar" ? "A-SOLAR-ONLY" : "A-WIND-ONLY")]);
+      });
+      const openDocs = async (rowIndex: number, query: string) => {
+        const row = page.locator(".cp__table tbody tr").nth(rowIndex);
+        await row.locator("summary").click();
+        await row
+          .getByRole("button", {
+            name: cell.lang === "zh-CN" ? "资料库" : "Documents",
+            exact: true,
+          })
+          .click();
+        await expect(page.locator(".cp__docs-panel")).toBeVisible();
+        const input = page.locator(".cp__docs-panel input[type=search]");
+        await input.fill(query);
+        await page
+          .locator(".cp__docs-panel")
+          .getByRole("button", {
+            name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
+            exact: true,
+          })
+          .click();
+        return input;
+      };
+      await openDocs(1, "pump");
+      await page.locator(".cp__docs-panel .cp__modal-x").click();
+      await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+      const input = await openDocs(0, "solar");
+      await input.fill("wind");
+      solarGate.resolve();
+      await page.waitForTimeout(300);
+      await expect(page.locator(".cp__docs-hits")).not.toContainText("A-SOLAR-ONLY");
+      await page
+        .locator(".cp__docs-panel")
+        .getByRole("button", {
+          name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
+          exact: true,
+        })
+        .click();
+      await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
+      bGate.resolve();
+      await page.waitForTimeout(300);
+      await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
+      await expect(page.locator(".cp__docs-hits")).not.toContainText("B-PUMP-ONLY");
+    });
     test("V03 both distinct countries and independent nulls are rendered", async ({ page }) => {
       const h = await setup(page, cell);
       const rev = revision();

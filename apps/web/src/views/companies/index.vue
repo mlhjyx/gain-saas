@@ -622,6 +622,7 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
 const docsOpen = ref(false);
 const docsRecoveryReadOnly = ref(false);
 let docsEpoch = 0;
+let docsSearchSeq = 0;
 const docsCompany = ref<CompanyProfile | null>(null);
 const docs = ref<SellerDocument[]>([]);
 const docsCursor = ref<string | undefined>(undefined);
@@ -675,6 +676,8 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
   docsEpoch += 1;
+  docsSearchSeq += 1;
+  docsSearching.value = false;
   docs.value = [];
   await nextTick();
   docsPanel.value?.focus();
@@ -704,6 +707,8 @@ function closeDocuments(): void {
   docsOpen.value = false;
   docsRecoveryReadOnly.value = false;
   docsEpoch += 1;
+  docsSearchSeq += 1;
+  docsSearching.value = false;
   if (docsTimer) {
     clearInterval(docsTimer);
     docsTimer = null;
@@ -771,14 +776,22 @@ async function searchDocuments(): Promise<void> {
   const companyId = docsCompany.value?.id;
   const q = docsQuery.value.trim();
   if (!companyId || q.length < 2) return;
+  const epoch = docsEpoch;
+  const seq = ++docsSearchSeq;
+  const sameScope = () => docsCompany.value?.id === companyId && docsEpoch === epoch && docsSearchSeq === seq;
   docsSearching.value = true;
+  docsError.value = null;
   try {
-    docsHits.value = (await gainosApi.searchSellerDocuments(companyId, q)) ?? [];
+    const hits = (await gainosApi.searchSellerDocuments(companyId, q)) ?? [];
+    if (!sameScope() || docsQuery.value.trim() !== q) return;
+    docsHits.value = hits;
   } catch (err) {
-    docsError.value = failureText(err).title;
-    docsHits.value = [];
+    if (sameScope() && docsQuery.value.trim() === q) {
+      docsError.value = failureText(err).title;
+      docsHits.value = [];
+    }
   } finally {
-    docsSearching.value = false;
+    if (sameScope()) docsSearching.value = false;
   }
 }
 
