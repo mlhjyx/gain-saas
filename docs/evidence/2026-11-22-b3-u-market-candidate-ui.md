@@ -44,3 +44,10 @@
 - 本地未跑全量 392 格：全量 e2e 交 PR CI；本机仅跑受影响单格。CI 结果以 PR 检查为准。
 - 集成中发现新 main 的命令面板 `Enter` 全局监听会在任意焦点触发无关导航（`apps/web/src/components/gainos/command-palette.vue`）；市场面板已对自身键盘事件 `stopPropagation` 隔离，未改全局组件。该全局缺陷仍影响其他页面，交 T/P/D 判断是否另行修复。
 - 真实权限、费用、持久化、部署与 8 分类实栈证据：NOT_RUN。
+
+## CI 空跑修复（2026-11-24）
+
+- `1433abd` 的 CI e2e 32 红，两类根因都不在产品逻辑：
+  - 16 红（V01b/V01c × 8 格）：这两条用例用 `**/api/companies/...` 注册拦截路由；CI 无 `apps/web/.env.production`（gitignored），构建产物 API 前缀为空，`/api` 形态永不命中。新增 `apiRoute()` 正则，同时匹配 `/api/companies/...` 与 `/companies/...`。用 CI 形态（临时移走 `.env.production` 后 build）本地复现 V01b 8/8 红；修复后 V01b+V01c 16/16 绿。
+  - 16 红（`zh-CN-dark-narrow`/`en-US-light-narrow`）：登录页切换语言/主题后立即登录并 `page.goto('/companies')` 整页重载；偏好保存有 150ms debounce，CI 上未落盘就重载，页面回到中文/浅色（失败快照：中文 UI、html 无 `dark` 类）。按 `onboarding-market-optional.spec.ts` 既有做法，切换后等 250ms 再登录。
+- 定向回归：三个 spec × 上述两格 102/102 通过；正常 `/api` 构建与无前缀构建均验证。

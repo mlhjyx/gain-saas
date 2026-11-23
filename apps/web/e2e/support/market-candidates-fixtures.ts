@@ -546,6 +546,10 @@ export async function setup(page: Page, cell: Cell) {
   await page.goto("/auth/login");
   if (cell.lang === "en-US") await page.getByRole("button", { name: "Switch to English" }).click();
   if (cell.theme === "dark") await page.getByRole("button", { name: "Switch to dark" }).click();
+  if (cell.lang === "en-US" || cell.theme === "dark") {
+    // 偏好保存 debounce 150ms；登录后 page.goto 是整页重载，等落盘再继续。
+    await page.waitForTimeout(250);
+  }
   await page.locator("input[type=email]").fill("e2e@gainos.local");
   await page.locator("input[type=password]").fill("e2e-password-123");
   await page.locator("button.g-submit").click();

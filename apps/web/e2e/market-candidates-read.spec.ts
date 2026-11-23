@@ -12,6 +12,13 @@ import {
   revision,
   setup,
 } from "./support/market-candidates-fixtures";
+// 构建产物的 API 前缀取决于 .env.production 是否在场（CI 无该文件），两条形态都要命中。
+const apiRoute = (path: string) =>
+  new RegExp(
+    `/(?:api/)?${path
+      .replace(/^\//, "")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\?.*)?$`,
+  );
 for (const cell of matrix) {
   test.describe(cell.label, () => {
     test.afterEach(async ({ page }, info) => {
@@ -409,25 +416,25 @@ for (const cell of matrix) {
           contentType: "application/json",
           body: JSON.stringify({ data }),
         });
-      await page.route(`**/api/companies/${ID.company}/claims`, async (route) => {
+      await page.route(apiRoute(`/companies/${ID.company}/claims`), async (route) => {
         await claimsGate.promise;
         await fulfill(route, [claim("a-claim", "A-ONLY-CLAIM")]);
       });
-      await page.route(`**/api/companies/${ID.company}`, async (route) => {
+      await page.route(apiRoute(`/companies/${ID.company}`), async (route) => {
         await overviewGate.promise;
         await fulfill(route, overview(ID.company, "Synthetic Seller", "A-OVERVIEW"));
       });
       for (const id of [ID.company, ID.second]) {
-        await page.route(`**/api/companies/${id}/completeness`, (route) =>
+        await page.route(apiRoute(`/companies/${id}/completeness`), (route) =>
           fulfill(route, { status: "OK", approvedClaims: 0, pendingClaims: 1, offerings: 0, conflictsOpen: 0 }),
         );
-        await page.route(`**/api/companies/${id}/offerings`, (route) => fulfill(route, []));
-        await page.route(`**/api/companies/${id}/conflicts`, (route) => fulfill(route, []));
+        await page.route(apiRoute(`/companies/${id}/offerings`), (route) => fulfill(route, []));
+        await page.route(apiRoute(`/companies/${id}/conflicts`), (route) => fulfill(route, []));
       }
-      await page.route(`**/api/companies/${ID.second}/claims`, (route) =>
+      await page.route(apiRoute(`/companies/${ID.second}/claims`), (route) =>
         fulfill(route, [claim("b-claim", "B-ONLY-CLAIM")]),
       );
-      await page.route(`**/api/companies/${ID.second}`, (route) =>
+      await page.route(apiRoute(`/companies/${ID.second}`), (route) =>
         fulfill(route, overview(ID.second, "Second Seller", "B-OVERVIEW")),
       );
       await h.button("recover-facts").click();
@@ -474,11 +481,11 @@ for (const cell of matrix) {
           contentType: "application/json",
           body: JSON.stringify({ data }),
         });
-      await page.route(`**/api/companies/${ID.second}/seller-documents/search**`, async (route) => {
+      await page.route(apiRoute(`/companies/${ID.second}/seller-documents/search`), async (route) => {
         await bGate.promise;
         await fulfill(route, [hit("B-PUMP-ONLY")]);
       });
-      await page.route(`**/api/companies/${ID.company}/seller-documents/search**`, async (route) => {
+      await page.route(apiRoute(`/companies/${ID.company}/seller-documents/search`), async (route) => {
         const q = new URL(route.request().url()).searchParams.get("q");
         if (q === "solar") await solarGate.promise;
         await fulfill(route, [hit(q === "solar" ? "A-SOLAR-ONLY" : "A-WIND-ONLY")]);
