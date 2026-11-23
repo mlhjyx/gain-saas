@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, nextTick, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onDeactivated, onMounted, onUnmounted, reactive, ref, type Ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
@@ -41,6 +41,49 @@ function recoverMarketView(payload: { companyId: string; destination: 'facts' | 
   if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
   if (payload.destination === 'facts') void openClaims(marketCompany.value, { readOnly: true });
   else if (payload.destination === 'documents') void openDocuments(marketCompany.value, { readOnly: true });
+}
+const docsReturnFocus = ref<HTMLElement | null>(null);
+const claimsReturnFocus = ref<HTMLElement | null>(null);
+function rememberReturnFocus(target: Ref<HTMLElement | null>) {
+  target.value = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+function restoreReturnFocus(target: HTMLElement | null, fallbackTestId: string) {
+  const preferred =
+    target?.isConnected === true
+      ? target
+      : document.querySelector<HTMLElement>(`[data-testid="${fallbackTestId}"]`);
+  preferred?.focus();
+}
+function trapDialogTab(event: KeyboardEvent, panel: HTMLElement | null) {
+  if (event.key !== 'Tab' || !panel) return;
+  const items = Array.from(
+    panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), summary, input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter(
+    (element) =>
+      element.getClientRects().length > 0 &&
+      !element.closest('[inert], [aria-hidden="true"]'),
+  );
+  if (items.length === 0) {
+    event.preventDefault();
+    panel.focus();
+    return;
+  }
+  const first = items[0]!;
+  const last = items[items.length - 1]!;
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active === first || active === panel || !panel.contains(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+    return;
+  }
+  if (active === last || !panel.contains(active)) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -157,6 +200,7 @@ function claimTypeLabel(type: string): string {
 
 async function openClaims(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   if (!company.id) return;
+  rememberReturnFocus(claimsReturnFocus);
   claimsCompany.value = company;
   claimsOpen.value = true;
   claimsRecoveryReadOnly.value = options.readOnly === true;
@@ -184,6 +228,8 @@ async function openClaims(company: CompanyProfile, options: { readOnly?: boolean
 
 function closeClaims(): void {
   if (claimBusy.value) return;
+  const returnFocus = claimsReturnFocus.value;
+  claimsReturnFocus.value = null;
   claimsOpen.value = false;
   claimsRecoveryReadOnly.value = false;
   claimsCompany.value = null;
@@ -197,6 +243,7 @@ function closeClaims(): void {
   conflictsError.value = null;
   selectedClaimIds.value = [];
   manualOpen.value = false;
+  void nextTick().then(() => restoreReturnFocus(returnFocus, 'mc-recover-facts'));
 }
 
 function unwrap<T>(value: T | { data?: T }): T {
@@ -672,14 +719,17 @@ function docStatusLabel(status: string): string {
 }
 
 async function openDocuments(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
+  rememberReturnFocus(docsReturnFocus);
   docsCompany.value = company;
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
   docsEpoch += 1;
+  const epoch = docsEpoch;
   docsSearchSeq += 1;
   docsSearching.value = false;
   docs.value = [];
   await nextTick();
+  if (!docsOpen.value || docsEpoch !== epoch || docsCompany.value?.id !== company.id) return;
   docsPanel.value?.focus();
   docsError.value = null;
   docsNotice.value = null;
@@ -688,22 +738,29 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsCursor.value = undefined;
   docsHasMore.value = false;
   await loadDocuments(true, true);
-  // P5b-09：轮询降频 4s→10s；列表稳定（无处理中）后停止轮询，避免弹层开着就一直打接口。
-  docsTimer = setInterval(() => {
-    if (!docsOpen.value) return;
+  // 一次打开只安装自己的轮询；迟到初始化不得在关闭/切换后留下 interval。
+  if (!docsOpen.value || docsEpoch !== epoch || docsCompany.value?.id !== company.id) return;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  timer = setInterval(() => {
+    if (!docsOpen.value || docsEpoch !== epoch || docsTimer !== timer) {
+      clearInterval(timer!);
+      if (docsTimer === timer) docsTimer = null;
+      return;
+    }
     const busy = docs.value.some((row) => ['pending_upload', 'committing', 'queued', 'processing'].includes(row.status));
     if (busy) {
       void loadDocuments(true);
       return;
     }
-    if (docsTimer) {
-      clearInterval(docsTimer);
-      docsTimer = null;
-    }
+    clearInterval(timer!);
+    if (docsTimer === timer) docsTimer = null;
   }, 10_000);
+  docsTimer = timer;
 }
 
 function closeDocuments(): void {
+  const returnFocus = docsReturnFocus.value;
+  docsReturnFocus.value = null;
   docsOpen.value = false;
   docsRecoveryReadOnly.value = false;
   docsEpoch += 1;
@@ -713,6 +770,7 @@ function closeDocuments(): void {
     clearInterval(docsTimer);
     docsTimer = null;
   }
+  void nextTick().then(() => restoreReturnFocus(returnFocus, 'mc-recover-documents'));
 }
 
 async function loadDocuments(silent = false, reset = true): Promise<void> {
@@ -912,6 +970,9 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscape);
   if (pollTimer) clearInterval(pollTimer);
+  docsEpoch += 1;
+  docsSearchSeq += 1;
+  claimsEpoch += 1;
   if (docsTimer) clearInterval(docsTimer);
 });
 </script>
@@ -1147,7 +1208,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
         <div class="cp__modal-mask" @click="closeDocuments"></div>
-        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" :data-readonly="docsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeDocuments">
+        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" :data-readonly="docsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown="trapDialogTab($event, docsPanel)" @keydown.esc="closeDocuments">
           <header>
             <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
@@ -1219,7 +1280,7 @@ onUnmounted(() => {
         :aria-label="$t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' })"
       >
         <div class="cp__modal-mask" @click="closeClaims"></div>
-        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeClaims">
+        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown="trapDialogTab($event, factsPanel)" @keydown.esc="closeClaims">
           <header class="cp__facts-head">
             <div>
               <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>

@@ -149,6 +149,8 @@ export async function setup(page: Page, cell: Cell) {
     feedbackWait: null as Promise<void> | null,
     badInitial: false,
     prepareError: "",
+    prepareErrorStatus: 0 as number,
+    revisionReadError: "",
     prepareBasis: "VALID" as "VALID" | "NO_OFFERINGS" | "NO_APPROVED_CLAIMS",
     noCopy: false,
     recoverError: "",
@@ -184,8 +186,9 @@ export async function setup(page: Page, cell: Cell) {
     route: import("@playwright/test").Route,
     code: string,
     status = ["VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(code) ? 409 : 502,
+    copyOverride?: { title: string; why: string; next: string },
   ) {
-    const copy = state.noCopy ? null : safeErrorCopy(code, cell.lang);
+    const copy = copyOverride ?? (state.noCopy ? null : safeErrorCopy(code, cell.lang));
     return route.fulfill({
       status,
       contentType: "application/json",
@@ -354,6 +357,8 @@ export async function setup(page: Page, cell: Cell) {
       new RegExp(`^/market-candidate-sets/${ID.set}/revisions/[1-9]\\d*$`).test(path)
     ) {
       if (state.revisionWait) await state.revisionWait;
+      if (state.revisionReadError && Number(path.split("/").at(-1)) === 1)
+        return sendError(route, state.revisionReadError, 400);
       if (state.noHistory) return sendError(route, "SCOPE_REQUIRED");
       const n = Number(path.split("/").at(-1));
       const currentRevision = state.latest.result?.document.revision ?? 0;
@@ -373,7 +378,13 @@ export async function setup(page: Page, cell: Cell) {
         )
       )
         return sendError(route, "VALIDATION_ERROR", 400);
-      if (state.prepareError) return sendError(route, state.prepareError);
+      if (state.prepareError)
+        return sendError(
+          route,
+          state.prepareError,
+          state.prepareErrorStatus || undefined,
+          state.prepareErrorStatus === 502 ? serviceIdentityCopy(cell.lang) : undefined,
+        );
       const previous = intents.get(body.intentId);
       if (previous && previous.body !== canonical(body))
         return sendError(route, "IDEMPOTENCY_CONFLICT");
@@ -723,6 +734,20 @@ export async function toastWasSeen(page: Page): Promise<boolean> {
     () => Boolean((window as unknown as { __mcToastSeen?: boolean }).__mcToastSeen),
   );
 }
+export function serviceIdentityCopy(lang: string) {
+  return lang === "zh-CN"
+    ? {
+        title: "服务授权校验暂未通过",
+        why: "当前请求的服务间授权校验未通过，不能据此判断你需要重新登录或个人无权。",
+        next: "请联系平台运营检查服务授权；已有执行结果未确认时，先查询原操作，不要直接再次执行。",
+      }
+    : {
+        title: "Service authorization could not be verified",
+        why: "The request failed a service-to-service authorization check. This alone does not show that you need to sign in again or lack personal access.",
+        next: "Ask platform support to check service authorization. If an earlier execution is unconfirmed, check that operation before executing again.",
+      };
+}
+
 export function prepareCopy(code: string, lang: string) {
   if (code === "VALIDATION_ERROR")
     return lang === "zh-CN"
