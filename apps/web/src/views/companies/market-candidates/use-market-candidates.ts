@@ -41,7 +41,8 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     volatile = ref(false);
   const readDenied = ref(false),
     writeDenied = ref(false),
-    reviewDenied = ref(false);
+    reviewDenied = ref(false),
+    recoveryAvailable = ref(false);
   const historical = ref(false),
     historyOpen = ref(false),
     historyRows = ref<RevisionPage["revisions"]>([]),
@@ -265,6 +266,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     feedbackCandidate.value = null;
     feedbackCurrent.value = null;
     feedbackChecked.value = false;
+    recoveryAvailable.value = false;
   }
   async function refresh() {
     const e = epoch,
@@ -348,6 +350,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
   async function prepare() {
     if (busy.value || writeDenied.value || pending.value?.generationId) return;
     busy.value = true;
+    recoveryAvailable.value = false;
     clearError();
     const e = epoch;
     if (!pending.value) {
@@ -364,6 +367,10 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       if (e === epoch) {
         setError(err);
         if (!received && denied(err)) writeDenied.value = true;
+        recoveryAvailable.value =
+          !received &&
+          errorStatus(err) === 400 &&
+          ["VALIDATION_ERROR", "NO_APPROVED_CLAIMS"].includes(errorCode(err));
       }
     } finally {
       if (e === epoch) busy.value = false;
@@ -417,6 +424,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     if (!canStartNew.value || !window.confirm($t("gainos.marketCandidates.newIntentConfirm")))
       return;
     generationIdentity = null;
+    recoveryAvailable.value = false;
     pending.value = null;
     generation.value = null;
     persist();
@@ -719,6 +727,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       readDenied.value = false;
       writeDenied.value = false;
       reviewDenied.value = false;
+      recoveryAvailable.value = false;
       restore();
       if (uuid(company.value) && context.value) void refresh();
     },
@@ -752,6 +761,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     readDenied,
     writeDenied,
     reviewDenied,
+    recoveryAvailable,
     historical,
     historyOpen,
     historyRows,

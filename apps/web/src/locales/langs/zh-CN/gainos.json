@@ -1938,6 +1938,8 @@
     "errorFallbackTitle": "暂时无法完成此操作",
     "errorFallbackWhy": "当前信息不足以确认具体原因。",
     "errorFallbackNext": "有原操作时先查看其状态；仍无法继续时，请联系工作空间管理员或平台运营。",
-    "viewFacts": "查看企业事实"
+    "recoveryHint": "可先查看同公司的企业事实或资料库；这些入口只读，不会自动生成或执行。",
+    "recoveryFacts": "查看企业事实",
+    "recoveryDocuments": "查看资料库"
   }
 }

@@ -217,8 +217,15 @@ for (const cell of matrix)
           "SYNTHETIC_INTERNAL_DETAILS_NOT_FOR_UI",
         );
         await captureState(page, cell, `safe-error-${code}`, h.button("error"));
-        // Observe the real existing toast lifetime; never remove/hide notifications to manufacture a frame.
-        await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 10000 });
+        if (code === "NO_APPROVED_CLAIMS") {
+          // Only initial prepare 400 + the two exact codes are page-owned inline notices.
+          await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 10000 });
+        } else {
+          // Other statuses keep the same-source global toast; do not suppress cold-read/execute/recover/feedback/5xx.
+          await expect(
+            page.locator(".ant-message-notice").filter({ hasText: copy.title }).first(),
+          ).toBeVisible({ timeout: 10000 });
+        }
         await captureState(page, cell, `safe-error-stable-${code}`, h.button("error"));
         console.log(
           JSON.stringify({
@@ -242,15 +249,6 @@ for (const cell of matrix)
       await expect(page.getByTestId("mc-panel")).not.toContainText(
         cell.lang === "zh-CN" ? "你没有执行此操作的授权" : "This operation is not authorized",
       );
-      await keyboardActivate(page, cell, "view-facts", h.button("view-facts"));
-      await expect(page.locator(".cp__facts-panel")).toBeVisible();
-      await page.waitForLoadState("networkidle");
-      await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
-      await expect(page.getByTestId("mc-panel")).toBeHidden();
-      await page.keyboard.press("Escape");
-      await expect(page.locator(".cp__facts-panel")).toHaveCount(0);
-      await expect(page.getByTestId("mc-panel")).toBeVisible();
-      await expect(h.button("view-facts")).toBeFocused();
       await expect(h.button("prepare")).toBeDisabled();
       await expect(page.getByTestId("mc-card")).toHaveCount(2);
       await h.button("close").click();
@@ -263,8 +261,6 @@ for (const cell of matrix)
       h.state.prepareError = "SYNTHETIC_UNREGISTERED_ERROR";
       await h.button("prepare").click();
       await checkCopy("SYNTHETIC_UNREGISTERED_ERROR");
-      h.state.noCopy = true;
-      await h.button("prepare").click();
       const neutral =
         cell.lang === "zh-CN"
           ? {
@@ -277,6 +273,14 @@ for (const cell of matrix)
               why: "There is not enough information to confirm the cause.",
               next: "Check the existing operation, if any. If you still cannot continue, contact your workspace admin or platform support.",
             };
+      h.state.noCopy = true;
+      await h.button("prepare").click();
+      const noCopyNotice = page
+        .locator(".ant-message-notice")
+        .filter({ hasText: neutral.title })
+        .first();
+      await expect(noCopyNotice).toBeVisible({ timeout: 10000 });
+      await expect(noCopyNotice).not.toContainText("SYNTHETIC_INTERNAL_DETAILS_NOT_FOR_UI");
       await expect(h.button("error")).toContainText(neutral.title);
       await expect(h.button("error-why")).toHaveText(neutral.why);
       await expect(h.button("error-next")).toHaveText(neutral.next);

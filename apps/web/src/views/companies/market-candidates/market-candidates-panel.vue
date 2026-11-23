@@ -9,7 +9,10 @@ import FeedbackDialog from "./feedback-dialog.vue";
 import RevisionHistory from "./revision-history.vue";
 import { useMarketCandidates } from "./use-market-candidates";
 const props = defineProps<{ companyId: string; companyName: string; context: string; hidden?: boolean }>();
-const emit = defineEmits<{ close: []; 'view-facts': [] }>();
+const emit = defineEmits<{
+  close: [];
+  recover: [{ companyId: string; destination: 'facts' | 'documents' }];
+}>();
 const state = useMarketCandidates(toRef(props, "companyId"), toRef(props, "context"));
 const {
   ownDraft,
@@ -31,6 +34,7 @@ const {
   volatile,
   writeDenied,
   reviewDenied,
+  recoveryAvailable,
   historical,
   historyOpen,
   historyRows,
@@ -87,7 +91,8 @@ watch(
   async (hidden) => {
     if (hidden) return;
     await nextTick();
-    root.value?.querySelector<HTMLElement>('[data-testid="mc-view-facts"]')?.focus();
+    if (recoveryTrigger?.isConnected) recoveryTrigger.focus();
+    else root.value?.querySelector<HTMLElement>('[data-testid="mc-recover-facts"]')?.focus();
   },
 );
 watch([loading, busy, historyBusy, feedbackBusy, feedbackCandidate, activeCandidate, () => props.hidden], async () => {
@@ -125,9 +130,11 @@ function close() {
   if (!canLeave()) return;
   emit("close");
 }
-function viewFacts() {
+let recoveryTrigger: HTMLElement | null = null;
+function requestRecovery(destination: "facts" | "documents", event: MouseEvent) {
   if (!canLeave()) return;
-  emit("view-facts");
+  if (event.currentTarget instanceof HTMLElement) recoveryTrigger = event.currentTarget;
+  emit("recover", { companyId: props.companyId, destination });
 }
 async function cancelFeedback() {
   if (!canLeave()) return;
@@ -211,13 +218,6 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             @click="state.history()"
           >
             {{ $t("gainos.marketCandidates.history") }}</button
-          ><button
-            type="button"
-            data-testid="mc-view-facts"
-            :disabled="busy || feedbackBusy"
-            @click="viewFacts"
-          >
-            {{ $t("gainos.marketCandidates.viewFacts") }}</button
           ><span v-if="doc" data-testid="mc-revision-label">{{
             $t("gainos.marketCandidates.revisionLabel", { revision: doc.revision })
           }}</span
@@ -232,6 +232,14 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
           <p>{{ error }}</p>
           <p v-if="errorWhy" data-testid="mc-error-why">{{ errorWhy }}</p>
           <p v-if="errorNext" data-testid="mc-error-next">{{ errorNext }}</p>
+        </section>
+        <section v-if="recoveryAvailable" class="mc-recovery" data-testid="mc-recovery">
+          <p>{{ $t("gainos.marketCandidates.recoveryHint") }}</p>
+          <button type="button" data-testid="mc-recover-facts" :disabled="busy || feedbackBusy" @click="requestRecovery('facts', $event)">
+            {{ $t("gainos.marketCandidates.recoveryFacts") }}</button
+          ><button type="button" data-testid="mc-recover-documents" :disabled="busy || feedbackBusy" @click="requestRecovery('documents', $event)">
+            {{ $t("gainos.marketCandidates.recoveryDocuments") }}
+          </button>
         </section>
         <p v-if="notice" data-testid="mc-notice" role="status">{{ notice }}</p>
         <p v-if="loading" role="status">{{ $t("gainos.marketCandidates.loading") }}</p>

@@ -5,6 +5,7 @@ import {
   accessibleState,
   deferred,
   ID,
+  keyboardActivate,
   matrix,
   revision,
   setup,
@@ -301,6 +302,38 @@ for (const cell of matrix) {
         await expect(h.button("not-analyzed")).toBeVisible();
         await expect(h.button("empty")).toHaveCount(0);
         await expect(h.button("phase")).toHaveCount(0);
+        const destination = scenario === "NO_OFFERINGS" ? "facts" : "documents";
+        const recoveryTrigger = h.button(`recover-${destination}`);
+        await expect(recoveryTrigger).toBeVisible();
+        const network: Array<{ method: string; path: string }> = [];
+        page.on("request", (request) => {
+          const url = new URL(request.url());
+          if (url.origin === "http://127.0.0.1:4173") {
+            network.push({ method: request.method(), path: url.pathname });
+          }
+        });
+        const expectedRecoveryPath = destination === "facts" ? "/claims" : "/seller-documents";
+        const recoveryRequestPromise = page.waitForRequest((request) =>
+          request.url().includes(expectedRecoveryPath),
+        );
+        await keyboardActivate(page, cell, `recover-${destination}`, recoveryTrigger);
+        const recoveryPanel = destination === "facts" ? ".cp__facts-panel" : ".cp__docs-panel";
+        await expect(page.locator(recoveryPanel)).toBeVisible();
+        const recoveryRequest = await recoveryRequestPromise;
+        expect(recoveryRequest.method()).toBe("GET");
+        await page.waitForLoadState("networkidle");
+        const recoveryCalls = network;
+        expect(recoveryCalls.every((request) => request.method === "GET")).toBe(true);
+        expect(
+          recoveryCalls.some((request) => request.path.includes(expectedRecoveryPath)),
+        ).toBe(true);
+        await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
+        await expect(page.getByTestId("mc-panel")).toBeHidden();
+        await page.keyboard.press("Escape");
+        await expect(page.locator(recoveryPanel)).toHaveCount(0);
+        await expect(page.getByTestId("mc-panel")).toBeVisible();
+        await expect(recoveryTrigger).toBeFocused();
+        await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 10000 });
         expect(h.requests.filter((request) => request.path.endsWith("/execute"))).toHaveLength(0);
         expect(h.state.executionDispatches).toBe(0);
         const posts = h.requests.filter((request) => request.method === "POST");

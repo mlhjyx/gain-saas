@@ -203,7 +203,8 @@ const id = (v: string) => {
   ensure(uuid(v));
   return encodeURIComponent(v);
 };
-const cfg = (signal?: AbortSignal) => ({ signal, errorToastHandledInline: true });
+const cfg = (signal?: AbortSignal) => ({ signal, marketCandidateRequest: true });
+const prepareCfg = (signal?: AbortSignal) => ({ ...cfg(signal), marketPrepareNotify: true });
 async function gen(promise: Promise<unknown>) {
   const v = await promise;
   assertGeneration(v);
@@ -270,7 +271,7 @@ export const marketCandidatesApi = {
       requestClient.post(
         `/companies/${id(company)}/market-candidate-generations`,
         body,
-        cfg(signal),
+        prepareCfg(signal),
       ),
     ),
   generation: (generation: string, signal?: AbortSignal) =>

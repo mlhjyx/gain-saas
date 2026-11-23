@@ -26,6 +26,7 @@ defineOptions({ name: 'Companies' });
 const router = useRouter();
 const marketCompany = ref<CompanyProfile | null>(null);
 const factsPanel = ref<HTMLElement | null>(null);
+const docsPanel = ref<HTMLElement | null>(null);
 const marketContext = ref('');
 let marketFocus: HTMLElement | null = null;
 function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
@@ -36,9 +37,10 @@ function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
   marketCompany.value = company;
 }
 function closeMarketCandidates() { marketCompany.value = null; marketFocus?.focus(); }
-function openMarketFacts() {
-  if (!marketCompany.value) return;
-  void openClaims(marketCompany.value);
+function recoverMarketView(payload: { companyId: string; destination: 'facts' | 'documents' }) {
+  if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
+  if (payload.destination === 'facts') void openClaims(marketCompany.value);
+  else if (payload.destination === 'documents') void openDocuments(marketCompany.value);
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -646,6 +648,8 @@ function docStatusLabel(status: string): string {
 async function openDocuments(company: CompanyProfile): Promise<void> {
   docsCompany.value = company;
   docsOpen.value = true;
+  await nextTick();
+  docsPanel.value?.focus();
   docsError.value = null;
   docsNotice.value = null;
   docsQuery.value = '';
@@ -997,7 +1001,7 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @view-facts="openMarketFacts" />
+    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen || docsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @recover="recoverMarketView" />
 
     <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
@@ -1097,7 +1101,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
         <div class="cp__modal-mask" @click="closeDocuments"></div>
-        <div class="cp__modal-body cp__docs-panel">
+        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" tabindex="-1" @keydown.stop @keydown.esc="closeDocuments">
           <header>
             <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>

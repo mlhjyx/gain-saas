@@ -1938,6 +1938,8 @@
     "errorFallbackTitle": "This action could not be completed",
     "errorFallbackWhy": "There is not enough information to confirm the cause.",
     "errorFallbackNext": "Check the existing operation, if any. If you still cannot continue, contact your workspace admin or platform support.",
-    "viewFacts": "View company facts"
+    "recoveryHint": "You can view this company's facts or documents first; these entries are read-only and never generate or execute automatically.",
+    "recoveryFacts": "View company facts",
+    "recoveryDocuments": "View documents"
   }
 }
