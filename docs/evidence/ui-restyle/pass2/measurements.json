@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-11-23T01:54:50.576Z",
+  "generatedAt": "2026-11-23T07:38:23.113Z",
   "leads": {
     "queueSwitch": 1,
     "toolbar": 1,
     "search": 1,
     "acceptRadius": "10px",
-    "acceptHeight": 32,
+    "acceptHeight": 40,
     "cardRadius": "10px",
-    "cardShadow": "rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
+    "cardShadow": "rgb(51, 92, 255) 3px 0px 0px 0px inset, rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
   },
   "workspace": {
     "groupLabel": {

@@ -50,7 +50,7 @@ test('双击「确认跟进」只提交一次', async ({ page }) => {
   await page.goto('/leads');
   // 队列筛选按钮也叫「值得跟进」，必须限定在线索卡片内。
   await page
-    .locator('.ld__lead')
+    .locator("[data-gs='lead-card']")
     .filter({ hasText: 'Muster Metallbau GmbH' })
     .getByRole('button', { name: '值得跟进' })
     .click();

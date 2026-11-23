@@ -72,3 +72,22 @@
 - 测试锚点统一 `data-gs="<area>"`（如 `data-gs="lead-card"`、`data-gs="queue-toolbar"`）；
   旧的 `.wk__*/.ld__*/.cp__*` 等页面类名不保留。
 - 错误三层块必须保留 `.error-notice__details summary` 的「技术详情」折叠（既有 spec 依赖）。
+
+## 11. 判定结果（C1–C5）的展示契约（2026-11-23）
+
+引擎把五维评分写成一段聚合文本（`judge-aggregate/v1：verdict=…，reasonCodes=…` + `C1_MATERIAL pass（score 8）：…`）。
+**这段原文只能进「技术详情」，租户界面一律渲染解析后的业务语言。**
+
+- 解析：`apps/web/src/views/leads/judge.ts`（`parseJudge`）。维度顺序 C1→C5，分数 0–10，`null`=证据不足；
+  兼容字符串、字符串数组、JSON 字符串与对象包装；解析失败时退回「机器结论 + 人话理由」。
+- 文案：维度名 `gainos.leads.criteria.*`（产品品类 / 买家角色 / 生产工艺 / 经营模式 / 企业规模），
+  状态走 `@gain-saas/shared` 的词表（符合 / 偏弱 / 不符 / 证据不足 / 不适用）。
+  模型理由里的 `ICP` 用 `humanizeRationale()` 换成「目标客户画像」。
+- 列表卡（`views/leads/lead-card.vue`）：公司（首字母牌位 + 国家/域名 + 行业/规模）→ 评分（分数 + 分档）
+  → 判断结果/原因（决定性维度的一句话）→ 五维摘要（图标 + 结论 + 分数）→ 操作（值得跟进/暂不跟进/⋯）。
+  「待我判断」的卡片用 3px 左侧强调条；展开后显示逐维理由，机器码只出现在折叠的「技术详情」。
+- 详情（`views/leads/detail.vue`）：判断结果 hero（总分 + 分档 + 状态 + 维度计数 + 关键理由 + 核心证据）
+  + 五维雷达（`GsRadar`，纯 SVG）+ 逐维明细（状态、0–10 分条、理由）。
+  证据不足的维度按 0 绘制并在图下注明；`scores` 的八维明细作为补充卡片保留。
+- 红线：`C1_MATERIAL`、`reasonCodes`、`judge-aggregate`、裸枚举不得出现在可见文本中
+  （`leads-judge.spec.ts` 用真实形状的数据锁定）。

@@ -3,25 +3,58 @@
  * 线索档案包整页（v3.0 ch07 P5b-08）：/leads/:leadId?tab=package|people|draft|outcomes
  * 四个 tab 各自可分享；顶部固定操作条（接受/拒绝/提升商机/去触达）。
  * 数据以引擎 LeadPackage 为准（package 一次拉取），不复制列表页的抽屉状态。
+ *
+ * 2026-11-23：档案页改为「判断结果」优先——把引擎的五维聚合文本解析成
+ * 业务维度（雷达图 + 逐维理由），机器结论码收进折叠的技术详情。
  */
 import type { LeadDecisionInput, LeadPackage, PromoteQgoInput } from '#/api/gainos';
+import type { JudgeSummary, ScoreGrade } from './judge';
 
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { useAccessStore } from '@vben/stores';
 
+import {
+  Button,
+  Descriptions,
+  DescriptionsItem,
+  Input,
+  Modal,
+  Space,
+  TabPane,
+  Tabs,
+  Tag,
+} from 'ant-design-vue';
+
 import { $t } from '#/locales';
 
-import { formatDate, formatDateTime, statusClass } from '@gain-saas/shared';
+import { formatDate, formatDateTime } from '@gain-saas/shared';
 
+import ErrorNotice from '#/components/error-notice.vue';
 import AsyncSection from '#/components/gainos/async-section.vue';
-import PageHeader from '#/components/gainos/page-header.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsRadar from '#/components/gainos/ui/gs-radar.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
 import { usePendingAction } from '#/composables/use-pending-action';
+import { feedback } from '#/feedback';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
+import JudgeDimensions from './judge-dimensions.vue';
+import {
+  isMachineAggregate,
+  judgeCounts,
+  keyDimension,
+  normalizeFitVerdict,
+  parseJudge,
+  scoreGrade,
+  shortRationale,
+} from './judge';
+import { dimName, fitVerdictLabel, humanizeRationale } from './judge-labels';
 
 defineOptions({ name: 'LeadDetail' });
 
@@ -61,15 +94,17 @@ watch(
   () => (tab.value = readTab()),
 );
 
-function selectTab(next: TabKey): void {
-  tab.value = next;
-  void router.replace({ query: { ...route.query, tab: next } });
+function selectTab(next: number | string): void {
+  const key = (TAB_KEYS as readonly string[]).includes(String(next))
+    ? (next as TabKey)
+    : 'package';
+  tab.value = key;
+  void router.replace({ query: { ...route.query, tab: key } });
 }
 
 const pkg = ref<LeadPackage | null>(null);
 const loading = ref(true);
 const error = ref<{ next?: string; title: string } | null>(null);
-const notice = ref<string | null>(null);
 
 const draft = ref<Record<string, unknown> | null>(null);
 const draftLoading = ref(false);
@@ -109,17 +144,77 @@ function statusLabel(status?: string): string {
   return translated === key ? status : translated;
 }
 
-const statusToneClass = computed(() => {
-  const tone =
-    status.value === 'QUALIFIED'
-      ? 'success'
-      : status.value === 'REJECTED'
-        ? 'danger'
-        : status.value === 'SUPPRESSED'
-          ? 'warning'
-          : 'neutral';
-  return statusClass(tone);
+const statusTone = computed<'danger' | 'neutral' | 'success' | 'warning'>(() => {
+  if (status.value === 'QUALIFIED') return 'success';
+  if (status.value === 'REJECTED') return 'danger';
+  if (status.value === 'SUPPRESSED') return 'warning';
+  return 'neutral';
 });
+
+// ── 判断结果：五维聚合解析 ────────────────────────────────────────────────
+const judge = computed<JudgeSummary>(() =>
+  parseJudge(pkg.value?.fit?.reasons ?? []),
+);
+const dims = computed(() => judge.value.dims);
+
+const counts = computed(() => judgeCounts(dims.value));
+const summaryText = computed(() => {
+  const parts = [
+    counts.value.pass ? $t('gainos.leads.criteriaPass', { count: counts.value.pass }) : '',
+    counts.value.weak ? $t('gainos.leads.criteriaWeak', { count: counts.value.weak }) : '',
+    counts.value.fail ? $t('gainos.leads.criteriaFail', { count: counts.value.fail }) : '',
+    counts.value.unclear
+      ? $t('gainos.leads.criteriaUnclear', { count: counts.value.unclear })
+      : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+});
+
+const keyReason = computed(() => {
+  const dim = keyDimension(dims.value);
+  if (dim) {
+    const text = shortRationale(humanizeRationale(dim.rationale), 180);
+    return text ? `${dimName(dim.id)}：${text}` : dimName(dim.id);
+  }
+  const human = (pkg.value?.fit?.reasons ?? []).filter(
+    (reason) => !isMachineAggregate(reason),
+  );
+  if (human.length > 0) return human.join(' · ');
+  return fitVerdictLabel(pkg.value?.fit?.verdict);
+});
+
+/** 没有五维明细时，把引擎给的人话理由原样列出（机器聚合串会被过滤掉）。 */
+const fitReasonList = computed(() =>
+  (pkg.value?.fit?.reasons ?? []).filter((reason) => !isMachineAggregate(reason)),
+);
+
+/** 引擎结论可能是 FIT / NOT_FIT / UNKNOWN，也可能缺省；未知时才提示人工判断。 */
+const rawVerdict = computed(() => pkg.value?.fit?.verdict ?? judge.value.verdict);
+const fitLabel = computed(() => fitVerdictLabel(rawVerdict.value));
+const unknownNote = computed(() =>
+  dims.value.length > 0 && normalizeFitVerdict(rawVerdict.value) === 'unknown'
+    ? $t('gainos.leads.verdictUnknownNote')
+    : '',
+);
+
+const radarDims = computed(() =>
+  dims.value.map((dim) => ({
+    id: dim.id,
+    label: dim.label,
+    name: dimName(dim.id),
+    score: dim.score,
+  })),
+);
+
+/** 总分：引擎 scores.total 是 0–1，列表 total_score 是 0–100，两种都兼容。 */
+const totalScore = computed<null | number>(() => {
+  const total = pkg.value?.scores?.total;
+  if (typeof total !== 'number' || !Number.isFinite(total)) return null;
+  const percent = total <= 1 ? total * 100 : total;
+  return Math.round(percent);
+});
+const grade = computed<ScoreGrade>(() => scoreGrade(totalScore.value));
+const gradeLabel = computed(() => $t(`gainos.leads.scoreGrade.${grade.value}`));
 
 const reasonOptions = computed(() =>
   (decision.value === 'accept' ? ACCEPT_CODES : REJECT_CODES).map((code) => ({
@@ -127,6 +222,13 @@ const reasonOptions = computed(() =>
     label: $t(`gainos.leads.reason.${code}`),
   })),
 );
+
+const decisionOpen = computed({
+  get: () => decision.value !== null,
+  set: (value: boolean) => {
+    if (!value) decision.value = null;
+  },
+});
 
 const profileRows = computed<Array<{ label: string; value: string }>>(() => {
   const profile = pkg.value?.company_profile;
@@ -196,18 +298,7 @@ const evidenceItems = computed(() => {
   return rows;
 });
 
-/** 匹配判断（引擎 fit：verdict + 人话理由），档案页此前完全没展示。 */
-const fitVerdictLabel = computed(() => {
-  const verdict = pkg.value?.fit?.verdict;
-  if (!verdict) return $t('gainos.leads.fit.unknown');
-  const key = `gainos.leads.fit.${verdict}` as Parameters<typeof $t>[0];
-  const translated = $t(key);
-  return translated === key ? verdict : translated;
-});
-
-const fitReasons = computed(() => pkg.value?.fit?.reasons ?? []);
-
-/** 八维评分（合同 snake_case），档案页此前完全没展示。 */
+/** 八维评分（引擎 snake_case，0–1）：作为五维之外的补充明细保留。 */
 const SCORE_DIMS = ['fit', 'role', 'intent', 'demand_proof', 'reachability', 'data_quality', 'engagement'] as const;
 
 const scoreRows = computed(() => {
@@ -218,11 +309,6 @@ const scoreRows = computed(() => {
     .map((dim) => ({ dim, value: record[dim] }))
     .filter((row): row is { dim: (typeof SCORE_DIMS)[number]; value: number } =>
       typeof row.value === 'number' && Number.isFinite(row.value));
-});
-
-const totalScore = computed(() => {
-  const total = pkg.value?.scores?.total;
-  return typeof total === 'number' && Number.isFinite(total) ? total : null;
 });
 
 const contactPaths = computed(() =>
@@ -236,6 +322,16 @@ function sanctionLabel(value?: null | string): string {
   const translated = $t(key);
   return translated === key ? value : translated;
 }
+
+const decisionTitle = computed(() =>
+  decision.value === 'accept' ? $t('gainos.leads.acceptTitle') : $t('gainos.leads.rejectTitle'),
+);
+const decisionDesc = computed(() =>
+  decision.value === 'accept' ? $t('gainos.leads.acceptDesc') : $t('gainos.leads.rejectDesc'),
+);
+const decisionOkText = computed(() =>
+  decision.value === 'accept' ? $t('gainos.leads.confirmAccept') : $t('gainos.leads.confirmReject'),
+);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -322,10 +418,10 @@ async function submitDecision(): Promise<void> {
     await runDecision(async (idempotencyKey) => {
       if (kind === 'accept') {
         await gainosApi.acceptLead(leadId.value, input, idempotencyKey);
-        notice.value = $t('gainos.leads.acceptedNotice');
+        feedback.message.success($t('gainos.leads.acceptedNotice'));
       } else {
         await gainosApi.rejectLead(leadId.value, input, idempotencyKey);
-        notice.value = $t('gainos.leads.rejectedNotice');
+        feedback.message.success($t('gainos.leads.rejectedNotice'));
       }
     });
     decision.value = null;
@@ -364,6 +460,7 @@ async function submitPromote(): Promise<void> {
   try {
     await gainosApi.promoteQgo(input);
     promoteOpen.value = false;
+    feedback.message.success($t('gainos.leads.promoteDone'));
     void router.push('/qgos');
   } catch (err) {
     promoteError.value = failureText(err);
@@ -398,52 +495,43 @@ watch(tab, (next) => {
 </script>
 
 <template>
-  <div class="lpd">
-    <PageHeader
-      :subtitle="pkg ? (pkg.company.country || '') + (pkg.company.domain ? ` · ${pkg.company.domain}` : '') : ''"
+  <div class="mx-auto grid w-full max-w-[1280px] gap-6 px-6 pb-12 pt-6">
+    <GsPage
+      :kicker="$t('gainos.leads.stage')"
+      :subtitle="pkg ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"
       :title="pkg?.company.name || $t('gainos.leads.unknownCompany')"
     >
       <template #actions>
-        <button class="lpd__back" type="button" @click="router.push('/leads')">
+        <Button data-gs="back-to-list" @click="router.push('/leads')">
           {{ $t('gainos.leads.backToList') }}
-        </button>
+        </Button>
       </template>
-    </PageHeader>
+    </GsPage>
 
-    <div v-if="pkg" class="lpd__bar">
-      <span class="gs-badge" :class="statusToneClass">{{ statusLabel(status) }}</span>
-      <div class="lpd__bar-actions">
-        <button v-if="canDecide" class="lpd__ghost lpd__ghost--danger" type="button" @click="openDecision('reject')">
+    <div
+      v-if="pkg"
+      class="flex flex-wrap items-center justify-between gap-3"
+      data-gs="lead-actions"
+    >
+      <Space :size="8" wrap>
+        <GsTag :tone="statusTone">{{ statusLabel(status) }}</GsTag>
+        <span class="text-xs text-[var(--gs-fg-subtle)]">{{ fitLabel }}</span>
+      </Space>
+      <Space :size="8" wrap>
+        <Button v-if="canDecide" danger @click="openDecision('reject')">
           {{ $t('gainos.leads.reject') }}
-        </button>
-        <button v-if="canDecide" class="lpd__primary" type="button" @click="openDecision('accept')">
+        </Button>
+        <Button v-if="canDecide" type="primary" @click="openDecision('accept')">
           {{ $t('gainos.leads.accept') }}
-        </button>
-        <button v-if="status === 'QUALIFIED'" class="lpd__primary" type="button" @click="promoteOpen = true">
+        </Button>
+        <Button v-if="status === 'QUALIFIED'" type="primary" @click="promoteOpen = true">
           {{ $t('gainos.leads.promoteQgo') }}
-        </button>
-        <button v-if="status === 'QUALIFIED'" class="lpd__ghost" type="button" @click="goOutreach">
+        </Button>
+        <Button v-if="status === 'QUALIFIED'" @click="goOutreach">
           {{ $t('gainos.leads.goOutreach') }}
-        </button>
-      </div>
+        </Button>
+      </Space>
     </div>
-
-    <p v-if="notice" class="lpd__notice" role="status">{{ notice }}</p>
-
-    <nav class="lpd__tabs" role="tablist" :aria-label="$t('gainos.leads.detailTabs')">
-      <button
-        v-for="key in TAB_KEYS"
-        :key="key"
-        type="button"
-        role="tab"
-        class="lpd__tab"
-        :aria-selected="tab === key"
-        :class="{ 'is-active': tab === key }"
-        @click="selectTab(key)"
-      >
-        {{ $t(`gainos.leads.tab.${key}`) }}
-      </button>
-    </nav>
 
     <AsyncSection
       :error="error"
@@ -452,441 +540,649 @@ watch(tab, (next) => {
       :retry-text="$t('gainos.common.retry')"
       @retry="load"
     >
-      <template v-if="pkg">
-        <section v-if="tab === 'package'" class="lpd__grid">
-          <article class="lpd__card lpd__card--wide">
-            <h2>{{ $t('gainos.leads.fitTitle') }}</h2>
-            <p class="lpd__fit">{{ fitVerdictLabel }}</p>
-            <ul v-if="fitReasons.length" class="lpd__reasons">
-              <li v-for="(reason, index) in fitReasons" :key="index">{{ reason }}</li>
-            </ul>
-          </article>
-
-          <article class="lpd__card">
-            <h2>{{ $t('gainos.leads.scoresTitle') }}</h2>
-            <dl v-if="scoreRows.length || totalScore !== null" class="lpd__scores">
-              <div v-for="row in scoreRows" :key="row.dim">
-                <dt>{{ $t(`gainos.leads.dim.${row.dim}`) }}</dt>
-                <dd>{{ Math.round(row.value * 100) }}</dd>
+      <Tabs
+        v-if="pkg"
+        :active-key="tab"
+        data-gs="lead-tabs"
+        @change="selectTab"
+      >
+        <TabPane key="package" :tab="$t('gainos.leads.tab.package')">
+          <div class="grid gap-4">
+            <!-- 判断结果：结论 + 五维雷达 -->
+            <GsCard data-gs="judge-hero">
+              <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <div class="min-w-0">
+                  <p class="lead-hero__label">{{ $t('gainos.leads.verdictTitle') }}</p>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <span class="lead-hero__score">{{ totalScore ?? '—' }}</span>
+                    <span class="text-xs text-[var(--gs-fg-muted)]">
+                      {{ $t('gainos.leads.scoreLabel') }}
+                    </span>
+                    <span class="lead-grade" :class="`lead-grade--${grade}`">
+                      {{ gradeLabel }}
+                    </span>
+                    <GsTag :tone="statusTone">{{ statusLabel(status) }}</GsTag>
+                  </div>
+                  <p v-if="summaryText" class="mt-3 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ summaryText }}
+                  </p>
+                  <div class="lead-hero__reason-box">
+                    <p class="lead-hero__label">{{ $t('gainos.leads.reasonTitle') }}</p>
+                    <p class="lead-hero__reason">{{ keyReason }}</p>
+                  </div>
+                  <p v-if="unknownNote" class="mb-0 mt-2 text-xs text-[var(--gs-fg-subtle)]">
+                    {{ unknownNote }}
+                  </p>
+                  <div v-if="evidenceItems.length > 0" class="lead-hero__evidence">
+                    <p class="lead-hero__label">{{ $t('gainos.leads.evidenceHighlight') }}</p>
+                    <ul>
+                      <li v-for="(item, index) in evidenceItems.slice(0, 3)" :key="index">
+                        <span aria-hidden="true" class="lead-hero__dot" />
+                        <a
+                          v-if="item.url"
+                          :href="item.url"
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {{ item.field }}
+                        </a>
+                        <span v-else>{{ item.field }}</span>
+                        <span v-if="item.fetchedAt" class="lead-hero__evidence-date">
+                          {{ formatDate(item.fetchedAt) }}
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div v-if="radarDims.length > 0" class="lead-radar">
+                  <p class="lead-radar__title">{{ $t('gainos.leads.radarTitle') }}</p>
+                  <GsRadar
+                    :ariaLabel="`${$t('gainos.leads.radarTitle')}：${summaryText}`"
+                    :dims="radarDims"
+                  />
+                  <p class="lead-radar__hint">{{ $t('gainos.leads.radarHint') }}</p>
+                </div>
               </div>
-              <div v-if="totalScore !== null" class="lpd__score-total">
-                <dt>{{ $t('gainos.leads.dim.total') }}</dt>
-                <dd>{{ Math.round(totalScore * 100) }}</dd>
-              </div>
-            </dl>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.notScored') }}</p>
-          </article>
+            </GsCard>
 
-          <article class="lpd__card">
-            <h2>{{ $t('gainos.leads.profileTitle') }}</h2>
-            <dl class="lpd__facts">
-              <template v-for="row in profileRows" :key="row.label">
-                <dt>{{ row.label }}</dt>
-                <dd>{{ row.value }}</dd>
+            <!-- 五维明细 -->
+            <GsCard :title="$t('gainos.leads.criteriaTitle')" data-gs="judge-dimensions">
+              <JudgeDimensions v-if="dims.length > 0" :dims="dims" />
+              <template v-else>
+                <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.criteriaNone') }}
+                </p>
+                <ul
+                  v-if="fitReasonList.length > 0"
+                  class="mt-3 grid gap-1.5 pl-4 text-[13px] text-[var(--gs-fg-muted)]"
+                >
+                  <li v-for="(reason, index) in fitReasonList" :key="index">{{ reason }}</li>
+                </ul>
               </template>
-              <template v-if="pkg.registered_address">
-                <dt>{{ $t('gainos.leads.address') }}</dt>
-                <dd>{{ pkg.registered_address }}</dd>
-              </template>
-              <template v-for="row in identifierRows" :key="`id-${row.label}`">
-                <dt>{{ row.label }}</dt>
-                <dd class="lpd__mono">{{ row.value }}</dd>
-              </template>
-              <template v-if="profileRows.length === 0 && identifierRows.length === 0 && !pkg.registered_address">
-                <dt>{{ $t('gainos.leads.profileEmpty') }}</dt>
-                <dd>—</dd>
-              </template>
-            </dl>
-          </article>
+            </GsCard>
 
-          <article class="lpd__card">
-            <h2>{{ $t('gainos.leads.contactTitle') }}</h2>
-            <template v-if="contactPaths.length > 0">
-              <p v-for="(point, index) in contactPaths" :key="index" class="lpd__contact">
-                <a :href="point.url" target="_blank" rel="noreferrer">{{ point.url }}</a>
-                <span class="lpd__muted">{{ point.status }}</span>
-              </p>
-            </template>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.noContactPath') }}</p>
-            <template v-if="pkg.suggested_contact_path">
-              <p class="lpd__muted">{{ pkg.suggested_contact_path.legal_note }}</p>
-            </template>
-          </article>
+            <div class="grid gap-4 lg:grid-cols-2">
+              <GsCard :title="$t('gainos.leads.profileTitle')" data-gs="company-profile">
+                <Descriptions :column="1" :colon="false" size="small">
+                  <DescriptionsItem
+                    v-for="row in profileRows"
+                    :key="row.label"
+                    :label="row.label"
+                  >
+                    {{ row.value }}
+                  </DescriptionsItem>
+                  <DescriptionsItem
+                    v-if="pkg.registered_address"
+                    :label="$t('gainos.leads.address')"
+                  >
+                    {{ pkg.registered_address }}
+                  </DescriptionsItem>
+                  <DescriptionsItem
+                    v-for="row in identifierRows"
+                    :key="`id-${row.label}`"
+                    :label="row.label"
+                  >
+                    <span class="font-mono text-xs">{{ row.value }}</span>
+                  </DescriptionsItem>
+                  <DescriptionsItem
+                    v-if="profileRows.length === 0 && identifierRows.length === 0 && !pkg.registered_address"
+                    :label="$t('gainos.leads.profileEmpty')"
+                  >
+                    —
+                  </DescriptionsItem>
+                </Descriptions>
+              </GsCard>
 
-          <article class="lpd__card lpd__card--wide">
-            <h2>{{ $t('gainos.leads.evidenceTitle') }}</h2>
-            <ul v-if="evidenceItems.length > 0" class="lpd__evidence">
-              <li v-for="(item, index) in evidenceItems" :key="index">
-                <span class="lpd__chip">{{ item.field }}</span>
-                <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.url }}</a>
-                <span v-if="item.fetchedAt" class="lpd__muted">{{ formatDate(item.fetchedAt) }}</span>
-              </li>
-            </ul>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.evidenceEmpty') }}</p>
-
-            <h2>{{ $t('gainos.leads.signalsTitle') }}</h2>
-            <ul v-if="(pkg.signals ?? []).length > 0" class="lpd__evidence">
-              <li v-for="(signal, index) in pkg.signals" :key="`sig-${index}`">
-                <span class="lpd__chip">{{ signal.type }}</span>
-                <a v-if="signal.url" :href="signal.url" target="_blank" rel="noreferrer">{{ signal.url }}</a>
-                <span class="lpd__muted">{{ formatDateTime(signal.at) }}</span>
-              </li>
-            </ul>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.noSignals') }}</p>
-          </article>
-
-          <article class="lpd__card" :class="{ 'is-warn': sanctionBlocked }">
-            <h2>{{ $t('gainos.leads.sanctionsTitle') }}</h2>
-            <p :class="{ 'lpd__warn': sanctionBlocked }">{{ sanctionLabel(pkg.sanctions?.status) }}</p>
-            <p v-if="pkg.sanctions?.screened_at" class="lpd__muted">
-              {{ formatDateTime(pkg.sanctions.screened_at) }}
-            </p>
-            <div v-if="isAdmin && sanctionBlocked" class="lpd__actions">
-              <button
-                v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                class="lpd__ghost"
-                type="button"
-                :disabled="sanctionsBusy"
-                @click="reviewSanctions('cleared_false_positive')"
-              >
-                {{ $t('gainos.leads.sanctionsClear') }}
-              </button>
-              <button
-                v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                class="lpd__ghost lpd__ghost--danger"
-                type="button"
-                :disabled="sanctionsBusy"
-                @click="reviewSanctions('confirmed_true_hit')"
-              >
-                {{ $t('gainos.leads.sanctionsConfirm') }}
-              </button>
+              <GsCard :title="$t('gainos.leads.contactTitle')" data-gs="contact-paths">
+                <div v-if="contactPaths.length > 0" class="grid gap-2">
+                  <p
+                    v-for="(point, index) in contactPaths"
+                    :key="index"
+                    class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
+                  >
+                    <a
+                      class="break-all text-[var(--gs-accent-fg)]"
+                      :href="point.url"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {{ point.url }}
+                    </a>
+                    <span class="text-xs text-[var(--gs-fg-subtle)]">{{ point.status }}</span>
+                  </p>
+                </div>
+                <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.noContactPath') }}
+                </p>
+                <p
+                  v-if="pkg.suggested_contact_path"
+                  class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
+                >
+                  {{ pkg.suggested_contact_path.legal_note }}
+                </p>
+              </GsCard>
             </div>
-            <p v-if="sanctionsError" class="lpd__error" role="alert">{{ sanctionsError.title }}</p>
-            <p v-if="pkg.valid_until" class="lpd__muted">
-              {{ $t('gainos.leads.validUntil', { date: formatDate(pkg.valid_until) }) }}
+
+            <GsCard :title="$t('gainos.leads.evidenceTitle')" data-gs="evidence">
+              <ul v-if="evidenceItems.length > 0" class="m-0 grid list-none gap-2 p-0">
+                <li
+                  v-for="(item, index) in evidenceItems"
+                  :key="index"
+                  class="flex flex-wrap items-baseline gap-2 text-[13px]"
+                >
+                  <Tag :bordered="false" class="m-0">{{ item.field }}</Tag>
+                  <a
+                    v-if="item.url"
+                    class="break-all text-[var(--gs-accent-fg)]"
+                    :href="item.url"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {{ item.url }}
+                  </a>
+                  <span v-if="item.fetchedAt" class="text-xs text-[var(--gs-fg-subtle)]">
+                    {{ formatDate(item.fetchedAt) }}
+                  </span>
+                </li>
+              </ul>
+              <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                {{ $t('gainos.leads.evidenceEmpty') }}
+              </p>
+
+              <h3 class="mb-0 mt-5 text-[13px] font-semibold text-[var(--gs-fg)]">
+                {{ $t('gainos.leads.signalsTitle') }}
+              </h3>
+              <ul v-if="(pkg.signals ?? []).length > 0" class="m-0 mt-2 grid list-none gap-2 p-0">
+                <li
+                  v-for="(signal, index) in pkg.signals"
+                  :key="`sig-${index}`"
+                  class="flex flex-wrap items-baseline gap-2 text-[13px]"
+                >
+                  <Tag :bordered="false" class="m-0">{{ signal.type }}</Tag>
+                  <a
+                    v-if="signal.url"
+                    class="break-all text-[var(--gs-accent-fg)]"
+                    :href="signal.url"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {{ signal.url }}
+                  </a>
+                  <span class="text-xs text-[var(--gs-fg-subtle)]">
+                    {{ formatDateTime(signal.at) }}
+                  </span>
+                </li>
+              </ul>
+              <p v-else class="m-0 mt-2 text-[13px] text-[var(--gs-fg-muted)]">
+                {{ $t('gainos.leads.noSignals') }}
+              </p>
+            </GsCard>
+
+            <div class="grid gap-4 lg:grid-cols-2">
+              <GsCard
+                :class="{ 'is-warn': sanctionBlocked }"
+                :title="$t('gainos.leads.sanctionsTitle')"
+                data-gs="sanctions"
+              >
+                <p
+                  class="m-0 text-[13px]"
+                  :class="sanctionBlocked ? 'font-semibold text-[var(--gs-warn-fg)]' : 'text-[var(--gs-fg)]'"
+                >
+                  {{ sanctionLabel(pkg.sanctions?.status) }}
+                </p>
+                <p
+                  v-if="pkg.sanctions?.screened_at"
+                  class="mb-0 mt-1 text-xs text-[var(--gs-fg-subtle)]"
+                >
+                  {{ formatDateTime(pkg.sanctions.screened_at) }}
+                </p>
+                <Space v-if="isAdmin && sanctionBlocked" class="mt-3" :size="8" wrap>
+                  <Button
+                    v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
+                    :loading="sanctionsBusy"
+                    @click="reviewSanctions('cleared_false_positive')"
+                  >
+                    {{ $t('gainos.leads.sanctionsClear') }}
+                  </Button>
+                  <Button
+                    v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
+                    danger
+                    :loading="sanctionsBusy"
+                    @click="reviewSanctions('confirmed_true_hit')"
+                  >
+                    {{ $t('gainos.leads.sanctionsConfirm') }}
+                  </Button>
+                </Space>
+                <ErrorNotice
+                  v-if="sanctionsError"
+                  class="mt-3"
+                  :next="sanctionsError.next"
+                  :title="sanctionsError.title"
+                />
+                <p
+                  v-if="pkg.valid_until"
+                  class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
+                >
+                  {{ $t('gainos.leads.validUntil', { date: formatDate(pkg.valid_until) }) }}
+                </p>
+              </GsCard>
+
+              <GsCard :title="$t('gainos.leads.scoresTitle')" data-gs="score-detail">
+                <div v-if="scoreRows.length > 0 || totalScore !== null" class="grid gap-2.5">
+                  <div
+                    v-for="row in scoreRows"
+                    :key="row.dim"
+                    class="grid grid-cols-[96px_1fr_40px] items-center gap-3"
+                  >
+                    <span class="text-xs text-[var(--gs-fg-muted)]">
+                      {{ $t(`gainos.leads.dim.${row.dim}`) }}
+                    </span>
+                    <span class="h-1.5 overflow-hidden rounded-full bg-[var(--gs-surface-2)]">
+                      <span
+                        class="block h-full rounded-full bg-[var(--gs-accent-cta)]"
+                        :style="{ width: `${Math.min(100, Math.max(0, row.value * 100))}%` }"
+                      />
+                    </span>
+                    <span class="text-right text-xs tabular-nums text-[var(--gs-fg)]">
+                      {{ Math.round(row.value * 100) }}
+                    </span>
+                  </div>
+                  <p
+                    v-if="totalScore !== null"
+                    class="mb-0 mt-1 flex items-baseline justify-between border-t border-[var(--gs-divider)] pt-2"
+                  >
+                    <span class="text-xs text-[var(--gs-fg-muted)]">
+                      {{ $t('gainos.leads.dim.total') }}
+                    </span>
+                    <span class="text-sm font-semibold tabular-nums text-[var(--gs-accent-fg)]">
+                      {{ totalScore }}
+                    </span>
+                  </p>
+                </div>
+                <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.notScored') }}
+                </p>
+              </GsCard>
+            </div>
+
+            <details v-if="judge.raw && isMachineAggregate(judge.raw)" class="lead-tech">
+              <summary>{{ $t('gainos.findBuyers.technicalDetails') }}</summary>
+              <dl class="lead-tech__grid">
+                <template v-if="judge.verdict">
+                  <dt>{{ $t('gainos.leads.techVerdict') }}</dt>
+                  <dd>{{ judge.verdict }}</dd>
+                </template>
+                <template v-if="judge.reasonCodes.length > 0">
+                  <dt>{{ $t('gainos.leads.techReasonCodes') }}</dt>
+                  <dd>{{ judge.reasonCodes.join(' · ') }}</dd>
+                </template>
+                <template v-if="judge.weightedNote">
+                  <dt>{{ $t('gainos.leads.techWeighted') }}</dt>
+                  <dd>{{ judge.weightedNote }}</dd>
+                </template>
+              </dl>
+              <pre class="lead-tech__raw">{{ judge.raw }}</pre>
+            </details>
+          </div>
+        </TabPane>
+
+        <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
+          <GsCard>
+            <DecisionMakerCard
+              v-if="isAdmin && pkg.company.canonical_company_id"
+              :company-id="pkg.company.canonical_company_id"
+            />
+            <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainos.leads.peopleAdminOnly') }}
             </p>
-          </article>
-        </section>
+          </GsCard>
+        </TabPane>
 
-        <section v-else-if="tab === 'people'" class="lpd__grid">
-          <article class="lpd__card lpd__card--wide">
-            <template v-if="isAdmin && pkg.company.canonical_company_id">
-              <DecisionMakerCard :company-id="pkg.company.canonical_company_id" />
-            </template>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.peopleAdminOnly') }}</p>
-          </article>
-        </section>
-
-        <section v-else-if="tab === 'draft'" class="lpd__grid">
-          <article class="lpd__card lpd__card--wide">
-            <div class="lpd__card-head">
-              <h2>{{ $t('gainos.leads.outreachDraft') }}</h2>
-              <button
+        <TabPane key="draft" :tab="$t('gainos.leads.tab.draft')">
+          <GsCard>
+            <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
+            <template #extra>
+              <Button
                 v-if="status === 'QUALIFIED'"
-                class="lpd__ghost"
-                type="button"
-                :disabled="draftLoading"
+                :loading="draftLoading"
+                size="small"
                 @click="generateDraft"
               >
-                {{ draftLoading ? $t('gainos.common.loading') : $t('gainos.leads.outreachDraft') }}
-              </button>
-            </div>
-            <p class="lpd__muted">{{ $t('gainos.leads.outreachDraftDesc') }}</p>
-            <div v-if="draftError" class="lpd__error" role="alert">
-              <strong>{{ draftError.title }}</strong>
-              <span v-if="draftError.next">{{ draftError.next }}</span>
-            </div>
-            <template v-else-if="draftText">
-              <pre class="lpd__draft">{{ draftText }}</pre>
-              <button class="lpd__ghost" type="button" @click="copyDraft">
-                {{ copied ? $t('gainos.leads.copied') : $t('gainos.leads.copy') }}
-              </button>
+                {{ $t('gainos.leads.outreachDraft') }}
+              </Button>
             </template>
-            <p v-else-if="status !== 'QUALIFIED'" class="lpd__muted">
+            <p class="m-0 text-xs text-[var(--gs-fg-subtle)]">
+              {{ $t('gainos.leads.outreachDraftDesc') }}
+            </p>
+            <ErrorNotice
+              v-if="draftError"
+              class="mt-3"
+              :next="draftError.next"
+              :title="draftError.title"
+            />
+            <template v-else-if="draftText">
+              <pre class="lead-draft">{{ draftText }}</pre>
+              <Button class="mt-3" @click="copyDraft">
+                {{ copied ? $t('gainos.leads.copied') : $t('gainos.leads.copy') }}
+              </Button>
+            </template>
+            <p
+              v-else-if="status !== 'QUALIFIED'"
+              class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]"
+            >
               {{ $t('gainos.leads.outreachNeedsQualified') }}
             </p>
-            <p v-else class="lpd__muted">{{ $t('gainos.leads.outreachEmpty') }}</p>
-          </article>
-        </section>
+            <p v-else class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainos.leads.outreachEmpty') }}
+            </p>
+          </GsCard>
+        </TabPane>
 
-        <section v-else class="lpd__grid">
-          <article class="lpd__card lpd__card--wide">
-            <h2>{{ $t('gainos.leads.outcomesTitle') }}</h2>
-            <p class="lpd__muted">{{ $t('gainos.leads.outcomesDesc') }}</p>
-            <div class="lpd__actions">
-              <button class="lpd__ghost" type="button" @click="router.push('/qgos')">
+        <TabPane key="outcomes" :tab="$t('gainos.leads.tab.outcomes')">
+          <GsCard :title="$t('gainos.leads.outcomesTitle')">
+            <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainos.leads.outcomesDesc') }}
+            </p>
+            <Space class="mt-4" :size="8" wrap>
+              <Button @click="router.push('/qgos')">
                 {{ $t('gainos.leads.outcomesQgos') }}
-              </button>
-              <button class="lpd__ghost" type="button" @click="goOutreach">
+              </Button>
+              <Button @click="goOutreach">
                 {{ $t('gainos.leads.outcomesOutreach') }}
-              </button>
-            </div>
-          </article>
-        </section>
-      </template>
+              </Button>
+            </Space>
+          </GsCard>
+        </TabPane>
+      </Tabs>
     </AsyncSection>
 
     <!-- 接受/拒绝 -->
-    <div v-if="decision" class="lpd__overlay" @click.self="decision = null">
-      <section class="lpd__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.decisionTitle')">
-        <header class="lpd__modal-head">
-          <h2>{{ decision === 'accept' ? $t('gainos.leads.acceptTitle') : $t('gainos.leads.rejectTitle') }}</h2>
-          <button class="lpd__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="decision = null">×</button>
-        </header>
-        <p class="lpd__muted">
-          {{ decision === 'accept' ? $t('gainos.leads.acceptDesc') : $t('gainos.leads.rejectDesc') }}
-        </p>
-        <div v-if="actionError" class="lpd__error" role="alert">
-          <strong>{{ actionError.title }}</strong>
-          <span v-if="actionError.next">{{ actionError.next }}</span>
-        </div>
-        <label class="lpd__field">
+    <Modal
+      v-model:open="decisionOpen"
+      :title="decisionTitle"
+      :width="560"
+      data-gs="decision-modal"
+    >
+      <p class="mt-0 text-[13px] text-[var(--gs-fg-muted)]">{{ decisionDesc }}</p>
+      <ErrorNotice
+        v-if="actionError"
+        class="mb-3"
+        :next="actionError.next"
+        :title="actionError.title"
+      />
+      <div class="grid gap-3">
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
           <span>{{ $t('gainos.leads.reasonCode') }}<em v-if="decision === 'reject'"> *</em></span>
-          <select v-model="reasonCode">
-            <option value="">{{ decision === 'reject' ? $t('gainos.leads.reasonSelect') : $t('gainos.leads.reasonOptional') }}</option>
-            <option v-for="option in reasonOptions" :key="option.code" :value="option.code">{{ option.label }}</option>
-          </select>
+          <GsSelect
+            v-model="reasonCode"
+            :ariaLabel="$t('gainos.leads.reasonCode')"
+            :options="reasonOptions.map((option) => ({ label: option.label, value: option.code }))"
+            :placeholder="decision === 'reject' ? $t('gainos.leads.reasonSelect') : $t('gainos.leads.reasonOptional')"
+            allow-clear
+          />
         </label>
-        <label class="lpd__field">
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
           <span>{{ $t('gainos.leads.reasonNote') }}</span>
-          <textarea v-model="reasonNote" maxlength="500" rows="2"></textarea>
+          <Input.TextArea
+            v-model:value="reasonNote"
+            :maxlength="500"
+            :placeholder="$t('gainos.leads.reasonPlaceholder')"
+            :rows="2"
+          />
         </label>
-        <div class="lpd__actions lpd__actions--end">
-          <button class="lpd__ghost" type="button" @click="decision = null">{{ $t('gainos.common.cancel') }}</button>
-          <button
-            class="lpd__primary"
-            type="button"
-            :disabled="submitting || (decision === 'reject' && !reasonCode)"
+      </div>
+      <template #footer>
+        <Space :size="8">
+          <Button @click="decision = null">{{ $t('gainos.common.cancel') }}</Button>
+          <Button
+            :danger="decision === 'reject'"
+            :loading="submitting"
+            :disabled="decision === 'reject' && !reasonCode"
+            type="primary"
             @click="submitDecision"
           >
-            {{ submitting ? $t('gainos.leads.submitting') : decision === 'accept' ? $t('gainos.leads.confirmAccept') : $t('gainos.leads.confirmReject') }}
-          </button>
-        </div>
-      </section>
-    </div>
+            {{ decisionOkText }}
+          </Button>
+        </Space>
+      </template>
+    </Modal>
 
     <!-- 提升为商机 -->
-    <div v-if="promoteOpen" class="lpd__overlay" @click.self="promoteOpen = false">
-      <section class="lpd__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.promoteTitle')">
-        <header class="lpd__modal-head">
-          <h2>{{ $t('gainos.leads.promoteTitle') }}</h2>
-          <button class="lpd__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="promoteOpen = false">×</button>
-        </header>
-        <div v-if="promoteError" class="lpd__error" role="alert">
-          <strong>{{ promoteError.title }}</strong>
-          <span v-if="promoteError.next">{{ promoteError.next }}</span>
-        </div>
-        <div class="lpd__field">
-          <span>{{ $t('gainos.leads.promoteEvidence') }}</span>
-          <div v-for="(row, index) in promoteEvidence" :key="index" class="lpd__evidence-row">
-            <select v-model="row.type" :aria-label="$t('gainos.leads.promoteEvidenceType')">
-              <option value="customer_reply">{{ $t('gainos.leads.evidenceType.customer_reply') }}</option>
-              <option value="purchase_page">{{ $t('gainos.leads.evidenceType.purchase_page') }}</option>
-              <option value="tender_hit">{{ $t('gainos.leads.evidenceType.tender_hit') }}</option>
-              <option value="customs_signal">{{ $t('gainos.leads.evidenceType.customs_signal') }}</option>
-              <option value="other">{{ $t('gainos.leads.evidenceType.other') }}</option>
-            </select>
-            <input v-model="row.url" type="url" :placeholder="$t('gainos.leads.promoteUrlHint')" />
-            <input v-model="row.support" type="text" maxlength="500" :placeholder="$t('gainos.leads.promoteSupportHint')" />
-            <button class="lpd__ghost" type="button" :disabled="promoteEvidence.length <= 1" @click="removeEvidenceRow(index)">×</button>
-          </div>
-          <button class="lpd__ghost" type="button" @click="addEvidenceRow">{{ $t('gainos.leads.addEvidence') }}</button>
-        </div>
-        <label class="lpd__field">
-          <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
-          <textarea v-model="promoteNextStep" maxlength="500" rows="2" :placeholder="$t('gainos.leads.promoteNextStepHint')"></textarea>
-        </label>
-        <div class="lpd__actions lpd__actions--end">
-          <button class="lpd__ghost" type="button" @click="promoteOpen = false">{{ $t('gainos.common.cancel') }}</button>
-          <button
-            class="lpd__primary"
-            type="button"
-            :disabled="promoteBusy || !promoteNextStep.trim()"
-            @click="submitPromote"
+    <Modal
+      v-model:open="promoteOpen"
+      :confirm-loading="promoteBusy"
+      :ok-button-props="{ disabled: promoteBusy || !promoteNextStep.trim() }"
+      :ok-text="$t('gainos.leads.promoteSubmit')"
+      :title="$t('gainos.leads.promoteTitle')"
+      :width="680"
+      data-gs="promote-modal"
+      @ok="submitPromote"
+    >
+      <ErrorNotice
+        v-if="promoteError"
+        class="mb-3"
+        :next="promoteError.next"
+        :title="promoteError.title"
+      />
+      <div class="grid gap-3">
+        <div class="grid gap-2">
+          <span class="text-xs font-medium text-[var(--gs-fg-2)]">
+            {{ $t('gainos.leads.promoteEvidence') }}
+          </span>
+          <div
+            v-for="(row, index) in promoteEvidence"
+            :key="index"
+            class="flex flex-wrap items-center gap-2"
           >
-            {{ promoteBusy ? $t('gainos.leads.submitting') : $t('gainos.leads.promoteSubmit') }}
-          </button>
+            <GsSelect
+              v-model="row.type"
+              :ariaLabel="$t('gainos.leads.promoteEvidenceType')"
+              :options="[
+                'customer_reply',
+                'purchase_page',
+                'tender_hit',
+                'customs_signal',
+                'other',
+              ].map((type) => ({ label: $t(`gainos.leads.evidenceType.${type}`), value: type }))"
+              class="w-[150px]"
+            />
+            <Input
+              v-model:value="row.url"
+              :placeholder="$t('gainos.leads.promoteUrlHint')"
+              class="min-w-[200px] flex-1"
+              type="url"
+            />
+            <Input
+              v-model:value="row.support"
+              :maxlength="500"
+              :placeholder="$t('gainos.leads.promoteSupportHint')"
+              class="min-w-[200px] flex-1"
+            />
+            <Button
+              :disabled="promoteEvidence.length <= 1"
+              @click="removeEvidenceRow(index)"
+            >
+              ×
+            </Button>
+          </div>
+          <Button class="justify-self-start" type="dashed" @click="addEvidenceRow">
+            {{ $t('gainos.leads.addEvidence') }}
+          </Button>
         </div>
-      </section>
-    </div>
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
+          <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
+          <Input.TextArea
+            v-model:value="promoteNextStep"
+            :maxlength="500"
+            :placeholder="$t('gainos.leads.promoteNextStepHint')"
+            :rows="2"
+          />
+        </label>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <style scoped>
-.lpd {
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
+.lead-hero__label {
+  margin: 0 0 4px;
+  color: var(--gs-fg-subtle);
+  font-size: 11px;
+  line-height: 16px;
 }
-.lpd__back,
-.lpd__ghost,
-.lpd__primary {
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.lpd__back,
-.lpd__ghost {
-  border: 1px solid var(--gs-border-strong);
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-}
-.lpd__ghost--danger {
-  border-color: var(--gs-danger-border);
-  background: var(--gs-danger-bg);
-  color: var(--gs-danger);
-}
-.lpd__primary {
-  border: none;
-  background: var(--gs-accent-cta);
-  color: var(--gs-accent-cta-fg);
-  font-weight: 600;
-}
-.lpd__primary:disabled,
-.lpd__ghost:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.lpd__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid var(--gs-border);
-  border-radius: 12px;
-  background: var(--gs-surface);
-}
-.lpd__bar-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.lpd__notice {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--gs-accent-soft);
-  color: var(--gs-accent-strong);
-  font-size: 13px;
-}
-.lpd__tabs {
-  display: flex;
-  gap: 6px;
-  border-bottom: 1px solid var(--gs-border);
-}
-.lpd__tab {
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: none;
-  padding: 9px 14px;
-  font-size: 13.5px;
-  color: var(--gs-fg-muted);
-  cursor: pointer;
-}
-.lpd__tab.is-active {
-  border-bottom-color: var(--gs-accent-cta);
-  color: var(--gs-accent-strong);
-  font-weight: 600;
-}
-.lpd__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
-}
-.lpd__card {
-  border: 1px solid var(--gs-border);
-  border-radius: 14px;
-  background: var(--gs-surface);
-  padding: 16px 18px;
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-.lpd__card.is-warn {
-  border-color: var(--gs-warn);
-  background: var(--gs-warn-bg);
-}
-.lpd__card--wide {
-  grid-column: 1 / -1;
-}
-.lpd__card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-.lpd__card h2 {
-  margin: 0;
-  font-size: 14.5px;
-  font-weight: 650;
+.lead-hero__score {
   color: var(--gs-fg);
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.lpd__facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 14px;
-  margin: 0;
-  font-size: 13px;
-}
-.lpd__facts dt {
-  color: var(--gs-fg-muted);
-}
-.lpd__facts dd {
-  margin: 0;
-  color: var(--gs-fg-2);
-}
-.lpd__mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-.lpd__contact {
-  margin: 0;
-  font-size: 13px;
-  word-break: break-all;
-}
-.lpd__contact a {
-  color: var(--gs-accent-strong);
-}
-.lpd__evidence {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-.lpd__evidence li {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: baseline;
-  font-size: 13px;
-  word-break: break-all;
-}
-.lpd__chip {
-  border-radius: 999px;
-  padding: 1px 8px;
+.lead-grade {
+  padding: 0 8px;
+  border-radius: 6px;
   font-size: 11.5px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.lead-grade--high {
+  background: var(--gs-success-bg);
+  color: var(--gs-success-fg);
+}
+.lead-grade--medium {
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+}
+.lead-grade--low {
   background: var(--gs-surface-2);
   color: var(--gs-fg-muted);
 }
-.lpd__warn {
-  color: var(--gs-warn);
-  font-weight: 600;
+.lead-grade--none {
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-subtle);
 }
-.lpd__muted {
+.lead-hero__reason-box {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gs-divider);
+}
+.lead-hero__reason {
+  margin: 3px 0 0;
+  max-width: 760px;
+  color: var(--gs-fg-2);
+  font-size: 13px;
+  line-height: 1.75;
+}
+.lead-radar {
+  padding: 12px 14px 10px;
+  border: 1px solid var(--gs-divider);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.lead-radar__title {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.lead-radar__hint {
   margin: 0;
   color: var(--gs-fg-subtle);
-  font-size: 12.5px;
+  font-size: 11px;
+  text-align: center;
 }
-.lpd__draft {
+.lead-hero__evidence {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gs-divider);
+}
+.lead-hero__evidence ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lead-hero__evidence li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--gs-fg-muted);
+}
+.lead-hero__evidence a {
+  color: var(--gs-accent-fg);
+  text-decoration: none;
+}
+.lead-hero__evidence a:hover {
+  text-decoration: underline;
+}
+.lead-hero__dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gs-accent-cta);
+  transform: translateY(-2px);
+}
+.lead-hero__evidence-date {
+  margin-left: auto;
+  color: var(--gs-fg-subtle);
+  font-size: 11px;
+}
+.lead-tech {
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+}
+.lead-tech summary {
+  cursor: pointer;
+}
+.lead-tech__grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+.lead-tech__grid dd {
   margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.lead-tech__raw {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-muted);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lead-draft {
+  margin: 12px 0 0;
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--gs-surface-2);
   font-size: 12.5px;
   white-space: pre-wrap;
@@ -894,92 +1190,7 @@ watch(tab, (next) => {
   max-height: 420px;
   overflow: auto;
 }
-.lpd__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.lpd__actions--end {
-  justify-content: flex-end;
-}
-.lpd__error {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--gs-danger-bg);
-  color: var(--gs-danger);
-  font-size: 12.5px;
-  display: grid;
-  gap: 4px;
-}
-.lpd__overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--gs-mask);
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  z-index: 50;
-}
-.lpd__modal {
-  width: min(560px, 100%);
-  max-height: 88vh;
-  overflow: auto;
-  border-radius: 14px;
-  background: var(--gs-surface);
-  border: 1px solid var(--gs-border);
-  padding: 18px 20px;
-  display: grid;
-  gap: 12px;
-}
-.lpd__modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-.lpd__modal-head h2 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--gs-fg);
-}
-.lpd__close {
-  border: none;
-  background: none;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--gs-fg-subtle);
-  cursor: pointer;
-}
-.lpd__field {
-  display: grid;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--gs-fg-muted);
-}
-.lpd__field select,
-.lpd__field textarea,
-.lpd__field input {
-  border: 1px solid var(--gs-border-strong);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-  background: var(--gs-surface);
-  color: var(--gs-fg-2);
-}
-.lpd__fit { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); }
-.lpd__reasons { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; color: var(--gs-fg-2); font-size: 13px; line-height: 1.7; }
-.lpd__scores { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-.lpd__scores div { background: var(--gs-divider); border-radius: 9px; padding: 8px 10px; display: grid; gap: 3px; }
-.lpd__scores dt { font-size: 11px; color: var(--gs-fg-subtle); }
-.lpd__scores dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); font-variant-numeric: tabular-nums; }
-.lpd__score-total { background: var(--gs-accent-soft) !important; }
-.lpd__score-total dd { color: var(--gs-accent-strong); }
-.lpd__evidence-row {
-  display: grid;
-  grid-template-columns: 130px 1fr 1fr auto;
-  gap: 6px;
-  align-items: center;
-}
-</style>
+.is-warn {
+  border-color: var(--gs-warn);
+  background: var(--gs-warn-bg);
+}</style>

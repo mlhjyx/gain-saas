@@ -1,24 +1,25 @@
 # pass3 rendered DOM color scan
-generatedAt: 2026-11-23T02:10:27.504Z
+generatedAt: 2026-11-23T07:23:51.175Z
 pages: /workspace, /leads, /companies, /find-buyers, /campaigns, /qgos, /tasks, /notifications, /growth?tab=reviews, /growth?tab=metrics, /settings/members, /settings/suppressions, /settings/sources, /settings/privacy, /settings/audit
-totalSamples: 17284
-classCounts: {"brand":266,"error":4,"neutral":16986,"success":14,"warning":14}
+totalSamples: 21328
+classCounts: {"brand":264,"neutral":21032,"success":16,"warning":16}
 
 ## unique colors
 75	dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.6)	neutral
-3426	dark | rgb(0, 0, 0)	neutral
-583	dark | rgb(138, 138, 138)	neutral
+3435	dark | rgb(0, 0, 0)	neutral
+1380	dark | rgb(138, 138, 138)	neutral
 5	dark | rgb(159, 74, 17)	warning
-3244	dark | rgb(163, 163, 163)	neutral
-2	dark | rgb(180, 34, 46)	error
+4533	dark | rgb(163, 163, 163)	neutral
 2	dark | rgb(183, 83, 16)	warning
-24	dark | rgb(23, 23, 23)	neutral
-1737	dark | rgb(255, 255, 255)	neutral
+23	dark | rgb(23, 23, 23)	neutral
+1	dark | rgb(251, 191, 36)	warning
+1854	dark | rgb(255, 255, 255)	neutral
 7	dark | rgb(26, 117, 68)	success
-195	dark | rgb(28, 28, 28)	neutral
+289	dark | rgb(28, 28, 28)	neutral
 25	dark | rgb(46, 81, 220)	brand
 62	dark | rgb(51, 92, 255)	brand
-28	dark | rgb(53, 89, 233)	brand
+27	dark | rgb(53, 89, 233)	brand
+1	dark | rgb(74, 222, 128)	success
 44	dark | rgb(92, 92, 92)	neutral
 44	dark | rgba(0, 0, 0, 0.45)	neutral
 15	dark | rgba(0, 0, 0, 0.5)	neutral
@@ -26,19 +27,18 @@ classCounts: {"brand":266,"error":4,"neutral":16986,"success":14,"warning":14}
 16	dark | rgba(51, 92, 255, 0.16)	brand
 2	dark | rgba(51, 92, 255, 0.35)	brand
 75	light | oklab(0.204404 0.00000931323 0.00000409782 / 0.6)	neutral
-2937	light | rgb(0, 0, 0)	neutral
+2946	light | rgb(0, 0, 0)	neutral
 30	light | rgb(163, 163, 163)	neutral
-7	light | rgb(183, 83, 16)	warning
-2	light | rgb(208, 37, 51)	error
+8	light | rgb(183, 83, 16)	warning
 14	light | rgb(209, 209, 209)	neutral
-1680	light | rgb(23, 23, 23)	neutral
+1797	light | rgb(23, 23, 23)	neutral
 1	light | rgb(235, 241, 255)	brand
-24	light | rgb(250, 250, 250)	neutral
-245	light | rgb(255, 255, 255)	neutral
-7	light | rgb(26, 117, 68)	success
+23	light | rgb(250, 250, 250)	neutral
+339	light | rgb(255, 255, 255)	neutral
+8	light | rgb(26, 117, 68)	success
 87	light | rgb(51, 92, 255)	brand
-28	light | rgb(53, 89, 233)	brand
-2505	light | rgb(92, 92, 92)	neutral
+27	light | rgb(53, 89, 233)	brand
+4027	light | rgb(92, 92, 92)	neutral
 44	light | rgba(10, 10, 10, 0.03)	neutral
 15	light | rgba(10, 10, 10, 0.18)	neutral
 15	light | rgba(10, 10, 10, 0.35)	neutral

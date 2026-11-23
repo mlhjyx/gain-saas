@@ -135,9 +135,9 @@ test('pass2 measurable specs', async ({ page }) => {
   expect(leads.queueSwitch).toBe(1);
   expect(leads.toolbar).toBe(1);
   expect(leads.search).toBe(1);
-  // 企业系统统一 10px 圆角 + 32px 小按钮（设计系统 §4）
+  // 企业系统统一 10px 圆角 + 40px 标准控件（设计系统 §4）
   expect(leads.acceptRadius).toBe('10px');
-  expect(leads.acceptHeight).toBe(32);
+  expect(leads.acceptHeight).toBe(40);
   expect(leads.cardRadius).toBe('10px');
   expect(leads.cardShadow).not.toBe('none');
 });

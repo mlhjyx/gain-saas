@@ -13,16 +13,13 @@ import {
   RadioButton,
   RadioGroup,
   Skeleton,
-  Space,
   Steps,
 } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
-import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
-import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
 import { usePendingAction } from '#/composables/use-pending-action';
@@ -37,6 +34,8 @@ import {
   type LeadQueueCounts,
   type PromoteQgoInput,
 } from '#/api/gainos';
+
+import LeadCard from './lead-card.vue';
 
 defineOptions({ name: 'Leads' });
 
@@ -120,6 +119,18 @@ const queueCounts = ref<LeadQueueCounts | null>(null);
 // 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
 const pageLimit = ref(50);
 
+// 判定明细展开状态（卡片自己解析 C1–C5，页面只记住哪些卡是展开的）
+const expandedIds = ref<Set<string>>(new Set());
+function isExpanded(id: string): boolean {
+  return expandedIds.value.has(id);
+}
+function toggleExpanded(id: string): void {
+  const next = new Set(expandedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedIds.value = next;
+}
+
 // M2 步 10：从已接受线索提升为商机（QGO）。证据门与下一步在服务端再次校验。
 const promoteOpen = ref(false);
 const promoteTarget = ref<Lead | null>(null);
@@ -178,6 +189,18 @@ async function submitPromote(): Promise<void> {
   }
 }
 
+function openPackage(lead: Lead): void {
+  void router.push({ name: 'LeadDetail', params: { leadId: lead.id } });
+}
+async function copyDomain(lead: Lead): Promise<void> {
+  if (!lead.company?.domain) return;
+  try {
+    await navigator.clipboard.writeText(lead.company.domain);
+    feedback.message.success($t('gainos.leads.copiedDomain'));
+  } catch {
+    /* 剪贴板被拒时保持静默，用户可手动复制 */
+  }
+}
 
 const modal = ref<'accept' | 'reject' | null>(null);
 const target = ref<Lead | null>(null);
@@ -269,35 +292,6 @@ function basisLabel(basis?: string): string {
     human_reject: $t('gainos.leads.basis.reject'),
   };
   return (basis && map[basis]) || '';
-}
-function fitLabel(verdict?: string | null): string {
-  if (!verdict) return $t('gainos.leads.fit.unknown');
-  const key = `gainos.leads.fit.${verdict}`;
-  const translated = $t(key);
-  return translated === key ? $t('gainos.leads.fit.unknown') : translated;
-}
-
-function reasonsOf(lead: Lead): string[] {
-  const raw = lead.fitReasons;
-  if (Array.isArray(raw)) return raw.map((item) => String(item)).filter(Boolean);
-  if (raw && typeof raw === 'object') {
-    const record = raw as Record<string, unknown>;
-    for (const field of ['reasons', 'matched', 'notes']) {
-      const value = record[field];
-      if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
-    }
-    const text = record.summary ?? record.reason;
-    if (typeof text === 'string' && text.trim()) return [text];
-  }
-  return [];
-}
-function scoreText(lead: Lead): string {
-  return typeof lead.totalScore === 'number' ? $t('gainos.leads.score', { score: Math.round(lead.totalScore) }) : $t('gainos.leads.notScored');
-}
-function whyText(lead: Lead): string {
-  const reasons = reasonsOf(lead);
-  if (reasons.length > 0) return reasons.slice(0, 2).join(' · ');
-  return fitLabel(lead.fitVerdict);
 }
 function canAct(lead: Lead): boolean {
   return !['rejected', 'suppressed', 'sanctions_hold'].includes(lead.queue ?? '') &&
@@ -587,87 +581,22 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           {{ $t('gainos.companies.noMatch') }}
         </p>
 
-        <GsCard
+        <LeadCard
           v-for="lead in filteredLeads"
           :key="lead.id"
-          data-gs="lead-card"
-        >
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h2 class="m-0 text-[15px] font-semibold leading-6">
-                <RouterLink
-                  class="text-[var(--gs-fg)] no-underline hover:text-[var(--gs-accent-strong)]"
-                  :to="{ name: 'LeadDetail', params: { leadId: lead.id } }"
-                >
-                  {{ lead.company?.name || $t('gainos.leads.unknownCompany') }}
-                </RouterLink>
-              </h2>
-              <p
-                v-if="lead.company?.country || lead.company?.industry"
-                class="m-0 mt-0.5 text-xs text-[var(--gs-fg-muted)]"
-              >
-                {{ [lead.company?.country, lead.company?.industry].filter(Boolean).join(' · ') }}
-              </p>
-            </div>
-            <span
-              class="text-sm font-semibold tabular-nums"
-              :class="typeof lead.totalScore === 'number' ? 'text-[var(--gs-accent-strong)]' : 'text-[var(--gs-fg-subtle)]'"
-            >
-              {{ scoreText(lead) }}
-            </span>
-          </div>
-
-          <p class="mb-0 mt-3 text-[13px] leading-5 text-[var(--gs-fg-muted)]">
-            {{ whyText(lead) }}
-          </p>
-
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <GsTag :tone="toneOf(queueMeta(lead.queue).tone)">
-              {{ queueLabel(lead.queue) }}
-            </GsTag>
-            <span v-if="basisLabel(lead.queueBasis)" class="text-xs text-[var(--gs-fg-subtle)]">
-              {{ basisLabel(lead.queueBasis) }}
-            </span>
-            <span v-if="lead.company?.employeeCount" class="text-xs text-[var(--gs-fg-subtle)]">
-              {{ lead.company.employeeCount }} 人
-            </span>
-          </div>
-
-          <Space class="mt-4" :size="8" wrap>
-            <Button
-              size="small"
-              @click="router.push({ name: 'LeadDetail', params: { leadId: lead.id } })"
-            >
-              {{ $t('gainos.leads.viewPackage') }}
-            </Button>
-            <template v-if="canAct(lead)">
-              <Button
-                danger
-                size="small"
-                data-gs="lead-reject"
-                @click="openReject(lead)"
-              >
-                {{ $t('gainos.leads.reject') }}
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                data-gs="lead-accept"
-                @click="openAccept(lead)"
-              >
-                {{ $t('gainos.leads.accept') }}
-              </Button>
-            </template>
-            <Button
-              v-else-if="lead.status === 'QUALIFIED'"
-              size="small"
-              type="primary"
-              @click="openPromote(lead)"
-            >
-              {{ $t('gainos.leads.promoteQgo') }}
-            </Button>
-          </Space>
-        </GsCard>
+          :basis-label="basisLabel(lead.queueBasis)"
+          :can-act="canAct(lead)"
+          :expanded="isExpanded(lead.id)"
+          :lead="lead"
+          :queue-label="queueLabel(lead.queue)"
+          :queue-tone="toneOf(queueMeta(lead.queue).tone)"
+          @accept="openAccept(lead)"
+          @copy="copyDomain(lead)"
+          @package="openPackage(lead)"
+          @promote="openPromote(lead)"
+          @reject="openReject(lead)"
+          @toggle="toggleExpanded(lead.id)"
+        />
 
         <div v-if="hasMoreLeads" class="flex items-center justify-between" data-gs="load-more">
           <span class="text-xs text-[var(--gs-fg-subtle)]">
@@ -682,8 +611,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
     <Modal
       v-model:open="decisionOpen"
       :confirm-loading="submitting"
-      :ok-text="confirmLabel"
       :ok-button-props="{ danger: modal === 'reject' }"
+      :ok-text="confirmLabel"
       :title="modalTitle"
       :width="560"
       data-gs="decision-modal"
@@ -719,8 +648,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
     <!-- M2 步 10：提升为商机（QGO） -->
     <Modal
       v-model:open="promoteOpen"
-      :ok-button-props="{ disabled: promoteBusy || !promoteNextStep.trim() }"
       :confirm-loading="promoteBusy"
+      :ok-button-props="{ disabled: promoteBusy || !promoteNextStep.trim() }"
       :ok-text="$t('gainos.leads.promoteSubmit')"
       :title="$t('gainos.leads.promoteTitle')"
       :width="680"

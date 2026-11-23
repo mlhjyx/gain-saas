@@ -44,6 +44,7 @@
 - **薄封装**：需要统一默认值时用 `apps/web/src/components/gainos/ui/`（GsPage/GsCard/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsToolbar/GsSelect），不在页面里重造按钮/输入/表格/弹层。
 - **反馈统一**：成功/失败提示用 `#/feedback` 的 `feedback.message.*`，确认框用 `feedback.confirm`（danger 显式声明），顶部通知用 `feedback.notification.*`；禁止 `window.confirm/alert` 与静态 `message/notification`。
 - **测试锚点**：页面 DOM 只承诺 role/aria-label 与 `data-gs="<area>"`；旧 BEM 页面类（`.wk__*` / `.ld__*` / `.cp__*` …）迁移后不保留，e2e 同步改写。
+- **判定文本**：引擎的聚合判定（`judge-aggregate` / `C1_MATERIAL…` / `reasonCodes`）不得直接上屏；一律经 `apps/web/src/views/leads/judge.ts` 解析成五维业务语言，原文与机器码只进「技术详情」折叠区（规范 §11）。
 
 ### 5.1 简洁性（2026-11-22 增补）
 

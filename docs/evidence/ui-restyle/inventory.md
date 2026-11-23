@@ -1656,3 +1656,28 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 迁移：nav-shell（leads landmark）、main-chain（卡片/按钮锚点 + antd 确认框交互）、idempotency（卡片锚点）、a11y（卡片锚点）、pass2-measure（leads 段改 token 符合度：按钮 10px/32px、卡片 10px + 阴影）。
 - 本地全绿：typecheck/build、a11y、color-scan（pass2/pass3）、dark-mode、responsive、21 个定向 spec。
 - 证据：`docs/evidence/ui-restyle/antd-system/{leads,leads-modal}-{light,dark}.png`。
+
+## 16. 买家线索判定可读化（2026-11-23）
+
+用户反馈：线索页把引擎的聚合文本（`judge-aggregate/v1`、`C1_MATERIAL pass（score 8）`、`reasonCodes=…`）直接展示，普通用户看不懂。本次把 C1–C5 解析成业务维度，列表按参考图重排，详情加五维雷达。
+
+### 16.1 解析与文案
+- 新增 `views/leads/judge.ts`：`parseJudge()` 解析五维（兼容字符串/数组/JSON 字符串/对象）、结论码、加权说明；`keyDimension()` 选决定性维度；`shortRationale()` 截断；`scoreGrade()` 分档。
+- 新增 `views/leads/judge-labels.ts`：维度名（产品品类/买家角色/生产工艺/经营模式/企业规模）、判据状态词表、`ICP`→「目标客户画像」的展示替换。
+- i18n（zh/en 同步）：`leads.scoreLabel/scoreGrade/criteria*/dimScore/expand/collapse/moreActions/copyDomain/radar*/tech*/evidenceHighlight`，既有 key 未改。
+
+### 16.2 列表（`views/leads/lead-card.vue`，从页面抽出）
+- 卡片五行：公司（首字母牌位 + 国家/域名 + 行业/规模标签）→ 评分（分数 + 高价值/潜力客户/待观察）→ 判断结果+原因（决定性维度一句话，最多 2 行）→ 五维摘要（✓/✗/? + 结论 + 0–10 分）→ 操作（值得跟进/暂不跟进/⋯）。
+- 待我判断的卡片左侧 3px 强调条；展开区显示逐维理由与「技术详情」（聚合原文/verdict/reasonCodes/加权说明）。
+- 页面 scoped CSS 仍为 **0 行**（样式随卡片下沉到组件）。
+
+### 16.3 详情（`views/leads/detail.vue`）
+- 整页迁 AntDV：GsPage + a-tabs（档案/决策人/触达草稿/结果）+ GsCard + a-descriptions + a-modal（裁决/提商机）。
+- 档案页首屏：判断结果 hero（46 + 高价值/待观察 + 1 项符合·3 项不符·1 项证据不足 + 关键理由 + 核心证据）+ 五维雷达（新增 `components/gainos/ui/gs-radar.vue`，纯 SVG、无新依赖、双主题）。
+- 逐维明细：状态图标 + 名称 + 结论 + 0–10 分条 + 理由（新增共享组件 `views/leads/judge-dimensions.vue`）；八维 `scores` 保留为「评分维度」补充卡。
+- 证据不足的维度按 0 绘制，图下注明；机器码与聚合原文只进折叠区。
+
+### 16.4 验证与证据
+- 新增 `e2e/leads-judge.spec.ts`：用用户给出的真实形状数据锁定「列表/详情不出现 C1_MATERIAL / judge-aggregate / reasonCodes / ICP」「展开可见逐维理由」「技术详情内可见机器码」「详情雷达 role=img」。
+- 回归：nav-shell、main-chain（9 条）、idempotency、a11y、resilience、pass2-measure（按钮 40px）、color-scan（pass2/pass3）、dark-mode、responsive、locale-toggle、zero-jargon 全绿；`resilience` 的旧 `.ld__lead` 锚点改 `data-gs="lead-card"`。
+- 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-{light,dark}.png`、`leads-detail-judge-{light,dark}.png`。

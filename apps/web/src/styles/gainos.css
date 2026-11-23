@@ -79,6 +79,12 @@
   --gs-indigo-soft: #ebf1ff;
   --gs-indigo: #335cff;
 
+  /* 小字/图标级语义色：深色主题需要更亮的前景才达 AA（2026-11-23） */
+  --gs-accent-fg: #3559e9;
+  --gs-success-fg: #1a7544;
+  --gs-warn-fg: #b75310;
+  --gs-danger-fg: #d02533;
+
   /* 深色 hero / 品牌面板（登录页当前不改；保留蓝化后的固定值） */
   --gs-hero-from: #171717;
   --gs-hero-via: #1c1c1c;
@@ -166,6 +172,12 @@
   --gs-success-bg: rgba(26, 117, 68, 0.18);
   --gs-indigo-soft: rgba(51, 92, 255, 0.16);
   --gs-indigo: #335cff;
+
+  /* 深色前景：保证图标/小字在 #1c1c1c 上仍达 AA */
+  --gs-accent-fg: #8fa8ff;
+  --gs-success-fg: #4ade80;
+  --gs-warn-fg: #fbbf24;
+  --gs-danger-fg: #f87171;
 
   /* hero 面板保持固定深色，不跟随页面明暗（登录页不改造） */
   color-scheme: dark;
