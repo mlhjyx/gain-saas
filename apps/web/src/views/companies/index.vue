@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 import { formatDate } from '@gain-saas/shared';
 import { newAttemptId } from '#/utils/attempt-id';
 import ErrorNotice from '#/components/error-notice.vue';
+import MarketCandidatesPanel from './market-candidates/market-candidates-panel.vue';
 
 import {
   failureText,
@@ -23,6 +24,25 @@ import {
 defineOptions({ name: 'Companies' });
 
 const router = useRouter();
+const marketCompany = ref<CompanyProfile | null>(null);
+const factsPanel = ref<HTMLElement | null>(null);
+const docsPanel = ref<HTMLElement | null>(null);
+const marketContext = ref('');
+let marketFocus: HTMLElement | null = null;
+function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
+  if (!marketContext.value || !company.id) return;
+  const details = (event.currentTarget as HTMLElement).closest('details');
+  marketFocus = details?.querySelector('summary') ?? event.currentTarget as HTMLElement;
+  if (details) details.open = false;
+  marketCompany.value = company;
+}
+function closeMarketCandidates() { marketCompany.value = null; marketFocus?.focus(); }
+function recoverMarketView(payload: { companyId: string; destination: 'facts' | 'documents' }) {
+  if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
+  if (payload.destination === 'facts') void openClaims(marketCompany.value, { readOnly: true });
+  else if (payload.destination === 'documents') void openDocuments(marketCompany.value, { readOnly: true });
+}
+onDeactivated(() => { marketCompany.value = null; });
 
 const STATUS_KEY: Record<string, string> = {
   DRAFT: 'gainos.companies.statusDraft',
@@ -76,6 +96,8 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
 const claimsOpen = ref(false);
+const claimsRecoveryReadOnly = ref(false);
+let claimsEpoch = 0;
 const claimsCompany = ref<CompanyProfile | null>(null);
 const claims = ref<CompanyClaim[]>([]);
 const claimsLoading = ref(false);
@@ -133,10 +155,17 @@ function claimTypeLabel(type: string): string {
   return label === key ? type : label;
 }
 
-async function openClaims(company: CompanyProfile): Promise<void> {
+async function openClaims(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   if (!company.id) return;
   claimsCompany.value = company;
   claimsOpen.value = true;
+  claimsRecoveryReadOnly.value = options.readOnly === true;
+  claimsEpoch += 1;
+  claims.value = [];
+  companyOverview.value = null;
+  completeness.value = null;
+  offerings.value = [];
+  conflicts.value = [];
   claimTab.value = 'NEEDS_REVIEW';
   claimQuery.value = '';
   selectedClaimIds.value = [];
@@ -144,16 +173,21 @@ async function openClaims(company: CompanyProfile): Promise<void> {
   claimNotice.value = null;
   rejectArmed.value = false;
   manualOpen.value = false;
+  if (claimsRecoveryReadOnly.value) selectedClaimIds.value = [];
   manualStatement.value = '';
   manualEvidence.value = '';
   manualError.value = null;
+  await nextTick();
+  factsPanel.value?.focus();
   await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
 }
 
 function closeClaims(): void {
   if (claimBusy.value) return;
   claimsOpen.value = false;
+  claimsRecoveryReadOnly.value = false;
   claimsCompany.value = null;
+  claimsEpoch += 1;
   claims.value = [];
   companyOverview.value = null;
   completeness.value = null;
@@ -172,7 +206,9 @@ function unwrap<T>(value: T | { data?: T }): T {
 
 async function loadCompanyOverview(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   overviewLoading.value = true;
   overviewError.value = null;
   try {
@@ -181,30 +217,34 @@ async function loadCompanyOverview(): Promise<void> {
       gainosApi.companyCompleteness(companyId),
       gainosApi.companyOfferings(companyId),
     ]);
+    if (!current()) return;
     companyOverview.value = unwrap(detail);
     completeness.value = unwrap(stats);
     const rows = unwrap(items);
     offerings.value = Array.isArray(rows) ? rows : [];
   } catch (err) {
-    overviewError.value = failureText(err).title;
+    if (current()) overviewError.value = failureText(err).title;
   } finally {
-    overviewLoading.value = false;
+    if (current()) overviewLoading.value = false;
   }
 }
 
 async function loadConflicts(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   conflictsLoading.value = true;
   conflictsError.value = null;
   try {
     const data = await gainosApi.companyConflicts(companyId);
+    if (!current()) return;
     const rows = unwrap(data);
     conflicts.value = (Array.isArray(rows) ? rows : []).filter((item) => !item.status || item.status === 'OPEN');
   } catch (err) {
-    conflictsError.value = failureText(err).title;
+    if (current()) conflictsError.value = failureText(err).title;
   } finally {
-    conflictsLoading.value = false;
+    if (current()) conflictsLoading.value = false;
   }
 }
 
@@ -290,20 +330,25 @@ async function synthesizeDrafts(): Promise<void> {
 
 async function loadClaims(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   claimsLoading.value = true;
   claimsError.value = null;
   try {
     const data = await gainosApi.claims(companyId);
+    if (!current()) return;
     // BFF/引擎的列表响应可能已由 request.ts 解包，也可能仍是 { data }。
     claims.value = Array.isArray(data) ? data : ((data as unknown as { data?: CompanyClaim[] })?.data ?? []);
     selectedClaimIds.value = selectedClaimIds.value.filter((id) =>
       claims.value.some((claim) => claim.id === id && claim.status === 'NEEDS_REVIEW'));
   } catch (err) {
-    claimsError.value = failureText(err);
-    claims.value = [];
+    if (current()) {
+      claimsError.value = failureText(err);
+      claims.value = [];
+    }
   } finally {
-    claimsLoading.value = false;
+    if (current()) claimsLoading.value = false;
   }
 }
 
@@ -575,6 +620,9 @@ async function removeCompany(company: CompanyProfile): Promise<void> {
 
 // ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
 const docsOpen = ref(false);
+const docsRecoveryReadOnly = ref(false);
+let docsEpoch = 0;
+let docsSearchSeq = 0;
 const docsCompany = ref<CompanyProfile | null>(null);
 const docs = ref<SellerDocument[]>([]);
 const docsCursor = ref<string | undefined>(undefined);
@@ -623,9 +671,16 @@ function docStatusLabel(status: string): string {
   return $t(DOC_STATUS_KEY[status] ?? 'gainos.companies.documentStatusQueued');
 }
 
-async function openDocuments(company: CompanyProfile): Promise<void> {
+async function openDocuments(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   docsCompany.value = company;
   docsOpen.value = true;
+  docsRecoveryReadOnly.value = options.readOnly === true;
+  docsEpoch += 1;
+  docsSearchSeq += 1;
+  docsSearching.value = false;
+  docs.value = [];
+  await nextTick();
+  docsPanel.value?.focus();
   docsError.value = null;
   docsNotice.value = null;
   docsQuery.value = '';
@@ -650,6 +705,10 @@ async function openDocuments(company: CompanyProfile): Promise<void> {
 
 function closeDocuments(): void {
   docsOpen.value = false;
+  docsRecoveryReadOnly.value = false;
+  docsEpoch += 1;
+  docsSearchSeq += 1;
+  docsSearching.value = false;
   if (docsTimer) {
     clearInterval(docsTimer);
     docsTimer = null;
@@ -658,20 +717,23 @@ function closeDocuments(): void {
 
 async function loadDocuments(silent = false, reset = true): Promise<void> {
   const companyId = docsCompany.value?.id;
+  const epoch = docsEpoch;
   if (!companyId) return;
+  const current = () => docsCompany.value?.id === companyId && docsEpoch === epoch;
   if (!silent) docsLoading.value = true;
   try {
     // P5b-09：资料库改游标分页；reset 拉第一页，否则按 docsCursor 追加。
     const page = await gainosApi.sellerDocuments(companyId, reset ? undefined : docsCursor.value);
+    if (!current()) return;
     const rows = page?.data ?? [];
     docs.value = reset ? rows : [...docs.value, ...rows];
     docsCursor.value = page?.page?.next_cursor ?? undefined;
     docsHasMore.value = Boolean(page?.page?.has_more && page?.page?.next_cursor);
     docsError.value = null;
   } catch (err) {
-    if (!silent) docsError.value = failureText(err).title;
+    if (current() && !silent) docsError.value = failureText(err).title;
   } finally {
-    docsLoading.value = false;
+    if (current()) docsLoading.value = false;
   }
 }
 
@@ -714,14 +776,22 @@ async function searchDocuments(): Promise<void> {
   const companyId = docsCompany.value?.id;
   const q = docsQuery.value.trim();
   if (!companyId || q.length < 2) return;
+  const epoch = docsEpoch;
+  const seq = ++docsSearchSeq;
+  const sameScope = () => docsCompany.value?.id === companyId && docsEpoch === epoch && docsSearchSeq === seq;
   docsSearching.value = true;
+  docsError.value = null;
   try {
-    docsHits.value = (await gainosApi.searchSellerDocuments(companyId, q)) ?? [];
+    const hits = (await gainosApi.searchSellerDocuments(companyId, q)) ?? [];
+    if (!sameScope() || docsQuery.value.trim() !== q) return;
+    docsHits.value = hits;
   } catch (err) {
-    docsError.value = failureText(err).title;
-    docsHits.value = [];
+    if (sameScope() && docsQuery.value.trim() === q) {
+      docsError.value = failureText(err).title;
+      docsHits.value = [];
+    }
   } finally {
-    docsSearching.value = false;
+    if (sameScope()) docsSearching.value = false;
   }
 }
 
@@ -833,6 +903,7 @@ onMounted(async () => {
   try {
     const session = await gainosApi.session();
     isAdmin.value = session.workspace?.role === 'admin';
+    marketContext.value = JSON.stringify([session.workspace.id, session.user.id]);
   } catch {
     isAdmin.value = false;
   }
@@ -953,6 +1024,7 @@ onUnmounted(() => {
                   <summary>{{ $t('gainos.companies.more') }}</summary>
                   <div class="cp__menu">
                     <button type="button" @click="openDocuments(c)">{{ $t('gainos.companies.documents') }}</button>
+                    <button type="button" :disabled="!marketContext" @click="openMarketCandidates(c, $event)">{{ $t('gainos.companies.marketCandidates') }}</button>
                     <button v-if="understandingFailed(c)" type="button" :disabled="retryingId === c.id" @click="retryUnderstanding(c)">
                       {{ $t('gainos.companies.retryUnderstanding') }}
                     </button>
@@ -974,6 +1046,8 @@ onUnmounted(() => {
         </table>
       </div>
     </template>
+
+    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen || docsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @recover="recoverMarketView" />
 
     <!-- 建档向导（官网可选；至少名称或官网其一） -->
     <Teleport to="body">
@@ -1073,13 +1147,13 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
         <div class="cp__modal-mask" @click="closeDocuments"></div>
-        <div class="cp__modal-body cp__docs-panel">
+        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" :data-readonly="docsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeDocuments">
           <header>
             <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
           </header>
           <p class="cp__modal-hint">{{ $t('gainos.companies.documentsHint') }}</p>
-          <div class="cp__docs-actions">
+          <div v-if="!docsRecoveryReadOnly" class="cp__docs-actions">
             <label class="cp__btn cp__btn--primary cp__docs-upload" :class="{ 'cp__btn--busy': docsUploading }">
               {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
               <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md" :disabled="docsUploading" @change="uploadDocument" />
@@ -1100,10 +1174,10 @@ onUnmounted(() => {
                 <button v-if="row.status === 'ready'" type="button" class="cp__confirm" @click="downloadDocument(row)">
                   {{ $t('gainos.companies.download') }}
                 </button>
-                <button v-if="row.status === 'failed_terminal' || row.status === 'queued'" type="button" class="cp__confirm" @click="retryDocument(row)">
+                <button v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')" type="button" class="cp__confirm" @click="retryDocument(row)">
                   {{ $t('gainos.companies.retryUnderstanding') }}
                 </button>
-                <button type="button" class="cp__confirm" @click="removeDocument(row)">
+                <button v-if="!docsRecoveryReadOnly" type="button" class="cp__confirm" @click="removeDocument(row)">
                   {{ $t('gainos.companies.delete') }}
                 </button>
               </div>
@@ -1145,7 +1219,7 @@ onUnmounted(() => {
         :aria-label="$t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' })"
       >
         <div class="cp__modal-mask" @click="closeClaims"></div>
-        <div class="cp__modal-body cp__facts-panel" tabindex="-1" @keydown.esc="closeClaims">
+        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown.esc="closeClaims">
           <header class="cp__facts-head">
             <div>
               <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>
@@ -1202,13 +1276,13 @@ onUnmounted(() => {
               <div class="cp__conflict-grid">
                 <div class="cp__conflict-side">
                   <p>{{ conflict.claimA?.statement || '—' }}</p>
-                  <button v-if="isAdmin" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'a')">
+                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'a')">
                     {{ $t('gainos.companies.keepThis') }}
                   </button>
                 </div>
                 <div class="cp__conflict-side">
                   <p>{{ conflict.claimB?.statement || '—' }}</p>
-                  <button v-if="isAdmin" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'b')">
+                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'b')">
                     {{ $t('gainos.companies.keepThis') }}
                   </button>
                 </div>
@@ -1249,7 +1323,7 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div v-if="isAdmin" class="cp__manual-bar">
+          <div v-if="isAdmin && !claimsRecoveryReadOnly" class="cp__manual-bar">
             <button type="button" class="cp__manual-toggle" @click="manualOpen = !manualOpen">
               {{ manualOpen ? $t('gainos.companies.manualCancel') : $t('gainos.companies.manualAdd') }}
             </button>
@@ -1258,7 +1332,7 @@ onUnmounted(() => {
             </button>
             <span class="cp__muted">{{ $t('gainos.companies.synthesizeDraftsHint') }}</span>
           </div>
-          <div v-if="manualOpen" class="cp__manual-form">
+          <div v-if="manualOpen && !claimsRecoveryReadOnly" class="cp__manual-form">
             <label class="cp__field">
               <span>{{ $t('gainos.companies.manualStatement') }}</span>
               <textarea v-model="manualStatement" rows="3" maxlength="2000" :placeholder="$t('gainos.companies.manualStatementHint')"></textarea>
@@ -1308,7 +1382,7 @@ onUnmounted(() => {
 
           <ul v-else class="cp__claims">
             <li v-for="claim in visibleClaims" :key="claim.id" class="cp__claim">
-              <label v-if="isAdmin && claim.status === 'NEEDS_REVIEW'" class="cp__claim-check">
+              <label v-if="isAdmin && claim.status === 'NEEDS_REVIEW' && !claimsRecoveryReadOnly" class="cp__claim-check">
                 <input
                   type="checkbox"
                   :checked="selectedClaimIds.includes(claim.id)"
@@ -1323,7 +1397,7 @@ onUnmounted(() => {
                     {{ Math.round(claim.confidence * 100) }}%
                   </span>
                   <button
-                    v-if="isAdmin && claim.status === 'APPROVED'"
+                    v-if="isAdmin && claim.status === 'APPROVED' && !claimsRecoveryReadOnly"
                     type="button"
                     class="cp__claim-revoke"
                     :disabled="revokingId === claim.id"
@@ -1347,7 +1421,7 @@ onUnmounted(() => {
           <p v-if="claimNotice" class="cp__claim-notice" role="status">{{ claimNotice }}</p>
           </div>
 
-          <div v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0" class="cp__claim-bar">
+          <div v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0 && !claimsRecoveryReadOnly" class="cp__claim-bar">
             <label class="cp__claim-selectall">
               <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
               {{ $t('gainos.companies.selectAll') }}

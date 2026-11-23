@@ -14,6 +14,7 @@ import { useAccessStore } from '@vben/stores';
 
 import { message } from 'ant-design-vue';
 
+import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 
 import { refreshTokenApi } from './core';
@@ -107,14 +108,46 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/accept-invite')) {
         return;
       }
+      const isMarketRequest = error?.config?.marketCandidateRequest === true;
+      const responseCode = error?.response?.data?.error?.code;
+      const responseStatus = error?.response?.status;
+      const requestMethod = String(error?.config?.method ?? '').toUpperCase();
+      let requestPath = '';
+      try {
+        requestPath = new URL(String(error?.config?.url ?? ''), 'http://local').pathname;
+      } catch {
+        requestPath = '';
+      }
+      // 仅初始 prepare 的 400 + 两个精确码由市场候选面板独占行内通知；不吞 cold-read/execute/recover/feedback/5xx。
+      if (
+        isMarketRequest &&
+        error?.config?.marketPrepareNotify === true &&
+        requestMethod === 'POST' &&
+        responseStatus === 400 &&
+        (responseCode === 'VALIDATION_ERROR' || responseCode === 'NO_APPROVED_CLAIMS') &&
+        /^\/companies\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/market-candidate-generations$/.test(
+          requestPath,
+        )
+      ) {
+        return;
+      }
       const userCopy = error?.response?.data?.error?.userCopy;
-      // 引擎对接未就绪(502 降级)由各页面就地说明，不再弹全局 toast
-      if (userCopy?.title?.includes('授权对接')) {
+      // 引擎对接未就绪(502 降级)由各页面就地说明;市场候选请求不靠中文标题子串判断通知归属。
+      if (
+        !isMarketRequest &&
+        (userCopy?.title?.includes('服务授权') || userCopy?.title?.includes('Service authorization'))
+      ) {
         return;
       }
       if (userCopy?.title) {
         message.error(
           userCopy.next ? `${userCopy.title}——${userCopy.next}` : userCopy.title,
+        );
+        return;
+      }
+      if (isMarketRequest) {
+        message.error(
+          `${$t('gainos.marketCandidates.errorFallbackTitle')}——${$t('gainos.marketCandidates.errorFallbackNext')}`,
         );
         return;
       }
