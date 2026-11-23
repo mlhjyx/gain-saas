@@ -161,6 +161,11 @@ async function openClaims(company: CompanyProfile, options: { readOnly?: boolean
   claimsOpen.value = true;
   claimsRecoveryReadOnly.value = options.readOnly === true;
   claimsEpoch += 1;
+  claims.value = [];
+  companyOverview.value = null;
+  completeness.value = null;
+  offerings.value = [];
+  conflicts.value = [];
   claimTab.value = 'NEEDS_REVIEW';
   claimQuery.value = '';
   selectedClaimIds.value = [];
@@ -670,6 +675,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
   docsEpoch += 1;
+  docs.value = [];
   await nextTick();
   docsPanel.value?.focus();
   docsError.value = null;
