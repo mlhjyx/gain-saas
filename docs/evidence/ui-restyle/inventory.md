@@ -1635,3 +1635,24 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
 - 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
 - 截图：`pass5/{light,dark}-{workspace,tabs-many}.png`、`light-command-palette.png`、`light-tabs-overflow.png`（1100px 溢出态：无滚动条、两端滚动钮）、`light-tab-hover/tool-hover/help-popover/rail/rail-account-menu.png`、`{light,dark}-account-menu.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（18 张）。
+
+## 15. Pass6 批次 1（2026-11-23）：Ant Design 基线 + 买家线索样板页
+
+方案 B（全站 AntDV 化）的第 1 批：地基 + 样板页，其余页面按批次 2/3 推进。
+
+### 15.1 地基
+- 设计规范：新增 `docs/engineering/ui-design-system.md`（字阶 12/13/14/16/20、间距 4–32、圆角 10、表格/表单/反馈/动效规则）。
+- 主题 token：`Modal/Drawer` 圆角 20→10；新增 `fontSizeSM:12`、`motionDurationMid:0.15s`、`Card.paddingLG:24`、`Table.fontSize:13`、`Tag/Alert/Notification` 圆角；删除 `gainos.css` 里 `.ant-btn-primary{9999px}` 与 hover 位移/发光覆盖。
+- 反馈层：新增 `apps/web/src/feedback.ts` + `components/feedback-init.vue`（`App.useApp()` 上下文），替换 `api/request.ts`、`router/access.ts`、`store/auth.ts`、`workspace`、`onboarding` 的静态 `message/notification`；`window.confirm` 全部改为 `feedback.confirm`（runs / members / suppressions / companies×4 / find-buyers，共 8 处，ops 除外）。
+- 封装层：`components/gainos/ui/` 九个薄封装（GsPage/GsCard/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsToolbar/GsSelect）；GsSelect 修补 antdv 4.2.6 的 combobox ARIA 缺口（aria-expanded + 关闭态移除无效 aria-controls/owns/activedescendant），a11y 门禁不减项。
+- ErrorNotice 改为 `a-alert` 承载，保留三层文案、`role="alert"` 与 `.error-notice__details` 折叠。
+
+### 15.2 样板页：买家线索（`views/leads/index.vue`）
+- 模板全部换 antd：GsPage + a-steps + GsToolbar(a-radio-group/a-input) + a-alert + a-skeleton + GsEmpty + GsCard 列表 + a-modal 裁决/提商机；页面 scoped CSS 从 225 行降为 **0 行**。
+- 锚点：`data-gs="page-header|stage-steps|queue-toolbar|queue-switch|lead-search|sanctions-banner|lead-card|lead-accept|lead-reject|load-more|decision-modal|promote-modal"`；旧 `.ld__*` 全部移除。
+- 成功提示改 `feedback.message.success`（接受/拒绝/提升），裁决弹层 `okType=danger`（拒绝）。
+
+### 15.3 测试与证据
+- 迁移：nav-shell（leads landmark）、main-chain（卡片/按钮锚点 + antd 确认框交互）、idempotency（卡片锚点）、a11y（卡片锚点）、pass2-measure（leads 段改 token 符合度：按钮 10px/32px、卡片 10px + 阴影）。
+- 本地全绿：typecheck/build、a11y、color-scan（pass2/pass3）、dark-mode、responsive、21 个定向 spec。
+- 证据：`docs/evidence/ui-restyle/antd-system/{leads,leads-modal}-{light,dark}.png`。

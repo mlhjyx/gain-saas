@@ -2,11 +2,31 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus, statusClass } from '@gain-saas/shared';
+import { glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  RadioButton,
+  RadioGroup,
+  Skeleton,
+  Space,
+  Steps,
+} from 'ant-design-vue';
+
+import ErrorNotice from '#/components/error-notice.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
 import { usePendingAction } from '#/composables/use-pending-action';
+import { feedback } from '#/feedback';
 
 import {
   failureText,
@@ -94,7 +114,6 @@ const filteredLeads = computed(() => {
 });
 const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
-const notice = ref<string | null>(null);
 const icps = ref<Icp[]>([]);
 const activeIcpId = ref('');
 const queueCounts = ref<LeadQueueCounts | null>(null);
@@ -150,7 +169,7 @@ async function submitPromote(): Promise<void> {
     await gainosApi.promoteQgo(input);
     promoteOpen.value = false;
     promoteTarget.value = null;
-    notice.value = $t('gainos.leads.promoteDone');
+    feedback.message.success($t('gainos.leads.promoteDone'));
     await router.push('/qgos');
   } catch (error) {
     promoteError.value = failureText(error);
@@ -184,9 +203,36 @@ const confirmLabel = computed(() =>
   modal.value === 'accept' ? $t('gainos.leads.confirmAccept') : $t('gainos.leads.confirmReject'),
 );
 
+function toneOf(tone?: string): 'danger' | 'info' | 'neutral' | 'success' | 'warning' {
+  if (tone === 'processing') return 'info';
+  if (tone === 'success' || tone === 'warning' || tone === 'danger') return tone;
+  return 'neutral';
+}
+
 function queueMeta(key?: string) {
   return QUEUES.value.find((queue) => queue.key === key) ?? QUEUES.value[0]!;
 }
+const queueOptions = computed(() =>
+  QUEUES.value.map((queue) => {
+    const count = queueCount(queue.key);
+    return {
+      count,
+      desc: queue.desc,
+      key: queue.key,
+      label: queue.label,
+      tone: queue.tone,
+    };
+  }),
+);
+
+/** 裁决弹层开关（保留 modal/closeModal 语义，模板用 v-model:open）。 */
+const decisionOpen = computed({
+  get: () => modal.value !== null,
+  set: (value: boolean) => {
+    if (!value) closeModal();
+  },
+});
+
 function queueLabel(key?: string): string {
   return queueMeta(key).label;
 }
@@ -346,22 +392,20 @@ async function submitDecision(): Promise<void> {
     await runDecision(async (idempotencyKey) => {
       if (kind === 'accept') {
         await gainosApi.acceptLead(leadId, input, idempotencyKey);
-        notice.value = $t('gainos.leads.acceptedNotice');
+        feedback.message.success($t('gainos.leads.acceptedNotice'));
       } else {
         await gainosApi.rejectLead(leadId, input, idempotencyKey);
-        notice.value = $t('gainos.leads.rejectedNotice');
+        feedback.message.success($t('gainos.leads.rejectedNotice'));
       }
     });
     closeModal();
     await load();
-    setTimeout(() => { notice.value = null; }, 5000);
   } catch (error) {
     actionError.value = failureText(error);
   }
 }
 
 watch(activeQueue, () => {
-  notice.value = null;
   pageLimit.value = 50;
   void load();
 });
@@ -397,486 +441,356 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 </script>
 
 <template>
-  <div class="ld">
-    <header class="ld__head">
-      <div>
-        <span class="ld__stage">{{ $t('gainos.leads.stage') }}</span>
-        <h1>{{ $t('gainos.leads.title') }}</h1>
-        <p>{{ $t('gainos.leads.subtitle') }}</p>
-      </div>
-      <div class="ld__head-actions">
-        <label v-if="icps.length" class="ld__icp-select">
-          <span>{{ $t('gainos.leads.icpFilter') }}</span>
-          <select v-model="activeIcpId" @change="load()">
-            <option v-for="icp in icps" :key="icp.id" :value="icp.id">{{ icp.name }}</option>
-          </select>
-        </label>
-        <button class="ld__refresh" type="button" @click="$router.push('/qgos')">{{ $t('gainos.leads.qgoEntry') }}</button>
-        <button class="ld__refresh" type="button" :class="{ 'is-loading': loading }" @click="load">
-          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-        </button>
-      </div>
-    </header>
-
-    <section v-if="!loading && !activeIcpId" class="ld__empty">
-      <p class="ld__empty-title">{{ $t('gainos.leads.noIcpTitle') }}</p>
-      <p class="ld__empty-desc">{{ $t('gainos.leads.noIcpDesc') }}</p>
-      <div class="ld__empty-actions">
-        <button type="button" class="ld__cta" @click="$router.push('/find-buyers')">{{ $t('gainos.leads.goFindBuyers') }}</button>
-        <RouterLink class="ld__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
-        <RouterLink class="ld__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
-      </div>
-    </section>
-
-    <ol class="ld__steps" :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })">
-      <li v-for="(label, i) in stepLabels" :key="label" class="ld__step" :class="{ 'is-done': i + 1 < currentStep, 'is-current': i + 1 === currentStep }">
-        <span class="ld__step-dot">{{ i + 1 }}</span>
-        <span class="ld__step-label">{{ label }}</span>
-      </li>
-    </ol>
-
-    <p v-if="notice" class="ld__notice" role="status">{{ notice }}</p>
-
-    <div v-if="activeIcpId" class="ld__toolbar">
-      <div class="ld__chips" role="group" :aria-label="$t('gainos.leads.title')">
-        <button
-          v-for="queue in QUEUES"
-          :key="queue.key"
-          type="button"
-          class="ld__chip"
-          :class="{ 'is-active': activeQueue === queue.key }"
-          :aria-pressed="activeQueue === queue.key"
-          @click="activeQueue = queue.key"
-        >
-          {{ queue.label }}
-          <span v-if="queueCount(queue.key) !== undefined" class="ld__chip-count">{{ queueCount(queue.key) }}</span>
-          <span
-            v-if="activeQueue === queue.key && queue.key !== 'needs_review'"
-            class="ld__chip-remove"
-            role="button"
-            tabindex="-1"
-            :aria-label="`${$t('gainos.common.cancel')}：${queue.label}`"
-            @click.stop="activeQueue = 'needs_review'"
-          >✕</span>
-        </button>
-      </div>
-      <label class="ld__search">
-        <input
-          v-model="searchQuery"
-          type="search"
-          :placeholder="$t('gainos.companies.searchPlaceholder')"
-          :aria-label="$t('gainos.companies.searchPlaceholder')"
+  <div class="mx-auto grid w-full max-w-[1280px] gap-6 px-6 pb-12 pt-6">
+    <GsPage
+      :kicker="$t('gainos.leads.stage')"
+      :subtitle="$t('gainos.leads.subtitle')"
+      :title="$t('gainos.leads.title')"
+    >
+      <template #actions>
+        <GsSelect
+          v-if="icps.length"
+          v-model="activeIcpId"
+          :aria-label="$t('gainos.leads.icpFilter')"
+          :ariaLabel="$t('gainos.leads.icpFilter')"
+          :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
+          class="min-w-[220px] max-w-[280px]"
+          data-gs="icp-filter"
+          @change="load()"
         />
-      </label>
+        <Button data-gs="qgo-entry" @click="$router.push('/qgos')">
+          {{ $t('gainos.leads.qgoEntry') }}
+        </Button>
+        <Button :loading="loading" data-gs="refresh" @click="load">
+          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+        </Button>
+      </template>
+    </GsPage>
+
+    <div
+      :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })"
+      data-gs="stage-steps"
+    >
+      <Steps
+        :current="currentStep - 1"
+        :items="stepLabels.map((label) => ({ title: label }))"
+        size="small"
+      />
     </div>
 
-    <button
-      v-if="activeIcpId && activeQueue !== 'sanctions_hold' && (queueCounts?.sanctions_hold ?? 0) > 0"
-      type="button"
-      class="ld__sanctions-banner"
-      :disabled="!isAdmin"
-      @click="openSanctionsQueue"
+    <GsEmpty
+      v-if="!loading && !activeIcpId"
+      :description="$t('gainos.leads.noIcpDesc')"
+      :title="$t('gainos.leads.noIcpTitle')"
     >
-      {{ $t('gainos.leads.sanctionsHoldCount', { count: queueCounts?.sanctions_hold }) }}
-      <span v-if="isAdmin">→ {{ $t('gainos.leads.queueSanctions') }}</span>
-      <span v-else>· {{ $t('gainos.leads.sanctionsAdminOnly') }}</span>
-    </button>
+      <template #actions>
+        <Button type="primary" @click="$router.push('/find-buyers')">
+          {{ $t('gainos.leads.goFindBuyers') }}
+        </Button>
+        <Button @click="$router.push('/companies')">
+          {{ $t('gainos.companies.title') }}
+        </Button>
+        <Button @click="$router.push('/tasks')">
+          {{ $t('gainos.tasks.title') }}
+        </Button>
+      </template>
+    </GsEmpty>
 
-    <section v-if="loadError" class="ld__error" role="alert">
-      <h2>{{ loadError.title }}</h2>
-      <p v-if="loadError.next">{{ loadError.next }}</p>
-      <button type="button" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </section>
+    <template v-if="activeIcpId">
+      <GsToolbar data-gs="queue-toolbar">
+        <RadioGroup
+          v-model:value="activeQueue"
+          button-style="solid"
+          data-gs="queue-switch"
+        >
+          <RadioButton
+            v-for="queue in queueOptions"
+            :key="queue.key"
+            :value="queue.key"
+          >
+            {{ queue.label }}
+            <span v-if="queue.count !== undefined" class="ml-1.5 opacity-60">
+              {{ queue.count }}
+            </span>
+          </RadioButton>
+        </RadioGroup>
+        <Button
+          v-if="activeQueue !== 'needs_review'"
+          :aria-label="`${$t('gainos.common.cancel')}：${queueLabel(activeQueue)}`"
+          size="small"
+          type="text"
+          @click="activeQueue = 'needs_review'"
+        >
+          ×
+        </Button>
+        <div class="ml-auto w-[280px]">
+          <Input
+            v-model:value="searchQuery"
+            :aria-label="$t('gainos.companies.searchPlaceholder')"
+            :placeholder="$t('gainos.companies.searchPlaceholder')"
+            allow-clear
+            data-gs="lead-search"
+            type="search"
+          />
+        </div>
+      </GsToolbar>
 
-    <section v-else-if="loading" class="ld__skeletons" :aria-label="$t('gainos.common.loading')">
-      <div v-for="i in 3" :key="i" class="ld__skeleton"></div>
-    </section>
+      <Alert
+        v-if="activeQueue !== 'sanctions_hold' && (queueCounts?.sanctions_hold ?? 0) > 0"
+        :message="$t('gainos.leads.sanctionsHoldCount', { count: queueCounts?.sanctions_hold })"
+        :type="isAdmin ? 'warning' : 'info'"
+        data-gs="sanctions-banner"
+        show-icon
+      >
+        <template #action>
+          <Button
+            v-if="isAdmin"
+            size="small"
+            type="link"
+            @click="openSanctionsQueue"
+          >
+            {{ $t('gainos.leads.queueSanctions') }}
+          </Button>
+          <span v-else class="text-xs">{{ $t('gainos.leads.sanctionsAdminOnly') }}</span>
+        </template>
+      </Alert>
 
-    <section v-else-if="activeIcpId && leads.length === 0" class="ld__empty">
-      <div class="ld__empty-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M8.5 11h5"/></svg>
+      <div v-if="loadError" class="grid gap-3" data-gs="load-error">
+        <ErrorNotice :next="loadError.next" :title="loadError.title" />
+        <Button class="justify-self-start" @click="load">
+          {{ $t('gainos.common.retry') }}
+        </Button>
       </div>
-      <p class="ld__empty-title">{{ $t('gainos.leads.emptyTitle') }}</p>
-      <p class="ld__empty-desc">{{ $t('gainos.leads.emptyDesc') }}</p>
-      <div class="ld__empty-actions">
-        <RouterLink class="ld__cta" to="/find-buyers">{{ $t('gainos.leads.emptyCta') }}</RouterLink>
-        <RouterLink class="ld__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
-        <RouterLink class="ld__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
-      </div>
-    </section>
 
-    <section v-else class="ld__list">
-      <p v-if="leads.length > 0 && filteredLeads.length === 0" class="ld__no-match">
-        {{ $t('gainos.companies.noMatch') }}
-      </p>
-      <article v-for="lead in filteredLeads" :key="lead.id" class="ld__lead">
-        <header class="ld__lead-head">
-          <div>
-            <h2>
-              <RouterLink
-                class="ld__title-link"
-                :to="{ name: 'LeadDetail', params: { leadId: lead.id } }"
+      <Skeleton v-else-if="loading" active :paragraph="{ rows: 6 }" />
+
+      <GsEmpty
+        v-else-if="leads.length === 0"
+        :description="$t('gainos.leads.emptyDesc')"
+        :title="$t('gainos.leads.emptyTitle')"
+      >
+        <template #actions>
+          <Button type="primary" @click="$router.push('/find-buyers')">
+            {{ $t('gainos.leads.emptyCta') }}
+          </Button>
+          <Button @click="$router.push('/companies')">
+            {{ $t('gainos.companies.title') }}
+          </Button>
+          <Button @click="$router.push('/tasks')">
+            {{ $t('gainos.tasks.title') }}
+          </Button>
+        </template>
+      </GsEmpty>
+
+      <template v-else>
+        <p v-if="filteredLeads.length === 0" class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+          {{ $t('gainos.companies.noMatch') }}
+        </p>
+
+        <GsCard
+          v-for="lead in filteredLeads"
+          :key="lead.id"
+          data-gs="lead-card"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h2 class="m-0 text-[15px] font-semibold leading-6">
+                <RouterLink
+                  class="text-[var(--gs-fg)] no-underline hover:text-[var(--gs-accent-strong)]"
+                  :to="{ name: 'LeadDetail', params: { leadId: lead.id } }"
+                >
+                  {{ lead.company?.name || $t('gainos.leads.unknownCompany') }}
+                </RouterLink>
+              </h2>
+              <p
+                v-if="lead.company?.country || lead.company?.industry"
+                class="m-0 mt-0.5 text-xs text-[var(--gs-fg-muted)]"
               >
-                {{ lead.company?.name || $t('gainos.leads.unknownCompany') }}
-              </RouterLink>
-            </h2>
-            <p v-if="lead.company?.country || lead.company?.industry">
-              {{ [lead.company?.country, lead.company?.industry].filter(Boolean).join(' · ') }}
-            </p>
+                {{ [lead.company?.country, lead.company?.industry].filter(Boolean).join(' · ') }}
+              </p>
+            </div>
+            <span
+              class="text-sm font-semibold tabular-nums"
+              :class="typeof lead.totalScore === 'number' ? 'text-[var(--gs-accent-strong)]' : 'text-[var(--gs-fg-subtle)]'"
+            >
+              {{ scoreText(lead) }}
+            </span>
           </div>
-          <span class="ld__score" :class="{ 'is-scored': typeof lead.totalScore === 'number' }">{{ scoreText(lead) }}</span>
-        </header>
-        <p class="ld__why">{{ whyText(lead) }}</p>
-        <div class="ld__meta">
-          <span class="gs-badge" :class="statusClass(queueMeta(lead.queue).tone)">{{ queueLabel(lead.queue) }}</span>
-          <span v-if="basisLabel(lead.queueBasis)" class="ld__basis">{{ basisLabel(lead.queueBasis) }}</span>
-          <span v-if="lead.company?.employeeCount" class="ld__basis">{{ lead.company.employeeCount }} 人</span>
+
+          <p class="mb-0 mt-3 text-[13px] leading-5 text-[var(--gs-fg-muted)]">
+            {{ whyText(lead) }}
+          </p>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <GsTag :tone="toneOf(queueMeta(lead.queue).tone)">
+              {{ queueLabel(lead.queue) }}
+            </GsTag>
+            <span v-if="basisLabel(lead.queueBasis)" class="text-xs text-[var(--gs-fg-subtle)]">
+              {{ basisLabel(lead.queueBasis) }}
+            </span>
+            <span v-if="lead.company?.employeeCount" class="text-xs text-[var(--gs-fg-subtle)]">
+              {{ lead.company.employeeCount }} 人
+            </span>
+          </div>
+
+          <Space class="mt-4" :size="8" wrap>
+            <Button
+              size="small"
+              @click="router.push({ name: 'LeadDetail', params: { leadId: lead.id } })"
+            >
+              {{ $t('gainos.leads.viewPackage') }}
+            </Button>
+            <template v-if="canAct(lead)">
+              <Button
+                danger
+                size="small"
+                data-gs="lead-reject"
+                @click="openReject(lead)"
+              >
+                {{ $t('gainos.leads.reject') }}
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                data-gs="lead-accept"
+                @click="openAccept(lead)"
+              >
+                {{ $t('gainos.leads.accept') }}
+              </Button>
+            </template>
+            <Button
+              v-else-if="lead.status === 'QUALIFIED'"
+              size="small"
+              type="primary"
+              @click="openPromote(lead)"
+            >
+              {{ $t('gainos.leads.promoteQgo') }}
+            </Button>
+          </Space>
+        </GsCard>
+
+        <div v-if="hasMoreLeads" class="flex items-center justify-between" data-gs="load-more">
+          <span class="text-xs text-[var(--gs-fg-subtle)]">
+            {{ $t('gainos.leads.showingCount', { shown: leads.length, total: totalForQueue }) }}
+          </span>
+          <Button @click="loadMore">{{ $t('gainos.leads.loadMore') }}</Button>
         </div>
-        <div class="ld__actions">
-          <button type="button" class="ld__action" @click="router.push({ name: 'LeadDetail', params: { leadId: lead.id } })">{{ $t('gainos.leads.viewPackage') }}</button>
-          <template v-if="canAct(lead)">
-            <button type="button" class="ld__action ld__action--reject" @click="openReject(lead)">{{ $t('gainos.leads.reject') }}</button>
-            <button type="button" class="ld__action ld__action--accept" @click="openAccept(lead)">{{ $t('gainos.leads.accept') }}</button>
-          </template>
-          <button v-else-if="lead.status === 'QUALIFIED'" type="button" class="ld__action ld__action--accept" @click="openPromote(lead)">
-            {{ $t('gainos.leads.promoteQgo') }}
-          </button>
-        </div>
-      </article>
-      <div v-if="hasMoreLeads" class="ld__more">
-        <span class="ld__basis">{{ $t('gainos.leads.showingCount', { shown: leads.length, total: totalForQueue }) }}</span>
-        <button type="button" class="ld__action" @click="loadMore">{{ $t('gainos.leads.loadMore') }}</button>
-      </div>
-    </section>
+      </template>
+    </template>
 
     <!-- 裁决弹层 -->
-    <div v-if="modal" class="ld__overlay ld__overlay--top" @click.self="closeModal">
-      <section class="ld__modal ld__modal--narrow" role="dialog" aria-modal="true" :aria-label="modalTitle">
-        <header class="ld__modal-head">
-          <div>
-            <h2>{{ modalTitle }}</h2>
-            <p>{{ modalDesc }}</p>
-          </div>
-          <button type="button" class="ld__close" :aria-label="$t('gainos.common.cancel')" @click="closeModal">×</button>
-        </header>
-        <div class="ld__modal-body">
-        <div v-if="actionError" class="ld__modal-error" role="alert">
-          <h3>{{ actionError.title }}</h3>
-          <p v-if="actionError.next">{{ actionError.next }}</p>
-        </div>
-        <label class="ld__field">
+    <Modal
+      v-model:open="decisionOpen"
+      :confirm-loading="submitting"
+      :ok-text="confirmLabel"
+      :ok-button-props="{ danger: modal === 'reject' }"
+      :title="modalTitle"
+      :width="560"
+      data-gs="decision-modal"
+      @cancel="closeModal"
+      @ok="submitDecision"
+    >
+      <p class="mt-0 text-[13px] text-[var(--gs-fg-muted)]">{{ modalDesc }}</p>
+      <div v-if="actionError" class="mb-3">
+        <ErrorNotice :next="actionError.next" :title="actionError.title" />
+      </div>
+      <div class="grid gap-3">
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
           <span>{{ $t('gainos.leads.reasonCode') }}<em v-if="modal === 'reject'"> *</em></span>
-          <select v-model="reasonCode">
-            <option value="">{{ modal === 'reject' ? $t('gainos.leads.reasonSelect') : $t('gainos.leads.reasonOptional') }}</option>
-            <option v-for="option in reasonOptions" :key="option.code" :value="option.code">{{ option.label }}</option>
-          </select>
+          <GsSelect
+            v-model="reasonCode"
+            :ariaLabel="$t('gainos.leads.reasonCode')"
+            :options="reasonOptions.map((option) => ({ label: option.label, value: option.code }))"
+            :placeholder="modal === 'reject' ? $t('gainos.leads.reasonSelect') : $t('gainos.leads.reasonOptional')"
+            allow-clear
+          />
         </label>
-        <label class="ld__field">
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
           <span>{{ $t('gainos.leads.reasonNote') }}</span>
-          <textarea v-model="reasonNote" rows="3" :placeholder="$t('gainos.leads.reasonPlaceholder')"></textarea>
+          <Input.TextArea
+            v-model:value="reasonNote"
+            :placeholder="$t('gainos.leads.reasonPlaceholder')"
+            :rows="3"
+          />
         </label>
-        <div class="ld__modal-actions">
-          <button type="button" class="ld__action" @click="closeModal">{{ $t('gainos.common.cancel') }}</button>
-          <button type="button" class="ld__action ld__action--accept" :class="{ 'is-loading': submitting }" :disabled="submitting" @click="submitDecision">
-            {{ submitting ? $t('gainos.leads.submitting') : confirmLabel }}
-          </button>
-        </div>
-        </div>
-      </section>
-    </div>
+      </div>
+    </Modal>
 
     <!-- M2 步 10：提升为商机（QGO） -->
-    <div v-if="promoteOpen" class="ld__overlay ld__overlay--top" @click.self="promoteOpen = false">
-      <section class="ld__modal ld__modal--narrow" role="dialog" aria-modal="true" :aria-label="$t('gainos.leads.promoteTitle')">
-        <header class="ld__modal-head">
-          <div>
-            <h2>{{ $t('gainos.leads.promoteTitle') }}</h2>
-            <p>{{ promoteTarget?.company?.name || $t('gainos.leads.unknownCompany') }}</p>
+    <Modal
+      v-model:open="promoteOpen"
+      :ok-button-props="{ disabled: promoteBusy || !promoteNextStep.trim() }"
+      :confirm-loading="promoteBusy"
+      :ok-text="$t('gainos.leads.promoteSubmit')"
+      :title="$t('gainos.leads.promoteTitle')"
+      :width="680"
+      data-gs="promote-modal"
+      @ok="submitPromote"
+    >
+      <p class="mt-0 text-[13px] text-[var(--gs-fg-muted)]">
+        {{ promoteTarget?.company?.name || $t('gainos.leads.unknownCompany') }}
+      </p>
+      <div v-if="promoteError" class="mb-3">
+        <ErrorNotice
+          :code="promoteError.code"
+          :next="promoteError.next"
+          :title="promoteError.title"
+          :why="promoteError.why"
+        />
+      </div>
+      <div class="grid gap-3">
+        <div class="grid gap-2">
+          <span class="text-xs font-medium text-[var(--gs-fg-2)]">{{ $t('gainos.leads.promoteEvidence') }}</span>
+          <div
+            v-for="(row, i) in promoteEvidence"
+            :key="i"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <GsSelect
+              v-model="row.type"
+              :ariaLabel="$t('gainos.leads.promoteEvidenceType')"
+              :options="[
+                'customer_reply',
+                'purchase_page',
+                'tender_hit',
+                'customs_signal',
+                'other',
+              ].map((type) => ({ label: $t(`gainos.leads.evidenceType.${type}`), value: type }))"
+              class="w-[150px]"
+            />
+            <Input
+              v-model:value="row.url"
+              :placeholder="$t('gainos.leads.promoteUrlHint')"
+              class="min-w-[200px] flex-1"
+              type="url"
+            />
+            <Input
+              v-model:value="row.support"
+              :maxlength="500"
+              :placeholder="$t('gainos.leads.promoteSupportHint')"
+              class="min-w-[200px] flex-1"
+            />
+            <Button
+              :disabled="promoteEvidence.length <= 1"
+              @click="removeEvidenceRow(i)"
+            >
+              ×
+            </Button>
           </div>
-          <button type="button" class="ld__close" :aria-label="$t('gainos.common.cancel')" @click="promoteOpen = false">×</button>
-        </header>
-        <div class="ld__modal-body">
-          <div v-if="promoteError" class="ld__modal-error" role="alert">
-            <h3>{{ promoteError.title }}</h3>
-            <p v-if="promoteError.why">{{ promoteError.why }}</p>
-            <p v-if="promoteError.next">{{ promoteError.next }}</p>
-          </div>
-          <div class="ld__field">
-            <span>{{ $t('gainos.leads.promoteEvidence') }}</span>
-            <div v-for="(row, i) in promoteEvidence" :key="i" class="ld__evidence-row">
-              <select v-model="row.type" :aria-label="$t('gainos.leads.promoteEvidenceType')">
-                <option value="customer_reply">{{ $t('gainos.leads.evidenceType.customer_reply') }}</option>
-                <option value="purchase_page">{{ $t('gainos.leads.evidenceType.purchase_page') }}</option>
-                <option value="tender_hit">{{ $t('gainos.leads.evidenceType.tender_hit') }}</option>
-                <option value="customs_signal">{{ $t('gainos.leads.evidenceType.customs_signal') }}</option>
-                <option value="other">{{ $t('gainos.leads.evidenceType.other') }}</option>
-              </select>
-              <input v-model="row.url" type="url" :placeholder="$t('gainos.leads.promoteUrlHint')" />
-              <input v-model="row.support" type="text" maxlength="500" :placeholder="$t('gainos.leads.promoteSupportHint')" />
-              <button type="button" class="ld__action" :disabled="promoteEvidence.length <= 1" @click="removeEvidenceRow(i)">×</button>
-            </div>
-            <button type="button" class="ld__action" @click="addEvidenceRow">{{ $t('gainos.leads.addEvidence') }}</button>
-          </div>
-          <label class="ld__field">
-            <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
-            <textarea v-model="promoteNextStep" rows="2" maxlength="500" :placeholder="$t('gainos.leads.promoteNextStepHint')"></textarea>
-          </label>
-          <div class="ld__modal-actions">
-            <button type="button" class="ld__action" @click="promoteOpen = false">{{ $t('gainos.common.cancel') }}</button>
-            <button type="button" class="ld__action ld__action--accept" :disabled="promoteBusy || !promoteNextStep.trim()" @click="submitPromote">
-              {{ promoteBusy ? $t('gainos.leads.submitting') : $t('gainos.leads.promoteSubmit') }}
-            </button>
-          </div>
+          <Button class="justify-self-start" type="dashed" @click="addEvidenceRow">
+            {{ $t('gainos.leads.addEvidence') }}
+          </Button>
         </div>
-      </section>
-    </div>
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
+          <span>{{ $t('gainos.leads.promoteNextStep') }}</span>
+          <Input.TextArea
+            v-model:value="promoteNextStep"
+            :maxlength="500"
+            :placeholder="$t('gainos.leads.promoteNextStepHint')"
+            :rows="2"
+          />
+        </label>
+      </div>
+    </Modal>
   </div>
 </template>
-
-<style scoped>
-.ld {
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  gap: 18px;
-}
-.ld__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.ld__head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ld__icp-select { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--gs-fg-muted); }
-.ld__icp-select select {
-  border: 1px solid var(--gs-border-strong); border-radius: 9px; background: var(--gs-surface);
-  color: var(--gs-fg); padding: 7px 10px; font-size: 12.5px; max-width: 260px;
-}
-.ld__q-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ld__q-count {
-  border-radius: 999px; background: var(--gs-surface-3); color: var(--gs-fg-2);
-  padding: 1px 8px; font-size: 11.5px; font-weight: 700;
-}
-.ld__sanctions-banner {
-  margin: 0; padding: 9px 12px; border-radius: 9px; font-size: 12.5px; font-family: inherit;
-  color: var(--gs-warn); background: var(--gs-warn-bg); border: 1px solid var(--gs-warn);
-  display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left;
-  cursor: pointer;
-}
-.ld__sanctions-banner:disabled { cursor: default; }
-.ld__sanctions-banner span { font-weight: 600; white-space: nowrap; }
-.ld__stage { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .04em; color: var(--gs-accent-strong); }
-.ld__head h1 { margin: 6px 0 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
-.ld__head p { margin: 8px 0 0; font-size: 16px; line-height: 24px; letter-spacing: -.011em; color: var(--gs-fg-muted); max-width: 620px; }
-.ld__refresh {
-  border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 10px; padding: 8px 16px;
-  font-size: 13px; color: var(--gs-fg-2); cursor: pointer; white-space: nowrap;
-}
-.ld__refresh.is-loading { opacity: .6; cursor: progress; }
-.ld__steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-.ld__step { display: flex; align-items: center; gap: 6px; flex: none; padding: 6px 10px; border-radius: 999px; font-size: 12px; color: var(--gs-fg-subtle); background: var(--gs-divider); }
-.ld__step-dot { width: 19px; height: 19px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--gs-surface); font-size: 10.5px; font-weight: 700; }
-.ld__step.is-done { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
-.ld__step.is-current { color: var(--gs-accent-cta-fg); background: var(--gs-accent-cta); }
-.ld__step.is-current .ld__step-dot { background: rgba(255,255,255,.22); color: #fff; }
-.ld__title-link { color: inherit; text-decoration: none; }
-.ld__title-link:hover { color: var(--gs-accent-strong); text-decoration: underline; }
-.ld__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; font-weight: 600; }
-.ld__toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 6px;
-  background: var(--gs-surface);
-  border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-10);
-  box-shadow: var(--gs-shadow-card);
-}
-.ld__chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.ld__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--gs-fg-2);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.ld__chip:hover { background: var(--gs-surface-2); }
-.ld__chip.is-active { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.ld__chip-count {
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--gs-surface-2);
-  color: var(--gs-fg-2);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-.ld__chip.is-active .ld__chip-count { background: var(--gs-surface); color: var(--gs-accent-strong); }
-.ld__chip-remove {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  margin-left: 2px;
-  border-radius: 50%;
-  color: var(--gs-accent-strong);
-  font-size: 10px;
-  line-height: 1;
-}
-.ld__chip-remove:hover { background: var(--gs-surface); }
-.ld__search input {
-  width: min(280px, 70vw);
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--gs-border);
-  border-radius: 999px;
-  background: var(--gs-surface);
-  color: var(--gs-fg);
-  font-size: 13px;
-}
-.ld__search input:focus { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
-.ld__no-match { margin: 0; padding: 24px 8px; color: var(--gs-fg-muted); font-size: 13px; text-align: center; }
-.ld__error { background: var(--gs-surface); border: 1px solid var(--gs-warn); border-radius: 14px; padding: 20px; display: grid; gap: 8px; }
-.ld__error h2 { margin: 0; font-size: 15px; color: var(--gs-warn); }
-.ld__error p { margin: 0; font-size: 13px; color: var(--gs-fg-muted); }
-.ld__error button { justify-self: start; border: 0; border-radius: 8px; padding: 7px 14px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); cursor: pointer; font-size: 13px; }
-.ld__skeletons { display: grid; gap: 12px; }
-.ld__skeleton { height: 104px; border-radius: 14px; background: var(--gs-surface-2); border: 1px solid var(--gs-border); animation: ld-pulse 1.4s ease-in-out infinite; }
-@keyframes ld-pulse { 50% { opacity: .55; } }
-.ld__empty {
-  max-width: 760px; margin: 0 auto; display: grid; place-items: center; gap: 6px; text-align: center;
-  background: var(--gs-surface); border: 1px dashed var(--gs-border-dashed); border-radius: 16px; padding: 48px 24px;
-}
-.ld__empty-mark { width: 52px; height: 52px; border-radius: 14px; background: var(--gs-divider); color: var(--gs-fg-subtle); display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
-.ld__empty-mark svg { width: 26px; height: 26px; }
-.ld__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
-.ld__empty-desc { margin: 0 0 14px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 520px; line-height: 1.75; }
-.ld__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.ld__cta { border: 0; border-radius: 999px; padding: 10px 20px; font-size: 13.5px; font-weight: 500; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); text-decoration: none; cursor: pointer; }
-.ld__cta-secondary {
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
-  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
-}
-.ld__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.ld__list { display: grid; gap: 12px; }
-.ld__more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 8px 0 4px; }
-.ld__lead { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 10px; }
-.ld__lead-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-.ld__lead-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
-.ld__lead-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
-.ld__profile-ids { display: flex; flex-wrap: wrap; gap: 6px; }
-.ld__profile-id { display: inline-grid; gap: 1px; background: var(--gs-divider); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; color: var(--gs-fg-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.ld__profile-id small { font-size: 10.5px; color: var(--gs-fg-subtle); }
-.ld__score { flex: none; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; color: var(--gs-fg-subtle); background: var(--gs-divider); border-radius: 8px; padding: 4px 10px; }
-.ld__score.is-scored { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
-.ld__why { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--gs-fg-2); }
-.ld__meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.ld__basis { font-size: 11.5px; color: var(--gs-fg-subtle); }
-.ld__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.ld__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
-.ld__action:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.ld__action--accept { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
-.ld__action--accept:hover { color: var(--gs-accent-cta-fg); }
-.ld__action--reject { color: var(--gs-danger); border-color: var(--gs-danger-border); }
-.ld__action--danger { color: var(--gs-danger); border-color: var(--gs-danger-border); }
-.ld__action.is-loading { opacity: .6; cursor: progress; }
-.ld__sanctions-actions { display: grid; gap: 8px; margin-top: 6px; }
-.ld__sanctions-actions > div { display: flex; gap: 8px; flex-wrap: wrap; }
-.ld__overlay {
-  position: fixed; inset: 0; z-index: 1000; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
-  display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden;
-}
-.ld__overlay--top { z-index: 1010; }
-.ld__modal {
-  width: min(860px, 100%); max-height: calc(100dvh - 48px); overflow: hidden; box-sizing: border-box;
-  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(23,23,23,.4);
-  display: flex; flex-direction: column;
-}
-.ld__modal--narrow { width: min(520px, 100%); }
-.ld__modal-head {
-  flex: none; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  padding: 20px 26px 14px; background: var(--gs-surface); border-bottom: 1px solid var(--gs-border);
-}
-.ld__modal-body {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
-  padding: 18px 26px 24px; display: grid; gap: 18px; overflow-wrap: anywhere;
-}
-.ld__modal-body > * { min-width: 0; }
-.ld__modal-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.ld__modal-kicker { font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
-.ld__modal-head h2 { margin: 6px 0 0; font-size: 20px; font-weight: 700; color: var(--gs-fg); }
-.ld__modal-head p { margin: 6px 0 0; font-size: 13px; color: var(--gs-fg-muted); line-height: 1.7; }
-.ld__close { border: 0; background: transparent; font-size: 24px; line-height: 1; color: var(--gs-fg-subtle); cursor: pointer; padding: 2px 6px; }
-.ld__modal-state, .ld__muted { margin: 0; font-size: 13px; color: var(--gs-fg-subtle); line-height: 1.7; }
-.ld__modal-error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
-.ld__modal-error h3 { margin: 0; font-size: 13.5px; color: var(--gs-warn); }
-.ld__modal-error p { margin: 0; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.65; }
-.ld__modal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-.ld__block { display: grid; gap: 8px; }
-.ld__block h3 { margin: 0; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
-.ld__block.is-warn { border: 1px solid var(--gs-warn-bg); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; }
-.ld__facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.ld__facts div { display: grid; gap: 2px; padding: 8px 10px; background: var(--gs-divider); border-radius: 8px; font-size: 12.5px; }
-.ld__facts dt { color: var(--gs-fg-subtle); font-size: 11.5px; }
-.ld__facts dd { margin: 0; color: var(--gs-fg-2); text-align: left; overflow-wrap: anywhere; }
-.ld__scores { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
-.ld__scores div { background: var(--gs-divider); border-radius: 9px; padding: 9px 11px; display: grid; gap: 3px; }
-.ld__scores dt { font-size: 11.5px; color: var(--gs-fg-subtle); }
-.ld__scores dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); font-variant-numeric: tabular-nums; }
-.ld__fit { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--gs-fg); }
-.ld__bullets { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.65; }
-.ld__bullets a { color: var(--gs-accent-strong); text-decoration: underline; word-break: break-all; }
-.ld__contact { margin: 0; font-size: 12.5px; word-break: break-all; }
-.ld__contact a { color: var(--gs-accent-strong); }
-.ld__warn-text { color: var(--gs-warn); font-weight: 600; }
-.ld__draft { border-top: 1px solid var(--gs-border); padding-top: 16px; display: grid; gap: 10px; }
-.ld__draft-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.ld__draft-head h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
-.ld__draft-body { margin: 0; padding: 12px 14px; background: var(--gs-divider); border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; }
-.ld__modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.ld__field { display: grid; gap: 6px; font-size: 12.5px; color: var(--gs-fg-2); }
-.ld__field em { color: var(--gs-warn); font-style: normal; }
-.ld__field select, .ld__field textarea {
-  width: 100%; box-sizing: border-box; border: 1px solid var(--gs-border-strong); border-radius: 9px; background: var(--gs-surface);
-  color: var(--gs-fg); padding: 9px 11px; font-size: 13px; font-family: inherit;
-}
-@media (max-width: 720px) {
-  .ld__head { flex-direction: column; }
-  .ld__overlay { padding: 10px; }
-  .ld__modal { max-height: calc(100dvh - 20px); }
-  .ld__modal-head { flex-direction: column; align-items: stretch; padding: 18px 18px 12px; }
-  .ld__modal-body { padding: 16px 18px 20px; }
-  .ld__modal-head-actions { width: 100%; justify-content: flex-end; }
-  .ld__facts { grid-template-columns: minmax(0, 1fr); }
-  .ld__draft-head { flex-direction: column; }
-  .ld__modal-actions { flex-direction: column-reverse; }
-  .ld__modal-actions .ld__action { width: 100%; }
-}
-</style>
-
-.ld__evidence-row {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.ld__evidence-row select,
-.ld__evidence-row input {
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--gs-border);
-  border-radius: 8px;
-  background: var(--gs-bg);
-  color: var(--gs-fg);
-}
-
-@media (max-width: 720px) {
-  .ld__evidence-row { grid-template-columns: 1fr; }
-}

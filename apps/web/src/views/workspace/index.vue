@@ -4,12 +4,12 @@ import type { SessionInfo } from '#/api/gainos';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { message } from 'ant-design-vue';
 
 import { formatDateTime, glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 import { useCountUp } from '#/composables/use-count-up';
 
@@ -192,7 +192,7 @@ function completeAction(item: CockpitAction): void {
   window.setTimeout(() => {
     toggleActionArchive(item.key);
     completingKey.value = null;
-    void message.success(
+    void feedback.message.success(
       preferences.app.locale === 'en-US'
         ? `Done: ${item.title}`
         : `已完成：${item.title}`,

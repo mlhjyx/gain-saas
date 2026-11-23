@@ -7,6 +7,7 @@ import type { StatusTone } from '@gain-saas/shared';
 import { formatDateTime, glossaryStatus, glossaryTerm, statusClass } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
 import ErrorNotice from '#/components/error-notice.vue';
 
@@ -595,20 +596,28 @@ async function saveRule(): Promise<void> {
     ruleBusy.value = false;
   }
 }
-async function removeRule(rule: IcpRule): Promise<void> {
-  if (!selected.value) return;
-  if (!window.confirm($t('gainos.findBuyers.deleteRuleConfirm'))) return;
-  ruleBusy.value = true;
-  try {
-    await gainosApi.deleteIcpRule(rule.id);
-    selected.value = await gainosApi.icp(selected.value.id);
-    void refreshIcpList();
-    notice.value = $t('gainos.findBuyers.ruleDeleted');
-  } catch (error) {
-    ruleError.value = failureText(error);
-  } finally {
-    ruleBusy.value = false;
-  }
+function removeRule(rule: IcpRule): void {
+  const current = selected.value;
+  if (!current) return;
+  uiFeedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.findBuyers.deleteRuleConfirm'),
+    okText: $t('gainos.findBuyers.deleteRule'),
+    okType: 'danger',
+    onOk: async () => {
+      ruleBusy.value = true;
+      try {
+        await gainosApi.deleteIcpRule(rule.id);
+        selected.value = await gainosApi.icp(current.id);
+        void refreshIcpList();
+        notice.value = $t('gainos.findBuyers.ruleDeleted');
+      } catch (error) {
+        ruleError.value = failureText(error);
+      } finally {
+        ruleBusy.value = false;
+      }
+    },
+  });
 }
 
 async function runBacktest(): Promise<void> {

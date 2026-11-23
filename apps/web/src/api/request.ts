@@ -12,8 +12,8 @@ import {
 } from '@vben/request';
 import { useAccessStore } from '@vben/stores';
 
-import { message } from 'ant-design-vue';
 
+import { feedback } from '#/feedback';
 import { useAuthStore } from '#/store';
 
 import { refreshTokenApi } from './core';
@@ -113,14 +113,14 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
         return;
       }
       if (userCopy?.title) {
-        message.error(
+        feedback.message.error(
           userCopy.next ? `${userCopy.title}——${userCopy.next}` : userCopy.title,
         );
         return;
       }
       const fallback =
         error?.response?.data?.error?.message ?? error?.response?.data?.message ?? '';
-      message.error(fallback || msg);
+      feedback.message.error(fallback || msg);
     }),
   );
 

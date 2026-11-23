@@ -32,7 +32,7 @@ const NAV_GROUPS = [
   },
   {
     group: '线索',
-    items: [{ landmark: '.ld', name: '买家线索', path: '/leads' }],
+    items: [{ landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' }],
   },
   {
     group: '活动',

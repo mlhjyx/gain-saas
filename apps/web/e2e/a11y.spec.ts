@@ -93,7 +93,7 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
     await loginAs(page);
     await page.goto('/leads');
     await page
-      .locator('.ld__lead')
+      .locator("[data-gs='lead-card']")
       .filter({ hasText: 'Muster Metallbau GmbH' })
       .getByRole('button', { name: '值得跟进' })
       .click();

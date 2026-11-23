@@ -1,10 +1,11 @@
 {
-  "generatedAt": "2026-11-22T17:57:14.978Z",
+  "generatedAt": "2026-11-23T01:54:50.576Z",
   "leads": {
-    "queueCards": 0,
+    "queueSwitch": 1,
     "toolbar": 1,
     "search": 1,
-    "acceptRadius": "9999px",
+    "acceptRadius": "10px",
+    "acceptHeight": 32,
     "cardRadius": "10px",
     "cardShadow": "rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
   },

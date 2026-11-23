@@ -10,6 +10,7 @@ import { onMounted, reactive, ref } from 'vue';
 
 import { Alert, Button, Form, Input, Select, Skeleton, Table } from 'ant-design-vue';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import EmptyState from '#/components/gainos/empty-state.vue';
@@ -108,20 +109,27 @@ async function add(): Promise<void> {
   }
 }
 
-async function release(row: SuppressionRecordView): Promise<void> {
-  if (!window.confirm($t('gainos.suppressions.releaseConfirm', { value: row.value }))) return;
-  releasing.value = row.id;
-  try {
-    const result = await gainosApi.requestSuppressionRelease(row.id);
-    notice.value = result?.releaseRequested
-      ? $t('gainos.suppressions.releaseRequested')
-      : $t('gainos.suppressions.released');
-    await load();
-  } catch (err) {
-    error.value = failureText(err).title;
-  } finally {
-    releasing.value = null;
-  }
+function release(row: SuppressionRecordView): void {
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.suppressions.releaseConfirm', { value: row.value }),
+    okText: $t('gainos.suppressions.release'),
+    okType: 'danger',
+    onOk: async () => {
+      releasing.value = row.id;
+      try {
+        const result = await gainosApi.requestSuppressionRelease(row.id);
+        notice.value = result?.releaseRequested
+          ? $t('gainos.suppressions.releaseRequested')
+          : $t('gainos.suppressions.released');
+        await load();
+      } catch (err) {
+        error.value = failureText(err).title;
+      } finally {
+        releasing.value = null;
+      }
+    },
+  });
 }
 
 const typeOptions = TYPES.map((type) => ({ value: type, label: typeLabel(type) }));

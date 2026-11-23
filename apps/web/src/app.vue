@@ -6,6 +6,7 @@ import { preferences, usePreferences } from '@vben/preferences';
 
 import { App, ConfigProvider, theme } from 'ant-design-vue';
 
+import FeedbackInit from '#/components/feedback-init.vue';
 import { antdLocale } from '#/locales';
 
 defineOptions({ name: 'App' });
@@ -158,7 +159,7 @@ const brandTokens = computed(() => {
     colorFillTertiary: c.fillTertiary,
     colorFillQuaternary: c.fillQuaternary,
     borderRadius: 10,
-    borderRadiusLG: 20,
+    borderRadiusLG: 10,
     borderRadiusSM: 10,
     controlHeight: 40,
     controlHeightLG: 44,
@@ -166,8 +167,12 @@ const brandTokens = computed(() => {
     fontFamily:
       "system-ui, -apple-system, 'Segoe UI', Arial, Helvetica, sans-serif",
     fontSize: 14,
+    fontSizeSM: 12,
     lineHeight: 1.4286,
     fontWeightStrong: 500,
+    // 企业级观感：动效只表现状态变化，不做位移动画（≤150ms）
+    motionDurationMid: '0.15s',
+    motionDurationSlow: '0.2s',
     wireframe: false,
     boxShadow: c.shadow,
     boxShadowSecondary: c.shadowSecondary,
@@ -183,9 +188,10 @@ function componentTokens(c: (typeof GS_BRAND)['light' | 'dark']) {
       controlHeightLG: 44,
       controlHeightSM: 32,
     },
-    Card: { borderRadiusLG: 10 },
-    Modal: { borderRadiusLG: 20 },
-    Drawer: { borderRadiusLG: 20 },
+    Card: { borderRadiusLG: 10, paddingLG: 24 },
+    // 弹层与全站统一 10px（原 20 属于圆润风格，企业系统改为方正）
+    Modal: { borderRadiusLG: 10 },
+    Drawer: { borderRadiusLG: 10 },
     Input: { borderRadius: 10, controlHeight: 40 },
     InputNumber: { borderRadius: 10, controlHeight: 40 },
     Select: { borderRadius: 10, controlHeight: 40 },
@@ -196,7 +202,12 @@ function componentTokens(c: (typeof GS_BRAND)['light' | 'dark']) {
       rowHoverBg: c.fillTertiary,
       borderColor: c.split,
       headerSplitColor: c.split,
+      // 企业数据表：13px 正文，行高由 size=middle + padding 派生（≈48px）
+      fontSize: 13,
     },
+    Tag: { borderRadiusSM: 6 },
+    Alert: { borderRadiusLG: 10 },
+    Notification: { borderRadiusLG: 10 },
     Tooltip: {
       colorBgSpotlight: c.bgSpotlight,
       colorTextLightSolid: c.tooltipText,
@@ -230,6 +241,7 @@ const tokenTheme = computed(() => {
     :theme="tokenTheme"
   >
     <App>
+      <FeedbackInit />
       <RouterView />
     </App>
   </ConfigProvider>

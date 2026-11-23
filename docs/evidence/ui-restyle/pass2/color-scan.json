@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T04:48:54.290Z",
+  "generatedAt": "2026-11-23T02:10:30.279Z",
   "pages": [
     "/workspace",
     "/leads",
@@ -21,37 +21,27 @@
     "light",
     "dark"
   ],
-  "totalSamples": 11257,
+  "totalSamples": 17282,
   "classCounts": {
-    "brand": 690,
-    "error": 2,
-    "neutral": 10537,
+    "brand": 264,
+    "error": 4,
+    "neutral": 16986,
     "success": 14,
     "warning": 14
   },
   "unique": [
     {
-      "count": 180,
+      "count": 75,
       "key": "dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.6)",
       "class": "neutral"
     },
     {
-      "count": 120,
-      "key": "dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.8)",
-      "class": "neutral"
-    },
-    {
-      "count": 90,
-      "key": "dark | oklab(0.999994 0.0000455678 0.0000200868 / 0.9)",
-      "class": "neutral"
-    },
-    {
-      "count": 1614,
+      "count": 3426,
       "key": "dark | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 461,
+      "count": 583,
       "key": "dark | rgb(138, 138, 138)",
       "class": "neutral"
     },
@@ -61,9 +51,14 @@
       "class": "warning"
     },
     {
-      "count": 975,
+      "count": 3244,
       "key": "dark | rgb(163, 163, 163)",
       "class": "neutral"
+    },
+    {
+      "count": 2,
+      "key": "dark | rgb(180, 34, 46)",
+      "class": "error"
     },
     {
       "count": 2,
@@ -71,17 +66,12 @@
       "class": "warning"
     },
     {
-      "count": 1,
-      "key": "dark | rgb(208, 37, 51)",
-      "class": "error"
-    },
-    {
-      "count": 20,
+      "count": 24,
       "key": "dark | rgb(23, 23, 23)",
       "class": "neutral"
     },
     {
-      "count": 1781,
+      "count": 1737,
       "key": "dark | rgb(255, 255, 255)",
       "class": "neutral"
     },
@@ -91,32 +81,47 @@
       "class": "success"
     },
     {
-      "count": 1,
+      "count": 195,
+      "key": "dark | rgb(28, 28, 28)",
+      "class": "neutral"
+    },
+    {
+      "count": 25,
       "key": "dark | rgb(46, 81, 220)",
       "class": "brand"
     },
     {
-      "count": 266,
+      "count": 61,
       "key": "dark | rgb(51, 92, 255)",
       "class": "brand"
     },
     {
-      "count": 43,
+      "count": 28,
       "key": "dark | rgb(53, 89, 233)",
       "class": "brand"
     },
     {
-      "count": 38,
+      "count": 44,
       "key": "dark | rgb(92, 92, 92)",
       "class": "neutral"
     },
     {
-      "count": 30,
+      "count": 44,
       "key": "dark | rgba(0, 0, 0, 0.45)",
       "class": "neutral"
     },
     {
       "count": 15,
+      "key": "dark | rgba(0, 0, 0, 0.5)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
+      "key": "dark | rgba(0, 0, 0, 0.6)",
+      "class": "neutral"
+    },
+    {
+      "count": 16,
       "key": "dark | rgba(51, 92, 255, 0.16)",
       "class": "brand"
     },
@@ -126,32 +131,17 @@
       "class": "brand"
     },
     {
-      "count": 180,
+      "count": 75,
       "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.6)",
       "class": "neutral"
     },
     {
-      "count": 105,
-      "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.8)",
-      "class": "neutral"
-    },
-    {
-      "count": 75,
-      "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.9)",
-      "class": "neutral"
-    },
-    {
-      "count": 1599,
+      "count": 2937,
       "key": "light | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 15,
-      "key": "light | rgb(102, 102, 102)",
-      "class": "neutral"
-    },
-    {
-      "count": 24,
+      "count": 30,
       "key": "light | rgb(163, 163, 163)",
       "class": "neutral"
     },
@@ -161,7 +151,7 @@
       "class": "warning"
     },
     {
-      "count": 1,
+      "count": 2,
       "key": "light | rgb(208, 37, 51)",
       "class": "error"
     },
@@ -171,7 +161,7 @@
       "class": "neutral"
     },
     {
-      "count": 1691,
+      "count": 1680,
       "key": "light | rgb(23, 23, 23)",
       "class": "neutral"
     },
@@ -181,12 +171,12 @@
       "class": "brand"
     },
     {
-      "count": 20,
+      "count": 24,
       "key": "light | rgb(250, 250, 250)",
       "class": "neutral"
     },
     {
-      "count": 54,
+      "count": 245,
       "key": "light | rgb(255, 255, 255)",
       "class": "neutral"
     },
@@ -196,27 +186,37 @@
       "class": "success"
     },
     {
-      "count": 303,
+      "count": 86,
       "key": "light | rgb(51, 92, 255)",
       "class": "brand"
     },
     {
-      "count": 43,
+      "count": 28,
       "key": "light | rgb(53, 89, 233)",
       "class": "brand"
     },
     {
-      "count": 1421,
+      "count": 2505,
       "key": "light | rgb(92, 92, 92)",
       "class": "neutral"
     },
     {
-      "count": 30,
+      "count": 44,
       "key": "light | rgba(10, 10, 10, 0.03)",
       "class": "neutral"
     },
     {
-      "count": 14,
+      "count": 15,
+      "key": "light | rgba(10, 10, 10, 0.18)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
+      "key": "light | rgba(10, 10, 10, 0.35)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
       "key": "light | rgba(5, 80, 255, 0.08)",
       "class": "brand"
     },

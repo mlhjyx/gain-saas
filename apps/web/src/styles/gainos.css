@@ -269,15 +269,9 @@ h6 {
   font-weight: 500;
 }
 
-.ant-btn-primary {
-  border-radius: var(--gs-radius-pill);
-  font-weight: 500;
-}
-
 
 /* ── pass2：卡片/表格统一质感（AgentSDR：白底 + 1px 灰边 + subtle 阴影 + 10px）── */
 .fb__card,
-.ld__lead,
 .cp__item,
 .qg__card,
 .qg__evidence-card,
@@ -297,7 +291,6 @@ h6 {
 .cp__table-wrap,
 .gpc .ant-table-wrapper,
 .fb__empty,
-.ld__empty,
 .cp__state,
 .rv__empty,
 .mt__empty,
@@ -314,15 +307,12 @@ h6 {
 .cp__confirm,
 .cp__btn--primary,
 .qg__cta-link,
-.ld__cta,
 .rv__primary,
 .mt__primary,
 .dm__action--primary,
 .run__action--primary,
-.ld__action--accept,
 .wk__cta,
-.cd__primary,
-.ant-btn-primary {
+.cd__primary {
   border-radius: 9999px !important;
 }
 
@@ -572,25 +562,21 @@ aside[data-layout-region='sidebar']
   transition: transform 0.15s ease, box-shadow 0.15s ease,
     border-color 0.15s ease, background 0.15s ease;
 }
-.wk__cta:hover:not(:disabled),
-.ant-btn-primary:hover:not(:disabled) {
+.wk__cta:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: var(--gs-shadow-xs), 0 4px 12px -4px rgba(51, 92, 255, 0.35);
 }
-.wk__cta:active:not(:disabled),
-.ant-btn-primary:active:not(:disabled) {
+.wk__cta:active:not(:disabled) {
   transform: translateY(0);
   box-shadow: var(--gs-shadow-xs);
 }
 
-/* 卡片 hover 抬升 1px + 阴影加深（列表卡片） */
-.ld__lead,
+/* 卡片 hover 抬升 1px + 阴影加深（未迁移页） */
 .qg__card,
 .fb__card {
   transition: border-color 0.15s ease, box-shadow 0.15s ease,
     transform 0.15s ease;
 }
-.ld__lead:hover,
 .qg__card:hover,
 .fb__card:hover {
   transform: translateY(-1px);

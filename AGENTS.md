@@ -38,6 +38,13 @@
 
 所有用户可见界面按 [界面设计准则](docs/engineering/ui-design-guidelines.md) 执行；验收方式是让没看过文档的人独立完成主流程，而不是靠追加说明。
 
+### 5.2 Ant Design 基线（2026-11-23 增补，方案 B）
+
+- **唯一实现路径**：登录后业务页面（`/ops`、登录/注册/异常页除外）一律使用 ant-design-vue 组件；页面级 `<style scoped>` 目标为 0 行，视觉来自 `app.vue` 的 ConfigProvider token。规范见 [界面设计系统](docs/engineering/ui-design-system.md)。
+- **薄封装**：需要统一默认值时用 `apps/web/src/components/gainos/ui/`（GsPage/GsCard/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsToolbar/GsSelect），不在页面里重造按钮/输入/表格/弹层。
+- **反馈统一**：成功/失败提示用 `#/feedback` 的 `feedback.message.*`，确认框用 `feedback.confirm`（danger 显式声明），顶部通知用 `feedback.notification.*`；禁止 `window.confirm/alert` 与静态 `message/notification`。
+- **测试锚点**：页面 DOM 只承诺 role/aria-label 与 `data-gs="<area>"`；旧 BEM 页面类（`.wk__*` / `.ld__*` / `.cp__*` …）迁移后不保留，e2e 同步改写。
+
 ### 5.1 简洁性（2026-11-22 增补）
 
 目标简单，设计简单，实现简单。砍掉标语、提示文字和次要标签；如果一个页面非得靠这些东西才看得懂，那就去改布局。每个决定都要同时提升客户体验（UX）、开发者体验（DX）和智能体体验（AX），而且不能弄坏任何东西。

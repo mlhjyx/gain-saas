@@ -7,6 +7,7 @@ import { preferences } from '@vben/preferences';
 
 import { deriveRunActions, formatDateTime } from '@gain-saas/shared';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob, type DiscoveryRunTrace } from '#/api/gainos';
@@ -436,18 +437,25 @@ function closeRetryDialog(): void {
 
 async function stopDeep(): Promise<void> {
   if (stopping.value) return;
-  if (!window.confirm($t('gainos.runs.stopConfirm'))) return;
-  stopping.value = true;
-  stopNotice.value = null;
-  try {
-    await gainosApi.cancelDiscoveryRun(runId);
-    stopNotice.value = $t('gainos.runs.stopRequested');
-    await load();
-  } catch (err) {
-    jobError.value = failureText(err).title;
-  } finally {
-    stopping.value = false;
-  }
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.runs.stopConfirm'),
+    okText: $t('gainos.runs.stopDeep'),
+    okType: 'danger',
+    onOk: async () => {
+      stopping.value = true;
+      stopNotice.value = null;
+      try {
+        await gainosApi.cancelDiscoveryRun(runId);
+        stopNotice.value = $t('gainos.runs.stopRequested');
+        await load();
+      } catch (err) {
+        jobError.value = failureText(err).title;
+      } finally {
+        stopping.value = false;
+      }
+    },
+  });
 }
 
 function textOf(value: unknown): string {

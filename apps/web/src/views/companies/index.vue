@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 import { formatDate } from '@gain-saas/shared';
 import { newAttemptId } from '#/utils/attempt-id';
@@ -208,34 +209,47 @@ async function loadConflicts(): Promise<void> {
   }
 }
 
-async function resolveConflict(conflict: CompanyConflict, keep: 'a' | 'b'): Promise<void> {
-  if (!window.confirm($t('gainos.companies.conflictConfirm'))) return;
-  conflictBusy.value = conflict.id;
-  claimActionError.value = null;
-  try {
-    await gainosApi.resolveConflict(conflict.id, keep);
-    claimNotice.value = $t('gainos.companies.conflictResolved');
-    await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
-  } catch (err) {
-    claimActionError.value = failureText(err).title;
-  } finally {
-    conflictBusy.value = '';
-  }
+function resolveConflict(conflict: CompanyConflict, keep: 'a' | 'b'): void {
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.companies.conflictConfirm'),
+    okText: $t('gainos.companies.confirm'),
+    onOk: async () => {
+      conflictBusy.value = conflict.id;
+      claimActionError.value = null;
+      try {
+        await gainosApi.resolveConflict(conflict.id, keep);
+        claimNotice.value = $t('gainos.companies.conflictResolved');
+        await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
+      } catch (err) {
+        claimActionError.value = failureText(err).title;
+      } finally {
+        conflictBusy.value = '';
+      }
+    },
+  });
 }
 
-async function revokeClaim(claim: CompanyClaim): Promise<void> {
-  if (!window.confirm($t('gainos.companies.revokeConfirm'))) return;
-  revokingId.value = claim.id;
-  claimActionError.value = null;
-  try {
-    await gainosApi.revokeClaim(claim.id);
-    claimNotice.value = $t('gainos.companies.revoked');
-    await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
-  } catch (err) {
-    claimActionError.value = failureText(err).title;
-  } finally {
-    revokingId.value = '';
-  }
+function revokeClaim(claim: CompanyClaim): void {
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.companies.revokeConfirm'),
+    okText: $t('gainos.companies.revoke'),
+    okType: 'danger',
+    onOk: async () => {
+      revokingId.value = claim.id;
+      claimActionError.value = null;
+      try {
+        await gainosApi.revokeClaim(claim.id);
+        claimNotice.value = $t('gainos.companies.revoked');
+        await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
+      } catch (err) {
+        claimActionError.value = failureText(err).title;
+      } finally {
+        revokingId.value = '';
+      }
+    },
+  });
 }
 
 async function saveManualClaim(): Promise<void> {
@@ -556,21 +570,28 @@ async function saveEdit(): Promise<void> {
   }
 }
 
-async function removeCompany(company: CompanyProfile): Promise<void> {
+function removeCompany(company: CompanyProfile): void {
   const companyId = company.id;
   if (!companyId) return;
-  if (!window.confirm($t('gainos.companies.deleteConfirm'))) return;
-  deletingId.value = companyId;
-  error.value = null;
-  try {
-    await gainosApi.deleteCompany(companyId);
-    createdNotice.value = $t('gainos.companies.deleted');
-    await load();
-  } catch (err) {
-    error.value = failureText(err).title || $t('gainos.companies.deleteFailed');
-  } finally {
-    deletingId.value = null;
-  }
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.companies.deleteConfirm'),
+    okText: $t('gainos.companies.delete'),
+    okType: 'danger',
+    onOk: async () => {
+      deletingId.value = companyId;
+      error.value = null;
+      try {
+        await gainosApi.deleteCompany(companyId);
+        createdNotice.value = $t('gainos.companies.deleted');
+        await load();
+      } catch (err) {
+        error.value = failureText(err).title || $t('gainos.companies.deleteFailed');
+      } finally {
+        deletingId.value = null;
+      }
+    },
+  });
 }
 
 // ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
@@ -744,15 +765,22 @@ async function downloadDocument(row: SellerDocument): Promise<void> {
   }
 }
 
-async function removeDocument(row: SellerDocument): Promise<void> {
-  if (!window.confirm($t('gainos.companies.documentDeleteConfirm'))) return;
-  try {
-    await gainosApi.deleteSellerDocument(row.id);
-    docsNotice.value = $t('gainos.companies.documentDeleted');
-    await loadDocuments();
-  } catch (err) {
-    docsError.value = failureText(err).title;
-  }
+function removeDocument(row: SellerDocument): void {
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.companies.documentDeleteConfirm'),
+    okText: $t('gainos.companies.delete'),
+    okType: 'danger',
+    onOk: async () => {
+      try {
+        await gainosApi.deleteSellerDocument(row.id);
+        docsNotice.value = $t('gainos.companies.documentDeleted');
+        await loadDocuments();
+      } catch (err) {
+        docsError.value = failureText(err).title;
+      }
+    },
+  });
 }
 
 async function confirmCompany(company: CompanyProfile): Promise<void> {
