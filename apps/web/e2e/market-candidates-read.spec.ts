@@ -1,13 +1,17 @@
 import { expect, test } from "@playwright/test";
+import { copyForError } from "@gain-saas/shared";
 import {
   captureState,
   accessibleState,
   deferred,
+  generation,
   ID,
   keyboardActivate,
   matrix,
+  NOW,
   observeToasts,
   prepareCopy,
+  serviceIdentityCopy,
   toastWasSeen,
   revision,
   setup,
@@ -353,6 +357,21 @@ for (const cell of matrix) {
           "aria-hidden",
           "true",
         );
+        const focusPanel = page.locator(recoveryPanel);
+        const focusables = focusPanel.locator(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        const controlCount = await focusables.count();
+        expect(controlCount).toBeGreaterThan(0);
+        await focusPanel.focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(focusables.nth(controlCount - 1)).toBeFocused();
+        await focusables.first().focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(focusables.nth(controlCount - 1)).toBeFocused();
+        await focusables.nth(controlCount - 1).focus();
+        await page.keyboard.press("Tab");
+        await expect(focusables.first()).toBeFocused();
         await page.keyboard.press("Escape");
         await expect(page.locator(recoveryPanel)).toHaveCount(0);
         await expect(page.getByTestId("mc-panel")).toBeVisible();
@@ -453,9 +472,21 @@ for (const cell of matrix) {
       await expect(page.locator(".cp__facts-panel")).toBeVisible();
       await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
       await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
+      const lateClaims = page.waitForResponse((response) =>
+        response.url().includes(`/companies/${ID.company}/claims`),
+      );
+      const lateOverview = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith(`/companies/${ID.company}`),
+      );
       claimsGate.resolve();
       overviewGate.resolve();
-      await page.waitForTimeout(300);
+      // Causal barrier: both late responses must have actually completed and their
+      // promise continuations flushed before the isolation assertion runs.
+      const [claimsResponse, overviewResponse] = await Promise.all([lateClaims, lateOverview]);
+      await Promise.all([claimsResponse.finished(), overviewResponse.finished()]);
+      await page.evaluate(
+        () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
+      );
       await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
       await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
       await expect(page.locator(".cp__facts-panel")).not.toContainText("A-OVERVIEW");
@@ -516,8 +547,27 @@ for (const cell of matrix) {
       await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
       const input = await openDocs(0, "solar");
       await input.fill("wind");
+      const lateSolar = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname.includes(`/companies/${ID.company}/seller-documents/search`) &&
+          url.searchParams.get("q") === "solar"
+        );
+      });
       solarGate.resolve();
-      await page.waitForTimeout(300);
+      // Causal barrier: the old request completed and its handler cleared the busy
+      // state before the stale-isolation assertion; a fixed sleep proves neither.
+      const solarResponse = await lateSolar;
+      await solarResponse.finished();
+      await page.evaluate(
+        () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
+      );
+      await expect(
+        page.locator(".cp__docs-panel").getByRole("button", {
+          name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
+          exact: true,
+        }),
+      ).toBeEnabled();
       await expect(page.locator(".cp__docs-hits")).not.toContainText("A-SOLAR-ONLY");
       await page
         .locator(".cp__docs-panel")
@@ -527,8 +577,15 @@ for (const cell of matrix) {
         })
         .click();
       await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
+      const lateB = page.waitForResponse((response) =>
+        response.url().includes(`/companies/${ID.second}/seller-documents/search`),
+      );
       bGate.resolve();
-      await page.waitForTimeout(300);
+      const bResponse = await lateB;
+      await bResponse.finished();
+      await page.evaluate(
+        () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
+      );
       await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
       await expect(page.locator(".cp__docs-hits")).not.toContainText("B-PUMP-ONLY");
     });
@@ -660,3 +717,211 @@ for (const cell of matrix) {
     });
   });
 }
+
+const singleCell = matrix.find((value) => value.label === "zh-CN-light-desktop")!;
+
+test.describe("service authorization collision and post-prepare read stages", () => {
+  test("same-code service 502 never sticky-denies and prepare can retry", async ({ page }) => {
+    const h = await setup(page, singleCell);
+    h.state.latest = { status: "NOT_ANALYZED", result: null };
+    await h.open();
+    h.state.prepareError = "NOT_A_MEMBER";
+    h.state.prepareErrorStatus = 502;
+    await h.button("prepare").click();
+    await expect(h.button("error")).toContainText(serviceIdentityCopy(singleCell.lang).title);
+    expect(h.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    h.state.prepareError = "";
+    await expect(h.button("prepare")).toBeEnabled();
+    await h.button("prepare").click();
+    await expect
+      .poll(() => h.requests.filter((request) => request.method === "POST").length)
+      .toBe(2);
+    expect(h.state.executionDispatches).toBe(0);
+  });
+
+  for (const code of ["AUTH_REQUIRED", "SESSION_EXPIRED"] as const) {
+    test(`service collision code ${code} with 502 does not block the next prepare`, async ({ page }) => {
+      const h = await setup(page, singleCell);
+      h.state.latest = { status: "NOT_ANALYZED", result: null };
+      await h.open();
+      h.state.prepareError = code;
+      h.state.prepareErrorStatus = 502;
+      await h.button("prepare").click();
+      await expect(h.button("error")).toBeVisible();
+      h.state.prepareError = "";
+      await h.button("prepare").click();
+      await expect
+        .poll(() => h.requests.filter((request) => request.method === "POST").length)
+        .toBe(2);
+    });
+  }
+
+  test("a true personal denial still sticky-blocks the action", async ({ page }) => {
+    const h = await setup(page, singleCell);
+    h.state.latest = { status: "NOT_ANALYZED", result: null };
+    await h.open();
+    h.state.deny = "write";
+    await h.button("prepare").click();
+    await expect(h.button("prepare")).toBeDisabled();
+    const postCount = () => h.requests.filter((request) => request.method === "POST").length;
+    await expect.poll(postCount).toBe(1);
+    const posts = postCount();
+    h.state.deny = "";
+    await page.waitForTimeout(200);
+    expect(postCount()).toBe(posts);
+  });
+
+  test("post-prepare cold-read error keeps its trusted read copy, not the prepare copy", async ({
+    page,
+  }) => {
+    const h = await setup(page, singleCell);
+    h.state.latest = { status: "NOT_ANALYZED", result: null };
+    h.state.gen = generation("PERSISTED");
+    await h.open();
+    h.state.revisionReadError = "VALIDATION_ERROR";
+    await h.button("prepare").click();
+    const readCopy = copyForError("VALIDATION_ERROR", singleCell.lang);
+    const prepare = prepareCopy("VALIDATION_ERROR", singleCell.lang);
+    await expect(h.button("error")).toContainText(readCopy.title);
+    expect(await h.button("error").textContent()).not.toContain(prepare.title);
+    expect(h.requests.filter((request) => request.path.endsWith("/execute"))).toHaveLength(0);
+    expect(h.state.executionDispatches).toBe(0);
+  });
+});
+
+test.describe("late document initialization must not survive close", () => {
+  const installIntervalProbe = (page: import("@playwright/test").Page) =>
+    page.addInitScript(() => {
+      const realSet = window.setInterval.bind(window);
+      const realClear = window.clearInterval.bind(window);
+      const active = new Map<number, number>();
+      (window as unknown as { __probeIntervals: Map<number, number> }).__probeIntervals = active;
+      window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+        const id = realSet(handler, timeout, ...args);
+        active.set(id, Number(timeout ?? 0));
+        return id;
+      }) as typeof window.setInterval;
+      window.clearInterval = ((id?: number) => {
+        if (id !== undefined) active.delete(id);
+        return realClear(id);
+      }) as typeof window.clearInterval;
+    });
+  const tenSecondTimers = (page: import("@playwright/test").Page) =>
+    page.evaluate(
+      () =>
+        Array.from(
+          (window as unknown as { __probeIntervals: Map<number, number> }).__probeIntervals.values(),
+        ).filter((timeout) => timeout === 10_000).length,
+    );
+  const openDocuments = async (page: import("@playwright/test").Page, rowIndex: number) => {
+    const row = page.locator(".cp__table tbody tr").nth(rowIndex);
+    await row.locator("summary").evaluate((element) => (element as HTMLElement).click());
+    await row
+      .getByRole("button", {
+        name: singleCell.lang === "zh-CN" ? "资料库" : "Documents",
+        exact: true,
+      })
+      .evaluate((element) => (element as HTMLElement).click());
+    await expect(page.locator(".cp__docs-panel")).toBeVisible();
+  };
+  const flush = (page: import("@playwright/test").Page) =>
+    page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
+    );
+  const documentRow = {
+    id: "88888888-8888-4888-8888-888888888888",
+    filename: "pending.pdf",
+    mime: "application/pdf",
+    kind: "pdf",
+    status: "processing",
+    sizeBytes: 1,
+    chunkCount: 0,
+    createdAt: NOW,
+  };
+
+  test("close before the first read resolves never installs polling", async ({ page }) => {
+    await installIntervalProbe(page);
+    await setup(page, singleCell);
+    const baseline = await tenSecondTimers(page);
+    const gate = deferred();
+    const reached = deferred();
+    await page.route(apiRoute(`/companies/${ID.company}/seller-documents`), async (route) => {
+      reached.resolve();
+      await gate.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { data: [documentRow], page: { next_cursor: null, has_more: false } },
+        }),
+      });
+    });
+    await openDocuments(page, 0);
+    // The old GET is blocked inside the route handler before the panel closes.
+    await reached.promise;
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    const delayed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/companies/${ID.company}/seller-documents`),
+    );
+    gate.resolve();
+    // Causality barrier: the late response must reach the page and the client
+    // continuation must run before the timer snapshot, otherwise the negative
+    // control passes even when the postload ownership guard is removed.
+    const response = await delayed;
+    await response.finished();
+    await flush(page);
+    await flush(page);
+    expect(await tenSecondTimers(page)).toBe(baseline);
+  });
+
+  test("a stale open from company A cannot install polling after B closes", async ({ page }) => {
+    await installIntervalProbe(page);
+    await setup(page, singleCell);
+    const baseline = await tenSecondTimers(page);
+    const gate = deferred();
+    const reached = deferred();
+    await page.route(apiRoute(`/companies/${ID.company}/seller-documents`), async (route) => {
+      reached.resolve();
+      await gate.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { data: [documentRow], page: { next_cursor: null, has_more: false } },
+        }),
+      });
+    });
+    await page.route(apiRoute(`/companies/${ID.second}/seller-documents`), (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { data: [], page: { next_cursor: null, has_more: false } },
+        }),
+      }),
+    );
+    await openDocuments(page, 0);
+    // The company A GET is blocked inside the route handler before A closes.
+    await reached.promise;
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    await openDocuments(page, 1);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    const delayed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/companies/${ID.company}/seller-documents`),
+    );
+    gate.resolve();
+    // Same causality barrier for the stale company A response.
+    const response = await delayed;
+    await response.finished();
+    await flush(page);
+    await flush(page);
+    expect(await tenSecondTimers(page)).toBe(baseline);
+  });
+});

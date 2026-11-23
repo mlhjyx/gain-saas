@@ -260,8 +260,11 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     return safeErrorCopy(e).title;
   }
   function denied(e: unknown) {
-    // Only trusted SaaS session/tenant rejections sticky-block the action. HTTP status,
-    // engine SCOPE_REQUIRED/FORBIDDEN, 404 and suffix matching do not prove personal denial.
+    // A personal denial is a direct SaaS session/tenant rejection: 401/403 with one of
+    // these codes. The BFF maps engine service-identity 401/403 to 502 while keeping
+    // the same code, so a 502 with an identical code is a service fault, not the user.
+    const status = errorStatus(e);
+    if (status !== 401 && status !== 403) return false;
     return ["AUTH_REQUIRED", "SESSION_EXPIRED", "NOT_A_MEMBER", "WORKSPACE_DISABLED"].includes(
       errorCode(e),
     );
@@ -381,7 +384,10 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       await applyGeneration(result, e);
     } catch (err) {
       if (e === epoch) {
-        setPrepareError(err);
+        // Only a direct prepare rejection uses the two dedicated prepare codes. Errors
+        // from the post-prepare cold read keep the trusted read copy or neutral fallback.
+        if (received) setError(err);
+        else setPrepareError(err);
         if (!received && denied(err)) writeDenied.value = true;
         recoveryAvailable.value =
           !received &&
