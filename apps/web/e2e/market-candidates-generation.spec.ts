@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
   keyboardActivate,
+  observeToasts,
   prepareCopy,
   safeErrorCopy,
+  toastWasSeen,
   captureState,
   accessibleState,
   generation,
@@ -67,6 +69,15 @@ for (const cell of matrix)
         h.state.gen = generation(phase);
         await h.button("query").click();
         await expect(h.button("phase")).toHaveAttribute("data-phase", phase);
+        const phaseText = {
+          RUNNING: cell.lang === "zh-CN" ? "处理中" : "Processing",
+          RESULT_UNKNOWN: cell.lang === "zh-CN" ? "结果待确认" : "Result pending",
+          RESULT_READY:
+            cell.lang === "zh-CN" ? "结果已取得，尚未保存" : "Result obtained, not yet saved",
+          FAILED: cell.lang === "zh-CN" ? "执行失败" : "Failed",
+          NOT_APPLIED: cell.lang === "zh-CN" ? "未应用" : "Not applied",
+        }[phase];
+        await expect(h.button("phase")).toContainText(phaseText);
         if (phase === "FAILED" || phase === "NOT_APPLIED") {
           await expect
             .soft(h.button("generation-reason"))
@@ -244,17 +255,19 @@ for (const cell of matrix)
       };
       await h.button("prepare").click();
       await checkCopy("SCOPE_REQUIRED");
-      await expect(page.getByTestId("mc-panel")).not.toContainText(
-        cell.lang === "zh-CN" ? "你没有执行此操作的授权" : "This operation is not authorized",
-      );
+      await expect(page.getByTestId("mc-panel")).not.toContainText("你的操作会保留");
+      await expect(page.getByTestId("mc-panel")).not.toContainText("稍后刷新重试即可");
       await expect(h.button("prepare")).toBeEnabled();
       await expect(page.getByTestId("mc-card")).toHaveCount(2);
       await h.button("close").click();
       h.state.prepareError = "";
       await h.open();
       h.state.prepareBasis = "NO_APPROVED_CLAIMS";
+      await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 10000 });
+      await observeToasts(page);
       await h.button("prepare").click();
       await checkCopy("NO_APPROVED_CLAIMS");
+      expect(await toastWasSeen(page)).toBe(false);
       h.state.prepareBasis = "VALID";
       h.state.prepareError = "SYNTHETIC_UNREGISTERED_ERROR";
       await h.button("prepare").click();
@@ -294,9 +307,17 @@ for (const cell of matrix)
       await checkCopy("WORKSPACE_BUDGET_EXCEEDED");
       await h.button("query").click();
       await expect(h.button("execute")).toBeEnabled();
-      h.state.executeError = "EXECUTION_BUDGET_QUOTE_UNAVAILABLE";
-      await h.button("execute").click();
-      await checkCopy("EXECUTION_BUDGET_QUOTE_UNAVAILABLE");
+      for (const code of [
+        "EXECUTION_BUDGET_QUOTE_UNAVAILABLE",
+        "EXECUTION_BUDGET_QUOTE_INVALID",
+        "EXECUTION_BUDGET_GRANT_FAILED",
+      ] as const) {
+        h.state.executeError = code;
+        await h.button("execute").click();
+        await checkCopy(code);
+        await expect(h.button("phase")).toHaveAttribute("data-phase", "PREPARED");
+        await expect(h.button("execute")).toBeEnabled();
+      }
       expect(h.state.executionDispatches).toBe(0);
       await expect(page.getByTestId("mc-card")).toHaveCount(2);
       h.check();

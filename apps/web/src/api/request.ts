@@ -133,7 +133,10 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       }
       const userCopy = error?.response?.data?.error?.userCopy;
       // 引擎对接未就绪(502 降级)由各页面就地说明;市场候选请求不靠中文标题子串判断通知归属。
-      if (!isMarketRequest && userCopy?.title?.includes('授权对接')) {
+      if (
+        !isMarketRequest &&
+        (userCopy?.title?.includes('服务授权') || userCopy?.title?.includes('Service authorization'))
+      ) {
         return;
       }
       if (userCopy?.title) {

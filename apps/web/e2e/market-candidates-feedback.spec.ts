@@ -48,6 +48,19 @@ for (const cell of matrix)
         await expect(h.button("feedback-dialog")).toHaveCount(0);
         await captureState(page, cell, "feedback-dialog-closed");
         await expect(h.button("notice")).toBeVisible();
+        const sent = h.requests.filter((r) => r.path.endsWith("/feedback")).at(-1);
+        expect((sent?.body as { action?: string } | undefined)?.action).toBe(action);
+        const pillLabel = (
+          {
+            CONFIRM: cell.lang === "zh-CN" ? "已确认" : "Confirmed",
+            KEEP_PENDING: cell.lang === "zh-CN" ? "待补充证据" : "Pending evidence",
+            REJECT: cell.lang === "zh-CN" ? "已否决" : "Rejected",
+            CORRECT: cell.lang === "zh-CN" ? "已纠正" : "Corrected",
+          } as Record<string, string>
+        )[action]!;
+        await expect(
+          page.getByTestId("mc-card").first().locator(".mc-pill").first(),
+        ).toContainText(pillLabel);
         if ((await h.button("receipt").getAttribute("open")) === null)
           await keyboardActivate(
             page,

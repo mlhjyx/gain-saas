@@ -14,6 +14,12 @@ import {
   type RevisionPage,
 } from "#/api/market-candidates";
 
+const PREDISPATCH_BUDGET_CODES = new Set([
+  "EXECUTION_BUDGET_QUOTE_UNAVAILABLE",
+  "EXECUTION_BUDGET_QUOTE_INVALID",
+  "EXECUTION_BUDGET_GRANT_FAILED",
+]);
+
 export type UserFeedbackDraft = {
   action: FeedbackInput["action"];
   reason: string;
@@ -408,10 +414,20 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       await applyGeneration(result, e);
     } catch (err) {
       if (e === epoch) {
-        if (
+        const code = errorCode(err);
+        const predispatch = !received && PREDISPATCH_BUDGET_CODES.has(code);
+        if (predispatch) {
+          // BFF 在 engine.call 前已确定拒绝，未产生 wire；保持 PREPARED 并允许用户显式重试。
+          generation.value = readDenied.value ? null : g;
+          if (pending.value) {
+            pending.value.attempted = false;
+            delete pending.value.rejectedBeforeDispatch;
+            persist();
+          }
+        } else if (
           !received &&
           errorStatus(err) === 402 &&
-          errorCode(err) === "WORKSPACE_BUDGET_EXCEEDED"
+          code === "WORKSPACE_BUDGET_EXCEEDED"
         ) {
           generation.value = readDenied.value ? null : g;
           if (pending.value) {

@@ -181,10 +181,12 @@ function keydown(event: KeyboardEvent) {
     if (!nodes?.length) return;
     const visible = [...nodes].filter((node) => node.getClientRects().length);
     const index = visible.findIndex((node) => node === globalThis.document.activeElement);
-    if (event.shiftKey && index <= 0) {
+    // 焦点在 tabindex=-1 的详情/面板容器时，交给浏览器原生顺序，避免跳过详情自己的控件。
+    if (index < 0) return;
+    if (event.shiftKey && index === 0) {
       event.preventDefault();
       visible[visible.length - 1]?.focus();
-    } else if (!event.shiftKey && (index < 0 || index === visible.length - 1)) {
+    } else if (!event.shiftKey && index === visible.length - 1) {
       event.preventDefault();
       visible[0]?.focus();
     }

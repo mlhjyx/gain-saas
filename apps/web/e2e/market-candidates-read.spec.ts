@@ -6,7 +6,9 @@ import {
   ID,
   keyboardActivate,
   matrix,
+  observeToasts,
   prepareCopy,
+  toastWasSeen,
   revision,
   setup,
 } from "./support/market-candidates-fixtures";
@@ -290,6 +292,7 @@ for (const cell of matrix) {
             response.request().method() === "POST" &&
             response.url().endsWith(`/companies/${ID.company}/market-candidate-generations`),
         );
+        await observeToasts(page);
         await h.button("prepare").click();
         const response = await responsePromise,
           body = await response.json();
@@ -299,6 +302,7 @@ for (const cell of matrix) {
         await expect(h.button("error")).toContainText(copy.title);
         await expect(h.button("error-why")).toHaveText(copy.why);
         await expect(h.button("error-next")).toHaveText(copy.next);
+        expect(await toastWasSeen(page)).toBe(false);
         await expect(h.button("not-analyzed")).toBeVisible();
         await expect(h.button("empty")).toHaveCount(0);
         await expect(h.button("phase")).toHaveCount(0);
@@ -374,6 +378,81 @@ for (const cell of matrix) {
       expect(h.requests.filter((request) => request.method === "POST")).toHaveLength(2);
       await h.button("close").click();
       await expect(page.locator(".cp__more summary").first()).toBeFocused();
+      h.check();
+    });
+    test("V01b late facts response for the old company never writes the current company", async ({
+      page,
+    }) => {
+      const h = await setup(page, cell);
+      await h.open();
+      h.state.prepareBasis = "NO_APPROVED_CLAIMS";
+      await h.button("prepare").click();
+      await expect(h.button("recover-facts")).toBeVisible();
+      const claimsGate = deferred(),
+        overviewGate = deferred();
+      const claim = (id: string, statement: string) => ({
+        id,
+        companyId: ID.company,
+        type: "company_fact",
+        statement,
+        status: "NEEDS_REVIEW",
+        version: 1,
+      });
+      const overview = (id: string, name: string, summary: string) => ({
+        id,
+        name,
+        summary,
+      });
+      const fulfill = (route: import("@playwright/test").Route, data: unknown) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data }),
+        });
+      await page.route(`**/api/companies/${ID.company}/claims`, async (route) => {
+        await claimsGate.promise;
+        await fulfill(route, [claim("a-claim", "A-ONLY-CLAIM")]);
+      });
+      await page.route(`**/api/companies/${ID.company}`, async (route) => {
+        await overviewGate.promise;
+        await fulfill(route, overview(ID.company, "Synthetic Seller", "A-OVERVIEW"));
+      });
+      for (const id of [ID.company, ID.second]) {
+        await page.route(`**/api/companies/${id}/completeness`, (route) =>
+          fulfill(route, { status: "OK", approvedClaims: 0, pendingClaims: 1, offerings: 0, conflictsOpen: 0 }),
+        );
+        await page.route(`**/api/companies/${id}/offerings`, (route) => fulfill(route, []));
+        await page.route(`**/api/companies/${id}/conflicts`, (route) => fulfill(route, []));
+      }
+      await page.route(`**/api/companies/${ID.second}/claims`, (route) =>
+        fulfill(route, [claim("b-claim", "B-ONLY-CLAIM")]),
+      );
+      await page.route(`**/api/companies/${ID.second}`, (route) =>
+        fulfill(route, overview(ID.second, "Second Seller", "B-OVERVIEW")),
+      );
+      await h.button("recover-facts").click();
+      await expect(page.locator(".cp__facts-panel")).toBeVisible();
+      await page.locator(".cp__facts-panel .cp__modal-x").click();
+      await expect(page.locator(".cp__facts-panel")).toHaveCount(0);
+      await h.button("close").click();
+      await expect(page.getByTestId("mc-panel")).toHaveCount(0);
+      const second = page.locator(".cp__table tbody tr").nth(1);
+      await second
+        .getByRole("button", {
+          name: cell.lang === "zh-CN" ? "查看档案" : "View profile",
+          exact: true,
+        })
+        .click();
+      await expect(page.locator(".cp__facts-panel")).toBeVisible();
+      await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
+      await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
+      claimsGate.resolve();
+      overviewGate.resolve();
+      await page.waitForTimeout(300);
+      await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
+      await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
+      await expect(page.locator(".cp__facts-panel")).not.toContainText("A-OVERVIEW");
+      await expect(page.locator(".cp__facts-panel")).not.toContainText("A-ONLY-CLAIM");
       h.check();
     });
     test("V03 both distinct countries and independent nulls are rendered", async ({ page }) => {
@@ -488,6 +567,15 @@ for (const cell of matrix) {
       const trigger = page.getByTestId("mc-details").nth(1);
       await trigger.focus();
       await page.keyboard.press("Enter");
+      await expect(page.getByTestId("mc-detail")).toBeVisible();
+      await page.keyboard.press("Tab");
+      await expect(page.getByTestId("mc-detail").getByRole("button").first()).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      expect(
+        await page.evaluate(
+          () => document.activeElement?.closest('[data-testid="mc-panel"]') !== null,
+        ),
+      ).toBe(true);
       await page.getByTestId("mc-detail").getByRole("button").click();
       await expect(page.getByTestId("mc-detail")).toHaveCount(0);
       await expect(trigger).toBeFocused();

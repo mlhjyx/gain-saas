@@ -691,6 +691,34 @@ export async function captureState(page: Page, cell: Cell, label: string, anchor
 }
 
 /** Exact frozen BFF error-copy projection; this is synthetic response data, not real permission evidence. */
+export async function observeToasts(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __mcToastSeen?: boolean;
+      __mcToastObserver?: MutationObserver;
+    };
+    w.__mcToastSeen = false;
+    w.__mcToastObserver?.disconnect();
+    w.__mcToastObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof HTMLElement &&
+            (node.matches(".ant-message-notice") || node.querySelector(".ant-message-notice"))
+          ) {
+            w.__mcToastSeen = true;
+          }
+        }
+      }
+    });
+    w.__mcToastObserver.observe(document.body, { childList: true, subtree: true });
+  });
+}
+export async function toastWasSeen(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => Boolean((window as unknown as { __mcToastSeen?: boolean }).__mcToastSeen),
+  );
+}
 export function prepareCopy(code: string, lang: string) {
   if (code === "VALIDATION_ERROR")
     return lang === "zh-CN"
@@ -720,11 +748,17 @@ export function prepareCopy(code: string, lang: string) {
 }
 export function safeErrorCopy(code: string, lang: string) {
   if (code === "SCOPE_REQUIRED")
-    return {
-      title: "获客能力尚未完成授权对接",
-      why: "GainOS 与获客引擎的服务授权还没有配好(通常由运维在部署窗口完成),与你的账号无关。",
-      next: "你的操作会保留;稍后刷新重试即可,或联系运营确认对接进度。",
-    };
+    return lang === "zh-CN"
+      ? {
+          title: "服务授权校验暂未通过",
+          why: "当前请求的服务间授权校验未通过，不能据此判断你需要重新登录或个人无权。",
+          next: "请联系平台运营检查服务授权；已有执行结果未确认时，先查询原操作，不要直接再次执行。",
+        }
+      : {
+          title: "Service authorization could not be verified",
+          why: "The request failed a service-to-service authorization check. This alone does not show that you need to sign in again or lack personal access.",
+          next: "Ask platform support to check service authorization. If an earlier execution is unconfirmed, check that operation before executing again.",
+        };
   return copyForError(code, lang);
 }
 async function keyboardMark(page: Page) {

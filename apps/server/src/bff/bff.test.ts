@@ -24,11 +24,14 @@ describe('引擎错误 → 三层文案(PRD §14.4)', () => {
     expect(engine.toClientStatus(403)).toBe(502);
     expect(engine.toClientStatus(403, { error: { code: 'SCOPE_REQUIRED', message: '' } })).toBe(502);
     expect(engine.toClientStatus(409)).toBe(409);
-    const unauthorized = engine.toClientError(401, { error: { code: 'TOKEN_INVALID', message: '' } });
-    expect(unauthorized.error.userCopy.title).toContain('授权对接');
-    expect(unauthorized.error.userCopy.why).toContain('与你的账号无关');
-    const forbidden = engine.toClientError(403, { error: { code: 'SCOPE_REQUIRED', message: '' } });
-    expect(forbidden.error.userCopy.title).toContain('授权对接');
+    const unauthorized = engine.toClientError(401, { error: { code: 'TOKEN_INVALID', message: '' } }, 'zh-CN');
+    expect(unauthorized.error.userCopy.title).toBe('服务授权校验暂未通过');
+    expect(unauthorized.error.userCopy.why).toContain('不能据此判断你需要重新登录或个人无权');
+    expect(unauthorized.error.userCopy.next).not.toContain('你的操作会保留');
+    expect(unauthorized.error.userCopy.next).not.toContain('稍后刷新重试即可');
+    const forbidden = engine.toClientError(403, { error: { code: 'SCOPE_REQUIRED', message: '' } }, 'en-US');
+    expect(forbidden.error.userCopy.title).toBe('Service authorization could not be verified');
+    expect(forbidden.error.userCopy.why).toContain('does not show that you need to sign in again');
   });
 
   it('业务域 403(缺合法性依据)保留 403 + 可执行的合规文案', () => {

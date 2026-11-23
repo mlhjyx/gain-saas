@@ -97,6 +97,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 // ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
 const claimsOpen = ref(false);
 const claimsRecoveryReadOnly = ref(false);
+let claimsEpoch = 0;
 const claimsCompany = ref<CompanyProfile | null>(null);
 const claims = ref<CompanyClaim[]>([]);
 const claimsLoading = ref(false);
@@ -159,6 +160,7 @@ async function openClaims(company: CompanyProfile, options: { readOnly?: boolean
   claimsCompany.value = company;
   claimsOpen.value = true;
   claimsRecoveryReadOnly.value = options.readOnly === true;
+  claimsEpoch += 1;
   claimTab.value = 'NEEDS_REVIEW';
   claimQuery.value = '';
   selectedClaimIds.value = [];
@@ -180,6 +182,7 @@ function closeClaims(): void {
   claimsOpen.value = false;
   claimsRecoveryReadOnly.value = false;
   claimsCompany.value = null;
+  claimsEpoch += 1;
   claims.value = [];
   companyOverview.value = null;
   completeness.value = null;
@@ -198,7 +201,9 @@ function unwrap<T>(value: T | { data?: T }): T {
 
 async function loadCompanyOverview(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   overviewLoading.value = true;
   overviewError.value = null;
   try {
@@ -207,30 +212,34 @@ async function loadCompanyOverview(): Promise<void> {
       gainosApi.companyCompleteness(companyId),
       gainosApi.companyOfferings(companyId),
     ]);
+    if (!current()) return;
     companyOverview.value = unwrap(detail);
     completeness.value = unwrap(stats);
     const rows = unwrap(items);
     offerings.value = Array.isArray(rows) ? rows : [];
   } catch (err) {
-    overviewError.value = failureText(err).title;
+    if (current()) overviewError.value = failureText(err).title;
   } finally {
-    overviewLoading.value = false;
+    if (current()) overviewLoading.value = false;
   }
 }
 
 async function loadConflicts(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   conflictsLoading.value = true;
   conflictsError.value = null;
   try {
     const data = await gainosApi.companyConflicts(companyId);
+    if (!current()) return;
     const rows = unwrap(data);
     conflicts.value = (Array.isArray(rows) ? rows : []).filter((item) => !item.status || item.status === 'OPEN');
   } catch (err) {
-    conflictsError.value = failureText(err).title;
+    if (current()) conflictsError.value = failureText(err).title;
   } finally {
-    conflictsLoading.value = false;
+    if (current()) conflictsLoading.value = false;
   }
 }
 
@@ -316,20 +325,25 @@ async function synthesizeDrafts(): Promise<void> {
 
 async function loadClaims(): Promise<void> {
   const companyId = claimsCompany.value?.id;
+  const epoch = claimsEpoch;
   if (!companyId) return;
+  const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
   claimsLoading.value = true;
   claimsError.value = null;
   try {
     const data = await gainosApi.claims(companyId);
+    if (!current()) return;
     // BFF/引擎的列表响应可能已由 request.ts 解包，也可能仍是 { data }。
     claims.value = Array.isArray(data) ? data : ((data as unknown as { data?: CompanyClaim[] })?.data ?? []);
     selectedClaimIds.value = selectedClaimIds.value.filter((id) =>
       claims.value.some((claim) => claim.id === id && claim.status === 'NEEDS_REVIEW'));
   } catch (err) {
-    claimsError.value = failureText(err);
-    claims.value = [];
+    if (current()) {
+      claimsError.value = failureText(err);
+      claims.value = [];
+    }
   } finally {
-    claimsLoading.value = false;
+    if (current()) claimsLoading.value = false;
   }
 }
 
