@@ -844,7 +844,9 @@ test.describe("late document initialization must not survive close", () => {
     await setup(page, singleCell);
     const baseline = await tenSecondTimers(page);
     const gate = deferred();
+    const reached = deferred();
     await page.route(apiRoute(`/companies/${ID.company}/seller-documents`), async (route) => {
+      reached.resolve();
       await gate.promise;
       await route.fulfill({
         status: 200,
@@ -855,9 +857,22 @@ test.describe("late document initialization must not survive close", () => {
       });
     });
     await openDocuments(page, 0);
+    // The old GET is blocked inside the route handler before the panel closes.
+    await reached.promise;
     await page.keyboard.press("Escape");
     await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    const delayed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/companies/${ID.company}/seller-documents`),
+    );
     gate.resolve();
+    // Causality barrier: the late response must reach the page and the client
+    // continuation must run before the timer snapshot, otherwise the negative
+    // control passes even when the postload ownership guard is removed.
+    const response = await delayed;
+    await response.finished();
+    await flush(page);
     await flush(page);
     expect(await tenSecondTimers(page)).toBe(baseline);
   });
@@ -867,7 +882,9 @@ test.describe("late document initialization must not survive close", () => {
     await setup(page, singleCell);
     const baseline = await tenSecondTimers(page);
     const gate = deferred();
+    const reached = deferred();
     await page.route(apiRoute(`/companies/${ID.company}/seller-documents`), async (route) => {
+      reached.resolve();
       await gate.promise;
       await route.fulfill({
         status: 200,
@@ -887,12 +904,23 @@ test.describe("late document initialization must not survive close", () => {
       }),
     );
     await openDocuments(page, 0);
+    // The company A GET is blocked inside the route handler before A closes.
+    await reached.promise;
     await page.keyboard.press("Escape");
     await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
     await openDocuments(page, 1);
     await page.keyboard.press("Escape");
     await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    const delayed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/companies/${ID.company}/seller-documents`),
+    );
     gate.resolve();
+    // Same causality barrier for the stale company A response.
+    const response = await delayed;
+    await response.finished();
+    await flush(page);
     await flush(page);
     expect(await tenSecondTimers(page)).toBe(baseline);
   });
