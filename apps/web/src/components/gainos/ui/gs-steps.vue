@@ -8,7 +8,7 @@
  * antdv Steps：给 item.icon 传 VNode 会替换掉默认序号，但这一步会被标成
  * ant-steps-item-custom 并取消默认蓝底圆圈，所以圆底要在这里自己画。
  */
-import { computed, h, onMounted, onUpdated, ref } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue';
 
 import { Steps } from 'ant-design-vue';
 
@@ -65,7 +65,21 @@ function neutralizeItemRoles(): void {
     el.removeAttribute('tabindex');
   });
 }
-onMounted(neutralizeItemRoles);
+/** 五步横排（图标 + 不折行的标题 + 连接线）大约需要 760px。内容区更窄时——手机、
+ * 侧栏展开的平板——改竖排，否则最右边的步骤会被裁掉。antd 自带的 responsive 只看
+ * 视口宽度（<576px），侧栏占掉一截时判断不准，这里自己量容器。 */
+const STEP_HORIZONTAL_MIN = 760;
+const vertical = ref(false);
+let observer: null | ResizeObserver = null;
+onMounted(() => {
+  neutralizeItemRoles();
+  if (!root.value) return;
+  observer = new ResizeObserver((entries) => {
+    vertical.value = (entries[0]?.contentRect.width ?? 0) < STEP_HORIZONTAL_MIN;
+  });
+  observer.observe(root.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
 onUpdated(neutralizeItemRoles);
 </script>
 
@@ -77,6 +91,12 @@ onUpdated(neutralizeItemRoles);
     role="group"
     ref="root"
   >
-    <Steps :current="current - 1" :items="items" size="small" />
+    <Steps
+      :current="current - 1"
+      :direction="vertical ? 'vertical' : 'horizontal'"
+      :items="items"
+      :responsive="false"
+      size="small"
+    />
   </div>
 </template>

@@ -628,14 +628,21 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-/* ── 一位决策人：人 / 联系方式 / 来源 三列对齐 ─────────────────────────── */
+/* ── 一位决策人 ──────────────────────────────────────────────────────────
+   窄屏优先，按内容区实际宽度分级（容器查询）：默认三段竖排（人 / 联系方式 / 来源），
+   ≥ 860px 才是「人 / 联系方式 / 来源」三列对齐（卡片内边距 48 + 三列最小 788）。 */
 .dm-person {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 220px;
-  gap: 12px 24px;
+  grid-template-areas:
+    'identity'
+    'points'
+    'sources';
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 .dm-person__identity {
+  grid-area: identity;
   display: flex;
   min-width: 0;
   gap: 12px;
@@ -683,19 +690,26 @@ onMounted(() => {
 }
 
 .dm-points {
+  grid-area: points;
   display: grid;
   gap: 4px;
   min-width: 0;
   margin: 0;
-  padding: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--gs-divider);
   list-style: none;
 }
+/* 窄内容区放不下一整行时，状态 / 日期 / 操作折到第二行 */
 .dm-point {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   min-width: 0;
   min-height: 32px;
+}
+.dm-point__value {
+  flex: 1 1 140px;
 }
 .dm-point__type {
   /* 等宽：邮箱 / 电话 / LinkedIn 后面的值从同一位置起排 */
@@ -705,7 +719,6 @@ onMounted(() => {
   text-align: center;
 }
 .dm-point__value {
-  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--gs-fg);
@@ -736,10 +749,13 @@ a.dm-point__value:hover {
 }
 
 .dm-sources {
+  grid-area: sources;
   display: grid;
   align-content: start;
   gap: 2px;
   min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--gs-divider);
 }
 .dm-label {
   margin: 0 0 4px;
@@ -787,30 +803,23 @@ a.dm-point__value:hover {
   line-height: 1.6;
 }
 
-/* 内容区变窄：来源落到卡片底部一行 */
-@media (max-width: 1200px) {
+@container (min-width: 860px) {
   .dm-person {
-    grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
+    grid-template-areas: 'identity points sources';
+    grid-template-columns: 300px minmax(0, 1fr) 220px;
+    column-gap: 24px;
   }
+  .dm-points,
   .dm-sources {
-    grid-column: 1 / -1;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 16px;
-    padding-top: 10px;
-    border-top: 1px solid var(--gs-divider);
+    padding-top: 0;
+    border-top: 0;
   }
-  .dm-label {
-    margin-bottom: 0;
-  }
-}
-@media (max-width: 719px) {
-  .dm-person {
-    grid-template-columns: minmax(0, 1fr);
+  .dm-point {
+    flex-wrap: nowrap;
   }
   .dm-point__value {
-    white-space: normal;
-    overflow-wrap: anywhere;
+    flex: 1 1 auto;
   }
 }
+
 </style>

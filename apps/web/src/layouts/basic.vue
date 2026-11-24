@@ -5,6 +5,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import { useTabs, useWatermark } from '@vben/hooks';
+import { useMediaQuery } from '@vueuse/core';
 import { BasicLayout, LockScreen } from '@vben/layouts';
 import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useTabbarStore, useUserStore } from '@vben/stores';
@@ -61,17 +62,12 @@ function toggleSidebarCollapse(): void {
 }
 
 // pass5：顶栏隐藏后 Vben 的移动端抽屉开关（在顶栏里）被一并藏起，
-// 这里在标签栏左侧放一个可见按钮，代理点击那个隐藏开关打开抽屉。
+// 这里在标签栏左侧放一个可见按钮。2026-11-25：按钮直接打开 SdrSidebar 自己的抽屉
+// （新版侧栏 + 通知 / 设置 / 退出登录），不再代理点击 Vben 的旧菜单抽屉。
 const mobileMenuLabel = computed(() =>
   isEnglish.value ? 'Open menu' : '打开菜单',
 );
-function openMobileDrawer(): void {
-  document
-    .querySelector(
-      "[data-layout-region='header'] [data-layout-action='toggle-sidebar']",
-    )
-    ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-}
+const mobileNavOpen = ref(false);
 const { destroyWatermark, updateWatermark } = useWatermark();
 
 // pass5：中键关闭标签改为「释放时」触发（浏览器标签习惯）。
@@ -116,6 +112,73 @@ watch(
     }
   },
   { immediate: true },
+);
+
+// 2026-11-25 响应式：平板竖屏（768–1023px）走的是桌面布局，224px 侧栏常驻会把内容区
+// 挤到 544–799px。这里自动把侧栏收成图标窄栏（窄栏底部可手动展开），离开这个区间时
+// 恢复用户原来的展开/折叠偏好。手机（<768）与 ≥1024px 不受影响。
+//
+// 「折叠」本身是持久化偏好，刷新后分不清是用户自己收的还是这里自动收的，所以自动收起时
+// 在本地留一条标记记住原偏好；离开平板宽度时按标记恢复（刷新过也一样）。用户在平板宽度下
+// 手动展开，视为明确选择：清掉标记，之后不再恢复。
+const isTabletWidth = useMediaQuery('(min-width: 768px) and (max-width: 1023.98px)');
+const TABLET_AUTOCOLLAPSE_KEY = 'gainos.sidebar.tabletAutoCollapse.v1';
+interface TabletAutoCollapse {
+  collapsedBefore: boolean;
+}
+function readTabletAutoCollapse(): TabletAutoCollapse | null {
+  try {
+    const raw = localStorage.getItem(TABLET_AUTOCOLLAPSE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<TabletAutoCollapse>) : null;
+    return parsed && typeof parsed.collapsedBefore === 'boolean'
+      ? { collapsedBefore: parsed.collapsedBefore }
+      : null;
+  } catch {
+    return null;
+  }
+}
+function writeTabletAutoCollapse(value: TabletAutoCollapse | null): void {
+  try {
+    if (value) localStorage.setItem(TABLET_AUTOCOLLAPSE_KEY, JSON.stringify(value));
+    else localStorage.removeItem(TABLET_AUTOCOLLAPSE_KEY);
+  } catch {
+    /* 本地存储不可用：退化为只在本次会话内恢复 */
+  }
+}
+let clearMarkerTimer: number | undefined;
+watch(
+  isTabletWidth,
+  (tablet) => {
+    if (!isSideMode.value) return;
+    if (tablet) {
+      window.clearTimeout(clearMarkerTimer);
+      clearMarkerTimer = undefined;
+      if (!readTabletAutoCollapse()) {
+        writeTabletAutoCollapse({ collapsedBefore: preferences.sidebar.collapsed });
+      }
+      if (!preferences.sidebar.collapsed) {
+        updatePreferences({ sidebar: { collapsed: true } });
+      }
+      return;
+    }
+    const marked = readTabletAutoCollapse();
+    if (!marked) return;
+    updatePreferences({ sidebar: { collapsed: marked.collapsedBefore } });
+    // 偏好落盘有 150ms 防抖：等它落盘之后再清标记。期间如果刷新页面，标记还在，
+    // 下次启动会再恢复一次（幂等），不会把「自动收起」当成用户偏好留下来。
+    window.clearTimeout(clearMarkerTimer);
+    clearMarkerTimer = window.setTimeout(() => {
+      clearMarkerTimer = undefined;
+      writeTabletAutoCollapse(null);
+    }, 600);
+  },
+  { immediate: true },
+);
+watch(
+  () => preferences.sidebar.collapsed,
+  (collapsed) => {
+    if (isTabletWidth.value && !collapsed) writeTabletAutoCollapse(null);
+  },
 );
 // pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
 /** 侧栏底部通知行的未读红点数据源（通知部件已从顶栏移除，轮询保留）。 */
@@ -349,15 +412,19 @@ onUnmounted(() => {
   <button
     v-if="isMobile"
     type="button"
+    aria-controls="gainos-mobile-nav"
+    aria-haspopup="dialog"
     class="sdr-mobile-burger"
     :aria-label="mobileMenuLabel"
-    :aria-expanded="false"
-    @click="openMobileDrawer"
+    :aria-expanded="mobileNavOpen"
+    @click="mobileNavOpen = true"
   >
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" /></svg>
   </button>
 
   <SdrSidebar
+    v-model:open="mobileNavOpen"
+    :logo-src="logoGainos"
     :unread-count="unreadCount"
     :user-avatar="avatar"
     :user-email="userStore.userInfo?.username ?? ''"
@@ -366,6 +433,8 @@ onUnmounted(() => {
     @open-search="paletteRef?.open()"
     @open-settings="settingsOpen = true"
     @toggle-collapse="toggleSidebarCollapse"
+    @toggle-locale="toggleLocale"
+    @toggle-theme="toggleTheme"
   />
   <SettingsDialog v-model:open="settingsOpen" />
   <CommandPalette ref="paletteRef" />

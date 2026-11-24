@@ -355,8 +355,9 @@ h6 {
 }
 
 
-/* ── pass4：桌面侧栏菜单由 SDR 覆盖层（sdr-sidebar.vue）渲染，
-   隐藏 Vben 菜单避免重复 menuitem；<768px 的移动抽屉仍用 Vben 菜单。 ── */
+/* ── pass4：侧栏菜单由 SDR 覆盖层（sdr-sidebar.vue）渲染，隐藏 Vben 菜单避免重复 menuitem。
+   2026-11-25：手机改用 SdrSidebar 自己的抽屉（与桌面同一份内容），Vben 自带的移动抽屉
+   不再打开；这里仍按 ≥768px 隐藏即可。 ── */
 @media (min-width: 768px) {
   aside[data-layout-region='sidebar'] .vben-menu {
     display: none;

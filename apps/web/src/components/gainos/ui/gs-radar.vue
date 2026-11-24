@@ -159,8 +159,11 @@ const hasUnknown = computed(() =>
 }
 .gs-radar svg {
   display: block;
+  /* 内容区变宽（单列堆叠的平板/桌面）时不要跟着拉满：图表保持可读的大小并居中 */
   width: 100%;
+  max-width: 420px;
   height: auto;
+  margin: 0 auto;
   overflow: visible;
 }
 .gs-radar__ring {

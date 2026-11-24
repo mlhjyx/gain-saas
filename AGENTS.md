@@ -42,6 +42,7 @@
 
 - **唯一实现路径**：登录后业务页面（`/ops`、登录/注册/异常页除外）一律使用 ant-design-vue 组件；页面级 `<style scoped>` 目标为 0 行，视觉来自 `app.vue` 的 ConfigProvider token。规范见 [界面设计系统](docs/engineering/ui-design-system.md)。
 - **薄封装**：需要统一默认值时用 `apps/web/src/components/gainos/ui/`（GsPage/GsSteps/GsCard/GsToolbar/GsSegmented/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsSelect/GsRadar/GsStatusIcon），不在页面里重造按钮/输入/表格/弹层。
+- **响应式按内容区宽度**：页面根节点写 `grid-cols-1 @container`，卡片 / 网格用 `@container (min-width: …)` 窄屏优先分级，不按视口写 `@media` / `lg:`（侧栏展开、收起、抽屉都会改变内容区宽度）。规范见设计系统 §15。
 - **`$t()` 的键必须是字符串键**：文案表里同名的对象（如 `findBuyers.ruleKind` 是选项映射）取出来就是键名本身，界面会直接显示 `gainos.xxx`，且不会报错。
 - **antdv 按 Vue 版 API 写**：`Dropdown` 没有 `menu` 属性（那是 React 版），菜单走 `#overlay` + `Menu`；传错不报错，只会弹出空层。
 - **每个可交互控件至少一条点击断言**：线索卡的「⋯」因从未被 e2e 点过，带着空菜单进了预览才被用户发现。

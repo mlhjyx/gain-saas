@@ -406,7 +406,9 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-3 px-[var(--gs-page-pad)] pb-12">
+  <!-- grid-cols-1 + @container：约束列宽（子内容再宽也不会把整列撑出屏幕），并作为容器查询的参照——
+       卡片按内容区实际宽度分级，而不是按视口。 -->
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
 
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上：antd 给
@@ -443,18 +445,18 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           data-gs="queue-switch"
           :options="queueOptions"
         />
-        <div class="ml-auto flex flex-wrap items-center gap-2">
+        <div class="ml-auto flex flex-wrap items-center gap-2 @max-[640px]:ml-0 @max-[640px]:w-full">
           <GsSelect
             v-if="icps.length"
             v-model="activeIcpId"
             :aria-label="$t('gainos.leads.icpFilter')"
             :ariaLabel="$t('gainos.leads.icpFilter')"
             :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
-            class="w-[200px]"
+            class="w-[200px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
             data-gs="icp-filter"
             @change="load()"
           />
-          <div class="w-[240px]" data-gs="lead-search">
+          <div class="w-[240px] @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="lead-search">
             <Input
               v-model:value="searchQuery"
               :aria-label="$t('gainos.companies.searchPlaceholder')"
@@ -467,10 +469,10 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
               </template>
             </Input>
           </div>
-          <Button data-gs="qgo-entry" @click="$router.push('/qgos')">
+          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="qgo-entry" @click="$router.push('/qgos')">
             {{ $t('gainos.leads.qgoEntry') }}
           </Button>
-          <Button :loading="loading" data-gs="refresh" @click="load">
+          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
             <template v-if="!loading" #icon>
               <RotateCw :size="14" />
             </template>

@@ -495,7 +495,7 @@ watch(tab, (next) => {
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-4 px-[var(--gs-page-pad)] pb-12">
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-4 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage
       :subtitle="pkg ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"
       :title="pkg?.company.name || $t('gainos.leads.unknownCompany')"
@@ -540,7 +540,7 @@ watch(tab, (next) => {
           <div class="grid gap-4">
             <!-- 判断结果：结论 + 五维雷达 -->
             <GsCard data-gs="judge-hero">
-              <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <div class="grid items-start gap-6 @min-[900px]:grid-cols-[minmax(0,1fr)_360px]">
                 <div class="min-w-0">
                   <p class="lead-hero__label">{{ $t('gainos.leads.verdictTitle') }}</p>
                   <div class="flex flex-wrap items-center gap-3">
@@ -611,7 +611,7 @@ watch(tab, (next) => {
               </template>
             </GsCard>
 
-            <div class="grid gap-4 lg:grid-cols-2">
+            <div class="grid gap-4 @min-[760px]:grid-cols-2">
               <GsCard :title="$t('gainos.leads.profileTitle')" data-gs="company-profile">
                 <Descriptions :column="1" :colon="false" size="small">
                   <DescriptionsItem
@@ -728,7 +728,7 @@ watch(tab, (next) => {
               </p>
             </GsCard>
 
-            <div class="grid gap-4 lg:grid-cols-2">
+            <div class="grid gap-4 @min-[760px]:grid-cols-2">
               <GsCard
                 :class="{ 'is-warn': sanctionBlocked }"
                 :title="$t('gainos.leads.sanctionsTitle')"

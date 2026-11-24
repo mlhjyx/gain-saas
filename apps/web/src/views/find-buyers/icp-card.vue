@@ -112,11 +112,22 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
 </template>
 
 <style scoped>
+/*
+ * 窄屏优先：按「内容区实际宽度」分级（容器查询，容器是页面根节点）。
+ *   < 560px   单列堆叠
+ *   ≥ 560px   两列：画像 + 操作 / 目标市场 + 寻源方案 / 最近寻源
+ *   ≥ 1120px  五列并排（卡片内边距 48 + 五列最小 1066）
+ */
 .icp-card__grid {
   display: grid;
-  grid-template-areas: 'identity markets plan run actions';
-  grid-template-columns: minmax(360px, 1.4fr) minmax(140px, 0.8fr) minmax(170px, 0.9fr) minmax(200px, 1fr) auto;
-  gap: 12px 24px;
+  grid-template-areas:
+    'identity'
+    'markets'
+    'plan'
+    'run'
+    'actions';
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 .icp-card__identity {
@@ -203,6 +214,8 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
 
 .icp-card__cell {
   min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--gs-divider);
 }
 .icp-card__cell--markets {
   grid-area: markets;
@@ -233,42 +246,56 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
 
 .icp-card__actions {
   grid-area: actions;
-  align-self: center;
+  display: grid;
+}
+.icp-card__actions :deep(.ant-btn) {
+  width: 100%;
 }
 
-/* ── 中屏：两列。五列最少需要约 1070px 内容宽度（侧栏 224 + 页边距 64 + 卡片内边距 48），
-   所以视口窄于 1408px 就换成两行，避免溢出。 ────────────────────────────── */
-@media (max-width: 1407px) {
+/* ≥ 560px：两列（画像 + 操作 / 目标市场 + 寻源方案 / 最近寻源） */
+@container (min-width: 560px) {
   .icp-card__grid {
     grid-template-areas:
       'identity actions'
       'markets plan'
       'run run';
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0;
   }
-  .icp-card__actions {
-    justify-self: end;
+  .icp-card__identity {
+    padding-right: 24px;
   }
   .icp-card__cell {
     padding-top: 10px;
     border-top: 1px solid var(--gs-divider);
   }
-}
-@media (max-width: 719px) {
-  .icp-card__grid {
-    grid-template-areas:
-      'identity'
-      'markets'
-      'plan'
-      'run'
-      'actions';
-    grid-template-columns: minmax(0, 1fr);
+  .icp-card__cell--plan {
+    padding-left: 24px;
   }
   .icp-card__actions {
-    justify-self: stretch;
+    display: block;
+    justify-self: end;
   }
-  .icp-card__actions :deep(.ant-btn) {
-    width: 100%;
+}
+
+@container (min-width: 1120px) {
+  .icp-card__grid {
+    grid-template-areas: 'identity markets plan run actions';
+    grid-template-columns: minmax(360px, 1.4fr) minmax(140px, 0.8fr) minmax(170px, 0.9fr) minmax(200px, 1fr) auto;
+    column-gap: 24px;
+  }
+  .icp-card__identity {
+    padding-right: 0;
+  }
+  .icp-card__cell {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .icp-card__cell--plan {
+    padding-left: 0;
+  }
+  .icp-card__actions {
+    align-self: center;
   }
 }
 </style>

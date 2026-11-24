@@ -353,12 +353,31 @@ function onMenu(info: MenuClickInfo): void {
 </template>
 
 <style scoped>
-/* ── 五列：公司 / 评分 / 判断结果 / 判定维度 / 操作 ─────────────────────── */
+/*
+ * 窄屏优先：按「内容区实际宽度」分级（容器查询，容器是页面根节点）。
+ * 侧栏展开/折叠、手机/平板/桌面都会改变内容区宽度，按视口设断点会排错。
+ *   < 520px            单列堆叠
+ *   ≥ 520px            两列：评分 | 判断结果，维度与操作各占一行
+ *   ≥ 810px            四列 + 维度横排到底部
+ *   ≥ 1180px           五列并排
+ * 卡片内边距 24×2，所以每档的最小宽度都要加 48。
+ */
+.lead-card {
+  transition: border-color 0.15s ease;
+}
+.lead-card:hover {
+  border-color: var(--gs-accent-soft-border);
+}
 .lead-card__grid {
   display: grid;
-  grid-template-areas: 'identity score verdict dims actions';
-  grid-template-columns: minmax(240px, 1.2fr) 104px minmax(280px, 1.3fr) minmax(210px, 1fr) auto;
-  gap: 12px 24px;
+  grid-template-areas:
+    'identity'
+    'score'
+    'verdict'
+    'dims'
+    'actions';
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 .lead-card__identity {
@@ -436,11 +455,13 @@ function onMenu(info: MenuClickInfo): void {
   line-height: 22px;
 }
 
+/* 评分：窄内容区横排一行（分数 · 线索评分 · 档位），≥520px 回到竖排 */
 .lead-score {
   grid-area: score;
-  display: grid;
-  justify-items: start;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
 }
 .lead-score__value {
   color: var(--gs-fg);
@@ -455,7 +476,7 @@ function onMenu(info: MenuClickInfo): void {
   line-height: 18px;
 }
 .lead-grade {
-  margin-top: 4px;
+  align-self: center;
   padding: 0 8px;
   border-radius: 6px;
   font-size: 11.5px;
@@ -505,12 +526,10 @@ function onMenu(info: MenuClickInfo): void {
 }
 .lead-reason {
   margin: 2px 0 0;
-  overflow: hidden;
   color: var(--gs-fg-muted);
   font-size: 12.5px;
   line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .lead-expand {
   display: inline-flex;
@@ -585,6 +604,7 @@ function onMenu(info: MenuClickInfo): void {
   color: var(--gs-fg-subtle);
 }
 .lead-dims__score {
+  margin-left: auto;
   min-width: 16px;
   color: var(--gs-fg-subtle);
   font-size: 12px;
@@ -612,10 +632,9 @@ function onMenu(info: MenuClickInfo): void {
 
 .lead-actions {
   grid-area: actions;
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 8px;
-  align-self: center;
 }
 .lead-actions__btn {
   min-width: 68px;
@@ -623,6 +642,13 @@ function onMenu(info: MenuClickInfo): void {
 .lead-actions__more {
   flex: none;
   padding-inline: 8px;
+}
+
+/* 堆叠时各段之间用分割线分隔 */
+.lead-verdict,
+.lead-dims {
+  padding-top: 12px;
+  border-top: 1px solid var(--gs-divider);
 }
 
 .lead-detail {
@@ -662,23 +688,40 @@ function onMenu(info: MenuClickInfo): void {
   word-break: break-word;
 }
 
-/* ── 中屏（内容区 < ~1200px）：四列 + 判定维度横排到底部，给判断原因留出整行 ── */
-@media (max-width: 1511px) {
+/* ── ≥ 520px：两列（评分 | 判断结果），维度与操作各占一行 ─────────────── */
+@container (min-width: 520px) {
   .lead-card__grid {
     grid-template-areas:
-      'identity score verdict actions'
-      'dims dims dims dims';
-    grid-template-columns: minmax(220px, 1.3fr) 104px minmax(200px, 1fr) auto;
+      'identity identity'
+      'score verdict'
+      'dims dims'
+      'actions actions';
+    grid-template-columns: 104px minmax(0, 1fr);
+    column-gap: 24px;
   }
-  .lead-actions {
-    justify-self: end;
+  .lead-score {
+    display: grid;
+    align-items: baseline;
+    justify-items: start;
+    gap: 2px;
+  }
+  .lead-grade {
+    align-self: auto;
+    margin-top: 4px;
+  }
+  .lead-verdict {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .lead-reason {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .lead-dims {
     display: flex;
     align-items: baseline;
     gap: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--gs-divider);
   }
   .lead-dims__list {
     display: flex;
@@ -699,30 +742,50 @@ function onMenu(info: MenuClickInfo): void {
     max-width: none;
     margin-left: 0;
   }
+  .lead-actions {
+    display: flex;
+    align-self: center;
+    justify-self: end;
+  }
 }
 
-/* ── 手机：单列 ──────────────────────────────────────────────────────── */
-@media (max-width: 719px) {
+/* ── ≥ 810px：四列 + 维度横排到底部 ───────────────────────────────────── */
+@container (min-width: 810px) {
   .lead-card__grid {
     grid-template-areas:
-      'identity'
-      'score'
-      'verdict'
-      'dims'
-      'actions';
-    grid-template-columns: minmax(0, 1fr);
+      'identity score verdict actions'
+      'dims dims dims dims';
+    grid-template-columns: minmax(220px, 1.3fr) 104px minmax(200px, 1fr) auto;
   }
-  .lead-reason {
-    white-space: normal;
+}
+
+/* ── ≥ 1180px：五列并排 ───────────────────────────────────────────────── */
+@container (min-width: 1180px) {
+  .lead-card__grid {
+    grid-template-areas: 'identity score verdict dims actions';
+    grid-template-columns: minmax(240px, 1.2fr) 104px minmax(280px, 1.3fr) minmax(210px, 1fr) auto;
   }
   .lead-dims {
     display: block;
+    padding-top: 0;
+    border-top: 0;
   }
-  .lead-actions {
-    justify-self: stretch;
+  .lead-dims__list {
+    display: grid;
+    gap: 1px;
+    margin-top: 4px;
   }
-  .lead-actions__btn {
-    flex: 1 1 0;
+  .lead-dims__row {
+    flex: initial;
+  }
+  .lead-dims__score {
+    min-width: 0;
+    margin-left: 0;
+  }
+  .lead-dims__bar {
+    flex: 1 1 40px;
+    max-width: 96px;
+    margin-left: auto;
   }
 }
 </style>

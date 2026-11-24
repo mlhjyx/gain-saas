@@ -868,7 +868,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-3 px-[var(--gs-page-pad)] pb-12">
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
 
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
@@ -889,14 +889,14 @@ onMounted(() => {
           }}
         </p>
       </div>
-      <div class="ml-auto flex flex-wrap items-center gap-2">
-        <Button :loading="loading" data-gs="refresh" @click="load">
+      <div class="ml-auto flex flex-wrap items-center gap-2 @max-[640px]:ml-0 @max-[640px]:w-full">
+        <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
           <template v-if="!loading" #icon>
             <RotateCw :size="14" />
           </template>
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
         </Button>
-        <Button v-if="icps.length > 0" data-gs="new-icp" type="primary" @click="openCreate">
+        <Button v-if="icps.length > 0" class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="new-icp" type="primary" @click="openCreate">
           {{ $t('gainos.findBuyers.newIcp') }}
         </Button>
       </div>
