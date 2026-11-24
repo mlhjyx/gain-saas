@@ -21,15 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      web_e2e_needed: ${{ steps.scope.outputs.web_e2e_needed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      # 纯文档 PR：全部改动落在 docs/**、根 README.md 或 AGENTS.md。其余一律算代码；
-      # 非 PR 事件、拿不到 diff 或 diff 失败时一律全量（fail-safe，不降级成 false）。
+      # 路径分级（fail-safe）：
+      # - docs_only=true：全部改动均为 *.md（含 docs/、deploy/*.md、README.md、AGENTS.md 等），跳过构建与 E2E，仅走密钥扫描与轻量校验。
+      # - web_e2e_needed=true：改动涉及前端、共享包、合同、锁文件、Playwright 或 CI 编排时运行前端 E2E；纯 server 改动跳过 4 路 E2E。
+      # - 非 PR 事件、拿不到 diff 或 diff 失败时一律全量（docs_only=false, web_e2e_needed=true）。
       - id: scope
-        name: Detect docs-only pull requests
+        name: Detect docs-only and web E2E scope
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -39,24 +42,39 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" != "pull_request" ]] || [[ -z "$BASE_SHA" ]] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "web_e2e_needed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           paths="$RUNNER_TEMP/changed-paths.txt"
           if ! git diff --no-renames --name-only -z "${BASE_SHA}...${HEAD_SHA}" > "$paths"; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "web_e2e_needed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           docs_only=true
+          web_e2e_needed=false
+          has_paths=false
           while IFS= read -r -d '' path; do
+            has_paths=true
             case "$path" in
-              docs/* | README.md | AGENTS.md)
+              *.md)
                 ;;
               *)
                 docs_only=false
                 ;;
             esac
+            case "$path" in
+              apps/web/* | packages/vben/* | packages/shared/* | packages/engine-client/* | playwright.config.* | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | .github/workflows/ci.yml)
+                web_e2e_needed=true
+                ;;
+            esac
           done < "$paths"
+          if [[ "$has_paths" != "true" ]]; then
+            docs_only=false
+            web_e2e_needed=true
+          fi
           echo "docs_only=${docs_only}" >> "$GITHUB_OUTPUT"
+          echo "web_e2e_needed=${web_e2e_needed}" >> "$GITHUB_OUTPUT"
 
   # 密钥扫描：文档同样可能泄露凭据，因此不随代码门一起跳过。
   secret-scan:
@@ -95,7 +113,7 @@ jobs:
       - name: Docs-only fast path（无代码/合同变化）
         if: needs.classify.outputs.docs_only == 'true'
         run: |
-          echo "docs only: build, tests, lint and contract gates are not applicable; the PR only touches docs/** or root README/AGENTS."
+          echo "docs only: build, tests, lint and contract gates are not applicable; the PR only touches Markdown files."
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -105,12 +123,24 @@ jobs:
         run: node scripts/check-action-pins.mjs
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: needs.classify.outputs.docs_only != 'true'
         with:
           node-version: 22
 
       - name: Enable corepack (pnpm 11 per packageManager)
         if: needs.classify.outputs.docs_only != 'true'
-        run: corepack enable
+        run: |
+          corepack enable
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        if: needs.classify.outputs.docs_only != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
 
       - name: Install
         if: needs.classify.outputs.docs_only != 'true'
@@ -181,23 +211,39 @@ jobs:
           fail-on: ERR
           review: "false"
 
-  # M2 步 14-3：Playwright 主链路（BFF mock，不依赖引擎/数据库；本地已全绿）。
-  # 纯文档 PR 不跑；若长期不稳定，按设计 D-14-c 降为每日夜跑（保留本 job，改 cron 触发）。
-  e2e:
-    name: e2e
+  # M2 步 14-3：Playwright 主链路（BFF mock，4 路分片并行 + pnpm/Chromium 缓存）。
+  # 纯文档 PR 或仅改 server 的 PR 跳过，push 到 main 始终全量运行。
+  e2e-shard:
+    name: e2e (${{ matrix.shard }}/4)
     needs: classify
-    if: ${{ !cancelled() && needs.classify.outputs.docs_only != 'true' }}
+    if: ${{ !cancelled() && needs.classify.outputs.web_e2e_needed == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Enable corepack (pnpm 11 per packageManager)
-        run: corepack enable
+        run: |
+          corepack enable
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
 
       - name: Install
         run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
@@ -207,18 +253,59 @@ jobs:
           pnpm --filter @gain-saas/shared build
           pnpm --filter @vben/web-antd build
 
-      - name: Install Playwright chromium
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright chromium (full on cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run Playwright (main chain + zero-jargon + error copy)
-        run: pnpm exec playwright test
+      - name: Install Playwright OS deps (on browser cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run Playwright shard ${{ matrix.shard }}/4
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/4
 
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-shard-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
           retention-days: 7
+
+  # 稳定汇聚检查名 `e2e`（供后续 Ruleset 纳管且不出现 skipped 死锁）。
+  e2e:
+    name: e2e
+    needs: [classify, e2e-shard]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify e2e gate result
+        shell: bash
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          WEB_E2E_NEEDED: ${{ needs.classify.outputs.web_e2e_needed }}
+          SHARD_RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$CLASSIFY_RESULT" != "success" ]]; then
+            echo "::error::classify did not succeed: $CLASSIFY_RESULT"
+            exit 1
+          fi
+          if [[ "$WEB_E2E_NEEDED" != "true" ]]; then
+            echo "web_e2e_needed=false: skipping Playwright E2E for docs-only or server-only PR."
+            exit 0
+          fi
+          if [[ "$SHARD_RESULT" != "success" ]]; then
+            echo "::error::one or more Playwright E2E shards failed: $SHARD_RESULT"
+            exit 1
+          fi
+          echo "All 4 Playwright E2E shards passed."
