@@ -61,7 +61,7 @@ SaaS 侧 `.env` 的 `ENGINE_JWT_ISSUER` 必须与 `AUTH_ISSUER` **逐字符一�
 
 | 件 | 位置 |
 | --- | --- |
-| 叶子证书/私钥 | `r4-pki` 新增 `gain-saas-jwks`(SAN `IP:127.0.0.1,DNS:localhost`,growthos-server-ca 签发),分发到 `deploy/tls/server.pem|server.key` |
+| 叶子证书/私钥 | `r4-pki` 新增 `gain-saas-jwks`（SAN `IP:127.0.0.1,IP:172.20.0.1,DNS:localhost`，`growthos-server-ca` 签发），分发到 `deploy/tls/server.pem|server.key`（同一证书被 `172.20.0.1:18447/18448` mTLS 复用，缺少 `IP:172.20.0.1` 会报 `ERR_TLS_CERT_ALTNAME_INVALID` 阻断写入） |
 | CA(公开) | `deploy/tls/ca.pem`(= growthos-server-ca,供 verify 脚本校验) |
 | TLS 终止 | `deploy/systemd/gain-saas-jwks-tls.service`(socat `127.0.0.1:18446` → `127.0.0.1:4020`) |
 
@@ -75,7 +75,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now gain-saas-jwks-tls
 curl --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.well-known/jwks.json
 ```
 
-证书 365 天。`r4-pki renew` 会重签它(私钥保留);续期后重跑 `r4-pki install` 并 `systemctl restart gain-saas-jwks-tls`。
+证书 365 天。`r4-pki renew` 会重签它(私钥保留);续期后重跑 `r4-pki install` 并**同时重启 `gain-saas-jwks-tls` 与 `gain-saas-web`**（后者持 `172.20.0.1:18447/18448` 监听，只重启 socat 不够）。
 
 **SaaS JWKS 私钥泄露已修 + 已轮换**:2026-10-29 之前 `/.well-known/jwks.json` 把 RSA 私钥参数(`d/p/q/dp/dq/qi`)一起公开;现在只输出 `kty/n/e/kid/alg/use`。旧私钥已在任何引擎开始信任它之前作废,新钥 `kid=dev-2026-10-29-b`(引擎首次信任的就是这一把)。引擎的 `loadExecutionBudgetJwks` 也会把带私钥字段的 JWKS 判为不可用,所以这个修复同时是撤销信任的前提。验证:
 
