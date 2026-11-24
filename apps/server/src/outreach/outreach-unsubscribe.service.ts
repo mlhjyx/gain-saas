@@ -4,7 +4,8 @@ import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 
-const TOKEN_TTL_MS = 30 * 24 * 3600_000;
+/** 退订链接有效期 ≥90 天（CAN-SPAM / GDPR 最低 30 天以上留余，防延迟退订失效）。 */
+const TOKEN_TTL_MS = 90 * 24 * 3600_000;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

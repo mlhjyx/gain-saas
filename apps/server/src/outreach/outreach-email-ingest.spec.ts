@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  decodeRfc2047Header,
+  isAutoReplyOrOoo,
   looksLikeUnsubscribe,
   parseArf,
   parseDsn,
   parseEmail,
+  stripQuotedReplyText,
 } from './outreach-email-ingest.js';
 
 const REPLY_RAW = [
@@ -174,5 +177,58 @@ describe('looksLikeUnsubscribe（保守关键词识别）', () => {
       ['From: a@b.de', 'Subject: Termin', '', 'Passt Ihnen Dienstag um 10 Uhr?'].join('\r\n'),
     );
     expect(looksLikeUnsubscribe(normal)).toBe(false);
+  });
+
+  it('正常买家回复引用了我方带 Unsubscribe/Abmelden 的原邮件页脚时绝不误判为退订', () => {
+    const quotedReply = parseEmail(
+      [
+        'From: Mattia <mattia@refeel-epc.it>',
+        'Subject: Re: HJT 600-720W Modules',
+        '',
+        'Hi, please send your IEC certificates and 700W datasheet for our 12MW project.',
+        '',
+        'On Tue, 24 Nov 2026 at 10:00, Sales <sales@mail.example.com> wrote:',
+        '> We manufacture 600-720W HJT modules.',
+        '> Unsubscribe: https://example.com/unsubscribe or reply abmelden.',
+      ].join('\r\n'),
+    );
+    expect(stripQuotedReplyText(quotedReply.textBody)).toContain('IEC certificates');
+    expect(looksLikeUnsubscribe(quotedReply)).toBe(false);
+  });
+
+  it('支持嵌套 multipart、RFC 2047 主题解码与 OOO 自动回复分离', () => {
+    const encodedSubject = `=?UTF-8?B?${Buffer.from('Re: 光伏组件询盘', 'utf8').toString('base64')}?=`;
+    expect(decodeRfc2047Header(encodedSubject)).toBe('Re: 光伏组件询盘');
+
+    const nestedRaw = [
+      'From: buyer@ziel.de',
+      `Subject: ${encodedSubject}`,
+      'Content-Type: multipart/mixed; boundary="outer"',
+      '',
+      '--outer',
+      'Content-Type: multipart/alternative; boundary="inner"',
+      '',
+      '--inner',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Please quote 2MW CIF Hamburg.',
+      '--inner--',
+      '--outer--',
+    ].join('\r\n');
+    const parsed = parseEmail(nestedRaw);
+    expect(parsed.subject).toBe('Re: 光伏组件询盘');
+    expect(parsed.textBody).toContain('2MW CIF Hamburg');
+
+    const ooo = parseEmail(
+      [
+        'From: buyer@ziel.de',
+        'Subject: Abwesenheitsnotiz: Re: HJT',
+        'Auto-Submitted: auto-replied',
+        '',
+        'Ich bin bis Montag nicht im Büro. Unsubscribe',
+      ].join('\r\n'),
+    );
+    expect(isAutoReplyOrOoo(ooo)).toBe(true);
+    expect(looksLikeUnsubscribe(ooo)).toBe(false);
   });
 });

@@ -117,6 +117,7 @@ export class OutreachImapPoller implements OnModuleInit, OnModuleDestroy {
       where: { state: 'ACTIVE' },
       select: { address: true, workspaceId: true },
     });
+    const multiTenant = new Set(mailboxes.map((m) => m.workspaceId)).size > 1;
     for (const mailbox of mailboxes) {
       let messages: OutreachImapMessage[];
       try {
@@ -134,7 +135,10 @@ export class OutreachImapPoller implements OnModuleInit, OnModuleDestroy {
           if (result.outcome === 'DUPLICATE') summary.duplicates += 1;
           else if (result.outcome === 'UNMATCHED') summary.unmatched += 1;
           else summary.processed += 1;
-          await this.client.markSeen(mailbox.address, message.uid);
+          // 多租户共享轮询时：UNMATCHED 可能是其它工作空间的回信，绝不可抢先标 \Seen 吞信！
+          if (!multiTenant || result.outcome !== 'UNMATCHED') {
+            await this.client.markSeen(mailbox.address, message.uid);
+          }
         } catch {
           summary.errors += 1;
         }

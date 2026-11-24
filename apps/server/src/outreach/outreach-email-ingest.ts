@@ -133,24 +133,78 @@ export function normalizeMessageId(value: string | null | undefined): string | n
   return id || null;
 }
 
+const MAX_RAW_EMAIL_BYTES = 256 * 1024;
+const MAX_MIME_DEPTH = 6;
+
+function decodeRfc2047Word(charset: string, encoding: string, encoded: string): string {
+  const enc = encoding.toUpperCase();
+  let bytes: Buffer;
+  if (enc === 'B') {
+    bytes = Buffer.from(encoded, 'base64');
+  } else if (enc === 'Q') {
+    const out: number[] = [];
+    const normalized = encoded.replace(/_/g, ' ');
+    for (let i = 0; i < normalized.length; i += 1) {
+      if (normalized[i] === '=' && i + 2 < normalized.length && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+        out.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        out.push(normalized.charCodeAt(i) & 0xff);
+      }
+    }
+    bytes = Buffer.from(out);
+  } else {
+    return encoded;
+  }
+  const lower = charset.toLowerCase();
+  if (lower === 'iso-8859-1' || lower === 'latin1' || lower === 'windows-1252') {
+    return bytes.toString('latin1');
+  }
+  return bytes.toString('utf8');
+}
+
+/** 解码 RFC 2047 邮件头（=?UTF-8?B?...?= / =?ISO-8859-1?Q?...?=）。 */
+export function decodeRfc2047Header(value: string | null): string | null {
+  if (!value) return null;
+  // RFC 2047 §6.2：相邻编码词之间的空白应折叠消除。
+  const collapsed = value.replace(/\?=\s+=\?/g, '?==?');
+  return collapsed.replace(
+    /=\?([^?\s]+)\?([bBqQ])\?([^?\s]+)\?=/g,
+    (_full, charset: string, enc: string, payload: string) => decodeRfc2047Word(charset, enc, payload),
+  );
+}
+
+function collectMultipartParts(body: string, boundary: string, depth: number, acc: EmailPart[]): void {
+  if (depth >= MAX_MIME_DEPTH) return;
+  for (const segment of splitMultipart(body, boundary)) {
+    const parsed = splitHeadersAndBody(segment);
+    const partType = parseContentType(headerValue(parsed.headers, 'content-type'));
+    if (partType.mediaType.startsWith('multipart/') && partType.params.boundary) {
+      collectMultipartParts(parsed.body, partType.params.boundary, depth + 1, acc);
+      continue;
+    }
+    acc.push({
+      contentType: partType.mediaType,
+      reportType: partType.params['report-type'] ?? null,
+      headers: parsed.headers,
+      body: decodeBody(
+        parsed.body,
+        headerValue(parsed.headers, 'content-transfer-encoding'),
+      ),
+    });
+  }
+}
+
 export function parseEmail(raw: string): ParsedEmail {
-  const top = splitHeadersAndBody(raw);
+  const safeRaw =
+    Buffer.byteLength(raw, 'utf8') > MAX_RAW_EMAIL_BYTES
+      ? Buffer.from(raw, 'utf8').subarray(0, MAX_RAW_EMAIL_BYTES).toString('utf8')
+      : raw;
+  const top = splitHeadersAndBody(safeRaw);
   const contentType = parseContentType(headerValue(top.headers, 'content-type'));
   const parts: EmailPart[] = [];
   if (contentType.mediaType.startsWith('multipart/') && contentType.params.boundary) {
-    for (const segment of splitMultipart(top.body, contentType.params.boundary)) {
-      const parsed = splitHeadersAndBody(segment);
-      const partType = parseContentType(headerValue(parsed.headers, 'content-type'));
-      parts.push({
-        contentType: partType.mediaType,
-        reportType: partType.params['report-type'] ?? null,
-        headers: parsed.headers,
-        body: decodeBody(
-          parsed.body,
-          headerValue(parsed.headers, 'content-transfer-encoding'),
-        ),
-      });
-    }
+    collectMultipartParts(top.body, contentType.params.boundary, 0, parts);
   }
   const directText =
     contentType.mediaType === 'text/plain'
@@ -164,11 +218,11 @@ export function parseEmail(raw: string): ParsedEmail {
     .filter((value): value is string => Boolean(value));
   return {
     headers: top.headers,
-    subject: headerValue(top.headers, 'subject'),
+    subject: decodeRfc2047Header(headerValue(top.headers, 'subject')),
     messageId: normalizeMessageId(headerValue(top.headers, 'message-id')),
     inReplyTo: normalizeMessageId(headerValue(top.headers, 'in-reply-to')),
     references,
-    from: headerValue(top.headers, 'from'),
+    from: decodeRfc2047Header(headerValue(top.headers, 'from')),
     contentType: contentType.mediaType,
     reportType: contentType.params['report-type'] ?? null,
     parts,
@@ -260,7 +314,56 @@ export function parseArf(email: ParsedEmail): ParsedComplaint | null {
 
 const UNSUBSCRIBE_RE = /unsubscribe|abmelden|d[ée]sinscri(?:re|ption)/i;
 
-/** 保守的退订识别：只匹配明确的退订关键词，不做情绪/意图推断（分类由步 13 技能负责）。 */
+const QUOTE_SEPARATOR_PATTERNS: readonly RegExp[] = [
+  /^-{2,}\s*Original Message\s*-{2,}/i,
+  /^-{2,}\s*Ursprüngliche Nachricht\s*-{2,}/i,
+  /^-{2,}\s*Messaggio originale\s*-{2,}/i,
+  /^On .+ wrote:\s*$/i,
+  /^Am .+ schrieb .+:\s*$/i,
+  /^Le .+ a écrit\s*:\s*$/i,
+  /^Il giorno .+ ha scritto:\s*$/i,
+  /^El .+ escribió:\s*$/i,
+  /^Em .+ escreveu:\s*$/i,
+  /^From:\s+.+@.+$/i,
+  /^Von:\s+.+@.+$/i,
+  /^_{5,}$/,
+];
+
+/**
+ * 剥离回信末尾引用的原外联邮件正文（防止我方页脚自带的 Unsubscribe/Abmelden 令正常买家回复全部误判退订拉黑）。
+ */
+export function stripQuotedReplyText(body: string): string {
+  const lines = body.replace(/\r\n/g, '\n').split('\n');
+  const kept: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('>')) continue;
+    if (QUOTE_SEPARATOR_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+      break;
+    }
+    kept.push(line);
+  }
+  return kept.join('\n').trim();
+}
+
+const OOO_SUBJECT_RE =
+  /\b(?:out of office|auto(?:matic)?\s*reply|autoreply|abwesenheitsnotiz|automatische\s+antwort|fuori\s+ufficio|respuesta\s+autom[áa]tica|r[ée]ponse\s+automatique)\b/i;
+
+/** 识别自动回复 / 外出休假（OOO），避免把休假自动回复误判为有效回复或退订。 */
+export function isAutoReplyOrOoo(email: ParsedEmail): boolean {
+  const autoSubmitted = (headerValue(email.headers, 'auto-submitted') ?? '').trim().toLowerCase();
+  if (autoSubmitted && autoSubmitted !== 'no') return true;
+  const xAutoreply = (headerValue(email.headers, 'x-autoreply') ?? '').trim().toLowerCase();
+  if (xAutoreply === 'yes' || xAutoreply === 'true') return true;
+  if (headerValue(email.headers, 'x-auto-response-suppress')) return true;
+  const precedence = (headerValue(email.headers, 'precedence') ?? '').trim().toLowerCase();
+  if (precedence === 'auto_reply' || precedence === 'junk') return true;
+  return OOO_SUBJECT_RE.test(email.subject ?? '');
+}
+
+/** 保守的退订识别：剥离引用块后只匹配买家亲写的明确退订关键词，绝不因引用我方原邮件页脚误杀正常回复。 */
 export function looksLikeUnsubscribe(email: ParsedEmail): boolean {
-  return UNSUBSCRIBE_RE.test(email.subject ?? '') || UNSUBSCRIBE_RE.test(email.textBody);
+  if (isAutoReplyOrOoo(email)) return false;
+  const stripped = stripQuotedReplyText(email.textBody);
+  return UNSUBSCRIBE_RE.test(email.subject ?? '') || UNSUBSCRIBE_RE.test(stripped);
 }

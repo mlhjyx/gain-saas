@@ -22,9 +22,12 @@ import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
 import { canonicalExecuteBody, isManufacturerNetworkRevision } from './routes.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** task.icpId 为空且引擎未回传 icpId 时的占位 UUID：确保 discovery_run_link 始终落账，封堵 icpId=null 配额绕过。 */
+const UNSCOPED_TASK_ICP_ID = '00000000-0000-4000-8000-000000000000';
 const MAX_TASK_NAME = 200;
 
 function invalid(message: string): never {
@@ -227,6 +230,12 @@ export class AcquisitionTasksController {
       });
     } catch (error) {
       await this.failRun(run.id);
+      if (error instanceof WorkspaceBudgetQuotaExceededError) {
+        throw new HttpException(
+          { error: { code: error.code, message: error.message, details: error.details } },
+          error.status,
+        );
+      }
       const quoteCode = error instanceof EngineBudgetQuoteError
         ? (error.engineBody as { error?: { code?: unknown } } | null)?.error?.code
         : undefined;
@@ -253,7 +262,7 @@ export class AcquisitionTasksController {
       );
     }
 
-    const data = (response.body as { data?: { runId?: unknown; status?: unknown } } | null)?.data;
+    const data = (response.body as { data?: { runId?: unknown; status?: unknown; icpId?: unknown } } | null)?.data;
     if (response.status !== 202 || !data || typeof data.runId !== 'string' || !UUID.test(data.runId)) {
       await this.failRun(run.id);
       throw new HttpException(
@@ -267,25 +276,26 @@ export class AcquisitionTasksController {
       where: { id: run.id },
       data: { engineRunId: data.runId, status: runStatus },
     });
-    if (task.icpId) {
-      // 同 discovery-runs.controller:全局唯一 runId 的 update 分支需校验归属。
-      const existingLink = await this.prisma.discoveryRunLink.findUnique({ where: { runId: data.runId } });
-      if (existingLink && existingLink.workspaceId !== tenant.workspaceId) {
-        throw new ConflictException({
-          error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
-        });
-      }
-      await this.prisma.discoveryRunLink.upsert({
-        where: { runId: data.runId },
-        create: {
-          runId: data.runId,
-          workspaceId: tenant.workspaceId,
-          planId,
-          icpId: task.icpId,
-        },
-        update: { planId, icpId: task.icpId },
+    const resolvedIcpId =
+      task.icpId ??
+      (typeof data.icpId === 'string' && UUID.test(data.icpId) ? data.icpId : UNSCOPED_TASK_ICP_ID);
+    // 无论 task.icpId 是否为空，均必须登记 discovery_run_link（封堵 icpId=null 绕过月度运行次数配额）。
+    const existingLink = await this.prisma.discoveryRunLink.findUnique({ where: { runId: data.runId } });
+    if (existingLink && existingLink.workspaceId !== tenant.workspaceId) {
+      throw new ConflictException({
+        error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
       });
     }
+    await this.prisma.discoveryRunLink.upsert({
+      where: { runId: data.runId },
+      create: {
+        runId: data.runId,
+        workspaceId: tenant.workspaceId,
+        planId,
+        icpId: resolvedIcpId,
+      },
+      update: { planId, icpId: resolvedIcpId },
+    });
     await this.prisma.acquisitionTask.update({
       where: { id: task.id },
       data: { lastRunAt: new Date() },

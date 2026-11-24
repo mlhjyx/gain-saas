@@ -84,4 +84,35 @@ describe('TenantGuard workspace status', () => {
     const error = await guard.canActivate(ctx).catch((err: unknown) => err);
     expect(error).toBeTruthy();
   });
+
+  it('停用空间或失效成员即使命中滑动续期窗口也绝不签发新会话 cookie', async () => {
+    const sessions = {
+      verify: vi.fn(async () => ({
+        userId: '11111111-1111-4111-8111-111111111111',
+        workspaceId: '22222222-2222-4222-8222-222222222222',
+        role: 'admin',
+        jti: 'jti-1',
+        exp: 100,
+      })),
+      needsRefresh: () => true,
+      revoke: vi.fn(),
+      issue: vi.fn(),
+      cookieOptions: vi.fn(),
+      ttl: 60,
+    } as unknown as SessionService;
+    const prisma = {
+      membership: {
+        findFirst: vi.fn(async () => ({
+          role: 'admin',
+          workspace: { status: 'DISABLED', onboardingCompletedAt: new Date(), onboardingCompanyId: null },
+        })),
+      },
+    } as unknown as PrismaService;
+    const guard = new TenantGuard(sessions, prisma);
+    const { ctx, res } = makeContext();
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(sessions.issue).not.toHaveBeenCalled();
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
 });

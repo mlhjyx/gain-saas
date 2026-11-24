@@ -25,6 +25,7 @@ import { startR4TlsServers } from './r4/r4-tls.server.js';
 async function bootstrap(): Promise<void> {
   const config = loadConfig();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['log', 'warn', 'error'] });
+  app.enableShutdownHooks();
   app.useGlobalFilters(new GlobalHttpExceptionFilter());
 
   // 信任本机反代/socket 转发;cookie 在 M1 全量落地
@@ -35,14 +36,32 @@ async function bootstrap(): Promise<void> {
   // BFF 动态路由注册在 Nest 的 parser middleware 之前,POST/PATCH 的 JSON body 必须在这里先解析,
   // 否则 req.body 为空,引擎会把缺字段报成 "website must be a URL address"。
   const expressInstance = app.getHttpAdapter().getInstance();
+  // Ring-1 P0 安全响应头（无新增依赖，防 MIME 嗅探 / 点击劫持 / Referrer 泄漏）。
+  expressInstance.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    if (config.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
   // 官网合作意向公开端点的 CORS / 体积 / 安全响应头（只作用于该路径前缀）。
   // 注册在 JSON parser 之前：16KB 上限在解析前就按 content-length 拒绝。
   registerPublicCooperationCors(expressInstance, config.PUBLIC_COOPERATION_ALLOWED_ORIGINS);
   expressInstance.use(expressLib.json({ limit: '8mb' }));
   expressInstance.use(expressLib.urlencoded({ extended: true, limit: '8mb' }));
-  // 资料库上传:BFF 的 binary 路由把文件字节原样转给引擎(浏览器到不了对象存储)。
+  // 资料库上传:先要求携带会话 cookie 再缓冲 51MB 二进制体，防止未登录大包内存耗尽 DoS。
   expressInstance.use(
     '/api/companies/:companyId/seller-documents/:documentId/content',
+    (req: Request, res: Response, next: NextFunction) => {
+      if (!req.cookies?.gain_session) {
+        res.status(401).json({ error: { code: 'AUTH_REQUIRED', message: '请先登录' } });
+        return;
+      }
+      next();
+    },
     expressLib.raw({ type: () => true, limit: '51mb' }),
   );
   registerSettlementReadbackProxy(expressInstance, config);

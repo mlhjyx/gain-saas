@@ -103,6 +103,7 @@ class SmtpSession {
       const socket = secure
         ? tlsConnect({ host, port, servername: host, rejectUnauthorized })
         : netConnect({ host, port });
+      socket.setTimeout(timeoutMs);
       const readyEvent = secure ? 'secureConnect' : 'connect';
       socket.once(readyEvent, () => {
         socket.setTimeout(0);
@@ -132,6 +133,7 @@ class SmtpSession {
           resolve(new SmtpSession(secureSocket, timeoutMs));
         },
       );
+      secureSocket.setTimeout(timeoutMs);
       secureSocket.once('error', reject);
       secureSocket.once('timeout', () => {
         secureSocket.destroy();
@@ -217,6 +219,22 @@ class SmtpSession {
 
 function sanitizeHeader(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function assertSafeEnvelopeAddress(address: string, label: string): string {
+  const clean = address.trim();
+  if (!clean || /[<>\r\n\s]/.test(clean) || !clean.includes('@')) {
+    throw new Error(`SMTP ${label} 地址不合法（禁止包含 <> 或空白）`);
+  }
+  return clean;
+}
+
+function resolveEhloFqdn(fromAddress: string): string {
+  const domain = (fromAddress.split('@')[1] ?? '').trim().toLowerCase();
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
+    return domain;
+  }
+  return 'mail.localdomain';
 }
 
 function encodeHeaderValue(value: string): string {
@@ -318,8 +336,10 @@ export class SmtpOutreachTransport implements OutreachTransport {
     const dkim = this.dkimOptions();
     const config = this.config;
     const host = config.OUTREACH_SMTP_HOST!;
-    const fromAddress = config.OUTREACH_SMTP_FROM_ADDRESS!;
+    const fromAddress = assertSafeEnvelopeAddress(config.OUTREACH_SMTP_FROM_ADDRESS!, 'MAIL FROM');
+    const toAddress = assertSafeEnvelopeAddress(message.to, 'RCPT TO');
     const timeoutMs = config.OUTREACH_SMTP_TIMEOUT_MS;
+    const ehloHostname = resolveEhloFqdn(fromAddress);
     // 与线上 Message-ID 头同形（uuid@发件域）：回信 In-Reply-To/References 按此值归因到发送台账。
     const messageId = `${randomUUID()}@${fromAddress.split('@')[1] || 'localhost'}`;
 
@@ -332,8 +352,7 @@ export class SmtpOutreachTransport implements OutreachTransport {
     );
     try {
       await session.expect([220], 'greeting');
-      const hostname = 'gain-saas.local';
-      session.send(`EHLO ${hostname}`);
+      session.send(`EHLO ${ehloHostname}`);
       let extensions = (await session.expect([250], 'EHLO')).join('\n');
 
       if (!config.OUTREACH_SMTP_SECURE && config.OUTREACH_SMTP_STARTTLS) {
@@ -347,7 +366,7 @@ export class SmtpOutreachTransport implements OutreachTransport {
           config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED,
           timeoutMs,
         );
-        session.send(`EHLO ${hostname}`);
+        session.send(`EHLO ${ehloHostname}`);
         extensions = (await session.expect([250], 'EHLO')).join('\n');
       }
 
@@ -371,9 +390,9 @@ export class SmtpOutreachTransport implements OutreachTransport {
         }
       }
 
-      session.send(`MAIL FROM:<${sanitizeHeader(fromAddress)}>`);
+      session.send(`MAIL FROM:<${fromAddress}>`);
       await session.expect([250], 'MAIL FROM');
-      session.send(`RCPT TO:<${sanitizeHeader(message.to)}>`);
+      session.send(`RCPT TO:<${toAddress}>`);
       await session.expect([250, 251], 'RCPT TO');
       session.send('DATA');
       await session.expect([354], 'DATA');
@@ -381,7 +400,7 @@ export class SmtpOutreachTransport implements OutreachTransport {
       let mime = buildMimeMessage({
         fromAddress,
         fromName: config.OUTREACH_SMTP_FROM_NAME,
-        to: message.to,
+        to: toAddress,
         subject: message.subject,
         body: message.body,
         messageId,
@@ -393,6 +412,12 @@ export class SmtpOutreachTransport implements OutreachTransport {
       }
       session.sendRaw(`${mime}\r\n.\r\n`);
       await session.expect([250], 'DATA body');
+      try {
+        session.send('QUIT');
+        await session.expect([221], 'QUIT');
+      } catch {
+        // 邮件已 250 入队，忽略 QUIT 阶段对端提前断连
+      }
       return { messageId };
     } finally {
       session.close();

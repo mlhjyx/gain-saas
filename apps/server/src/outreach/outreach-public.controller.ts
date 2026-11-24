@@ -34,9 +34,13 @@ function page(body: string): string {
  * - POST 消费 token（支持邮件客户端 List-Unsubscribe=One-Click）。
  * 消费成功后尽力同步平台级抑制；同步失败不回滚租户内退订，只记日志。
  */
+const PUBLIC_RATE_LIMIT_MAX = 60;
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
+
 @Controller('api/public/outreach')
 export class OutreachPublicController {
   private readonly logger = new Logger(OutreachPublicController.name);
+  private readonly rateHits = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
     private readonly unsubscribe: OutreachUnsubscribeService,
@@ -44,8 +48,28 @@ export class OutreachPublicController {
     private readonly suppressor: OutreachDncSuppressor,
   ) {}
 
+  private applyPublicHeaders(res: Response): void {
+    res.setHeader?.('Cache-Control', 'no-store');
+    res.setHeader?.('X-Frame-Options', 'DENY');
+    res.setHeader?.('Referrer-Policy', 'no-referrer');
+  }
+
+  private rateLimited(req: Request): boolean {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    if (this.rateHits.size > 10_000) this.rateHits.clear();
+    const entry = this.rateHits.get(ip);
+    if (!entry || entry.resetAt <= now) {
+      this.rateHits.set(ip, { count: 1, resetAt: now + PUBLIC_RATE_LIMIT_WINDOW_MS });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > PUBLIC_RATE_LIMIT_MAX;
+  }
+
   @Get('unsubscribe')
   confirm(@Query('token') token: string | undefined, @Res() res: Response) {
+    this.applyPublicHeaders(res);
     if (!token) {
       return res
         .status(400)
@@ -66,6 +90,12 @@ export class OutreachPublicController {
 
   @Post('unsubscribe')
   async consume(@Req() req: Request, @Res() res: Response) {
+    this.applyPublicHeaders(res);
+    if (this.rateLimited(req)) {
+      return res.status(429).json({
+        error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后重试' },
+      });
+    }
     const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
     const bodyToken =
       typeof (req.body as { token?: unknown } | undefined)?.token === 'string'
@@ -75,23 +105,31 @@ export class OutreachPublicController {
     const result = await this.unsubscribe.consume(token);
 
     if (result.recipientEmail && !result.alreadyUsed) {
-      try {
-        await this.suppressor.suppressGlobal(
-          {
-            userId: 'public:unsubscribe',
-            workspaceId: result.workspaceId,
-            role: 'admin',
-          },
-          {
-            email: result.recipientEmail,
-            reason: 'unsubscribe',
-            source: 'gain-saas:unsubscribe',
-          },
-        );
-      } catch (error) {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await this.suppressor.suppressGlobal(
+            {
+              userId: 'public:unsubscribe',
+              workspaceId: result.workspaceId,
+              role: 'admin',
+            },
+            {
+              email: result.recipientEmail,
+              reason: 'unsubscribe',
+              source: 'gain-saas:unsubscribe',
+            },
+          );
+          lastError = undefined;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError) {
         this.logger.warn(
-          `平台级抑制同步失败（租户内退订已生效）: ${
-            error instanceof Error ? error.message : 'unknown'
+          `平台级抑制同步失败（已重试 1 次，租户内退订已生效）: ${
+            lastError instanceof Error ? lastError.message : 'unknown'
           }`,
         );
       }

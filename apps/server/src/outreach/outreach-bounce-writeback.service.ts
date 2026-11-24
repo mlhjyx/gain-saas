@@ -57,14 +57,40 @@ export class OutreachBounceWritebackService {
       .catch(() => undefined); // 唯一索引吸收重复入队；队列故障不阻塞发送主链路
   }
 
-  /** worker tick：取一批 PENDING 逐条回写；引擎侧 duplicate 视为成功。 */
+  /** worker tick：优先经 FOR UPDATE SKIP LOCKED 抢占 PENDING 避免多副本重复回写；回退 findMany 兼容单测 mock。 */
   async drain(): Promise<{ done: number; failed: number; skipped: number }> {
     if (!this.config.OUTREACH_ENGINE_SERVICE_TOKEN) return { done: 0, failed: 0, skipped: 0 };
-    const rows = await this.prisma.outreachBounceWriteback.findMany({
-      where: { status: 'PENDING', attempts: { lt: MAX_ATTEMPTS } },
-      orderBy: { createdAt: 'asc' },
-      take: DRAIN_BATCH,
-    });
+    const prismaRaw = this.prisma as unknown as {
+      $queryRaw?: <T>(strings: TemplateStringsArray, ...values: unknown[]) => Promise<T>;
+    };
+    const rows =
+      typeof prismaRaw.$queryRaw === 'function'
+        ? await prismaRaw.$queryRaw<
+            Array<{
+              id: string;
+              workspaceId: string;
+              contactPointId: string;
+              event: string;
+              messageId: string;
+              smtpCode: string | null;
+              receivedAt: Date;
+              attempts: number;
+            }>
+          >`
+            SELECT id, workspace_id AS "workspaceId", contact_point_id AS "contactPointId",
+                   event, message_id AS "messageId", smtp_code AS "smtpCode",
+                   received_at AS "receivedAt", attempts
+              FROM outreach_bounce_writeback
+             WHERE status = 'PENDING' AND attempts < ${MAX_ATTEMPTS}
+             ORDER BY created_at ASC
+             LIMIT ${DRAIN_BATCH}
+             FOR UPDATE SKIP LOCKED
+          `
+        : await this.prisma.outreachBounceWriteback.findMany({
+            where: { status: 'PENDING', attempts: { lt: MAX_ATTEMPTS } },
+            orderBy: { createdAt: 'asc' },
+            take: DRAIN_BATCH,
+          });
     let done = 0;
     let failed = 0;
     let skipped = 0;
