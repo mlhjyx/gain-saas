@@ -27,12 +27,12 @@ const NAV_GROUPS = [
     group: '获客',
     items: [
       { landmark: '.cp', name: '公司档案', path: '/companies' },
-      { landmark: '[data-gs="page-header"]', name: '找买家', path: '/find-buyers' },
+      { heading: '找买家', landmark: '[data-gs="page-header"]', name: '找买家', path: '/find-buyers' },
     ],
   },
   {
     group: '线索',
-    items: [{ landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' }],
+    items: [{ heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' }],
   },
   {
     group: '活动',
@@ -91,7 +91,15 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
       await ensureLeafVisible(page, group.group, item.name);
       await page.getByRole('menuitem', { name: item.name }).click();
       await page.waitForURL((url) => url.pathname === item.path);
-      await expect(page.locator(item.landmark)).toBeVisible();
+      // 页面切换过渡期间新旧两页会同时在 DOM 里，[data-gs="page-header"] 会短暂出现两个。
+      // 已迁移的页面断言它的一级标题（名称唯一，天然排掉旧页），其余页面类名本来就唯一。
+      if ('heading' in item) {
+        await expect(
+          page.getByRole('heading', { level: 1, name: item.heading }),
+        ).toBeVisible();
+      } else {
+        await expect(page.locator(item.landmark)).toBeVisible();
+      }
     }
   }
 
