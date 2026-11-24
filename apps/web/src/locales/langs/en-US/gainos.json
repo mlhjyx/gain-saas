@@ -926,6 +926,14 @@
       "INVALID": "Invalid (INVALID)",
       "UNVERIFIED": "Unverified (UNVERIFIED)"
     },
+    "badge": {
+      "VALID": "Verified",
+      "RISKY": "Unconfirmed",
+      "PROBABLE": "Inferred",
+      "BLOCKED": "Blocked",
+      "INVALID": "Invalid",
+      "UNVERIFIED": "Unverified"
+    },
     "seniority": {
       "c_level": "C-level",
       "vp": "VP",

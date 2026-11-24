@@ -837,12 +837,13 @@ watch(tab, (next) => {
         </TabPane>
 
         <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
-          <GsCard>
-            <DecisionMakerCard
-              v-if="isAdmin && pkg.company.canonical_company_id"
-              :company-id="pkg.company.canonical_company_id"
-            />
-            <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+          <!-- 决策人卡片自带页头与逐人白卡，不再套一层卡片 -->
+          <DecisionMakerCard
+            v-if="isAdmin && pkg.company.canonical_company_id"
+            :company-id="pkg.company.canonical_company_id"
+          />
+          <GsCard v-else>
+            <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
               {{ $t('gainos.leads.peopleAdminOnly') }}
             </p>
           </GsCard>

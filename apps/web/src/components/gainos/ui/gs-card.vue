@@ -9,12 +9,15 @@ import { Card } from 'ant-design-vue';
 
 defineOptions({ name: 'GsCard' });
 
-const props = withDefaults(defineProps<{ dense?: boolean; title?: string }>(), {
-  dense: false,
-  title: undefined,
-});
+const props = withDefaults(
+  defineProps<{ dense?: boolean; padding?: string; title?: string }>(),
+  { dense: false, padding: undefined, title: undefined },
+);
 
-const bodyStyle = computed(() => ({ padding: props.dense ? '12px 24px' : '24px' }));
+/** 优先级：显式 padding > dense（薄面板）> 默认 24px。 */
+const bodyStyle = computed(() => ({
+  padding: props.padding ?? (props.dense ? '12px 24px' : '24px'),
+}));
 </script>
 
 <template>

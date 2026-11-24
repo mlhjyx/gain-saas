@@ -926,6 +926,14 @@
       "INVALID": "无效（INVALID）",
       "UNVERIFIED": "未验证（UNVERIFIED）"
     },
+    "badge": {
+      "VALID": "已验证",
+      "RISKY": "待确认",
+      "PROBABLE": "推断",
+      "BLOCKED": "已拦截",
+      "INVALID": "无效",
+      "UNVERIFIED": "未验证"
+    },
     "seniority": {
       "c_level": "高管",
       "vp": "副总裁",
