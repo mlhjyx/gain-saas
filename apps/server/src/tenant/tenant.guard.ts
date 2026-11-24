@@ -36,26 +36,9 @@ export class TenantGuard implements CanActivate {
       res.clearCookie(SESSION_COOKIE);
       throw new UnauthorizedException({ error: { code: 'AUTH_REQUIRED', message: '会话已过期,请重新登录' } });
     }
-    // 滑动续期:剩余 < 半个 TTL 时重发(会话行保持同一 jti?否——重签新 jti 简单安全)
-    if (this.sessions.needsRefresh(claims.exp)) {
-      await this.sessions.revoke(claims.jti);
-      const renewed = await this.sessions.issue(claims.userId, claims.workspaceId, claims.role);
-      res.cookie(SESSION_COOKIE, renewed.token, this.sessions.cookieOptions(this.sessions.ttl));
-      req.tenant = {
-        ...renewed.claims,
-        onboardingCompleted: true,
-        onboardingCompanyId: null,
-      };
-    } else {
-      req.tenant = {
-        ...claims,
-        onboardingCompleted: true,
-        onboardingCompanyId: null,
-      };
-    }
-    // 成员资格仍有效(被移除后立刻失效)
+    // 先核验成员资格与工作空间 ACTIVE 状态，再决定是否滑动续期——绝不允许停用空间或被移出成员续签新 cookie。
     const membership = await this.prisma.membership.findFirst({
-      where: { userId: req.tenant.userId, workspaceId: req.tenant.workspaceId, status: 'active' },
+      where: { userId: claims.userId, workspaceId: claims.workspaceId, status: 'active' },
       include: {
         workspace: {
           select: { status: true, onboardingCompletedAt: true, onboardingCompanyId: true },
@@ -72,9 +55,21 @@ export class TenantGuard implements CanActivate {
         error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' },
       });
     }
-    req.tenant.role = membership.role as 'admin' | 'member';
-    req.tenant.onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;
-    req.tenant.onboardingCompanyId = membership.workspace.onboardingCompanyId ?? null;
+    const role = membership.role as 'admin' | 'member';
+    let activeClaims = claims;
+    // 滑动续期：先签新会话写 cookie 再吊销旧 jti（捕获并发续期竞态），避免同页并发请求互相踢下线。
+    if (this.sessions.needsRefresh(claims.exp)) {
+      const renewed = await this.sessions.issue(claims.userId, claims.workspaceId, role);
+      res.cookie(SESSION_COOKIE, renewed.token, this.sessions.cookieOptions(this.sessions.ttl));
+      await this.sessions.revoke(claims.jti).catch(() => undefined);
+      activeClaims = renewed.claims;
+    }
+    req.tenant = {
+      ...activeClaims,
+      role,
+      onboardingCompleted: membership.workspace.onboardingCompletedAt !== null,
+      onboardingCompanyId: membership.workspace.onboardingCompanyId ?? null,
+    };
     return true;
   }
 }

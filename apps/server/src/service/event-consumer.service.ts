@@ -29,7 +29,8 @@ const MAX_PAGES_PER_TICK = 10;
 const MAX_PROJECTION_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EVENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// 接受标准 UUID（含 v4/v7），避免引擎升级 UUIDv7 event_id 时被误判为毒丸跳过。
+const EVENT_ID = UUID;
 const TERMINAL_STATUSES = new Set(['DONE', 'PARTIAL', 'FAILED', 'CANCELLED']);
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -187,7 +188,9 @@ export class EventConsumerService implements OnModuleInit {
           if (event.projectionStatus === 'PENDING') {
             await this.projectEvent(event);
           } else {
-            this.logger.warn(`workspace ${workspaceId} event ${event.eventId} 已隔离 (${event.projectionError})`);
+            this.logger.warn(
+              `workspace ${workspaceId} event ${event.eventId} 已落收件箱隔离 (${event.projectionError})，推进游标避免阻断队列`,
+            );
           }
         }
         seenIds.add(event.eventId);
@@ -472,14 +475,18 @@ export class EventConsumerService implements OnModuleInit {
 
     if (type === 'SanctionsListStale') {
       // ch08 §3.1.12：制裁名单过期/临近过期（L0 门与 accept 第五道硬门同源告警）。
-      // 引擎侧已按 (workspace, freshness, 名单源) 6h 窗口去重；不同名单源组合可能再发，
-      // 这里按 workspace 24h 限频，避免铃铛被同一根因淹没。
+      // 24h 限频按严重级别分流：yellow 告警绝不可吞掉后续升级为 red 的阻断告警！
+      const freshness = payload.freshness === 'yellow' ? 'yellow' : 'red';
       const recent = await tx.notification.findFirst({
-        where: { workspaceId, type: 'SanctionsListStale', createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) } },
+        where: {
+          workspaceId,
+          type: 'SanctionsListStale',
+          createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) },
+          ...(freshness === 'red' ? { title: { contains: '暂时无法接受新线索' } } : {}),
+        },
         select: { id: true },
       });
       if (recent) return;
-      const freshness = payload.freshness === 'yellow' ? 'yellow' : payload.freshness === 'red' ? 'red' : 'red';
       const icpId = typeof payload.icpId === 'string' && UUID.test(payload.icpId) ? payload.icpId : aggregateId;
       await this.notify(
         tx,
@@ -493,6 +500,51 @@ export class EventConsumerService implements OnModuleInit {
           ? 'The sanctions list is nearing its refresh deadline — accepting new leads may be paused'
           : 'The sanctions list is past its refresh deadline — accepting new leads is paused for now',
       );
+      return;
+    }
+
+    if (type === 'DeletionCompleted') {
+      const refId =
+        (typeof payload.deletionRequestId === 'string' && payload.deletionRequestId) || aggregateId;
+      await this.notify(
+        tx,
+        workspaceId,
+        'DeletionCompleted',
+        refId,
+        '数据删除请求（GDPR Art.17）已完成，相关个人数据已擦除',
+        'Data erasure request (GDPR Art.17) completed — personal data has been removed',
+      );
+      return;
+    }
+
+    if (type === 'ClaimRevoked') {
+      const claimId =
+        (typeof payload.claimId === 'string' && payload.claimId) || aggregateId;
+      await this.notify(
+        tx,
+        workspaceId,
+        'ClaimRevoked',
+        claimId,
+        '一条已批准的企业事实已被撤销，相关后续生成将不再引用',
+        'An approved company fact was revoked and will no longer be used in future drafts',
+      );
+      return;
+    }
+
+    if (type === 'SiteBuildCostSummaryUpdated') {
+      const budget = isObject(payload.budget) ? payload.budget : null;
+      const spentCents =
+        typeof budget?.spentCents === 'number' && Number.isFinite(budget.spentCents) && budget.spentCents > 0
+          ? budget.spentCents
+          : 0;
+      if (spentCents > 0) {
+        const INT4_MAX = 2_147_483_647;
+        const amountMicros = Math.min(Math.round(spentCents * 10_000), INT4_MAX);
+        await tx.costLedger.createMany({
+          data: [{ workspaceId, sourceEventId: event.eventId, amountMicros, occurredAt: event.occurredAt }],
+          skipDuplicates: true,
+        });
+      }
       return;
     }
 

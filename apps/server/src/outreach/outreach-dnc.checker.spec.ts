@@ -57,4 +57,27 @@ describe('EngineOutreachDncChecker（M2 步 11 fail-closed）', () => {
     });
     await expect(service.check(tenant, [EMAIL])).rejects.toThrow(/emailHash\/reasons/);
   });
+
+  it('超过 50 个邮箱自动按 50 分块请求引擎', async () => {
+    const emails = Array.from({ length: 105 }, (_, i) => `buyer${i}@example.de`);
+    const engine = {
+      call: vi.fn(async (_t: unknown, _m: string, _p: string, opts: { body: { emails: string[] } }) => ({
+        status: 200,
+        body: {
+          data: {
+            results: opts.body.emails.map((e) => ({
+              emailHash: hash(e),
+              reasons: e === 'buyer104@example.de' ? ['tenant:manual'] : [],
+            })),
+          },
+        },
+        contentType: 'application/json',
+        headers: {},
+      })),
+    };
+    const service = new EngineOutreachDncChecker(engine as never, {} as AppConfig);
+    const hit = await service.check(tenant, emails);
+    expect(engine.call).toHaveBeenCalledTimes(3);
+    expect(hit.get('buyer104@example.de')).toEqual(['tenant:manual']);
+  });
 });

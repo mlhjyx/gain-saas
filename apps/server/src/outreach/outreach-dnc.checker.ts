@@ -28,6 +28,8 @@ export interface OutreachDncSuppressor {
  * suppression_record 与平台全局抑制）。引擎返回邮箱哈希，这里按本地规范化
  * （trim + lowercase）还原为邮箱键；无法规范化的地址由调用方先行拒绝。
  */
+const DNC_CHECK_CHUNK_SIZE = 50;
+
 @Injectable()
 export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDncSuppressor {
   constructor(
@@ -40,33 +42,37 @@ export class EngineOutreachDncChecker implements OutreachDncChecker, OutreachDnc
     emails: readonly string[],
   ): Promise<Map<string, string[]>> {
     if (emails.length === 0) return new Map();
-    const result = await this.engine.call(tenant, 'POST', '/outreach/dnc/check', {
-      body: { emails },
-      timeoutMs: 10_000,
-    });
-    // 合规门 fail closed：403/5xx 或畸形响应必须当成“无法确认”，不能当成“没命中”。
-    if (result.status >= 400) {
-      throw new Error(`DNC 检查失败（HTTP ${result.status}）`);
-    }
-    const body = result.body as {
-      data?: { results?: Array<{ emailHash?: unknown; reasons?: unknown }> };
-    };
-    if (!Array.isArray(body?.data?.results)) {
-      throw new Error('DNC 响应格式不合法：缺少 data.results');
-    }
+    const canonicalAll = [...new Set(emails.map((email) => email.trim().toLowerCase()))];
     const byHash = new Map<string, string[]>();
-    for (const row of body.data.results) {
-      if (typeof row.emailHash !== 'string' || !Array.isArray(row.reasons)) {
-        throw new Error('DNC 响应格式不合法：条目缺少 emailHash/reasons');
+    // 引擎 /outreach/dnc/check 硬上限 50 条/请求：按 50 分块并仍对任一分块异常 fail-closed。
+    for (let offset = 0; offset < canonicalAll.length; offset += DNC_CHECK_CHUNK_SIZE) {
+      const chunk = canonicalAll.slice(offset, offset + DNC_CHECK_CHUNK_SIZE);
+      const result = await this.engine.call(tenant, 'POST', '/outreach/dnc/check', {
+        body: { emails: chunk },
+        timeoutMs: 10_000,
+      });
+      // 合规门 fail closed：403/5xx 或畸形响应必须当成“无法确认”，不能当成“没命中”。
+      if (result.status >= 400) {
+        throw new Error(`DNC 检查失败（HTTP ${result.status}）`);
       }
-      byHash.set(
-        row.emailHash,
-        row.reasons.filter((reason): reason is string => typeof reason === 'string'),
-      );
+      const body = result.body as {
+        data?: { results?: Array<{ emailHash?: unknown; reasons?: unknown }> };
+      };
+      if (!Array.isArray(body?.data?.results)) {
+        throw new Error('DNC 响应格式不合法：缺少 data.results');
+      }
+      for (const row of body.data.results) {
+        if (typeof row.emailHash !== 'string' || !Array.isArray(row.reasons)) {
+          throw new Error('DNC 响应格式不合法：条目缺少 emailHash/reasons');
+        }
+        byHash.set(
+          row.emailHash,
+          row.reasons.filter((reason): reason is string => typeof reason === 'string'),
+        );
+      }
     }
     const out = new Map<string, string[]>();
-    for (const email of emails) {
-      const canonical = email.trim().toLowerCase();
+    for (const canonical of canonicalAll) {
       const hash = createHash('sha256').update(canonical).digest('hex');
       const reasons = byHash.get(hash);
       if (!reasons) {

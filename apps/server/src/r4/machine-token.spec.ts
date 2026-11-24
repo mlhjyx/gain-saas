@@ -3,6 +3,7 @@ import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import { MachineTokenService, MACHINE_TOKEN_TTL_SECONDS } from './machine-token.service.js';
+import { MachineTokenController } from './machine-token.controller.js';
 import { R4Keyring } from './r4-keyring.service.js';
 
 const ISSUER = 'https://127.0.0.1:18446/temporal-runtime';
@@ -93,5 +94,31 @@ describe('机器 token 签发', () => {
     await expect(
       s.issue({ profile: 'unknown-profile' as never, nonce: NONCE, subject: SUBJECT, configurationRevision: REVISION }),
     ).rejects.toThrow();
+  });
+
+  it('生产或 R4_TLS_CLIENT_AUTH=required 缺少已验签客户端证书 CN 时拒绝铸币 (403 MACHINE_TOKEN_MTLS_REQUIRED)', async () => {
+    const { service: s, keyring } = await service();
+    const prodConfig = {
+      NODE_ENV: 'production',
+      R4_TLS_CLIENT_AUTH: 'required',
+      R4_MACHINE_SUBJECT: SUBJECT,
+      R4_MACHINE_CONFIGURATION_REVISION: REVISION,
+    } as unknown as AppConfig;
+    const ctrl = new MachineTokenController(prodConfig, keyring, s);
+    const tlsReqWithoutCert = {
+      socket: { encrypted: true, authorized: false, getPeerCertificate: () => ({}) },
+    } as never;
+    await expect(
+      ctrl.issue({ profile: 'capability-request', nonce: NONCE }, tlsReqWithoutCert),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { error: { code: 'MACHINE_TOKEN_MTLS_REQUIRED' } },
+    });
+
+    const tlsReqWithCert = {
+      socket: { encrypted: true, authorized: true, getPeerCertificate: () => ({ subject: { CN: SUBJECT } }) },
+    } as never;
+    const env = await ctrl.issue({ profile: 'capability-request', nonce: NONCE }, tlsReqWithCert);
+    expect(env.subject).toBe(SUBJECT);
   });
 });

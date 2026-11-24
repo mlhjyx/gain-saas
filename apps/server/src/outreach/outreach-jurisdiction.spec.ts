@@ -98,4 +98,18 @@ describe('evaluateEmailJurisdiction（发送路径上的法域同意门）', () 
     expect(evaluate(' de ', 'OPT_IN').allowed).toBe(true);
     expect(evaluate('us', 'UNKNOWN', { usPostalAddress: US_ADDRESS }).allowed).toBe(true);
   });
+
+  it('D3 补齐：CA/AE/SA 强制 CONSENT_REQUIRED；UK PECR 按法人后缀放行企业、拦个体户', () => {
+    for (const cc of ['CA', 'AE', 'SA']) {
+      expect(outreachJurisdictionPolicy(cc)).toBe('CONSENT_REQUIRED');
+      expect(evaluate(cc, 'MISSING').code).toBe('JURISDICTION_CONSENT_REQUIRED');
+      expect(evaluate(cc, 'OPT_IN').allowed).toBe(true);
+    }
+    expect(
+      evaluateEmailJurisdiction({ countryCode: 'GB', consentStatus: 'UNKNOWN', companyName: 'SunGrid Solar Ltd' }).allowed,
+    ).toBe(true);
+    expect(
+      evaluateEmailJurisdiction({ countryCode: 'GB', consentStatus: 'UNKNOWN', companyName: 'John Smith Solar' }).code,
+    ).toBe('JURISDICTION_CONSENT_REQUIRED');
+  });
 });

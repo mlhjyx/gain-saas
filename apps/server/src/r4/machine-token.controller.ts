@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, HttpCode, Inject, Post, Req, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, HttpCode, Inject, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import type { Request } from 'express';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
@@ -32,10 +32,20 @@ export class MachineTokenController {
       });
     }
     // 平台权威凭据只能经 TLS 监听口铸造；明文入口（4020/公网隧道）一律拒绝。
-    // 客户端证书的身份对齐仍属 P5（R4_TLS_CLIENT_AUTH=required 之前不索证）。
     assertInternalTls(req);
+    const peerSubject = this.subjectFromPeer(req);
+    const requireMtls =
+      this.config.NODE_ENV === 'production' || this.config.R4_TLS_CLIENT_AUTH === 'required';
+    if (requireMtls && !peerSubject) {
+      throw new ForbiddenException({
+        error: {
+          code: 'MACHINE_TOKEN_MTLS_REQUIRED',
+          message: '生产或 mTLS 模式下必须出示已验签的客户端证书 CN，禁止回退默认主体铸币',
+        },
+      });
+    }
     // 引擎有三个机器身份，token 的 sub 必须与调用方证书一致（引擎会逐字比对 trust.subject）。
-    const subject = this.subjectFromPeer(req) ?? this.config.R4_MACHINE_SUBJECT;
+    const subject = peerSubject ?? this.config.R4_MACHINE_SUBJECT;
     const revision = this.config.R4_MACHINE_CONFIGURATION_REVISION;
     if (!subject || !revision || !this.keyring.isAvailable('machine')) {
       throw new ServiceUnavailableException({
@@ -59,9 +69,13 @@ export class MachineTokenController {
     }
   }
 
-  /** 从 TLS 客户端证书的 CN 推导 subject；无证书时返回 null。 */
+  /** 从已通过 TLS 校验的客户端证书 CN 推导 subject；无证书或未授权时返回 null。 */
   private subjectFromPeer(req: Request): string | null {
-    const socket = req.socket as { getPeerCertificate?: () => { subject?: { CN?: string } } };
+    const socket = req.socket as {
+      authorized?: boolean;
+      getPeerCertificate?: () => { subject?: { CN?: string } };
+    };
+    if (socket.authorized === false) return null;
     const cn = socket.getPeerCertificate?.()?.subject?.CN;
     return typeof cn === 'string' && cn.length > 0 ? cn : null;
   }

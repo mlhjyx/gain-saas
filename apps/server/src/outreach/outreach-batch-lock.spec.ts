@@ -51,4 +51,22 @@ describe('PostgresAdvisoryBatchLock（P4-04 批次互斥）', () => {
     ).rejects.toThrow('boom');
     expect(prisma.unlocked).toEqual(['batch-1']);
   });
+
+  it('有 $transaction 时在单事务连接内走 pg_try_advisory_xact_lock 杜绝连接池锁泄漏', async () => {
+    const queries: string[] = [];
+    const prisma = {
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+            queries.push(strings.join('?'));
+            return [{ locked: true }];
+          }),
+        }),
+      ),
+    };
+    const lock = new PostgresAdvisoryBatchLock(prisma as unknown as PrismaService);
+    const outcome = await lock.withLock('batch-tx', async () => 'done');
+    expect(outcome).toEqual({ acquired: true, result: 'done' });
+    expect(queries[0]).toContain('pg_try_advisory_xact_lock');
+  });
 });

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
+import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -449,5 +450,54 @@ describe('Run 2.0 任务对象（M0②）', () => {
     });
     expect(prisma.taskRun.create).not.toHaveBeenCalled();
     expect(engine.call).not.toHaveBeenCalled();
+  });
+
+  it('preserves HTTP 402 WORKSPACE_BUDGET_EXCEEDED instead of downgrading to 502', async () => {
+    const { controller, prisma, budget } = makeController();
+    budget.issue.mockRejectedValueOnce(
+      new WorkspaceBudgetQuotaExceededError({
+        purpose: 'discovery.run',
+        windowDays: 30,
+        maxRuns: 10,
+        usedRuns: 10,
+        maxSpendMicros: '15000000',
+        usedSpendMicros: '0',
+      }),
+    );
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({
+      status: 402,
+      response: { error: { code: 'WORKSPACE_BUDGET_EXCEEDED' } },
+    });
+    expect(prisma.taskRun.update).toHaveBeenCalledWith({
+      where: { id: TASK_RUN_ID },
+      data: expect.objectContaining({ status: 'FAILED' }),
+    });
+  });
+
+  it('always writes discoveryRunLink even when task.icpId is null (prevents quota bypass)', async () => {
+    const { controller, prisma } = makeController({
+      task: {
+        id: TASK_ID,
+        workspaceId: WORKSPACE_ID,
+        icpId: null,
+        name: '无绑定 ICP 任务',
+        status: 'active',
+        createdBy: USER_ID,
+        lastRunAt: null,
+        createdAt: new Date('2026-11-04T04:00:00Z'),
+        updatedAt: new Date('2026-11-04T04:00:00Z'),
+      },
+    });
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+    expect(prisma.discoveryRunLink.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { runId: ENGINE_RUN_ID },
+        create: expect.objectContaining({
+          runId: ENGINE_RUN_ID,
+          workspaceId: WORKSPACE_ID,
+          icpId: '00000000-0000-4000-8000-000000000000',
+        }),
+      }),
+    );
   });
 });
