@@ -75,9 +75,9 @@ corepack pnpm --filter @vben/web-antd build      # vite build 通过
 ## 4. 复现命令
 
 ```bash
-# 登录（演示账号）
+# 登录（演示账号；实际口令从本地环境注入，禁止写入仓库文档）
 curl -sS -c /tmp/live.cookies -H 'content-type: application/json' \
-  -d '{"email":"owner@demo.cn","password":"demo1234ab"}' \
+  -d '{"email":"owner@demo.cn","password":"<DEMO_PASSWORD>"}' \
   http://127.0.0.1:4020/api/auth/login
 
 # 公司档案 / 目标买家 / 队列 / 线索

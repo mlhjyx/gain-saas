@@ -1365,6 +1365,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/canonical-companies/{id}/contact-enrichment-results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取公司已准入的联系人补强结果
+         * @description 固定 page10，createdAt/id keyset；仅原持久元数据，不消费 Grant、不恢复、不结算、不外联。
+         */
+        get: operations["listContactEnrichmentResults_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/canonical-companies/{id}/contact-enrichment-results/{operationRef}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取原联系人补强操作结果
+         * @description 跨 workspace/company 与不存在统一 404；无 Grant、预留、恢复、结算或外联。
+         */
+        get: operations["readContactEnrichmentResult_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/canonical-companies/{id}/contact-enrichment-results/{operationRef}/recover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 显式恢复原结果的核对与领域保存
+         * @description 仍须当前公司/主体/抑制授权；仅原结果/原预留协议，不要求新 Grant，不新增预留或 wire。UNKNOWN 无原结果保持 HOLD。
+         */
+        post: operations["recoverContactEnrichmentResult_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/canonical-companies/{id}/contact-enrichment-quality-facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取公司已准入的完整联系人质量事实
+         * @description 固定 page10，createdAt/id keyset；仅原执行、决策与同事务质量事实；不消费 Grant、不恢复、不结算、不外联。
+         */
+        get: operations["listContactEnrichmentQualityFacts_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/canonical-companies/{id}/contact-enrichment-quality-facts/{operationRef}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取原联系人补强操作的完整质量事实
+         * @description 跨 workspace/company 与不存在统一 404；无 Grant、预留、恢复、结算或外联。
+         */
+        get: operations["readContactEnrichmentQualityFacts_v2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/source-channels": {
         parameters: {
             query?: never;
@@ -2709,6 +2809,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/chunks/{seq}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取当前发布版本的单个分块（有界本地 DB，不调用 search/embedding）
+         * @description 读取 ready 文档当前发布解析版本的单块文本（seq 从 0 起），返回 documentContentHash、parseRevision、chunkTextHash 与上下文元数据；只查本地数据库，不调用 search/embedding、不落写。文档未 ready 返回 409（DOCUMENT_CLAIM_SOURCE_UNAVAILABLE），分块不存在 404，seq 非法 400；需要 acquisition:read。
+         */
+        get: operations["SellerDocumentClaimsController_readChunk_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 校验 typed 引用并返回服务端重建的原句、bindingHash 与 requestDigest（纯检查，不写 Claim）
+         * @description typed 引用预览（纯检查）：服务端重读文档与分块，逐项校验 documentContentHash、parseRevision、chunkSeq、chunkTextHash 与 UTF-8 字节区间原句一致后，返回重建原句、bindingHash 与 requestDigest；不写 Claim、不耗 Grant、不调模型。引用或文档失效返回 409，参数非法 400；需要 acquisition:write。
+         */
+        post: operations["SellerDocumentClaimsController_preview_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 事务重读引用并写入 NEEDS_REVIEW 草稿；同 key 同体返原件，异体 409
+         * @description 在同一事务内重读引用并写入 NEEDS_REVIEW 草稿（Claim + Evidence + typed 文档引用），首次写入必为 NEEDS_REVIEW；同来源同陈述跨请求者重放返回原件（replayed=true，201），requestDigest 或引用异体返回 409（DOCUMENT_CLAIM_REQUEST_MISMATCH / DOCUMENT_CLAIM_CONFLICT）；需要 acquisition:write。
+         */
+        post: operations["SellerDocumentClaimsController_createDraft_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/companies/{companyId}/market-candidate-sets/latest": {
         parameters: {
             query?: never;
@@ -3509,8 +3669,11 @@ export interface components {
              * @example quality_certifications
              */
             factKey: string | null;
-            /** @example 产品通过 ISO 9001 与 CE 认证 */
-            statement: string;
+            /**
+             * @description 事实陈述；文档来源当前不可用（失效、变版或删除）时为 null，不透出可能等于原句的历史文本
+             * @example 产品通过 ISO 9001 与 CE 认证
+             */
+            statement: string | null;
             /** @enum {string} */
             status: "INGESTED" | "EXTRACTED" | "NEEDS_REVIEW" | "APPROVED" | "EXPIRED" | "REVOKED";
             /** @example 0.95 */
@@ -3521,6 +3684,12 @@ export interface components {
             evidence: components["schemas"]["ClaimEvidenceDto"][];
             /** Format: date-time */
             createdAt: string;
+            /** @description 文档来源当前可用性；非文档 Claim 为 null。UNAVAILABLE 时不返回历史原句。 */
+            documentSource?: Record<string, never> | null;
+        };
+        ClaimTransitionDto: {
+            /** @description 乐观锁版本；文档来源 Claim 必填（v4 proof 绑定该版本） */
+            expectedVersion?: number;
         };
         CreateManualClaimDto: {
             /**
@@ -4224,6 +4393,84 @@ export interface components {
             factsExtractedAt?: string | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        DocumentChunkViewDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentContentHash: string;
+            parseRevision: number;
+            chunkSeq: number;
+            chunkTextHash: string;
+            text: string;
+            /** @description 页/章节等结构上下文；未知为 null */
+            context?: Record<string, never> | null;
+        };
+        DocumentClaimPreviewDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentContentHash: string;
+            parseRevision: number;
+            chunkSeq: number;
+            quote: string;
+            quoteStartByte: number;
+            quoteEndByte: number;
+            quoteDigest: string;
+            statementDigest: string;
+            bindingHash: string;
+            requestDigest: string;
+            /** @description 页/章节等解释上下文；未知为 null */
+            context: Record<string, never> | null;
+        };
+        DocumentClaimSourceRefDto: {
+            /**
+             * Format: uuid
+             * @description 当前可读 ready 文档 id（不得跨公司）
+             */
+            documentId: string;
+            /** @description 服务端读取端口返回的文档内容 sha256 */
+            documentContentHash: string;
+            /** @description 发布的解析修订（读取端口返回） */
+            parseRevision: number;
+            /** @description 分块序号 */
+            chunkSeq: number;
+            /** @description 分块文本 sha256（读取端口返回） */
+            chunkTextHash: string;
+            /** @description 选区起始字节（UTF-8，服务端核验） */
+            quoteStartByte: number;
+            /** @description 选区结束字节（UTF-8，不截断多字节） */
+            quoteEndByte: number;
+        };
+        PreviewDocumentClaimDto: {
+            reference: components["schemas"]["DocumentClaimSourceRefDto"];
+            /** @description Claim 类型（1–50，字母数字 ._: -） */
+            type: string;
+            /** @description 人审陈述（≤4000 字符） */
+            statement: string;
+        };
+        DocumentClaimDraftDto: {
+            /** Format: uuid */
+            claimId: string;
+            /** Format: uuid */
+            evidenceId: string;
+            /** Format: uuid */
+            referenceId: string;
+            bindingHash: string;
+            /** @enum {string} */
+            status: "NEEDS_REVIEW" | "APPROVED" | "REJECTED" | "REVOKED";
+            claimVersion: number;
+            /** @description 同来源/陈述重放返回原件；不重置审批记录 */
+            replayed: boolean;
+            /** @description 当前文档/引用是否仍可读且与绑定一致 */
+            available: boolean;
+        };
+        CreateDocumentClaimDraftDto: {
+            reference: components["schemas"]["DocumentClaimSourceRefDto"];
+            /** @description Claim 类型（1–50，字母数字 ._: -） */
+            type: string;
+            /** @description 人审陈述（≤4000 字符） */
+            statement: string;
+            /** @description preview 返回的规范请求摘要；写入口独立重算 */
+            requestDigest: string;
         };
         MarketCandidateCompanyBasisDto: {
             /** Format: uuid */
@@ -6605,7 +6852,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ClaimTransitionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -6628,7 +6879,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ClaimTransitionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -6685,7 +6940,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ClaimTransitionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -8525,6 +8784,492 @@ export interface operations {
                                     }[];
                                 };
                             };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listContactEnrichmentResults_v1: {
+        parameters: {
+            query?: {
+                runId?: string;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {integer} */
+                            version: 1;
+                            /** @enum {integer} */
+                            protocolVersion: 1;
+                            operationRef: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** @enum {string} */
+                            entrypoint: "http" | "discovery_run";
+                            /** Format: uuid */
+                            businessRunId: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** @enum {string} */
+                            status: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "APPLY_PENDING" | "COMPLETED" | "FAILED" | "REDACTED";
+                            resultRevision: number;
+                            /** @enum {string} */
+                            qualityCoverage: "PREREQUISITE_ONLY";
+                            summary: {
+                                consideredUniqueContacts: number;
+                                eligibleUniqueContacts: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                stockValidPersonalContacts: null;
+                                physicallyAttemptedUniqueContacts: number | null;
+                                newCandidatePoints: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                newValidPersonalContacts: null;
+                                unresolvedUniqueContacts: number | null;
+                                skippedByReason: {
+                                    /** @enum {string} */
+                                    reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                    count: number;
+                                }[];
+                            };
+                            perContact: {
+                                /** Format: uuid */
+                                contactId: string;
+                                /** @enum {string} */
+                                reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                beforeStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                afterStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                pointRefs: string[];
+                                eventRefs: string[];
+                                attemptRefs: string[];
+                                newCandidate: boolean | null;
+                                /** @enum {boolean|null} */
+                                newValidPersonal: null;
+                            }[];
+                            spend: {
+                                quotedUpperBoundMicrousd: string;
+                                knownChargedMicrousd: string | null;
+                                unknownUpperBoundMicrousd: string | null;
+                                /**
+                                 * @description 原 ledger 金额与未决上界，不是供应商发票；未知金额不视为零。
+                                 * @enum {string}
+                                 */
+                                costBasis: "estimated_upper_bound";
+                            };
+                            unavailableMetrics: ("stockValidPersonalContacts" | "physicallyAttemptedUniqueContacts" | "newValidPersonalContacts" | "unresolvedUniqueContacts")[];
+                        }[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    readContactEnrichmentResult_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                operationRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {integer} */
+                            version: 1;
+                            /** @enum {integer} */
+                            protocolVersion: 1;
+                            operationRef: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** @enum {string} */
+                            entrypoint: "http" | "discovery_run";
+                            /** Format: uuid */
+                            businessRunId: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** @enum {string} */
+                            status: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "APPLY_PENDING" | "COMPLETED" | "FAILED" | "REDACTED";
+                            resultRevision: number;
+                            /** @enum {string} */
+                            qualityCoverage: "PREREQUISITE_ONLY";
+                            summary: {
+                                consideredUniqueContacts: number;
+                                eligibleUniqueContacts: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                stockValidPersonalContacts: null;
+                                physicallyAttemptedUniqueContacts: number | null;
+                                newCandidatePoints: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                newValidPersonalContacts: null;
+                                unresolvedUniqueContacts: number | null;
+                                skippedByReason: {
+                                    /** @enum {string} */
+                                    reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                    count: number;
+                                }[];
+                            };
+                            perContact: {
+                                /** Format: uuid */
+                                contactId: string;
+                                /** @enum {string} */
+                                reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                beforeStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                afterStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                pointRefs: string[];
+                                eventRefs: string[];
+                                attemptRefs: string[];
+                                newCandidate: boolean | null;
+                                /** @enum {boolean|null} */
+                                newValidPersonal: null;
+                            }[];
+                            spend: {
+                                quotedUpperBoundMicrousd: string;
+                                knownChargedMicrousd: string | null;
+                                unknownUpperBoundMicrousd: string | null;
+                                /**
+                                 * @description 原 ledger 金额与未决上界，不是供应商发票；未知金额不视为零。
+                                 * @enum {string}
+                                 */
+                                costBasis: "estimated_upper_bound";
+                            };
+                            unavailableMetrics: ("stockValidPersonalContacts" | "physicallyAttemptedUniqueContacts" | "newValidPersonalContacts" | "unresolvedUniqueContacts")[];
+                        };
+                    };
+                };
+            };
+        };
+    };
+    recoverContactEnrichmentResult_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                operationRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {integer} */
+                            version: 1;
+                            /** @enum {integer} */
+                            protocolVersion: 1;
+                            operationRef: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** @enum {string} */
+                            entrypoint: "http" | "discovery_run";
+                            /** Format: uuid */
+                            businessRunId: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** @enum {string} */
+                            status: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "APPLY_PENDING" | "COMPLETED" | "FAILED" | "REDACTED";
+                            resultRevision: number;
+                            /** @enum {string} */
+                            qualityCoverage: "PREREQUISITE_ONLY";
+                            summary: {
+                                consideredUniqueContacts: number;
+                                eligibleUniqueContacts: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                stockValidPersonalContacts: null;
+                                physicallyAttemptedUniqueContacts: number | null;
+                                newCandidatePoints: number;
+                                /**
+                                 * @description 本安全首片未证明该完整质量指标，固定为 null。
+                                 * @enum {integer|null}
+                                 */
+                                newValidPersonalContacts: null;
+                                unresolvedUniqueContacts: number | null;
+                                skippedByReason: {
+                                    /** @enum {string} */
+                                    reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                    count: number;
+                                }[];
+                            };
+                            perContact: {
+                                /** Format: uuid */
+                                contactId: string;
+                                /** @enum {string} */
+                                reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                beforeStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                afterStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[];
+                                pointRefs: string[];
+                                eventRefs: string[];
+                                attemptRefs: string[];
+                                newCandidate: boolean | null;
+                                /** @enum {boolean|null} */
+                                newValidPersonal: null;
+                            }[];
+                            spend: {
+                                quotedUpperBoundMicrousd: string;
+                                knownChargedMicrousd: string | null;
+                                unknownUpperBoundMicrousd: string | null;
+                                /**
+                                 * @description 原 ledger 金额与未决上界，不是供应商发票；未知金额不视为零。
+                                 * @enum {string}
+                                 */
+                                costBasis: "estimated_upper_bound";
+                            };
+                            unavailableMetrics: ("stockValidPersonalContacts" | "physicallyAttemptedUniqueContacts" | "newValidPersonalContacts" | "unresolvedUniqueContacts")[];
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listContactEnrichmentQualityFacts_v2: {
+        parameters: {
+            query?: {
+                runId?: string;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {integer} */
+                            version: 2;
+                            /** @enum {integer} */
+                            protocolVersion: 1;
+                            operationRef: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** @enum {string} */
+                            entrypoint: "http" | "discovery_run";
+                            /** Format: uuid */
+                            businessRunId: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** @enum {string} */
+                            status: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "APPLY_PENDING" | "COMPLETED" | "FAILED" | "REDACTED";
+                            resultRevision: number;
+                            /**
+                             * @description FULL_QUALITY_FACTS 仅表示每个冻结目标的同事务事实已齐，不等于产品验收或完整A包。
+                             * @enum {string}
+                             */
+                            qualityCoverage: "PREREQUISITE_ONLY" | "FULL_QUALITY_FACTS";
+                            basis: {
+                                /** @enum {string} */
+                                consideredScope: "FROZEN_EXECUTION_TARGETS";
+                                /** @enum {string} */
+                                attributionBasis: "CANONICAL_COMPANY_CONTACT_SCOPE";
+                                /** @enum {string} */
+                                validityBasis: "ORIGINAL_VERIFICATION_RULES";
+                                /** @enum {string} */
+                                sendability: "NOT_IMPLIED";
+                            };
+                            summary: {
+                                consideredUniqueContacts: number;
+                                coveredUniqueContacts: number;
+                                eligibleUniqueContacts: number | null;
+                                stockValidPersonalContacts: number | null;
+                                organizationChannelContacts: number | null;
+                                unknownEmailTypeContacts: number | null;
+                                physicallyAttemptedUniqueContacts: number | null;
+                                newCandidatePoints: number;
+                                newValidPersonalContacts: number | null;
+                                unresolvedUniqueContacts: number | null;
+                                skippedByReason: {
+                                    /** @enum {string} */
+                                    reasonCode: "SUPPRESSED" | "DEADLINE" | "BUDGET_CAP" | "GOVERNANCE_PENDING" | "NO_DOMAIN" | "NO_CONTACTS" | "UNAVAILABLE";
+                                    count: number;
+                                }[] | null;
+                            };
+                            perContact: {
+                                /** Format: uuid */
+                                contactId: string;
+                                /** @enum {string} */
+                                reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                /** @enum {string|null} */
+                                committedState: "VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN" | null;
+                                beforeStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[] | null;
+                                afterStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[] | null;
+                                pointRefs: string[];
+                                eventRefs: string[];
+                                attemptRefs: string[];
+                                newCandidate: boolean | null;
+                                newValidPersonal: boolean | null;
+                                stockValidPersonal: boolean | null;
+                                organizationChannel: boolean | null;
+                                unknownEmailType: boolean | null;
+                                eligible: boolean | null;
+                                unresolved: boolean | null;
+                            }[];
+                            spend: {
+                                quotedUpperBoundMicrousd: string;
+                                knownChargedMicrousd: string | null;
+                                unknownUpperBoundMicrousd: string | null;
+                                /** @enum {string} */
+                                costBasis: "estimated_upper_bound";
+                            };
+                            unavailableMetrics: ("eligibleUniqueContacts" | "stockValidPersonalContacts" | "organizationChannelContacts" | "unknownEmailTypeContacts" | "physicallyAttemptedUniqueContacts" | "newValidPersonalContacts" | "unresolvedUniqueContacts" | "skippedByReason")[];
+                        }[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    readContactEnrichmentQualityFacts_v2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                operationRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {integer} */
+                            version: 2;
+                            /** @enum {integer} */
+                            protocolVersion: 1;
+                            operationRef: string;
+                            /** Format: uuid */
+                            companyId: string;
+                            /** @enum {string} */
+                            entrypoint: "http" | "discovery_run";
+                            /** Format: uuid */
+                            businessRunId: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** @enum {string} */
+                            status: "PREPARED" | "RUNNING" | "RESULT_UNKNOWN" | "APPLY_PENDING" | "COMPLETED" | "FAILED" | "REDACTED";
+                            resultRevision: number;
+                            /**
+                             * @description FULL_QUALITY_FACTS 仅表示每个冻结目标的同事务事实已齐，不等于产品验收或完整A包。
+                             * @enum {string}
+                             */
+                            qualityCoverage: "PREREQUISITE_ONLY" | "FULL_QUALITY_FACTS";
+                            basis: {
+                                /** @enum {string} */
+                                consideredScope: "FROZEN_EXECUTION_TARGETS";
+                                /** @enum {string} */
+                                attributionBasis: "CANONICAL_COMPANY_CONTACT_SCOPE";
+                                /** @enum {string} */
+                                validityBasis: "ORIGINAL_VERIFICATION_RULES";
+                                /** @enum {string} */
+                                sendability: "NOT_IMPLIED";
+                            };
+                            summary: {
+                                consideredUniqueContacts: number;
+                                coveredUniqueContacts: number;
+                                eligibleUniqueContacts: number | null;
+                                stockValidPersonalContacts: number | null;
+                                organizationChannelContacts: number | null;
+                                unknownEmailTypeContacts: number | null;
+                                physicallyAttemptedUniqueContacts: number | null;
+                                newCandidatePoints: number;
+                                newValidPersonalContacts: number | null;
+                                unresolvedUniqueContacts: number | null;
+                                skippedByReason: {
+                                    /** @enum {string} */
+                                    reasonCode: "SUPPRESSED" | "DEADLINE" | "BUDGET_CAP" | "GOVERNANCE_PENDING" | "NO_DOMAIN" | "NO_CONTACTS" | "UNAVAILABLE";
+                                    count: number;
+                                }[] | null;
+                            };
+                            perContact: {
+                                /** Format: uuid */
+                                contactId: string;
+                                /** @enum {string} */
+                                reasonCode: "PENDING" | "GOVERNANCE_PENDING" | "RESULT_UNKNOWN" | "INPUT_CONFLICT" | "SAVE_PENDING" | "NO_MATCH" | "STORED" | "REUSED" | "REDACTED" | "NO_DOMAIN" | "NO_CONTACTS" | "SUPPRESSED" | "INVALID_ALL" | "UNAVAILABLE" | "DEADLINE" | "BUDGET_CAP";
+                                /** @enum {string|null} */
+                                committedState: "VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN" | null;
+                                beforeStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[] | null;
+                                afterStates: ("VALID" | "INVALID" | "CATCH_ALL_RISKY" | "UNKNOWN")[] | null;
+                                pointRefs: string[];
+                                eventRefs: string[];
+                                attemptRefs: string[];
+                                newCandidate: boolean | null;
+                                newValidPersonal: boolean | null;
+                                stockValidPersonal: boolean | null;
+                                organizationChannel: boolean | null;
+                                unknownEmailType: boolean | null;
+                                eligible: boolean | null;
+                                unresolved: boolean | null;
+                            }[];
+                            spend: {
+                                quotedUpperBoundMicrousd: string;
+                                knownChargedMicrousd: string | null;
+                                unknownUpperBoundMicrousd: string | null;
+                                /** @enum {string} */
+                                costBasis: "estimated_upper_bound";
+                            };
+                            unavailableMetrics: ("eligibleUniqueContacts" | "stockValidPersonalContacts" | "organizationChannelContacts" | "unknownEmailTypeContacts" | "physicallyAttemptedUniqueContacts" | "newValidPersonalContacts" | "unresolvedUniqueContacts" | "skippedByReason")[];
                         };
                     };
                 };
@@ -12543,6 +13288,87 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_readChunk_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentChunkViewDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_preview_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewDocumentClaimDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentClaimPreviewDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_createDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentClaimDraftDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentClaimDraftDto"];
                     };
                 };
             };

@@ -509,4 +509,76 @@ describe('缺口补齐：SanctionsListStale / CampaignPlanJobFailed', () => {
     expect(tx.campaignPlanJob.updateMany).not.toHaveBeenCalled();
     expect(tx.notification.create).not.toHaveBeenCalled();
   });
+
+  it('SanctionsListStale yellow → red 升级时仅按 red 告警去重，不被先前的 yellow 吞掉', async () => {
+    const tx = await consumeSingle('SanctionsListStale', {
+      freshness: 'red',
+      icpId: '21f3c0a1-e005-4d8f-9d06-75224ed4abc3',
+    });
+    expect(tx.notification.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          type: 'SanctionsListStale',
+          title: { contains: '暂时无法接受新线索' },
+        }),
+      }),
+    );
+    expect(tx.notification.create).toHaveBeenCalled();
+  });
+
+  it('支持 UUIDv7 event_id 与 DeletionCompleted / ClaimRevoked / SiteBuildCostSummaryUpdated 派生', async () => {
+    const uuidv7 = '0193632e-8b9a-7c1d-8f00-123456789abc';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                event_id: uuidv7,
+                event_type: 'DeletionCompleted',
+                workspace_id: WORKSPACE,
+                occurred_at: '2026-11-25T00:00:00.000Z',
+                aggregate_id: 'del-1',
+                payload: { deletionRequestId: 'del-1' },
+              },
+              {
+                event_id: '0193632e-8b9a-7c1d-8f00-123456789abd',
+                event_type: 'ClaimRevoked',
+                workspace_id: WORKSPACE,
+                occurred_at: '2026-11-25T00:00:01.000Z',
+                aggregate_id: 'claim-1',
+                payload: { claimId: 'claim-1' },
+              },
+              {
+                event_id: '0193632e-8b9a-7c1d-8f00-123456789abe',
+                event_type: 'SiteBuildCostSummaryUpdated',
+                workspace_id: WORKSPACE,
+                occurred_at: '2026-11-25T00:00:02.000Z',
+                aggregate_id: 'site-1',
+                payload: { budget: { spentCents: 250 } },
+              },
+            ],
+            page: { next_cursor: null, has_more: false },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 3 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tx } = createService(null);
+    const res = await service.consumeOnce();
+    expect(res).toEqual({ workspaces: 1, pulled: 3, acked: 3 });
+    expect(tx.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: 'DeletionCompleted', refId: 'del-1' }) }),
+    );
+    expect(tx.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: 'ClaimRevoked', refId: 'claim-1' }) }),
+    );
+    expect(tx.costLedger.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ amountMicros: 2_500_000 })],
+      }),
+    );
+  });
 });

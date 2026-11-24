@@ -22,7 +22,7 @@
 ## 3. 工作区与运行
 
 - **根 checkout 只跟随 main**：功能修改一律在独立 worktree + 分支上做，经 PR 合入；禁止把未提交改动留在 `/global/gain-saas` 根目录。
-- **系统服务唯一归属 systemd**：`gain-saas-db` / `gain-saas-web` / `gain-saas-worker` / `gain-saas-jwks-tls` 四个单元。禁止用 `nohup`/`setsid` 手工起 `node dist/main.js` 或 `dist/worker.js`，禁止与 `4020`/`5433`/`18446` 抢端口。发现端口被非 systemd 实例占用：`ss -ltnp 'sport = :4020'` + `pgrep -af` 查归属，kill 该实例让 systemd 接管。
+- **系统服务唯一归属 systemd**：`gain-saas-web` / `gain-saas-worker` / `gain-saas-jwks-tls`（数据库已于 2026-11-24 并入 `global-postgres:5432/gain_saas`，旧 `gain-saas-db` 单元停用留档）。禁止用 `nohup`/`setsid` 手工起 `node dist/main.js` 或 `dist/worker.js`，禁止与生产端口 `4020`/`18446`/`18447`/`18448` 抢端口。发现端口被非 systemd 实例占用：`ss -ltnp 'sport = :4020'` + `pgrep -af` 查归属，kill 该实例让 systemd 接管。
 - **构建产物由部署流程负责**：不要在根 checkout 直接 `pnpm build` 并用产物覆盖 `apps/*/dist`；发布 = 合并 `main` → CI 绿 → 部署窗口内构建并 `systemctl restart`（见 [前端发布与回退](docs/engineering/frontend-release-rollback.md)）。
 - **数据库迁移**只经 `prisma migrate deploy` 应用，迁移文件随 PR 合入 `apps/server/prisma/migrations/`，只增不改；破坏性变更走 expand-and-contract。
 - **密钥**只进 `.env`/环境变量；不得读取、打印或提交 token、密码、私钥。
@@ -65,21 +65,16 @@
 
 ### 开发预发：用户先验收，再部署
 
-- **dev server 是用户验收入口**：`pnpm dev:web`（端口 5666；vite.config.ts 把 `/api` 代理到本机 4020 的 gain-saas-web，走真实登录与数据；仓库无 `@vben/backend-mock` 包，nitro mock 自动跳过）。用户在 `http://127.0.0.1:5666` 验收通过后才走 PR → CI → 合并 → 部署，避免"部署到线上才发现不对"。
-- **从哪跑**：改动在哪个 worktree，dev server 就从那个 worktree 启动（HMR 即时反映）；合并后需要长期预览时从根 checkout 重启。
-- dev server 是开发工具，不受 systemd 约束，但**禁止占用 4020/5433/18446**（生产端口）。挂了重跑 `pnpm dev:web` 即可。
-- 登录态：cookie 不分端口，用户在 4020 已登录则 5666 直接共享同一会话。
+- **5666 唯一作为生产构建验收入口（`pnpm preview:web`）**：先 build 再 `vite preview --port 5666 --strictPort`（`/api` 由 `vite.config.ts` 的 `preview.proxy` 代理到本机 `4020` 的 `gain-saas-web`，走真实登录与数据；仓库无 `@vben/backend-mock` 包，nitro mock 自动跳过）。用户在 `http://127.0.0.1:5666` 验收通过后才走 PR → CI → 合并 → 部署，避免"部署到线上才发现不对"。preview 为静态产物，冷加载 0.5s、与线上同产物，重建后刷新即生效。
+- **HMR 开发迭代走 5667（不与 5666 抢端口）**：改动在哪个 worktree，就在该 worktree 另起 5667 端口做开发与量测（`VITE_GLOB_API_URL= pnpm --filter @vben/web-antd exec vite --mode development --port 5667`）；最终验收一律以 5666 `preview` 为准。
+- 预览/开发工具不受 systemd 约束，但**禁止占用生产端口 `4020`/`18446`/`18447`/`18448`**。
+- 登录态：cookie 不分端口，用户在 `4020` 已登录则 `5666`/`5667` 直接共享同一会话。
 
 ### 本地测试分层：别和 CI 重复跑全量
 
 - 改动后本地只跑**受影响的定向 spec**（分钟级，如 nav-shell / settings-shell / cache-normalize）；全量 `pnpm e2e:nav` 交给 CI。定向本地绿 + CI 全量绿 = 通过；本地和 CI 各跑一遍全量纯属浪费（~12 分钟 ×2）。
 - 纯文档/配置改动：本地 `lint:terms` + `lint:date` 过即可提 PR。
 - 等 main CI 期间可预构建（server 无改动时 web-only build 只要 ~15 秒），合并后直接部署。
-
-### 验收预发 = 生产构建预览（2026-11-23 改）
-
-- **5666 改跑 preview**：`pnpm preview:web`（先 build，再 `vite preview --port 5666 --strictPort`；`/api` 由 `vite.config.ts` 的 `preview.proxy` 转发到 4020，登录态与真实数据不变）。原因：dev 模式冷加载是 586 个模块请求 / 约 39MB（实测本机 2.0s，经 Tailscale/LAN 会成倍放大）；preview 是单个打包产物，实测冷加载 0.5s、90 个请求，且与线上同产物。preview 是静态服务：重建后无需重启进程，用户刷新即见新版本。
-- **HMR 只用于开发迭代**：另起端口跑 dev（`VITE_GLOB_API_URL= pnpm --filter @vben/web-antd exec vite --mode development --port 5667`），截图/量测用；验收结论以 5666 preview 为准。
 
 ### dev 与 preview 的渲染差异（已踩坑）
 

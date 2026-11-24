@@ -134,4 +134,37 @@ describe('OutreachImapPoller（P4-06，配置门控）', () => {
     expect(summary.errors).toBe(1);
     expect(seen).toHaveLength(0);
   });
+
+  it('多租户并存时 UNMATCHED 不抢先标 \\Seen，避免跨租户吞信', async () => {
+    const prisma = new FakePollerPrisma();
+    prisma.mailboxes = [
+      { address: 'ws-a@sub1.example.test', workspaceId: WS },
+      { address: 'ws-b@sub2.example.test', workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+    ];
+    const seen: Array<{ mailbox: string; uid: number }> = [];
+    const imapClient = client(
+      {
+        'ws-a@sub1.example.test': [{ uid: 10, raw: 'for-ws-b' }],
+        'ws-b@sub2.example.test': [{ uid: 10, raw: 'for-ws-b' }],
+      },
+      seen,
+    );
+    const ingest = {
+      ingest: vi.fn(async (tenant: { workspaceId: string }) =>
+        tenant.workspaceId === WS
+          ? { outcome: 'UNMATCHED' as const, reason: 'SEND_NOT_FOUND' }
+          : { outcome: 'REPLY' as const, replyId: 'r-b', contactRef: 'c-b' },
+      ),
+    };
+    const instance = new OutreachImapPoller(
+      prisma as unknown as PrismaService,
+      ingest as never,
+      imapClient,
+      { OUTREACH_IMAP_ENABLED: false } as AppConfig,
+    );
+
+    const summary = await instance.pollOnce();
+    expect(summary).toEqual({ processed: 1, duplicates: 0, unmatched: 1, errors: 0 });
+    expect(seen).toEqual([{ mailbox: 'ws-b@sub2.example.test', uid: 10 }]);
+  });
 });

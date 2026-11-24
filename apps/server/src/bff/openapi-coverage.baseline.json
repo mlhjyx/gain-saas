@@ -1,6 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
-  "pinnedAt": "2026-11-21",
-  "reason": "固定到源码31da69d5的完整code-first合同；93条BFF薄透传必须全部收录，uncovered保持为空。本次仅隔离源码消费，不表示运行采用。",
+  "pinnedAt": "2026-11-25",
+  "reason": "固定到源码05ada06a的完整code-first合同（166路径，含S1a文档Claim与contact-enrichment安全读面及Claim.statement=null）；93条BFF薄透传全部覆盖，uncovered保持为空。",
   "uncovered": []
 }

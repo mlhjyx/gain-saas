@@ -6,18 +6,33 @@ export type OutreachJurisdictionPolicy =
 export type OutreachConsentState = 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'MISSING';
 
 /**
- * 外联法域矩阵（第 5 章 §5.3.1.1，随 P4-01 扩展 FR）：
- * - DE/AT：UWG §7(2) Nr.2，B2B 邮件也必须事先明示同意（OPT_IN），无同意不发；
+ * 外联法域矩阵（第 5 章 §5.3.1.1 + D3 全球法域补齐）：
+ * - DE/AT/CA/AE/SA：UWG §7(2) Nr.2 / CASL / UAE PDPL / Saudi PDPL，B2B 邮件必须事先明示同意（OPT_IN）；
  * - US：CAN-SPAM opt-out 模型，可发，但页脚必须有真实物理邮政地址；
  * - FR：CNIL 对职业相关 B2B 允许合法利益（opt-out 模型），可发，但必须告知数据来源与反对方式；
+ * - GB/UK：PECR 仅对企业法人实体（Ltd / Limited / PLC / LLP）走 OPT_OUT，个体户/未确认法人必须 CONSENT_REQUIRED；
  * - 其它法域：REVIEW_REQUIRED，默认不发，由运营逐国启用。
  */
+const CONSENT_REQUIRED_COUNTRIES = new Set(['DE', 'AT', 'CA', 'AE', 'SA']);
+const UK_CORPORATE_SUFFIX_RE = /\b(?:ltd\.?|limited|plc|p\.l\.c\.|llp|l\.l\.p\.|lp|cic|cio)\b/i;
+
+export function isUkCorporateSubscriber(companyName?: string | null): boolean {
+  return typeof companyName === 'string' && UK_CORPORATE_SUFFIX_RE.test(companyName.trim());
+}
+
 export function outreachJurisdictionPolicy(
   countryCode: unknown,
+  opts?: { companyName?: string | null },
 ): OutreachJurisdictionPolicy {
   const country = normalizeCountry(countryCode);
-  if (country === 'DE' || country === 'AT') return 'CONSENT_REQUIRED';
+  if (CONSENT_REQUIRED_COUNTRIES.has(country)) return 'CONSENT_REQUIRED';
   if (country === 'US' || country === 'FR') return 'OPT_OUT';
+  if (country === 'GB' || country === 'UK') {
+    if (opts?.companyName !== undefined) {
+      return isUkCorporateSubscriber(opts.companyName) ? 'OPT_OUT' : 'CONSENT_REQUIRED';
+    }
+    return 'REVIEW_REQUIRED';
+  }
   return 'REVIEW_REQUIRED';
 }
 
@@ -50,13 +65,17 @@ export interface EmailJurisdictionDecision {
 export function evaluateConsentPolicy(input: {
   countryCode: unknown;
   consentStatus: OutreachConsentState;
+  companyName?: string | null;
 }): {
   allowed: boolean;
   policy: OutreachJurisdictionPolicy;
   code?: string;
   message?: string;
 } {
-  const policy = outreachJurisdictionPolicy(input.countryCode);
+  const policy = outreachJurisdictionPolicy(
+    input.countryCode,
+    input.companyName !== undefined ? { companyName: input.companyName } : undefined,
+  );
   if (input.consentStatus === 'OPT_OUT') {
     return {
       allowed: false,
@@ -94,6 +113,7 @@ export function evaluateEmailJurisdiction(input: {
   consentStatus: OutreachConsentState;
   usPostalAddress?: string;
   frSourceNotice?: string;
+  companyName?: string | null;
 }): EmailJurisdictionDecision {
   const decision = evaluateConsentPolicy(input);
   if (!decision.allowed) {

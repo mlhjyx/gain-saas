@@ -56,6 +56,26 @@ function isTrustedCaller(req: Request, expectedGatewayKey: string | undefined): 
  * /api/settlement-readback/v1/*;这里原样转发到 new-api,避免客户 worker
  * 的启动/心跳检查因缺少该契约而停在 STARTING。
  */
+const SETTLEMENT_PREFIX = '/api/settlement-readback/';
+
+/** 严格规范化并校验转发路径，彻底封堵 `..` / `%2e` / `\\` / 协议相对 URL 路径穿越 SSRF。 */
+export function safeSettlementReadbackTarget(origin: string, originalUrl: string): string | null {
+  if (!originalUrl || !originalUrl.startsWith('/') || originalUrl.startsWith('//')) return null;
+  if (/[\r\n\0\\]/.test(originalUrl)) return null;
+  if (/(?:^|\/)\.\.(?:\/|\?|$)|%2e%2e|%2f|%5c/i.test(originalUrl)) return null;
+  let expectedOrigin: URL;
+  let resolved: URL;
+  try {
+    expectedOrigin = new URL(origin);
+    resolved = new URL(originalUrl, expectedOrigin);
+  } catch {
+    return null;
+  }
+  if (resolved.origin !== expectedOrigin.origin) return null;
+  if (!resolved.pathname.startsWith(SETTLEMENT_PREFIX)) return null;
+  return resolved.toString();
+}
+
 export function registerSettlementReadbackProxy(
   express: { all: (path: string, handler: (req: Request, res: Response, next: NextFunction) => void) => void },
   config: AppConfig,
@@ -72,6 +92,16 @@ export function registerSettlementReadbackProxy(
       });
       return;
     }
+    const target = safeSettlementReadbackTarget(origin, req.originalUrl);
+    if (!target) {
+      res.status(400).json({
+        error: {
+          code: 'SETTLEMENT_READBACK_INVALID_PATH',
+          message: 'settlement readback 请求路径非法（禁止路径穿越）',
+        },
+      });
+      return;
+    }
     // 客户 worker 的启动检查只认这个契约;直接本地应答,避免 new-api 短暂不可达拖住整个 worker。
     if (req.method === 'GET' && req.path === '/api/settlement-readback/v1/capability') {
       res.setHeader('content-type', 'application/json');
@@ -80,7 +110,6 @@ export function registerSettlementReadbackProxy(
       res.status(200).send(Buffer.from(JSON.stringify({ schema_version: 'new-api-settlement-readback-capability/v1', status: 'ready' })));
       return;
     }
-    const target = `${origin}${req.originalUrl}`;
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       if (HOP_BY_HOP.has(key) || key === 'host' || value === undefined) continue;

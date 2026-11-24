@@ -5,6 +5,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import {
+  isAutoReplyOrOoo,
   looksLikeUnsubscribe,
   parseArf,
   parseDsn,
@@ -70,6 +71,7 @@ export class OutreachIngestService {
 
     const dsn = parseDsn(email);
     const arf = parseArf(email);
+    const autoReply = !arf && !dsn && isAutoReplyOrOoo(email);
     const kind = arf
       ? 'COMPLAINT'
       : dsn
@@ -121,12 +123,12 @@ export class OutreachIngestService {
         contactRef: draft.contactRef,
         recipientEmail,
         kind,
-        classification: 'UNKNOWN',
+        classification: autoReply ? 'OUT_OF_OFFICE' : 'UNKNOWN',
         subject: email.subject,
         snippet: email.textBody.slice(0, 500) || null,
         externalId,
-        // 软退信只计数：不写 OPT_OUT，重试仍可能送达。
-        suppress: kind === 'BOUNCE' && !hardBounce ? false : true,
+        // 软退信与自动休假回复只计数：不写 OPT_OUT，避免休假自动回复误拉黑买家。
+        suppress: (kind === 'BOUNCE' && !hardBounce) || autoReply ? false : true,
       });
     } catch (error) {
       // 并发 ingest（HTTP 端点 + IMAP 轮询/双 poller）在查重与插入之间竞态：

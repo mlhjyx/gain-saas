@@ -101,4 +101,18 @@ describe('settlement readback proxy auth', () => {
     await handler(request({ headers: { 'x-forwarded-for': '203.0.113.7' } }), res, () => undefined);
     expect(res.state.status).toBe(403);
   });
+
+  it('rejects path traversal and encoded traversal attempts before proxying upstream', async () => {
+    const handler = capture(ORIGIN);
+    for (const badUrl of [
+      '/api/settlement-readback/../../admin/users',
+      '/api/settlement-readback/%2e%2e/internal',
+      '//evil.example/api/settlement-readback/v1/capability',
+      '/api/settlement-readback/v1\\..\\secret',
+    ]) {
+      const res = response();
+      await handler(request({ originalUrl: badUrl, path: badUrl }), res, () => undefined);
+      expect(res.state.status).toBe(400);
+    }
+  });
 });
