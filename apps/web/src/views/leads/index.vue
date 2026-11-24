@@ -3,22 +3,16 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { glossaryStatus } from '@gain-saas/shared';
+import { RotateCw, Search } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
-import {
-  Alert,
-  Button,
-  Input,
-  Modal,
-  RadioButton,
-  RadioGroup,
-  Skeleton,
-  Steps,
-} from 'ant-design-vue';
+import { Alert, Button, Input, Modal, Skeleton, Steps } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
@@ -226,26 +220,13 @@ const confirmLabel = computed(() =>
   modal.value === 'accept' ? $t('gainos.leads.confirmAccept') : $t('gainos.leads.confirmReject'),
 );
 
-function toneOf(tone?: string): 'danger' | 'info' | 'neutral' | 'success' | 'warning' {
-  if (tone === 'processing') return 'info';
-  if (tone === 'success' || tone === 'warning' || tone === 'danger') return tone;
-  return 'neutral';
-}
-
-function queueMeta(key?: string) {
-  return QUEUES.value.find((queue) => queue.key === key) ?? QUEUES.value[0]!;
-}
+/** 队列页签的选项（名称来自词表，计数来自队列统计）。 */
 const queueOptions = computed(() =>
-  QUEUES.value.map((queue) => {
-    const count = queueCount(queue.key);
-    return {
-      count,
-      desc: queue.desc,
-      key: queue.key,
-      label: queue.label,
-      tone: queue.tone,
-    };
-  }),
+  QUEUES.value.map((queue) => ({
+    count: queueCount(queue.key),
+    label: queue.label,
+    value: queue.key,
+  })),
 );
 
 /** 裁决弹层开关（保留 modal/closeModal 语义，模板用 v-model:open）。 */
@@ -256,9 +237,6 @@ const decisionOpen = computed({
   },
 });
 
-function queueLabel(key?: string): string {
-  return queueMeta(key).label;
-}
 function openSanctionsQueue(): void {
   if (!isAdmin.value) return;
   activeQueue.value = 'sanctions_hold';
@@ -435,41 +413,23 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-6 px-[var(--gs-page-pad)] pb-12 pt-6">
-    <GsPage
-      :kicker="$t('gainos.leads.stage')"
-      :subtitle="$t('gainos.leads.subtitle')"
-      :title="$t('gainos.leads.title')"
-    >
-      <template #actions>
-        <GsSelect
-          v-if="icps.length"
-          v-model="activeIcpId"
-          :aria-label="$t('gainos.leads.icpFilter')"
-          :ariaLabel="$t('gainos.leads.icpFilter')"
-          :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
-          class="min-w-[220px] max-w-[280px]"
-          data-gs="icp-filter"
-          @change="load()"
-        />
-        <Button data-gs="qgo-entry" @click="$router.push('/qgos')">
-          {{ $t('gainos.leads.qgoEntry') }}
-        </Button>
-        <Button :loading="loading" data-gs="refresh" @click="load">
-          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-        </Button>
-      </template>
-    </GsPage>
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-3 px-[var(--gs-page-pad)] pb-12">
+    <GsPage :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
 
-    <div
-      :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })"
-      data-gs="stage-steps"
-    >
-      <Steps
-        :current="currentStep - 1"
-        :items="stepLabels.map((label) => ({ title: label }))"
-        size="small"
-      />
+    <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上：antd 给
+         .ant-card 写了 margin:0，且其样式不在 cascade layer 里，会压过工具类） -->
+    <div class="relative z-[1] -mt-12">
+      <GsCard
+        :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })"
+        data-gs="stage-steps"
+        dense
+      >
+        <Steps
+          :current="currentStep - 1"
+          :items="stepLabels.map((label) => ({ title: label }))"
+          size="small"
+        />
+      </GsCard>
     </div>
 
     <GsEmpty
@@ -492,40 +452,45 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
 
     <template v-if="activeIcpId">
       <GsToolbar data-gs="queue-toolbar">
-        <RadioGroup
-          v-model:value="activeQueue"
-          button-style="solid"
+        <GsSegmented
+          v-model="activeQueue"
+          :ariaLabel="$t('gainos.leads.statusLabel')"
           data-gs="queue-switch"
-        >
-          <RadioButton
-            v-for="queue in queueOptions"
-            :key="queue.key"
-            :value="queue.key"
-          >
-            {{ queue.label }}
-            <span v-if="queue.count !== undefined" class="ml-1.5 opacity-60">
-              {{ queue.count }}
-            </span>
-          </RadioButton>
-        </RadioGroup>
-        <Button
-          v-if="activeQueue !== 'needs_review'"
-          :aria-label="`${$t('gainos.common.cancel')}：${queueLabel(activeQueue)}`"
-          size="small"
-          type="text"
-          @click="activeQueue = 'needs_review'"
-        >
-          ×
-        </Button>
-        <div class="ml-auto w-[280px]">
-          <Input
-            v-model:value="searchQuery"
-            :aria-label="$t('gainos.companies.searchPlaceholder')"
-            :placeholder="$t('gainos.companies.searchPlaceholder')"
-            allow-clear
-            data-gs="lead-search"
-            type="search"
+          :options="queueOptions"
+        />
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <GsSelect
+            v-if="icps.length"
+            v-model="activeIcpId"
+            :aria-label="$t('gainos.leads.icpFilter')"
+            :ariaLabel="$t('gainos.leads.icpFilter')"
+            :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
+            class="w-[200px]"
+            data-gs="icp-filter"
+            @change="load()"
           />
+          <div class="w-[240px]" data-gs="lead-search">
+            <Input
+              v-model:value="searchQuery"
+              :aria-label="$t('gainos.companies.searchPlaceholder')"
+              :placeholder="$t('gainos.companies.searchPlaceholder')"
+              allow-clear
+              type="search"
+            >
+              <template #prefix>
+                <Search :size="14" />
+              </template>
+            </Input>
+          </div>
+          <Button data-gs="qgo-entry" @click="$router.push('/qgos')">
+            {{ $t('gainos.leads.qgoEntry') }}
+          </Button>
+          <Button :loading="loading" data-gs="refresh" @click="load">
+            <template v-if="!loading" #icon>
+              <RotateCw :size="14" />
+            </template>
+            {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+          </Button>
         </div>
       </GsToolbar>
 
@@ -588,8 +553,6 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           :can-act="canAct(lead)"
           :expanded="isExpanded(lead.id)"
           :lead="lead"
-          :queue-label="queueLabel(lead.queue)"
-          :queue-tone="toneOf(queueMeta(lead.queue).tone)"
           @accept="openAccept(lead)"
           @copy="copyDomain(lead)"
           @package="openPackage(lead)"

@@ -698,6 +698,14 @@
       "low": "待观察",
       "none": "待评分"
     },
+    "cardAccept": "跟进",
+    "cardReject": "排除",
+    "verdict": {
+      "match": "值得跟进",
+      "weak": "偏弱",
+      "mismatch": "不建议跟进",
+      "unknown": "待评估"
+    },
     "verdictTitle": "判断结果",
     "reasonTitle": "判断原因",
     "reasonNone": "系统还没有给出文字理由",

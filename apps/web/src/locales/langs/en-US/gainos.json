@@ -698,6 +698,14 @@
       "low": "Watch",
       "none": "Not scored"
     },
+    "cardAccept": "Follow up",
+    "cardReject": "Exclude",
+    "verdict": {
+      "match": "Worth pursuing",
+      "weak": "Weak",
+      "mismatch": "Not a fit",
+      "unknown": "Not assessed"
+    },
     "verdictTitle": "Verdict",
     "reasonTitle": "Why this verdict",
     "reasonNone": "No written rationale yet",

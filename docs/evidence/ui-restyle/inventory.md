@@ -1687,3 +1687,37 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 修复：六个封装改为显式 `import { Card, Tag, Empty, Modal, Table, Statistic }` 并使用 PascalCase 组件；`GsCard` body padding 24px；`GsEmpty` 的操作区移到 Empty 下方（不再占用 image 槽）；卡片标题包 `role="heading" aria-level="2"`。
 - 页面留白：列表/详情根容器改用 `--gs-page-max`（1280）与 `--gs-page-pad`（桌面 32px），卡片与页面边缘都有可见留白。
 - 验证：typecheck / lint 全绿；定向 e2e 34 项全绿（含 color-scan ×2、a11y、dark、responsive、zero-jargon、main-chain、leads-judge）；证据重拍 `antd-system/leads-*`、`pass2/*`、`pass3/*`。
+
+## 17. 买家线索页对标商业名录页（2026-11-24）
+
+用户第二次给出参考图并要求「弄成这种效果」。§16 的信息结构保留（C1–C5 解析、机器码只进技术详情），这一轮改的是观感。
+
+### 17.1 页头与画布
+- `GsPage` 默认改为渐变页头：通栏品牌蓝极浅渐变带 + 内联 SVG 插画，H1 28/600；`:hero="false"` 回到素净页头。
+- 步骤条装进白色薄面板（`GsCard dense`）并上移压进渐变；列表页根容器去掉顶部内边距，页头通栏贴顶。
+- 画布 `--background-deep` 由纯灰 `0 0% 95%` 改为近白微蓝 `220 30% 97.6%`（全站生效）；暗色侧栏补上中性灰覆盖 `.dark .dark { --sidebar: 0 0% 12% }`。
+
+### 17.2 队列页签与工具栏
+- 新增 `components/gainos/ui/gs-segmented.vue`（药丸页签，`role=group` + `aria-pressed`），替换 `RadioGroup button-style=solid`；原「×」清除按钮随之移除（点「待我判断」即可回到默认队列）。
+- 目标客户画像下拉、搜索（带放大镜前缀）、商机、刷新并入 `GsToolbar`；页头不再放操作按钮。
+
+### 17.3 线索卡
+- 去掉线边框与竖向分隔线，改「环 + 柔和投影」白卡；操作按钮改为一行（跟进 / 排除 / ⋯），垂直居中。
+- 判断结果由队列名改为机器结论药丸；原因压成一行；维度计数摘要移入展开区。
+- 新增 i18n：`leads.cardAccept`（跟进）、`leads.cardReject`（排除）、`leads.verdict.{match,weak,mismatch,unknown}`。既有 key/value 未改。
+- 断点：视口 ≥ 1512px 五列并排，以下四列 + 维度横排，手机单列。
+
+### 17.4 取色扫描夹具缺陷（顺带修复）
+- `pass2/pass3-color-scan` 的属性名写成了驼峰（`backgroundColor` 等），`getPropertyValue` 对标准属性只认短横线名 → 背景色与边框色**从未被采样**。
+- 修复为短横线名后样本量 21,416 → 84,086；暴露出两个此前不可见的问题并一并处理：
+  1. `outline-style:none` 的元素仍会报一个 oklab 的默认 `outline-color`（10,007 个假阳性）→ 没画出来的描边不采样；
+  2. 暗色侧栏是 Vben 自带的带蓝调 `rgb(28,30,35)`（不在色板内）→ 换成同明度纯中性灰。
+- 修复后全站 15 页 × 明暗两套未知色相 0；新画布色被采到并归为品牌色系。
+
+### 17.5 踩坑记录
+- Tailwind 工具类挂在 antd 根节点上不生效（cascade layer）：步骤面板的 `-mt-12` 被 `.ant-card{margin:0}` 吃掉、带前缀的搜索框被 `.ant-input-affix-wrapper{width:100%}` 撑满导致工具栏折成三行。改为包一层普通 div。
+
+### 17.6 验证与证据
+- typecheck / build / lint:terms / lint:date 全绿；定向 e2e 43 项全绿（a11y、取色扫描 ×2、dark-mode、responsive、zero-jargon、locale-toggle、main-chain 9 条、leads-judge、leads-detail、idempotency、resilience、nav-shell、error-copy、interactions ×2、cache-normalize、pass5-shell）。
+- 注意：本机用 8 个 worker 并发跑会把机器压满，pass2-measure / pass5-shell 会出现超时假失败；单独跑或 `--workers=4` 均通过。
+- 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-wide-{light,dark}.png`（1586px，五列）、`leads-judge-{light,dark}.png`（1440px，含展开区）、`leads-detail-judge-{light,dark}.png`。

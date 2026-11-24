@@ -7,17 +7,20 @@
 ## 1. 唯一实现路径
 
 - 交互组件一律使用 **ant-design-vue 4.x**（Button/Input/Select/Form/Table/Modal/Drawer/Tabs/Steps/Alert/Tag/Empty/Skeleton…）。
-- 页面不允许再新增自定义按钮/输入/表格/弹层类；确需组合时使用 `components/gainos/ui/` 下的 `Gs*` 薄封装。
+- 页面不允许再新增自定义按钮/输入/表格/弹层类；确需组合时使用 `components/gainos/ui/` 下的 `Gs*` 薄封装（GsPage / GsCard / GsToolbar / GsSegmented / GsTable / GsEmpty / GsModal / GsTag / GsStat / GsSelect / GsRadar / GsStatusIcon）。
 - 封装内部必须 `import { Card, Tag, Empty, Modal, Table, Statistic } from 'ant-design-vue'` 后用 PascalCase 组件；**禁止写 `<a-card>`/`<a-tag>` 字符串标签**——本应用没有全局注册 AntDV，字符串标签会渲染成无样式自定义元素（卡片 0 padding、标题/标签丢失）。
 - 页面级 `<style scoped>` 目标为 0 行；布局用 `a-row/a-col/a-space/a-flex`，视觉全部来自 token。
 - 主题唯一来源：`app.vue` 的 `ConfigProvider`（`GS_BRAND` + `componentTokens`）。禁止在页面里写 `.ant-* { … !important }`。
+- **Cascade layer 陷阱**：Tailwind v4 的工具类在 `@layer` 里，antd 的 cssinjs 样式不在——同一个属性上 antd 永远赢。
+  所以宽度、外边距这类布局工具类要写在**普通 div** 上，不要直接挂在 antd 组件根节点
+  （实例：`-mt-12` 挂在 `a-card` 上被 `.ant-card{margin:0}` 吃掉；`w-[240px]` 挂在带 prefix 的 `a-input` 上被 `.ant-input-affix-wrapper{width:100%}` 吃掉）。
 - 反馈（成功/失败提示、确认框、顶部通知）一律走 `apps/web/src/feedback.ts`（`App.useApp()` 上下文），不使用静态 `message/notification/Modal.confirm`，不使用 `window.confirm/alert`。
 
 ## 2. 字阶
 
 | 用途 | 字号 | 字重 | 说明 |
 |---|---|---|---|
-| 页面标题 H1 | 20px | 600 | 一屏一个，位于 `GsPage` |
+| 页面标题 H1 | 28px（渐变页头）/ 20px（素净页头） | 600 | 一屏一个，位于 `GsPage` |
 | 分区标题 | 16px | 600 | 卡片组/区块标题 |
 | 正文与控件 | 14px | 400 | antd `fontSize` 默认 |
 | 表格正文 | 13px | 400 | `GsTable` 默认 |
@@ -27,15 +30,17 @@
 ## 3. 间距与布局
 
 - 间距刻度：4 / 8 / 12 / 16 / 24 / 32（`--gs-space-*`）。
-- 页面：内容区左右 `--gs-page-pad`（clamp 20–32px，桌面 32px），最大宽度 `--gs-page-max`（1280px）；区块之间 `24px`，区块标题与内容 `12px`。
-- 卡片：body padding 24px（`GsCard`），卡片间距 16–24px；页面边缘与卡片边缘都必须留出可见留白。
+- 页面：内容区左右 `--gs-page-pad`（clamp 20–32px，桌面 32px），最大宽度 `--gs-page-max`（1280px）；列表页卡片间距 12px，详情页 16px。
+- **渐变页头**（`GsPage` 默认形态）：通栏 `--gs-hero-tint → --gs-hero-tint-soft → 透明` 的品牌蓝极浅渐变 + 右侧装饰插画（内联 SVG，颜色走 `--gs-hero-*`）；
+  页头底部预留 64px 淡出区，**紧随其后的第一块面板包一层普通 div `-mt-12 relative z-[1]` 上移压进渐变**。设置类页面用 `:hero="false"`。
+- 画布：`--background-deep` = `220 30% 97.6%`（近白微蓝），比纯灰更轻，白卡靠「环 + 投影」分层；暗色画布 `0 0% 7%`，暗色侧栏 `0 0% 12%`（纯中性，覆盖 Vben 自带的蓝调值）。
 - 栅格：12 列；桌面卡片最小宽度 280px；窄屏单列。
 
 ## 4. 圆角与边框
 
-- 全部 10px（按钮/输入/卡片/弹窗/下拉）；头像与圆形图标除外。
-- 边框 1px `--gs-border`（#EBEBEB / 暗色 #262626）；分割线 `--gs-divider`。
-- 阴影只用 xs（卡片）与 modal（弹窗）；不使用彩色光晕。
+- 全部 10px（按钮/输入/卡片/弹窗/下拉）；头像与圆形图标除外；药丸页签 8px。
+- **卡片不画线边框**：`GsCard` = 白底 + 1px 环（rgba 3.5%）+ 柔和投影（`--gs-shadow-float`），10px 圆角；表单输入、弹窗仍用 1px `--gs-border`；分割线 `--gs-divider`。
+- 阴影只用 float（卡片/工具栏）、xs、modal 三档；页头插画允许一层品牌色 drop-shadow，不使用其它彩色光晕。
 
 ## 5. 色彩
 
@@ -93,3 +98,29 @@
   证据不足的维度按 0 绘制并在图下注明；`scores` 的八维明细作为补充卡片保留。
 - 红线：`C1_MATERIAL`、`reasonCodes`、`judge-aggregate`、裸枚举不得出现在可见文本中
   （`leads-judge.spec.ts` 用真实形状的数据锁定）。
+
+## 12. 渐变页头、药丸页签与名录卡片（2026-11-24，参考商业名录页）
+
+### 12.1 页头与步骤面板
+- `GsPage`：H1 28/600 + 副标题 13px；无 `#actions` 时右侧画装饰插画，有操作按钮时不画（避免重叠）。
+- 主链路步骤条放进白色薄面板（`GsCard dense`，body 12px 24px），上移压在页头渐变上。
+
+### 12.2 药丸页签（`GsSegmented`）
+- 文字项 13/500 + 计数；选中项 = `--gs-accent-soft` 浅蓝药丸 + `--gs-accent-fg` 文字，无下划线。
+- antdv 4.2.6 的 `Segmented` 选中态固定是「灰轨道 + 白滑块」且不可令牌化，`Tabs`/`Radio.Group` 也没有这个形态，所以它是设计系统自有的最小原语：
+  `role="group"` + 一组 `aria-pressed` 的 toggle button，Tab 逐个聚焦、Enter/Space 触发。
+
+### 12.3 工具栏
+- `GsToolbar`：白色浮起面板，padding 8px 12px 8px 8px；左侧页签、右侧「目标客户画像下拉 / 搜索 / 页面操作」。
+- 带放大镜前缀的搜索框必须包一层定宽 div（见 §1 的 layer 陷阱）。
+
+### 12.4 线索卡（`views/leads/lead-card.vue`）
+- 五列：公司（56px 首字母色块 + 名称 15/600 + 定位行 + 行业/规模标签）→ 评分（28/600 + 线索评分 + 分档药丸）→
+  判断结果（结论药丸 + 一行原因 + 展开收起）→ 判定维度（图标 + 名称 + 结论 + 0–10 分）→ 操作（跟进 / 排除 / ⋯，垂直居中）。
+- 结论药丸 = **机器结论**（值得跟进 / 偏弱 / 不建议跟进 / 待评估），不是队列名；队列由当前页签表达，卡片内不再重复。
+- 按钮文案与队列名对齐：「跟进」→ 已移入「值得跟进」，「排除」→ 已移入「已排除」（i18n `leads.cardAccept` / `leads.cardReject`）。
+- 折叠态只留一行原因，维度计数摘要和逐维理由在展开区。
+- 断点：内容区 ≥ ~1200px（视口 ≥ 1512px）五列并排；以下四列 + 判定维度横排到底部；手机单列。
+
+### 12.5 没有数据、不做假的部分
+公司 logo 用首字母色块（接口无图）；「已核验」对勾、评分涨跌箭头、「解锁积分」在参考图里有，但本产品没有对应数据，一律不画。

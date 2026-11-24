@@ -41,7 +41,25 @@ export function humanizeRationale(text: string): string {
     .replaceAll(/\bICP\b/g, label);
 }
 
-/** 引擎结论（FIT / NOT_FIT / UNKNOWN / match…）→ 界面词表。 */
-export function fitVerdictLabel(value?: null | string): string {
-  return $t(`gainos.leads.fit.${normalizeFitVerdict(value)}`);
+/** 引擎结论（FIT / NOT_FIT / UNKNOWN / match…）→ 面向决策的界面词表。 */
+export function verdictLabel(value?: null | string): string {
+  return $t(`gainos.leads.verdict.${normalizeFitVerdict(value)}`);
+}
+
+/** 结论药丸的语义色：值得跟进=品牌蓝，偏弱=琥珀，不建议=红，待评估=中性。 */
+export function verdictTone(value?: null | string): GsTone {
+  switch (normalizeFitVerdict(value)) {
+    case 'match': {
+      return 'info';
+    }
+    case 'mismatch': {
+      return 'danger';
+    }
+    case 'weak': {
+      return 'warning';
+    }
+    default: {
+      return 'neutral';
+    }
+  }
 }

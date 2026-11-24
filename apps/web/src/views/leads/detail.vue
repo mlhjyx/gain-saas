@@ -54,7 +54,7 @@ import {
   scoreGrade,
   shortRationale,
 } from './judge';
-import { dimName, fitVerdictLabel, humanizeRationale } from './judge-labels';
+import { dimName, humanizeRationale, verdictLabel, verdictTone } from './judge-labels';
 
 defineOptions({ name: 'LeadDetail' });
 
@@ -180,7 +180,7 @@ const keyReason = computed(() => {
     (reason) => !isMachineAggregate(reason),
   );
   if (human.length > 0) return human.join(' · ');
-  return fitVerdictLabel(pkg.value?.fit?.verdict);
+  return verdictLabel(pkg.value?.fit?.verdict);
 });
 
 /** 没有五维明细时，把引擎给的人话理由原样列出（机器聚合串会被过滤掉）。 */
@@ -190,7 +190,7 @@ const fitReasonList = computed(() =>
 
 /** 引擎结论可能是 FIT / NOT_FIT / UNKNOWN，也可能缺省；未知时才提示人工判断。 */
 const rawVerdict = computed(() => pkg.value?.fit?.verdict ?? judge.value.verdict);
-const fitLabel = computed(() => fitVerdictLabel(rawVerdict.value));
+const fitLabel = computed(() => verdictLabel(rawVerdict.value));
 const unknownNote = computed(() =>
   dims.value.length > 0 && normalizeFitVerdict(rawVerdict.value) === 'unknown'
     ? $t('gainos.leads.verdictUnknownNote')
@@ -495,49 +495,39 @@ watch(tab, (next) => {
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-6 px-[var(--gs-page-pad)] pb-12 pt-6">
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] gap-4 px-[var(--gs-page-pad)] pb-12">
     <GsPage
-      :kicker="$t('gainos.leads.stage')"
       :subtitle="pkg ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"
       :title="pkg?.company.name || $t('gainos.leads.unknownCompany')"
     >
       <template #actions>
-        <Button data-gs="back-to-list" @click="router.push('/leads')">
-          {{ $t('gainos.leads.backToList') }}
-        </Button>
+        <Space :size="8" wrap>
+          <GsTag v-if="pkg" :tone="statusTone">{{ statusLabel(status) }}</GsTag>
+          <Button v-if="canDecide" danger @click="openDecision('reject')">
+            {{ $t('gainos.leads.cardReject') }}
+          </Button>
+          <Button v-if="canDecide" type="primary" @click="openDecision('accept')">
+            {{ $t('gainos.leads.cardAccept') }}
+          </Button>
+          <Button v-if="status === 'QUALIFIED'" type="primary" @click="promoteOpen = true">
+            {{ $t('gainos.leads.promoteQgo') }}
+          </Button>
+          <Button v-if="status === 'QUALIFIED'" @click="goOutreach">
+            {{ $t('gainos.leads.goOutreach') }}
+          </Button>
+          <Button data-gs="back-to-list" @click="router.push('/leads')">
+            {{ $t('gainos.leads.backToList') }}
+          </Button>
+        </Space>
       </template>
     </GsPage>
-
-    <div
-      v-if="pkg"
-      class="flex flex-wrap items-center justify-between gap-3"
-      data-gs="lead-actions"
-    >
-      <Space :size="8" wrap>
-        <GsTag :tone="statusTone">{{ statusLabel(status) }}</GsTag>
-        <span class="text-xs text-[var(--gs-fg-subtle)]">{{ fitLabel }}</span>
-      </Space>
-      <Space :size="8" wrap>
-        <Button v-if="canDecide" danger @click="openDecision('reject')">
-          {{ $t('gainos.leads.reject') }}
-        </Button>
-        <Button v-if="canDecide" type="primary" @click="openDecision('accept')">
-          {{ $t('gainos.leads.accept') }}
-        </Button>
-        <Button v-if="status === 'QUALIFIED'" type="primary" @click="promoteOpen = true">
-          {{ $t('gainos.leads.promoteQgo') }}
-        </Button>
-        <Button v-if="status === 'QUALIFIED'" @click="goOutreach">
-          {{ $t('gainos.leads.goOutreach') }}
-        </Button>
-      </Space>
-    </div>
 
     <AsyncSection
       :error="error"
       :loading="loading"
       :loading-text="$t('gainos.common.loading')"
       :retry-text="$t('gainos.common.retry')"
+      class="relative z-[1] -mt-13"
       @retry="load"
     >
       <Tabs
@@ -554,6 +544,7 @@ watch(tab, (next) => {
                 <div class="min-w-0">
                   <p class="lead-hero__label">{{ $t('gainos.leads.verdictTitle') }}</p>
                   <div class="flex flex-wrap items-center gap-3">
+                    <GsTag :tone="verdictTone(rawVerdict)">{{ fitLabel }}</GsTag>
                     <span class="lead-hero__score">{{ totalScore ?? '—' }}</span>
                     <span class="text-xs text-[var(--gs-fg-muted)]">
                       {{ $t('gainos.leads.scoreLabel') }}
@@ -561,7 +552,6 @@ watch(tab, (next) => {
                     <span class="lead-grade" :class="`lead-grade--${grade}`">
                       {{ gradeLabel }}
                     </span>
-                    <GsTag :tone="statusTone">{{ statusLabel(status) }}</GsTag>
                   </div>
                   <p v-if="summaryText" class="mt-3 text-[13px] text-[var(--gs-fg-muted)]">
                     {{ summaryText }}

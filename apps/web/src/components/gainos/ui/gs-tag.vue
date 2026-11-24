@@ -33,7 +33,7 @@ const color = computed(() => {
 </script>
 
 <template>
-  <Tag :color="color" class="gs-tag" data-gs="tag">
+  <Tag :bordered="false" :color="color" class="gs-tag" data-gs="tag">
     <slot></slot>
   </Tag>
 </template>

@@ -1,13 +1,17 @@
 <script lang="ts" setup>
 /**
- * 买家线索卡（2026-11-23，参考企业名录卡片：公司 / 评分 / 结论 / 五维 / 操作）。
+ * 买家线索卡（参考商业名录卡片：公司 / 评分 / 判断结果 / 判定维度 / 操作）。
  *
  * 卡片自己解析引擎的聚合文本（C1–C5），只把业务语言放上屏；聚合原文与
  * 机器码收进「技术详情」折叠区。页面只负责数据、队列与动作，不持有卡片样式。
+ *
+ * 宽屏五列并排；≤1511px 时判定维度折成一行横排放到卡片底部；手机单列。
  */
 import type { Lead } from '#/api/gainos';
 
 import { computed } from 'vue';
+
+import { Ellipsis } from '@vben/icons';
 
 import { Button, Dropdown, Tag } from 'ant-design-vue';
 
@@ -25,7 +29,13 @@ import {
   scoreGrade,
   shortRationale,
 } from './judge';
-import { dimName, dimStatus, fitVerdictLabel, humanizeRationale } from './judge-labels';
+import {
+  dimName,
+  dimStatus,
+  humanizeRationale,
+  verdictLabel,
+  verdictTone,
+} from './judge-labels';
 
 defineOptions({ name: 'LeadCard' });
 
@@ -35,8 +45,6 @@ const props = defineProps<{
   canAct: boolean;
   expanded: boolean;
   lead: Lead;
-  queueLabel: string;
-  queueTone: 'danger' | 'info' | 'neutral' | 'success' | 'warning';
 }>();
 
 const emit = defineEmits<{
@@ -50,6 +58,9 @@ const emit = defineEmits<{
 
 const judge = computed(() => parseJudge(props.lead.fitReasons));
 const dims = computed(() => judge.value.dims);
+
+/** 机器结论：列表字段优先，缺省时回退到聚合文本里的 verdict。 */
+const verdict = computed(() => props.lead.fitVerdict ?? judge.value.verdict);
 
 function reasonsOf(): string[] {
   const raw = props.lead.fitReasons;
@@ -79,7 +90,6 @@ const reason = computed(() => {
   if (humanReasons.value.length > 0) return humanReasons.value.slice(0, 2).join(' · ');
   return $t('gainos.leads.reasonNone');
 });
-const fitLabel = computed(() => fitVerdictLabel(props.lead.fitVerdict));
 
 /** 「1 项符合 · 3 项不符 · 1 项证据不足」——只列非零项。 */
 const summary = computed(() => {
@@ -88,7 +98,9 @@ const summary = computed(() => {
     counts.pass ? $t('gainos.leads.criteriaPass', { count: counts.pass }) : '',
     counts.weak ? $t('gainos.leads.criteriaWeak', { count: counts.weak }) : '',
     counts.fail ? $t('gainos.leads.criteriaFail', { count: counts.fail }) : '',
-    counts.unclear ? $t('gainos.leads.criteriaUnclear', { count: counts.unclear }) : '',
+    counts.unclear
+      ? $t('gainos.leads.criteriaUnclear', { count: counts.unclear })
+      : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -100,8 +112,8 @@ const score = computed<null | number>(() => {
 });
 const grade = computed(() => scoreGrade(score.value));
 
-/** 无 logo 数据时用首字母牌位：4 个语义色按公司名散列，深浅主题都安全。 */
-const LOGO_TONES = ['brand', 'success', 'warning', 'danger'] as const;
+/** 没有 logo 数据时用首字母牌位：3 个语义色按公司名散列（不用红，避免读成告警）。 */
+const LOGO_TONES = ['brand', 'success', 'warning'] as const;
 const logoTone = computed(() => {
   const name = props.lead.company?.name ?? props.lead.id;
   let hash = 0;
@@ -162,11 +174,7 @@ function onMenu(info: { key: number | string }): void {
 </script>
 
 <template>
-  <GsCard
-    class="lead-card"
-    :class="{ 'lead-card--todo': canAct }"
-    data-gs="lead-card"
-  >
+  <GsCard class="lead-card" data-gs="lead-card">
     <div class="lead-card__grid">
       <!-- 公司 -->
       <div class="lead-card__identity">
@@ -195,7 +203,7 @@ function onMenu(info: { key: number | string }): void {
             </svg>
             <span>{{ meta }}</span>
           </p>
-          <div v-if="tags.length > 0" class="mt-2 flex flex-wrap gap-1.5">
+          <div v-if="tags.length > 0" class="lead-card__tags">
             <Tag v-for="tag in tags" :key="tag" :bordered="false" class="lead-tag">
               {{ tag }}
             </Tag>
@@ -205,8 +213,8 @@ function onMenu(info: { key: number | string }): void {
 
       <!-- 评分 -->
       <div class="lead-score">
-        <span class="lead-score__value">{{ score ?? '—' }}</span>
-        <span class="lead-score__label">{{ $t('gainos.leads.scoreLabel') }}</span>
+        <div class="lead-score__value">{{ score ?? '—' }}</div>
+        <div class="lead-score__label">{{ $t('gainos.leads.scoreLabel') }}</div>
         <span class="lead-grade" :class="`lead-grade--${grade}`">
           {{ $t(`gainos.leads.scoreGrade.${grade}`) }}
         </span>
@@ -215,36 +223,39 @@ function onMenu(info: { key: number | string }): void {
       <!-- 判断结果 / 原因 -->
       <div class="lead-verdict">
         <p class="lead-block-label">{{ $t('gainos.leads.verdictTitle') }}</p>
-        <div class="flex flex-wrap items-center gap-1.5">
-          <GsTag :tone="queueTone">{{ queueLabel }}</GsTag>
-          <span
-            v-if="dims.length === 0"
-            class="text-[11px] text-[var(--gs-fg-subtle)]"
-          >
-            {{ fitLabel }}
-          </span>
-          <span v-if="basisLabel" class="text-[11px] text-[var(--gs-fg-subtle)]">
-            {{ basisLabel }}
-          </span>
+        <div class="lead-verdict__row">
+          <GsTag :tone="verdictTone(verdict)">{{ verdictLabel(verdict) }}</GsTag>
+          <span v-if="basisLabel" class="lead-verdict__basis">{{ basisLabel }}</span>
         </div>
         <p class="lead-block-label lead-block-label--spaced">
           {{ $t('gainos.leads.reasonTitle') }}
         </p>
-        <p class="lead-reason">{{ reason }}</p>
-        <p v-if="summary" class="lead-summary">{{ summary }}</p>
+        <p class="lead-reason" :title="reason">{{ reason }}</p>
         <button
-          v-if="dims.length > 0 && !expanded"
+          v-if="dims.length > 0"
           :aria-controls="`lead-dims-${lead.id}`"
-          :aria-expanded="false"
+          :aria-expanded="expanded"
           class="lead-expand"
           type="button"
           @click="emit('toggle')"
         >
-          {{ $t('gainos.leads.expand') }}
+          {{ expanded ? $t('gainos.leads.collapse') : $t('gainos.leads.expand') }}
+          <svg
+            aria-hidden="true"
+            class="lead-expand__chevron"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.6"
+            viewBox="0 0 16 16"
+          >
+            <path d="M3.5 6l4.5 4 4.5-4" />
+          </svg>
         </button>
       </div>
 
-      <!-- 五维判定（缺聚合文本时降级为八维评分前五项） -->
+      <!-- 判定维度（缺聚合文本时降级为八维评分前五项） -->
       <div class="lead-dims">
         <p class="lead-block-label">{{ dimsLabel }}</p>
         <ul v-if="dims.length > 0" class="lead-dims__list">
@@ -272,16 +283,21 @@ function onMenu(info: { key: number | string }): void {
       <!-- 操作 -->
       <div class="lead-actions">
         <template v-if="canAct">
-          <Button block data-gs="lead-accept" type="primary" @click="emit('accept')">
-            {{ $t('gainos.leads.accept') }}
+          <Button
+            class="lead-actions__btn"
+            data-gs="lead-accept"
+            type="primary"
+            @click="emit('accept')"
+          >
+            {{ $t('gainos.leads.cardAccept') }}
           </Button>
-          <Button block data-gs="lead-reject" @click="emit('reject')">
-            {{ $t('gainos.leads.reject') }}
+          <Button class="lead-actions__btn" data-gs="lead-reject" @click="emit('reject')">
+            {{ $t('gainos.leads.cardReject') }}
           </Button>
         </template>
         <Button
           v-else-if="lead.status === 'QUALIFIED'"
-          block
+          class="lead-actions__btn"
           type="primary"
           @click="emit('promote')"
         >
@@ -292,7 +308,9 @@ function onMenu(info: { key: number | string }): void {
           :trigger="['click']"
           placement="bottomRight"
         >
-          <Button block :aria-label="$t('gainos.leads.moreActions')" type="text">⋯</Button>
+          <Button :aria-label="$t('gainos.leads.moreActions')" class="lead-actions__more" type="text">
+            <Ellipsis :size="18" />
+          </Button>
         </Dropdown>
       </div>
     </div>
@@ -304,18 +322,7 @@ function onMenu(info: { key: number | string }): void {
       class="lead-detail"
       data-gs="lead-detail"
     >
-      <div class="lead-detail__head">
-        <span>{{ $t('gainos.leads.criteriaTitle') }}</span>
-        <button
-          :aria-controls="`lead-dims-${lead.id}`"
-          :aria-expanded="true"
-          class="lead-expand"
-          type="button"
-          @click="emit('toggle')"
-        >
-          {{ $t('gainos.leads.collapse') }}
-        </button>
-      </div>
+      <p class="lead-block-label">{{ summary }}</p>
       <JudgeDimensions compact :dims="dims" :show-bars="false" />
       <details v-if="judge.raw" class="lead-tech">
         <summary>{{ $t('gainos.findBuyers.technicalDetails') }}</summary>
@@ -340,30 +347,19 @@ function onMenu(info: { key: number | string }): void {
 </template>
 
 <style scoped>
-.lead-card {
-  transition: border-color 0.15s ease;
-}
-.lead-card:hover {
-  border-color: var(--gs-accent-soft-border);
-}
-/* 待我判断的线索用左侧 3px 强调条标记（与参考图的选中态一致） */
-.lead-card--todo {
-  box-shadow:
-    inset 3px 0 var(--gs-accent-cta),
-    var(--gs-shadow-card);
-}
+/* ── 五列：公司 / 评分 / 判断结果 / 判定维度 / 操作 ─────────────────────── */
 .lead-card__grid {
   display: grid;
   grid-template-areas: 'identity score verdict dims actions';
-  grid-template-columns: minmax(240px, 1.25fr) 104px minmax(220px, 1fr) minmax(240px, 1.05fr) 112px;
-  gap: 20px;
+  grid-template-columns: minmax(240px, 1.2fr) 104px minmax(280px, 1.3fr) minmax(210px, 1fr) auto;
+  gap: 12px 24px;
   align-items: start;
 }
 .lead-card__identity {
   grid-area: identity;
   display: flex;
   min-width: 0;
-  gap: 12px;
+  gap: 14px;
   align-items: flex-start;
 }
 .lead-card__title {
@@ -387,6 +383,7 @@ function onMenu(info: { key: number | string }): void {
   color: var(--gs-fg-muted);
   font-size: 12px;
   line-height: 18px;
+  overflow-wrap: anywhere;
 }
 .lead-card__pin {
   flex: none;
@@ -394,14 +391,20 @@ function onMenu(info: { key: number | string }): void {
   height: 12px;
   color: var(--gs-fg-subtle);
 }
+.lead-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
 .lead-logo {
   display: grid;
   flex: none;
   place-items: center;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 12px;
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1;
 }
@@ -417,18 +420,14 @@ function onMenu(info: { key: number | string }): void {
   background: var(--gs-warn-bg);
   color: var(--gs-warn-fg);
 }
-.lead-logo--danger {
-  background: var(--gs-danger-bg);
-  color: var(--gs-danger-fg);
-}
 .lead-tag {
   margin: 0;
   padding-inline: 8px;
   border-radius: 6px;
   background: var(--gs-surface-2);
   color: var(--gs-fg-muted);
-  font-size: 11px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 22px;
 }
 
 .lead-score {
@@ -436,26 +435,25 @@ function onMenu(info: { key: number | string }): void {
   display: grid;
   justify-items: start;
   gap: 2px;
-  padding-left: 18px;
-  border-left: 1px solid var(--gs-divider);
 }
 .lead-score__value {
   color: var(--gs-fg);
   font-size: 28px;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 32px;
   font-variant-numeric: tabular-nums;
 }
 .lead-score__label {
   color: var(--gs-fg-muted);
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 18px;
 }
 .lead-grade {
-  margin-top: 2px;
-  padding: 0 7px;
+  margin-top: 4px;
+  padding: 0 8px;
   border-radius: 6px;
-  font-size: 11px;
-  line-height: 19px;
+  font-size: 11.5px;
+  line-height: 20px;
   font-weight: 500;
 }
 .lead-grade--high {
@@ -475,54 +473,73 @@ function onMenu(info: { key: number | string }): void {
   color: var(--gs-fg-subtle);
 }
 
-.lead-verdict {
-  grid-area: verdict;
-  min-width: 0;
-  padding-left: 18px;
-  border-left: 1px solid var(--gs-divider);
-}
 .lead-block-label {
   margin: 0;
-  color: var(--gs-fg-subtle);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 .lead-block-label--spaced {
   margin-top: 10px;
 }
+.lead-verdict {
+  grid-area: verdict;
+  min-width: 0;
+}
+.lead-verdict__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  margin-top: 4px;
+}
+.lead-verdict__basis {
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+}
 .lead-reason {
-  display: -webkit-box;
+  margin: 2px 0 0;
   overflow: hidden;
-  margin: 3px 0 0;
   color: var(--gs-fg-muted);
   font-size: 12.5px;
-  line-height: 1.65;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.lead-summary {
-  margin: 6px 0 0;
-  color: var(--gs-fg-subtle);
-  font-size: 11px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lead-expand {
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--gs-accent-fg);
+  color: var(--gs-fg-muted);
+  font: inherit;
   font-size: 12px;
+  line-height: 20px;
   cursor: pointer;
 }
 .lead-expand:hover {
-  text-decoration: underline;
+  color: var(--gs-accent-fg);
+}
+.lead-expand:focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.lead-expand__chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+.lead-expand[aria-expanded='true'] .lead-expand__chevron {
+  transform: rotate(180deg);
 }
 
 .lead-dims {
   grid-area: dims;
   min-width: 0;
-  padding-left: 18px;
-  border-left: 1px solid var(--gs-divider);
 }
 .lead-dims__list {
   display: grid;
@@ -536,15 +553,15 @@ function onMenu(info: { key: number | string }): void {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 12px;
-  line-height: 21px;
+  font-size: 12.5px;
+  line-height: 20px;
 }
 .lead-dims__name {
-  color: var(--gs-fg-muted);
+  color: var(--gs-fg);
   white-space: nowrap;
 }
 .lead-dims__state {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .lead-dims__state.is-success {
   color: var(--gs-success-fg);
@@ -562,13 +579,15 @@ function onMenu(info: { key: number | string }): void {
   color: var(--gs-fg-subtle);
 }
 .lead-dims__score {
-  margin-left: auto;
+  min-width: 16px;
   color: var(--gs-fg-subtle);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .lead-dims__bar {
+  display: block;
   flex: 1 1 40px;
-  max-width: 120px;
+  max-width: 96px;
   height: 4px;
   margin-left: auto;
   border-radius: 9999px;
@@ -587,32 +606,25 @@ function onMenu(info: { key: number | string }): void {
 
 .lead-actions {
   grid-area: actions;
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-content: start;
+  align-self: center;
 }
-.lead-actions :deep(.ant-btn) {
-  justify-content: center;
+.lead-actions__btn {
+  min-width: 68px;
+}
+.lead-actions__more {
+  flex: none;
+  padding-inline: 8px;
 }
 
 .lead-detail {
   display: grid;
   gap: 14px;
-  margin-top: 18px;
+  margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--gs-divider);
-}
-.lead-detail__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--gs-fg);
-  font-size: 13px;
-  font-weight: 500;
-}
-.lead-detail__head .lead-expand {
-  margin-top: 0;
 }
 .lead-tech {
   color: var(--gs-fg-subtle);
@@ -644,31 +656,47 @@ function onMenu(info: { key: number | string }): void {
   word-break: break-word;
 }
 
-@media (max-width: 1120px) {
+/* ── 中屏（内容区 < ~1200px）：四列 + 判定维度横排到底部，给判断原因留出整行 ── */
+@media (max-width: 1511px) {
   .lead-card__grid {
     grid-template-areas:
-      'identity score'
-      'verdict verdict'
-      'dims dims'
-      'actions actions';
-    grid-template-columns: minmax(0, 1fr) 112px;
-  }
-  .lead-score {
-    justify-items: end;
-    text-align: right;
-  }
-  .lead-verdict,
-  .lead-dims {
-    padding-top: 14px;
-    padding-left: 0;
-    border-top: 1px solid var(--gs-divider);
-    border-left: 0;
+      'identity score verdict actions'
+      'dims dims dims dims';
+    grid-template-columns: minmax(220px, 1.3fr) 104px minmax(200px, 1fr) auto;
   }
   .lead-actions {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 48px;
+    justify-self: end;
+  }
+  .lead-dims {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gs-divider);
+  }
+  .lead-dims__list {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    gap: 2px 20px;
+    margin-top: 0;
+  }
+  .lead-dims__row {
+    flex: 0 1 auto;
+  }
+  .lead-dims__score {
+    min-width: 18px;
+    margin-left: 2px;
+  }
+  .lead-dims__bar {
+    flex: 0 0 56px;
+    max-width: none;
+    margin-left: 0;
   }
 }
-@media (max-width: 640px) {
+
+/* ── 手机：单列 ──────────────────────────────────────────────────────── */
+@media (max-width: 719px) {
   .lead-card__grid {
     grid-template-areas:
       'identity'
@@ -678,15 +706,17 @@ function onMenu(info: { key: number | string }): void {
       'actions';
     grid-template-columns: minmax(0, 1fr);
   }
-  .lead-score {
-    justify-items: start;
-    padding-top: 12px;
-    padding-left: 0;
-    border-top: 1px solid var(--gs-divider);
-    text-align: left;
+  .lead-reason {
+    white-space: normal;
+  }
+  .lead-dims {
+    display: block;
   }
   .lead-actions {
-    grid-template-columns: minmax(0, 1fr);
+    justify-self: stretch;
+  }
+  .lead-actions__btn {
+    flex: 1 1 0;
   }
 }
 </style>

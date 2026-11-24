@@ -161,8 +161,26 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await page.goto('/leads');
   await page.waitForLoadState('networkidle').catch(() => {});
 
+  // 渐变页头 + 药丸页签（当前队列以 aria-pressed 标记）
+  await expect(page.getByRole('heading', { level: 1, name: '买家线索' })).toBeVisible();
+  await expect(page.locator("[data-gs='stage-steps']")).toBeVisible();
+  await expect(
+    page.locator("[data-gs='queue-switch'] [aria-pressed='true']"),
+  ).toHaveText(/待我判断\s*2/);
+
   const low = page.locator("[data-gs='lead-card']").filter({ hasText: 'Alpen Solar Technik' });
   await expect(low).toBeVisible();
+  await expect(low.getByRole('button', { name: '跟进', exact: true })).toBeVisible();
+  await expect(low.getByRole('button', { name: '排除', exact: true })).toBeVisible();
+
+  // 宽屏（内容区 ≥ ~1200px）五列并排：按用户实际视口宽度留证
+  await page.setViewportSize({ height: 993, width: 1586 });
+  await page.waitForTimeout(300);
+  await page.screenshot({
+    path: 'docs/evidence/ui-restyle/antd-system/leads-judge-wide-light.png',
+  });
+  await page.setViewportSize({ height: 900, width: 1440 });
+  await page.waitForTimeout(300);
   // 五维业务名齐全，机器原文绝不直接上屏
   for (const name of ['产品品类', '买家角色', '生产工艺', '经营模式', '企业规模']) {
     await expect(low.getByText(name, { exact: true })).toBeVisible();
@@ -176,7 +194,8 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   // 第二条（全维通过）走同一套渲染：高分与结论摘要都在
   const high = page.locator("[data-gs='lead-card']").filter({ hasText: 'Rhein Energie Handel' });
   await expect(high.getByText('高价值', { exact: true })).toBeVisible();
-  await expect(high.getByText('5 项符合', { exact: false })).toBeVisible();
+  // 机器结论 FIT → 药丸「值得跟进」（与队列名同词，这里是结论而不是队列标签）
+  await expect(high.getByText('值得跟进', { exact: true })).toBeVisible();
 
   // 旧线索只有八维评分、没有聚合文本：降级为「评分维度」小条，不留空列
   const scoresOnly = page
@@ -191,6 +210,8 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await expect(detail).toBeVisible();
   await expect(detail.getByText('买家角色', { exact: true })).toBeVisible();
   await expect(detail.getByText('证据不足', { exact: false }).first()).toBeVisible();
+  // 维度计数摘要只在展开区（折叠态保持一行原因，不堆数字）
+  await expect(detail.getByText('1 项符合 · 3 项不符 · 1 项证据不足')).toBeVisible();
 
   await page.setViewportSize({ height: 1800, width: 1440 });
   await page.screenshot({
@@ -228,5 +249,10 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await page.screenshot({
     fullPage: true,
     path: 'docs/evidence/ui-restyle/antd-system/leads-judge-dark.png',
+  });
+  await page.setViewportSize({ height: 993, width: 1586 });
+  await page.waitForTimeout(300);
+  await page.screenshot({
+    path: 'docs/evidence/ui-restyle/antd-system/leads-judge-wide-dark.png',
   });
 });

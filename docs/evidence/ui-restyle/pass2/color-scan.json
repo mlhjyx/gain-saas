@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-23T08:02:46.652Z",
+  "generatedAt": "2026-11-24T05:49:45.687Z",
   "pages": [
     "/workspace",
     "/leads",
@@ -21,96 +21,122 @@
     "light",
     "dark"
   ],
-  "totalSamples": 20982,
+  "totalSamples": 84086,
   "classCounts": {
-    "brand": 269,
-    "neutral": 20683,
-    "success": 15,
-    "warning": 15
+    "brand": 689,
+    "error": 2,
+    "neutral": 83307,
+    "success": 60,
+    "warning": 28
   },
   "unique": [
     {
-      "count": 75,
+      "count": 120,
       "key": "dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.6)",
       "class": "neutral"
     },
     {
-      "count": 3437,
+      "count": 3432,
       "key": "dark | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 1381,
+      "count": 2402,
       "key": "dark | rgb(138, 138, 138)",
       "class": "neutral"
     },
     {
-      "count": 5,
+      "count": 10,
+      "key": "dark | rgb(143, 168, 255)",
+      "class": "brand"
+    },
+    {
+      "count": 8,
       "key": "dark | rgb(159, 74, 17)",
       "class": "warning"
     },
     {
-      "count": 4533,
+      "count": 8335,
       "key": "dark | rgb(163, 163, 163)",
       "class": "neutral"
     },
     {
-      "count": 2,
+      "count": 15,
+      "key": "dark | rgb(18, 18, 18)",
+      "class": "neutral"
+    },
+    {
+      "count": 4,
       "key": "dark | rgb(183, 83, 16)",
       "class": "warning"
     },
     {
-      "count": 23,
+      "count": 1,
+      "key": "dark | rgb(208, 37, 51)",
+      "class": "error"
+    },
+    {
+      "count": 52,
       "key": "dark | rgb(23, 23, 23)",
       "class": "neutral"
     },
     {
-      "count": 1,
-      "key": "dark | rgb(251, 191, 36)",
-      "class": "warning"
-    },
-    {
-      "count": 1854,
+      "count": 3672,
       "key": "dark | rgb(255, 255, 255)",
       "class": "neutral"
     },
     {
-      "count": 7,
+      "count": 19,
       "key": "dark | rgb(26, 117, 68)",
       "class": "success"
     },
     {
-      "count": 289,
+      "count": 595,
       "key": "dark | rgb(28, 28, 28)",
       "class": "neutral"
     },
     {
-      "count": 26,
+      "count": 15,
+      "key": "dark | rgb(31, 31, 31)",
+      "class": "neutral"
+    },
+    {
+      "count": 20999,
+      "key": "dark | rgb(38, 38, 38)",
+      "class": "neutral"
+    },
+    {
+      "count": 65,
       "key": "dark | rgb(46, 81, 220)",
       "class": "brand"
     },
     {
-      "count": 61,
+      "count": 112,
+      "key": "dark | rgb(51, 51, 51)",
+      "class": "neutral"
+    },
+    {
+      "count": 151,
       "key": "dark | rgb(51, 92, 255)",
       "class": "brand"
     },
     {
-      "count": 27,
+      "count": 54,
       "key": "dark | rgb(53, 89, 233)",
       "class": "brand"
     },
     {
-      "count": 1,
+      "count": 4,
       "key": "dark | rgb(74, 222, 128)",
       "class": "success"
     },
     {
-      "count": 44,
+      "count": 74,
       "key": "dark | rgb(92, 92, 92)",
       "class": "neutral"
     },
     {
-      "count": 44,
+      "count": 46,
       "key": "dark | rgba(0, 0, 0, 0.45)",
       "class": "neutral"
     },
@@ -120,13 +146,63 @@
       "class": "neutral"
     },
     {
-      "count": 15,
+      "count": 18,
       "key": "dark | rgba(0, 0, 0, 0.6)",
       "class": "neutral"
     },
     {
-      "count": 16,
+      "count": 75,
+      "key": "dark | rgba(0, 0, 0, 0.62)",
+      "class": "neutral"
+    },
+    {
+      "count": 6310,
+      "key": "dark | rgba(0, 0, 0, 0)",
+      "class": "neutral"
+    },
+    {
+      "count": 2,
+      "key": "dark | rgba(183, 83, 16, 0.18)",
+      "class": "warning"
+    },
+    {
+      "count": 3,
+      "key": "dark | rgba(255, 255, 255, 0.05)",
+      "class": "neutral"
+    },
+    {
+      "count": 3,
+      "key": "dark | rgba(255, 255, 255, 0.1)",
+      "class": "neutral"
+    },
+    {
+      "count": 3,
+      "key": "dark | rgba(255, 255, 255, 0.22)",
+      "class": "neutral"
+    },
+    {
+      "count": 1,
+      "key": "dark | rgba(255, 255, 255, 0.42)",
+      "class": "neutral"
+    },
+    {
+      "count": 7,
+      "key": "dark | rgba(26, 117, 68, 0.18)",
+      "class": "success"
+    },
+    {
+      "count": 3,
+      "key": "dark | rgba(38, 38, 38, 0.92)",
+      "class": "neutral"
+    },
+    {
+      "count": 48,
       "key": "dark | rgba(51, 92, 255, 0.16)",
+      "class": "brand"
+    },
+    {
+      "count": 4,
+      "key": "dark | rgba(51, 92, 255, 0.24)",
       "class": "brand"
     },
     {
@@ -135,73 +211,118 @@
       "class": "brand"
     },
     {
-      "count": 75,
+      "count": 2,
+      "key": "dark | rgba(51, 92, 255, 0.95)",
+      "class": "brand"
+    },
+    {
+      "count": 120,
       "key": "light | oklab(0.204404 0.00000931323 0.00000409782 / 0.6)",
       "class": "neutral"
     },
     {
-      "count": 2940,
+      "count": 2943,
       "key": "light | rgb(0, 0, 0)",
       "class": "neutral"
     },
     {
-      "count": 30,
+      "count": 50,
       "key": "light | rgb(163, 163, 163)",
       "class": "neutral"
     },
     {
-      "count": 7,
+      "count": 12,
       "key": "light | rgb(183, 83, 16)",
       "class": "warning"
     },
     {
-      "count": 14,
+      "count": 4,
+      "key": "light | rgb(192, 213, 255)",
+      "class": "brand"
+    },
+    {
+      "count": 1,
+      "key": "light | rgb(208, 37, 51)",
+      "class": "error"
+    },
+    {
+      "count": 112,
       "key": "light | rgb(209, 209, 209)",
       "class": "neutral"
     },
     {
-      "count": 1788,
+      "count": 3551,
       "key": "light | rgb(23, 23, 23)",
       "class": "neutral"
     },
     {
-      "count": 1,
+      "count": 16815,
+      "key": "light | rgb(235, 235, 235)",
+      "class": "neutral"
+    },
+    {
+      "count": 33,
       "key": "light | rgb(235, 241, 255)",
       "class": "brand"
     },
     {
-      "count": 22,
+      "count": 76,
+      "key": "light | rgb(245, 245, 245)",
+      "class": "neutral"
+    },
+    {
+      "count": 16,
+      "key": "light | rgb(247, 247, 247)",
+      "class": "neutral"
+    },
+    {
+      "count": 15,
+      "key": "light | rgb(247, 248, 251)",
+      "class": "brand"
+    },
+    {
+      "count": 37,
       "key": "light | rgb(250, 250, 250)",
       "class": "neutral"
     },
     {
-      "count": 324,
+      "count": 749,
       "key": "light | rgb(255, 255, 255)",
       "class": "neutral"
     },
     {
-      "count": 7,
+      "count": 23,
       "key": "light | rgb(26, 117, 68)",
       "class": "success"
     },
     {
-      "count": 93,
+      "count": 218,
       "key": "light | rgb(51, 92, 255)",
       "class": "brand"
     },
     {
-      "count": 27,
+      "count": 64,
       "key": "light | rgb(53, 89, 233)",
       "class": "brand"
     },
     {
-      "count": 3707,
+      "count": 7626,
       "key": "light | rgb(92, 92, 92)",
       "class": "neutral"
     },
     {
-      "count": 43,
+      "count": 4822,
+      "key": "light | rgba(0, 0, 0, 0)",
+      "class": "neutral"
+    },
+    {
+      "count": 46,
       "key": "light | rgba(10, 10, 10, 0.03)",
+      "class": "neutral"
+    },
+    {
+      "count": 3,
+      "key": "light | rgba(10, 10, 10, 0.12)",
       "class": "neutral"
     },
     {
@@ -215,13 +336,53 @@
       "class": "neutral"
     },
     {
-      "count": 14,
+      "count": 2,
+      "key": "light | rgba(183, 83, 16, 0.1)",
+      "class": "warning"
+    },
+    {
+      "count": 3,
+      "key": "light | rgba(23, 23, 23, 0.035)",
+      "class": "neutral"
+    },
+    {
+      "count": 2,
+      "key": "light | rgba(255, 255, 255, 0.22)",
+      "class": "neutral"
+    },
+    {
+      "count": 3,
+      "key": "light | rgba(255, 255, 255, 0.88)",
+      "class": "neutral"
+    },
+    {
+      "count": 3,
+      "key": "light | rgba(255, 255, 255, 0.95)",
+      "class": "neutral"
+    },
+    {
+      "count": 7,
+      "key": "light | rgba(26, 117, 68, 0.1)",
+      "class": "success"
+    },
+    {
+      "count": 15,
       "key": "light | rgba(5, 80, 255, 0.08)",
+      "class": "brand"
+    },
+    {
+      "count": 1,
+      "key": "light | rgba(51, 92, 255, 0.22)",
       "class": "brand"
     },
     {
       "count": 2,
       "key": "light | rgba(51, 92, 255, 0.35)",
+      "class": "brand"
+    },
+    {
+      "count": 1,
+      "key": "light | rgba(51, 92, 255, 0.42)",
       "class": "brand"
     }
   ],

@@ -55,7 +55,7 @@ test('接受动作失败后重试沿用同一 Idempotency-Key', async ({ page })
   await page
     .locator("[data-gs='lead-card']")
     .filter({ hasText: 'Muster Metallbau GmbH' })
-    .getByRole('button', { name: '值得跟进' })
+    .getByRole('button', { name: '跟进', exact: true })
     .click();
   const dialog = page.getByRole('dialog');
   const confirm = dialog.getByRole('button', { name: '确认跟进' });
@@ -91,7 +91,7 @@ test('成功后再发起新的接受动作使用新键', async ({ page }) => {
   await page
     .locator("[data-gs='lead-card']")
     .filter({ hasText: 'Muster Metallbau GmbH' })
-    .getByRole('button', { name: '值得跟进' })
+    .getByRole('button', { name: '跟进', exact: true })
     .click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: '确认跟进' }).click();
@@ -104,7 +104,7 @@ test('成功后再发起新的接受动作使用新键', async ({ page }) => {
   await page
     .locator("[data-gs='lead-card']")
     .filter({ hasText: 'Muster Metallbau GmbH' })
-    .getByRole('button', { name: '值得跟进' })
+    .getByRole('button', { name: '跟进', exact: true })
     .click();
   await page.getByRole('dialog').getByRole('button', { name: '确认跟进' }).click();
   await expect.poll(() => backend.callsTo('POST', '/leads/lead-1/accept').length, {

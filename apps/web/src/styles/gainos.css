@@ -48,6 +48,20 @@
   --gs-shadow-sm: 0 2px 4px rgba(27, 28, 29, 0.039);
   --gs-shadow-modal: 0 16px 32px -12px rgba(10,10,10,.10);
   --gs-shadow-tooltip: 0 12px 24px 0 rgba(10,10,10,.059), 0 1px 2px 0 rgba(10,10,10,.031);
+  /* 2026-11-23：白卡浮于画布——无线边框，用 1px 环 + 柔和投影分层 */
+  --gs-shadow-float: 0 0 0 1px rgba(23, 23, 23, 0.035), 0 1px 2px rgba(10, 10, 10, 0.03),
+    0 10px 24px -16px rgba(10, 10, 10, 0.12);
+  /* 页头渐变带（参考商业名录页）：品牌蓝极浅色，向下淡出到画布 */
+  --gs-hero-tint: #eef1ff;
+  --gs-hero-tint-soft: #f4f6ff;
+  --gs-hero-glow: rgba(51, 92, 255, 0.1);
+  --gs-hero-glow-side: rgba(99, 112, 255, 0.12);
+  --gs-hero-card: rgba(255, 255, 255, 0.88);
+  --gs-hero-card-stroke: rgba(255, 255, 255, 0.95);
+  --gs-hero-accent: rgba(51, 92, 255, 0.9);
+  --gs-hero-figure: #ffffff;
+  --gs-hero-line: rgba(51, 92, 255, 0.22);
+  --gs-hero-line-strong: rgba(51, 92, 255, 0.42);
   --gs-shadow-focus: 0 0 0 2px var(--gs-surface), 0 0 0 4px rgba(51, 92, 255, 0.16);
   --gs-mask: rgba(23, 23, 23, 0.24);
 
@@ -149,6 +163,18 @@
   --gs-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.5);
   --gs-shadow-modal: 0 16px 32px -12px rgba(0, 0, 0, 0.65);
   --gs-shadow-tooltip: 0 12px 24px 0 rgba(0, 0, 0, 0.55);
+  --gs-shadow-float: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.45),
+    0 12px 26px -16px rgba(0, 0, 0, 0.6);
+  --gs-hero-tint: rgba(51, 92, 255, 0.16);
+  --gs-hero-tint-soft: rgba(51, 92, 255, 0.06);
+  --gs-hero-glow: rgba(51, 92, 255, 0.22);
+  --gs-hero-glow-side: rgba(51, 92, 255, 0.14);
+  --gs-hero-card: rgba(38, 38, 38, 0.92);
+  --gs-hero-card-stroke: rgba(255, 255, 255, 0.1);
+  --gs-hero-accent: rgba(51, 92, 255, 0.95);
+  --gs-hero-figure: #ffffff;
+  --gs-hero-line: rgba(255, 255, 255, 0.22);
+  --gs-hero-line-strong: rgba(255, 255, 255, 0.42);
   --gs-shadow-focus: 0 0 0 2px var(--gs-surface), 0 0 0 4px rgba(51, 92, 255, 0.24);
   --gs-mask: rgba(0, 0, 0, 0.68);
 
@@ -609,8 +635,17 @@ aside[data-layout-region='sidebar']
   box-shadow: 0 0 0 2px var(--gs-surface);
 }
 
+/* 暗色侧栏：Vben 把 .dark 单独挂在侧栏容器上，--sidebar 在元素自身解析，
+   不继承根上的覆盖，所以侧栏一直是 Vben 自带的带蓝调 222° 10% 12%。
+   2026-11-24 取色扫描修复后暴露出来；按同一原则换成同明度的纯中性灰。 */
+.dark .dark {
+  --sidebar: 0 0% 12%;
+}
+
 /* pass2：把 Vben 壳层的中性色也收敛到纯中性灰（默认 zinc/slate 带蓝紫调，
-   会形成第二套灰）。 */
+   会形成第二套灰）。
+   2026-11-23：画布（--background-deep）改为近白的微蓝画布 220 30% 97.6%，
+   让白色卡片靠「环 + 投影」分层（参考商业名录页），其余中性色不变。 */
 :root:root:root {
   --foreground: 0 0% 9%;
   --muted: 0 0% 96%;
@@ -618,7 +653,7 @@ aside[data-layout-region='sidebar']
   --accent-foreground: 0 0% 9%;
   --heavy-foreground: 0 0% 9%;
   --background: 0 0% 100%;
-  --background-deep: 0 0% 95%;
+  --background-deep: 220 30% 97.6%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
@@ -678,7 +713,7 @@ aside[data-layout-region='sidebar']
   --accent-foreground: 0 0% 9%;
   --heavy-foreground: 0 0% 9%;
   --background: 0 0% 100%;
-  --background-deep: 0 0% 95%;
+  --background-deep: 220 30% 97.6%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
