@@ -141,7 +141,9 @@ const PACKAGE = {
   valid_until: NOW,
 };
 
-test('五维判定在列表/详情只展示业务语言，雷达图可读', async ({ page }) => {
+test('五维判定在列表/详情只展示业务语言，雷达图可读', async ({ context, page }) => {
+  // 「复制官网域名」走 navigator.clipboard，需要显式授权
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const backend = await installMockBackend(page);
   backend.set('GET', '/icps', [ICP]);
   backend.set('GET', '/leads', [LEAD_LOW, LEAD_HIGH, LEAD_SCORES]);
@@ -164,6 +166,11 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   // 渐变页头 + 药丸页签（当前队列以 aria-pressed 标记）
   await expect(page.getByRole('heading', { level: 1, name: '买家线索' })).toBeVisible();
   await expect(page.locator("[data-gs='stage-steps']")).toBeVisible();
+  // 当前步不显示序号（用户看不懂「5」指什么），用圆点标记
+  await expect(
+    page.locator("[data-gs='stage-steps'] .ant-steps-icon").filter({ hasText: /\d/ }),
+  ).toHaveCount(0);
+  await expect(page.locator("[data-gs='stage-steps']").getByText('判断线索')).toBeVisible();
   await expect(
     page.locator("[data-gs='queue-switch'] [aria-pressed='true']"),
   ).toHaveText(/待我判断\s*2/);
@@ -255,4 +262,25 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await page.screenshot({
     path: 'docs/evidence/ui-restyle/antd-system/leads-judge-wide-dark.png',
   });
+
+  // 「⋯」更多操作必须真的弹出菜单：antdv 的 Dropdown 只认 #overlay，
+  // 按 React 版的 :menu 写法会得到一个打开了的空弹层（点击后毫无反应）。
+  const lowAgain = page
+    .locator("[data-gs='lead-card']")
+    .filter({ hasText: 'Alpen Solar Technik' });
+  const more = lowAgain.getByRole('button', { name: '更多操作' });
+  await more.click();
+  const menu = page.locator('.ant-dropdown:visible').getByRole('menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem')).toHaveText(['查看档案包', '复制官网域名']);
+  await menu.getByRole('menuitem', { name: '复制官网域名' }).click();
+  await expect(page.getByText('已复制官网域名')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('alpen-solar.at');
+
+  await more.click();
+  await page
+    .locator('.ant-dropdown:visible')
+    .getByRole('menuitem', { name: '查看档案包' })
+    .click();
+  await page.waitForURL(/\/leads\/lead-1$/);
 });

@@ -11,6 +11,8 @@
 - 封装内部必须 `import { Card, Tag, Empty, Modal, Table, Statistic } from 'ant-design-vue'` 后用 PascalCase 组件；**禁止写 `<a-card>`/`<a-tag>` 字符串标签**——本应用没有全局注册 AntDV，字符串标签会渲染成无样式自定义元素（卡片 0 padding、标题/标签丢失）。
 - 页面级 `<style scoped>` 目标为 0 行；布局用 `a-row/a-col/a-space/a-flex`，视觉全部来自 token。
 - 主题唯一来源：`app.vue` 的 `ConfigProvider`（`GS_BRAND` + `componentTokens`）。禁止在页面里写 `.ant-* { … !important }`。
+- **antdv ≠ antd（React）**：按 Vue 版的 API 写。`Dropdown` 没有 `menu` 属性，菜单必须走 `#overlay` 插槽 + `<Menu :items @click>`
+  （传 `:menu` 不报错，但会弹出一个空层，表现为「点了没反应」）。`MenuInfo` 类型未导出，用 `Parameters<MenuProps['onClick']>[0]` 取。
 - **Cascade layer 陷阱**：Tailwind v4 的工具类在 `@layer` 里，antd 的 cssinjs 样式不在——同一个属性上 antd 永远赢。
   所以宽度、外边距这类布局工具类要写在**普通 div** 上，不要直接挂在 antd 组件根节点
   （实例：`-mt-12` 挂在 `a-card` 上被 `.ant-card{margin:0}` 吃掉；`w-[240px]` 挂在带 prefix 的 `a-input` 上被 `.ant-input-affix-wrapper{width:100%}` 吃掉）。
@@ -104,6 +106,8 @@
 ### 12.1 页头与步骤面板
 - `GsPage`：H1 28/600 + 副标题 13px；无 `#actions` 时右侧画装饰插画，有操作按钮时不画（避免重叠）。
 - 主链路步骤条放进白色薄面板（`GsCard dense`，body 12px 24px），上移压在页头渐变上。
+- **步骤条不显示序号**：当前步用「蓝底圆 + 白点」标记（用户不知道「5」指什么）。实现是给 `items[current].icon` 传 VNode——
+  antdv 会把这一步标成 `ant-steps-item-custom` 并取消默认蓝底圆，圆底要自己画（`views/leads/index.vue` 的 `stepItems`）。
 
 ### 12.2 药丸页签（`GsSegmented`）
 - 文字项 13/500 + 计数；选中项 = `--gs-accent-soft` 浅蓝药丸 + `--gs-accent-fg` 文字，无下划线。

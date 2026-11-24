@@ -1,12 +1,12 @@
 # pass2 rendered DOM color scan
-generatedAt: 2026-11-24T05:49:45.687Z
+generatedAt: 2026-11-24T17:01:09.630Z
 pages: /workspace, /leads, /companies, /find-buyers, /campaigns, /qgos, /tasks, /notifications, /growth?tab=reviews, /growth?tab=metrics, /settings/members, /settings/suppressions, /settings/sources, /settings/privacy, /settings/audit
-totalSamples: 84086
-classCounts: {"brand":689,"error":2,"neutral":83307,"success":60,"warning":28}
+totalSamples: 84102
+classCounts: {"brand":689,"error":2,"neutral":83323,"success":60,"warning":28}
 
 ## unique colors
 120	dark | oklab(0.999994 0.0000455677 0.0000200868 / 0.6)	neutral
-3432	dark | rgb(0, 0, 0)	neutral
+3433	dark | rgb(0, 0, 0)	neutral
 2402	dark | rgb(138, 138, 138)	neutral
 10	dark | rgb(143, 168, 255)	brand
 8	dark | rgb(159, 74, 17)	warning
@@ -15,14 +15,14 @@ classCounts: {"brand":689,"error":2,"neutral":83307,"success":60,"warning":28}
 4	dark | rgb(183, 83, 16)	warning
 1	dark | rgb(208, 37, 51)	error
 52	dark | rgb(23, 23, 23)	neutral
-3672	dark | rgb(255, 255, 255)	neutral
+3674	dark | rgb(255, 255, 255)	neutral
 19	dark | rgb(26, 117, 68)	success
 595	dark | rgb(28, 28, 28)	neutral
 15	dark | rgb(31, 31, 31)	neutral
-20999	dark | rgb(38, 38, 38)	neutral
-65	dark | rgb(46, 81, 220)	brand
+21003	dark | rgb(38, 38, 38)	neutral
+64	dark | rgb(46, 81, 220)	brand
 112	dark | rgb(51, 51, 51)	neutral
-151	dark | rgb(51, 92, 255)	brand
+152	dark | rgb(51, 92, 255)	brand
 54	dark | rgb(53, 89, 233)	brand
 4	dark | rgb(74, 222, 128)	success
 74	dark | rgb(92, 92, 92)	neutral
@@ -30,7 +30,7 @@ classCounts: {"brand":689,"error":2,"neutral":83307,"success":60,"warning":28}
 15	dark | rgba(0, 0, 0, 0.5)	neutral
 18	dark | rgba(0, 0, 0, 0.6)	neutral
 75	dark | rgba(0, 0, 0, 0.62)	neutral
-6310	dark | rgba(0, 0, 0, 0)	neutral
+6311	dark | rgba(0, 0, 0, 0)	neutral
 2	dark | rgba(183, 83, 16, 0.18)	warning
 3	dark | rgba(255, 255, 255, 0.05)	neutral
 3	dark | rgba(255, 255, 255, 0.1)	neutral
@@ -43,25 +43,25 @@ classCounts: {"brand":689,"error":2,"neutral":83307,"success":60,"warning":28}
 2	dark | rgba(51, 92, 255, 0.35)	brand
 2	dark | rgba(51, 92, 255, 0.95)	brand
 120	light | oklab(0.204404 0.00000931323 0.00000409782 / 0.6)	neutral
-2943	light | rgb(0, 0, 0)	neutral
+2944	light | rgb(0, 0, 0)	neutral
 50	light | rgb(163, 163, 163)	neutral
 12	light | rgb(183, 83, 16)	warning
 4	light | rgb(192, 213, 255)	brand
 1	light | rgb(208, 37, 51)	error
 112	light | rgb(209, 209, 209)	neutral
-3551	light | rgb(23, 23, 23)	neutral
-16815	light | rgb(235, 235, 235)	neutral
+3555	light | rgb(23, 23, 23)	neutral
+16819	light | rgb(235, 235, 235)	neutral
 33	light | rgb(235, 241, 255)	brand
 76	light | rgb(245, 245, 245)	neutral
 16	light | rgb(247, 247, 247)	neutral
 15	light | rgb(247, 248, 251)	brand
 37	light | rgb(250, 250, 250)	neutral
-749	light | rgb(255, 255, 255)	neutral
+747	light | rgb(255, 255, 255)	neutral
 23	light | rgb(26, 117, 68)	success
 218	light | rgb(51, 92, 255)	brand
 64	light | rgb(53, 89, 233)	brand
 7626	light | rgb(92, 92, 92)	neutral
-4822	light | rgba(0, 0, 0, 0)	neutral
+4823	light | rgba(0, 0, 0, 0)	neutral
 46	light | rgba(10, 10, 10, 0.03)	neutral
 3	light | rgba(10, 10, 10, 0.12)	neutral
 15	light | rgba(10, 10, 10, 0.18)	neutral

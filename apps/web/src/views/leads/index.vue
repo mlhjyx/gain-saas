@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { glossaryStatus } from '@gain-saas/shared';
@@ -54,6 +54,32 @@ const STEP_KEYS = [
 ] as const;
 const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
 const currentStep = 5;
+
+/**
+ * 步骤条的当前步不显示序号（用户不知道「5」指什么），改用「蓝底圆 + 白点」标记「你现在在这里」。
+ * antdv Steps：给 item.icon 传 VNode 会替换掉默认的序号，但这一步会被标成
+ * ant-steps-item-custom 并取消默认的蓝底圆圈，所以圆底要在这里自己画。
+ */
+const stepItems = computed(() =>
+  stepLabels.value.map((title, index) => ({
+    title,
+    ...(index === currentStep - 1
+      ? {
+          icon: h('span', {
+            'aria-hidden': 'true',
+            style: {
+              background:
+                'radial-gradient(circle, #fff 0 4px, transparent 4.5px), var(--gs-accent-cta)',
+              borderRadius: '9999px',
+              display: 'block',
+              height: '24px',
+              width: '24px',
+            },
+          }),
+        }
+      : {}),
+  })),
+);
 const isAdmin = ref(false);
 
 // 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
@@ -424,11 +450,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
         data-gs="stage-steps"
         dense
       >
-        <Steps
-          :current="currentStep - 1"
-          :items="stepLabels.map((label) => ({ title: label }))"
-          size="small"
-        />
+        <Steps :current="currentStep - 1" :items="stepItems" size="small" />
       </GsCard>
     </div>
 

@@ -7,13 +7,14 @@
  *
  * 宽屏五列并排；≤1511px 时判定维度折成一行横排放到卡片底部；手机单列。
  */
+import type { MenuProps } from 'ant-design-vue';
 import type { Lead } from '#/api/gainos';
 
 import { computed } from 'vue';
 
 import { Ellipsis } from '@vben/icons';
 
-import { Button, Dropdown, Tag } from 'ant-design-vue';
+import { Button, Dropdown, Menu, Tag } from 'ant-design-vue';
 
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsStatusIcon from '#/components/gainos/ui/gs-status-icon.vue';
@@ -159,17 +160,22 @@ const dimsLabel = computed(() =>
     : $t('gainos.leads.scoresTitle'),
 );
 
-const menuItems = computed(() => {
-  const items = [{ key: 'package', label: $t('gainos.leads.viewPackage') }];
+type MenuItem = NonNullable<MenuProps['items']>[number];
+type MenuClickInfo = Parameters<NonNullable<MenuProps['onClick']>>[0];
+
+/** 「⋯」里的次要动作：打开档案包、复制官网（主动作已在卡片上，这里不重复）。 */
+const menuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [{ key: 'package', label: $t('gainos.leads.viewPackage') }];
   if (props.lead.company?.domain) {
     items.push({ key: 'copy', label: $t('gainos.leads.copyDomain') });
   }
   return items;
 });
 
-function onMenu(info: { key: number | string }): void {
-  if (info.key === 'package') emit('package');
-  if (info.key === 'copy') emit('copy');
+function onMenu(info: MenuClickInfo): void {
+  const key = String(info.key);
+  if (key === 'package') emit('package');
+  if (key === 'copy') emit('copy');
 }
 </script>
 
@@ -303,14 +309,14 @@ function onMenu(info: { key: number | string }): void {
         >
           {{ $t('gainos.leads.promoteQgo') }}
         </Button>
-        <Dropdown
-          :menu="{ items: menuItems, onClick: onMenu }"
-          :trigger="['click']"
-          placement="bottomRight"
-        >
+        <!-- antdv 的 Dropdown 没有 menu 属性（那是 React 版的 API）：菜单必须走 #overlay -->
+        <Dropdown :trigger="['click']" placement="bottomRight">
           <Button :aria-label="$t('gainos.leads.moreActions')" class="lead-actions__more" type="text">
             <Ellipsis :size="18" />
           </Button>
+          <template #overlay>
+            <Menu :items="menuItems" @click="onMenu" />
+          </template>
         </Dropdown>
       </div>
     </div>

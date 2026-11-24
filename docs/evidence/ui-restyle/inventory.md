@@ -1721,3 +1721,19 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - typecheck / build / lint:terms / lint:date 全绿；定向 e2e 43 项全绿（a11y、取色扫描 ×2、dark-mode、responsive、zero-jargon、locale-toggle、main-chain 9 条、leads-judge、leads-detail、idempotency、resilience、nav-shell、error-copy、interactions ×2、cache-normalize、pass5-shell）。
 - 注意：本机用 8 个 worker 并发跑会把机器压满，pass2-measure / pass5-shell 会出现超时假失败；单独跑或 `--workers=4` 均通过。
 - 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-wide-{light,dark}.png`（1586px，五列）、`leads-judge-{light,dark}.png`（1440px，含展开区）、`leads-detail-judge-{light,dark}.png`。
+
+## 18. 验收反馈两处修正（2026-11-25）
+
+### 18.1 步骤条的「5」
+- 用户：「去掉这个数字 5，用户不知道什么意思。」
+- 当前步改为「蓝底圆 + 白点」标记，不再显示序号；`leads-judge.spec` 断言步骤图标里没有数字。
+
+### 18.2 「⋯」按钮点击无反应
+- 根因：`Dropdown` 按 React 版 antd 的写法传了 `:menu`，而 antdv 4 只认 `overlay` / `#overlay`。弹层被打开但内容为空（36×0），所以看起来毫无反应。
+- 这是 §16 就引入的缺陷，e2e 从未点击过该按钮，直到用户手点才暴露。
+- 修复：`#overlay` + `<Menu :items="menuItems" @click="onMenu" />`。
+- 补测：`leads-judge.spec` 点击「⋯」→ 断言菜单可见且恰为「查看档案包 / 复制官网域名」→ 复制后有提示且剪贴板内容正确 → 「查看档案包」跳转到详情页。
+- 该按钮的用途：收纳两个次要动作（打开档案包、复制官网域名），主动作「跟进 / 排除」已经在卡片上。
+
+### 18.3 验证
+- typecheck / build / lint:terms / lint:date 全绿；定向 e2e 34 项全绿（含 a11y、取色扫描 ×2：84,102 个样本、未知色相 0）。

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T05:49:45.687Z",
+  "generatedAt": "2026-11-24T17:01:09.630Z",
   "pages": [
     "/workspace",
     "/leads",
@@ -21,11 +21,11 @@
     "light",
     "dark"
   ],
-  "totalSamples": 84086,
+  "totalSamples": 84102,
   "classCounts": {
     "brand": 689,
     "error": 2,
-    "neutral": 83307,
+    "neutral": 83323,
     "success": 60,
     "warning": 28
   },
@@ -36,7 +36,7 @@
       "class": "neutral"
     },
     {
-      "count": 3432,
+      "count": 3433,
       "key": "dark | rgb(0, 0, 0)",
       "class": "neutral"
     },
@@ -81,7 +81,7 @@
       "class": "neutral"
     },
     {
-      "count": 3672,
+      "count": 3674,
       "key": "dark | rgb(255, 255, 255)",
       "class": "neutral"
     },
@@ -101,12 +101,12 @@
       "class": "neutral"
     },
     {
-      "count": 20999,
+      "count": 21003,
       "key": "dark | rgb(38, 38, 38)",
       "class": "neutral"
     },
     {
-      "count": 65,
+      "count": 64,
       "key": "dark | rgb(46, 81, 220)",
       "class": "brand"
     },
@@ -116,7 +116,7 @@
       "class": "neutral"
     },
     {
-      "count": 151,
+      "count": 152,
       "key": "dark | rgb(51, 92, 255)",
       "class": "brand"
     },
@@ -156,7 +156,7 @@
       "class": "neutral"
     },
     {
-      "count": 6310,
+      "count": 6311,
       "key": "dark | rgba(0, 0, 0, 0)",
       "class": "neutral"
     },
@@ -221,7 +221,7 @@
       "class": "neutral"
     },
     {
-      "count": 2943,
+      "count": 2944,
       "key": "light | rgb(0, 0, 0)",
       "class": "neutral"
     },
@@ -251,12 +251,12 @@
       "class": "neutral"
     },
     {
-      "count": 3551,
+      "count": 3555,
       "key": "light | rgb(23, 23, 23)",
       "class": "neutral"
     },
     {
-      "count": 16815,
+      "count": 16819,
       "key": "light | rgb(235, 235, 235)",
       "class": "neutral"
     },
@@ -286,7 +286,7 @@
       "class": "neutral"
     },
     {
-      "count": 749,
+      "count": 747,
       "key": "light | rgb(255, 255, 255)",
       "class": "neutral"
     },
@@ -311,7 +311,7 @@
       "class": "neutral"
     },
     {
-      "count": 4822,
+      "count": 4823,
       "key": "light | rgba(0, 0, 0, 0)",
       "class": "neutral"
     },
