@@ -27,7 +27,7 @@ const NAV_GROUPS = [
     group: '获客',
     items: [
       { landmark: '.cp', name: '公司档案', path: '/companies' },
-      { landmark: '.fb', name: '找买家', path: '/find-buyers' },
+      { landmark: '[data-gs="page-header"]', name: '找买家', path: '/find-buyers' },
     ],
   },
   {

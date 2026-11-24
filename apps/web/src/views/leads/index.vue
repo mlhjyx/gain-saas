@@ -1,18 +1,19 @@
 <script lang="ts" setup>
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { glossaryStatus } from '@gain-saas/shared';
 import { RotateCw, Search } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
-import { Alert, Button, Input, Modal, Skeleton, Steps } from 'ant-design-vue';
+import { Alert, Button, Input, Modal, Skeleton } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
+import GsSteps from '#/components/gainos/ui/gs-steps.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
@@ -44,42 +45,8 @@ function queueFromRoute(): string | null {
   return (QUEUE_KEYS as readonly string[]).includes(queue) ? queue : null;
 }
 
-/** 六步主链路(PRD §14.1);线索工作台固定在第 5 步。 */
-const STEP_KEYS = [
-  'gainos.workspace.stepProfile',
-  'gainos.workspace.stepIcp',
-  'gainos.workspace.stepPlan',
-  'gainos.workspace.stepRun',
-  'gainos.workspace.stepJudge',
-] as const;
-const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
+/** 主链路固定显示在第 5 步（判断线索）；步骤条本身见 GsSteps。 */
 const currentStep = 5;
-
-/**
- * 步骤条的当前步不显示序号（用户不知道「5」指什么），改用「蓝底圆 + 白点」标记「你现在在这里」。
- * antdv Steps：给 item.icon 传 VNode 会替换掉默认的序号，但这一步会被标成
- * ant-steps-item-custom 并取消默认的蓝底圆圈，所以圆底要在这里自己画。
- */
-const stepItems = computed(() =>
-  stepLabels.value.map((title, index) => ({
-    title,
-    ...(index === currentStep - 1
-      ? {
-          icon: h('span', {
-            'aria-hidden': 'true',
-            style: {
-              background:
-                'radial-gradient(circle, #fff 0 4px, transparent 4.5px), var(--gs-accent-cta)',
-              borderRadius: '9999px',
-              display: 'block',
-              height: '24px',
-              width: '24px',
-            },
-          }),
-        }
-      : {}),
-  })),
-);
 const isAdmin = ref(false);
 
 // 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
@@ -445,12 +412,8 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上：antd 给
          .ant-card 写了 margin:0，且其样式不在 cascade layer 里，会压过工具类） -->
     <div class="relative z-[1] -mt-12">
-      <GsCard
-        :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })"
-        data-gs="stage-steps"
-        dense
-      >
-        <Steps :current="currentStep - 1" :items="stepItems" size="small" />
+      <GsCard data-gs="stage-steps" dense>
+        <GsSteps :current="currentStep" />
       </GsCard>
     </div>
 
