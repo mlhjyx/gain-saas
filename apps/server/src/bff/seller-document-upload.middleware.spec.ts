@@ -71,6 +71,8 @@ async function withExpressServer(
   }
 }
 
+const UPLOAD_PATH = '/api/companies/c1/seller-documents/d1/content';
+
 describe('seller-document upload middleware (unit)', () => {
   it('rejects PUT with missing session cookie before invoking raw body parser', async () => {
     const verify = vi.fn();
@@ -80,7 +82,7 @@ describe('seller-document upload middleware (unit)', () => {
     const handler = createSellerDocumentUploadMiddleware({ verify }, rawParser);
 
     await handler(
-      { method: 'PUT', cookies: {}, headers: {} } as never,
+      { method: 'PUT', path: UPLOAD_PATH, cookies: {}, headers: {} } as never,
       res as never,
       next,
     );
@@ -112,6 +114,7 @@ describe('seller-document upload middleware (unit)', () => {
     await handler(
       {
         method: 'PUT',
+        path: UPLOAD_PATH,
         cookies: { gain_session: 'forged-legacy-cookie' },
         headers: { 'accept-language': 'en-US' },
       } as never,
@@ -141,6 +144,7 @@ describe('seller-document upload middleware (unit)', () => {
     await handler(
       {
         method: 'PUT',
+        path: UPLOAD_PATH,
         cookies: { [SESSION_COOKIE]: 'revoked-or-forged-jwt' },
         headers: {},
       } as never,
@@ -171,6 +175,7 @@ describe('seller-document upload middleware (unit)', () => {
     await handler(
       {
         method: 'PUT',
+        path: UPLOAD_PATH,
         cookies: { [SESSION_COOKIE]: 'some-token' },
         headers: {},
       } as never,
@@ -197,7 +202,31 @@ describe('seller-document upload middleware (unit)', () => {
       const res = mockResponse();
       const handler = createSellerDocumentUploadMiddleware({ verify }, rawParser);
 
-      await handler({ method, cookies: {}, headers: {} } as never, res as never, next);
+      await handler({ method, path: UPLOAD_PATH, cookies: {}, headers: {} } as never, res as never, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(next).toHaveBeenCalledWith();
+      expect(verify).not.toHaveBeenCalled();
+      expect(rawParser).not.toHaveBeenCalled();
+      expect(res.state.status).toBeUndefined();
+    },
+  );
+
+  it.each([
+    '/api/companies/c1/seller-documents/d1/content/extra',
+    '/api/companies/c1/seller-documents/d1/claim-previews',
+    '/api/companies/c1/seller-documents/d1/CONTENT',
+    '//api/companies/c1/seller-documents/d1/content',
+  ])(
+    'passes non-matching PUT path (%s) through immediately without pre-auth or raw parsing',
+    async (path) => {
+      const verify = vi.fn();
+      const rawParser = vi.fn();
+      const next = vi.fn();
+      const res = mockResponse();
+      const handler = createSellerDocumentUploadMiddleware({ verify }, rawParser);
+
+      await handler({ method: 'PUT', path, cookies: {}, headers: {} } as never, res as never, next);
 
       expect(next).toHaveBeenCalledTimes(1);
       expect(next).toHaveBeenCalledWith();
@@ -217,6 +246,7 @@ describe('seller-document upload middleware (unit)', () => {
     await handler(
       {
         method: 'PUT',
+        path: UPLOAD_PATH,
         cookies: { [SESSION_COOKIE]: 'valid-token' },
         headers: { 'content-length': String(SELLER_DOCUMENT_MAX_BYTES + 1) },
       } as never,
@@ -253,6 +283,7 @@ describe('seller-document upload middleware (unit)', () => {
     await handler(
       {
         method: 'PUT',
+        path: UPLOAD_PATH,
         cookies: { [SESSION_COOKIE]: 'valid-token' },
         headers: {},
       } as never,
@@ -268,6 +299,41 @@ describe('seller-document upload middleware (unit)', () => {
         userCopy: { title: expect.any(String) },
       },
       meta: { engineCode: 'PAYLOAD_TOO_LARGE' },
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('maps 400 client error from raw parser to structured 400 JSON instead of calling next(err)', async () => {
+    const verify = vi.fn(async () => validClaims());
+    const rawParser = vi.fn((_req, _res, cb: (err?: unknown) => void) => {
+      const err = Object.assign(new Error('request aborted'), {
+        status: 400,
+        type: 'request.aborted',
+      });
+      cb(err);
+    });
+    const next = vi.fn();
+    const res = mockResponse();
+    const handler = createSellerDocumentUploadMiddleware({ verify }, rawParser);
+
+    await handler(
+      {
+        method: 'PUT',
+        path: UPLOAD_PATH,
+        cookies: { [SESSION_COOKIE]: 'valid-token' },
+        headers: {},
+      } as never,
+      res as never,
+      next,
+    );
+
+    expect(res.state.status).toBe(400);
+    expect(res.state.body).toMatchObject({
+      error: {
+        code: 'VALIDATION_ERROR',
+        userCopy: { title: expect.any(String), why: expect.any(String), next: expect.any(String) },
+      },
+      meta: { engineCode: 'VALIDATION_ERROR', engineMessage: 'request aborted' },
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -366,7 +432,6 @@ describe('seller-document upload middleware + expressLib.json integration', () =
     const app = expressLib();
     app.use(cookieParser());
     app.use(
-      SELLER_DOCUMENT_CONTENT_UPLOAD_PATH,
       createSellerDocumentUploadMiddleware(
         { verify },
         expressLib.raw({ type: () => true, limit: '16b' }),
@@ -399,5 +464,101 @@ describe('seller-document upload middleware + expressLib.json integration', () =
     } finally {
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     }
+  });
+
+  it.each([
+    '/api/companies//c1/seller-documents/d1/content',
+    '/api//companies/c1/seller-documents/d1/content',
+  ])(
+    'blocks unauthenticated PUT %s with Content-Type: application/json before expressLib.json',
+    async (slashVariantPath) => {
+      const verify = vi.fn(async () => null);
+
+      await withExpressServer({ verify }, async (baseUrl, captured) => {
+        const response = await fetch(`${baseUrl}${slashVariantPath}`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+          },
+          body: '{invalid-json-payload',
+        });
+
+        expect(response.status).toBe(401);
+        expect(await response.json()).toMatchObject({
+          error: { code: 'AUTH_REQUIRED' },
+        });
+        expect(captured.method).toBeUndefined();
+      });
+    },
+  );
+
+  it.each(['application/octet-stream', 'application/json'])(
+    'buffers body into Buffer for authenticated PUT /api/companies//c1/seller-documents/d1/content (%s)',
+    async (contentType) => {
+      const verify = vi.fn(async (token: string) => (token === 'valid-jwt' ? validClaims() : null));
+      const payload = Buffer.from('{"hello":"world-binary"}', 'utf8');
+
+      await withExpressServer({ verify }, async (baseUrl, captured) => {
+        const response = await fetch(`${baseUrl}/api/companies//c1/seller-documents/d1/content`, {
+          method: 'PUT',
+          headers: {
+            cookie: `${SESSION_COOKIE}=valid-jwt`,
+            'content-type': contentType,
+          },
+          body: payload,
+        });
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ ok: true, isBuffer: true });
+        expect(Buffer.isBuffer(captured.body)).toBe(true);
+        expect(Buffer.compare(captured.body as Buffer, payload)).toBe(0);
+      });
+    },
+  );
+
+  it('bypasses upload middleware for PUT /api/companies/c1/seller-documents/d1/content/extra', async () => {
+    const verify = vi.fn(async () => validClaims());
+
+    await withExpressServer({ verify }, async (baseUrl, captured) => {
+      const response = await fetch(`${baseUrl}/api/companies/c1/seller-documents/d1/content/extra`, {
+        method: 'PUT',
+        headers: {
+          cookie: `${SESSION_COOKIE}=valid-jwt`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ ok: true }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, isBuffer: false });
+      expect(captured.body).toEqual({ ok: true });
+      expect(verify).not.toHaveBeenCalled();
+    });
+  });
+
+  it('maps real expressLib.raw 415 encoding.unsupported to structured 415 JSON over HTTP', async () => {
+    const verify = vi.fn(async () => validClaims());
+
+    await withExpressServer({ verify }, async (baseUrl, captured) => {
+      const response = await fetch(`${baseUrl}${uploadPath}`, {
+        method: 'PUT',
+        headers: {
+          cookie: `${SESSION_COOKIE}=valid-jwt`,
+          'content-type': 'application/octet-stream',
+          'content-encoding': 'bogus-enc',
+        },
+        body: Buffer.from('hello'),
+      });
+
+      expect(response.status).toBe(415);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: 'UNSUPPORTED_CONTENT_ENCODING',
+          userCopy: { title: expect.any(String), why: expect.any(String), next: expect.any(String) },
+        },
+        meta: { engineCode: 'UNSUPPORTED_CONTENT_ENCODING' },
+      });
+      expect(captured.method).toBeUndefined();
+    });
   });
 });
