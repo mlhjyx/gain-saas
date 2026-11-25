@@ -4,12 +4,12 @@ import { Empty } from 'ant-design-vue';
 
 defineOptions({ name: 'GsEmpty' });
 
-defineProps<{ description?: string; title?: string }>();
+defineProps<{ description?: string; simple?: boolean; title?: string }>();
 </script>
 
 <template>
   <div class="gs-empty" data-gs="empty">
-    <Empty>
+    <Empty :image="simple ? Empty.PRESENTED_IMAGE_SIMPLE : undefined">
       <template v-if="title || description" #description>
         <p v-if="title" class="gs-empty__title">{{ title }}</p>
         <p v-if="description" class="gs-empty__desc">{{ description }}</p>

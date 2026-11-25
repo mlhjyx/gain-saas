@@ -409,7 +409,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
   <!-- grid-cols-1 + @container：约束列宽（子内容再宽也不会把整列撑出屏幕），并作为容器查询的参照——
        卡片按内容区实际宽度分级，而不是按视口。 -->
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
-    <GsPage :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
+    <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
 
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上：antd 给
          .ant-card 写了 margin:0，且其样式不在 cascade layer 里，会压过工具类） -->

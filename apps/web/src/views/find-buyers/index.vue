@@ -204,6 +204,17 @@ const companiesWithoutIcp = computed(() =>
   companies.value.filter((company) =>
     company.id && !icps.value.some((icp) => icp.companyId === company.id)));
 
+// 注册时填写的公司是主档案（workspace.onboardingCompanyId）：设定画像时排在第一位并标注，
+// 避免用户在多份公司档案里选错，导致寻源基于一家不相干的公司。
+const primaryCompanyId = ref<string | null>(null);
+const orderedCompaniesWithoutIcp = computed(() =>
+  [...companiesWithoutIcp.value].sort((a, b) => {
+    const pa = a.id === primaryCompanyId.value ? 0 : 1;
+    const pb = b.id === primaryCompanyId.value ? 0 : 1;
+    return pa - pb;
+  }),
+);
+
 /** 词表 tone → 药丸 tone（GsTag 没有 processing，用品牌蓝 info 表示）。 */
 function toneOf(tone: StatusTone): FbTone {
   return tone === 'processing' ? 'info' : tone;
@@ -485,7 +496,7 @@ function openCreate(): void {
     uiFeedback.message.success($t('gainos.findBuyers.allCompaniesHaveIcp'));
     return;
   }
-  selectedCompanyId.value = companiesWithoutIcp.value[0]?.id ?? '';
+  selectedCompanyId.value = orderedCompaniesWithoutIcp.value[0]?.id ?? '';
   createError.value = null;
   createOpen.value = true;
   void checkApprovedClaims(selectedCompanyId.value);
@@ -839,10 +850,16 @@ const overviewSections = computed(() => [
 ]);
 
 const companyOptions = computed(() =>
-  companiesWithoutIcp.value.map((company) => ({
-    label: company.name || company.website || '',
-    value: company.id ?? '',
-  })),
+  orderedCompaniesWithoutIcp.value.map((company) => {
+    const name = company.name || company.website || '';
+    return {
+      label:
+        company.id === primaryCompanyId.value
+          ? `${name}（${$t('gainos.companies.primaryBadge')}）`
+          : name,
+      value: company.id ?? '',
+    };
+  }),
 );
 const kindOptions = computed(() =>
   RULE_KINDS.map((kind) => ({ label: kindLabel(kind), value: kind })),
@@ -861,15 +878,24 @@ const planMetaOf = (plan: QueryPlan): string[] => {
   return parts;
 };
 
+async function loadPrimaryCompany(): Promise<void> {
+  try {
+    const context = await gainosApi.workspaceContext();
+    primaryCompanyId.value = context.onboarding?.companyId ?? null;
+  } catch {
+    primaryCompanyId.value = null;
+  }
+}
 onMounted(() => {
   loadRunRefs();
+  void loadPrimaryCompany();
   void load();
 });
 </script>
 
 <template>
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
-    <GsPage :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
+    <GsPage art="find-buyers" :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
 
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
     <div class="relative z-[1] -mt-12">

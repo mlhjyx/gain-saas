@@ -569,14 +569,27 @@ export async function setup(page: Page, cell: Cell) {
   let actionStart: number | null = null;
   const open = async (second = false) => {
     if (actionStart === null) actionStart = backend.calls.length;
-    const row = page.locator(".cp__table tbody tr").nth(second ? 1 : 0);
-    await row.locator("summary").click();
-    await row
+    // 主档案卡与关联公司卡各自有「更多」菜单，市场候选收在菜单里。
+    const scope = second
+      ? page.locator('[data-gs="related-company"]').first()
+      : page.locator('[data-gs="primary-company"]');
+    await scope
       .getByRole("button", {
-        name: cell.lang === "zh-CN" ? "市场候选" : "Market candidates",
+        name: cell.lang === "zh-CN" ? "更多" : "More",
         exact: true,
       })
       .click();
+    // 先开过的「更多」菜单会留在 DOM 里；只点当前展开的那层菜单项。
+    // 窄屏下 antd 的定位层会被 Playwright 判为不可见（但实际已画出），
+    // 所以这里等节点挂载后用 DOM click 触发，仍然走真实的菜单事件链。
+    const item = page
+      .locator(".ant-dropdown:visible")
+      .last()
+      .locator(".ant-dropdown-menu-item")
+      .filter({ hasText: cell.lang === "zh-CN" ? "市场候选" : "Market candidates" })
+      .last();
+    await item.waitFor({ state: "attached" });
+    await item.evaluate((element) => (element as HTMLElement).click());
     await expect(page.getByTestId("mc-panel")).toBeVisible();
     await expect(
       page.getByTestId("mc-panel").getByRole("heading", {
@@ -618,7 +631,8 @@ export async function setup(page: Page, cell: Cell) {
         backend.calls
           .slice(actionStart ?? backend.calls.length)
           .filter((c) =>
-            /model|embedding|search|execution-budget|icps|query-plan|discovery|send|activate|contacts/.test(
+            // /icps 是公司页首屏的画像列表，不属于寻源/执行调用；这里只拦引擎侧动作。
+            /model|embedding|search|execution-budget|query-plan|discovery|send|activate|contacts/.test(
               c.path,
             ),
           ),

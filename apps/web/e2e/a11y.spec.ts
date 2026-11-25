@@ -79,6 +79,50 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
       const backend = await installMockBackend(page);
       backend.set('GET', '/icps', [ICP]);
       backend.set('GET', '/leads', [LEAD]);
+      if (path === '/companies') {
+        // 公司档案页的页内事实/资料库工作台也要进入 a11y 抽样，不能只审空态。
+        backend.set('GET', '/workspace/context', {
+          user: backend.session.user,
+          workspace: { ...backend.session.workspaces[0], role: backend.session.workspace.role },
+          onboarding: { complete: true, companyId: 'c1' },
+          allowedActions: [],
+        });
+        backend.set('GET', '/companies', [
+          {
+            id: 'c1',
+            name: 'Muster Metallbau GmbH',
+            domain: 'muster-metallbau.de',
+            status: 'REVIEW',
+            created_at: '2026-11-25T09:00:00.000Z',
+          },
+        ]);
+        backend.set('GET', '/companies/c1', {
+          id: 'c1',
+          name: 'Muster Metallbau GmbH',
+          domain: 'muster-metallbau.de',
+          status: 'REVIEW',
+          created_at: '2026-11-25T09:00:00.000Z',
+        });
+        backend.set('GET', '/companies/c1/completeness', {
+          approvedClaims: 0,
+          conflictsOpen: 0,
+          offerings: 0,
+          pendingClaims: 1,
+        });
+        backend.set('GET', '/companies/c1/claims', [
+          {
+            companyId: 'c1',
+            createdAt: '2026-11-25T09:00:00.000Z',
+            id: 'claim-1',
+            statement: '通过 IATF 16949 认证',
+            status: 'NEEDS_REVIEW',
+            type: 'capability',
+            version: 1,
+          },
+        ]);
+        backend.set('GET', '/companies/c1/offerings', []);
+        backend.set('GET', '/companies/c1/conflicts', []);
+      }
       await loginAs(page);
       await page.goto(path);
       await page.waitForLoadState('networkidle');
