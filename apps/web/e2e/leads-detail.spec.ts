@@ -38,7 +38,7 @@ test('线索详情深链、四 tab 与接受动作', async ({ page }) => {
   await expect(
     page.getByRole('heading', { level: 1, name: 'Muster Metallbau GmbH' }),
   ).toBeVisible();
-  await expect(page.getByRole('tab')).toHaveText(['档案', '决策人', '触达草稿', '结果']);
+  await expect(page.getByRole('tab')).toHaveText(['档案', '联系人', '触达草稿', '结果']);
 
   // tab 进 URL，可直接分享
   await page.getByRole('tab', { name: '结果' }).click();
