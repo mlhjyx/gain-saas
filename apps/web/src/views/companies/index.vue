@@ -1405,7 +1405,7 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 pt-6 @container"
+    class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container"
     data-gs="companies-page"
   >
     <GsPage
