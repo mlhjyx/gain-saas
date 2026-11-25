@@ -35,8 +35,11 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'DELETE', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'POST', saasPath: 'companies/:companyId/website-candidates', enginePath: '/companies/:companyId/website-candidates', access: 'member' },
   // ── 模块 02 卖家资料库（Phase 2c）：浏览器直传经 BFF→引擎（binary:true 透传原始字节）──
+  // 暂缓流式转发：上游 global-backend 的 installSellerDocumentContentBodyReader 仍将 PUT .../content
+  // 完整缓冲进 51MB Buffer 后再调用 MinIO PutObjectCommand，单侧流式不仅无法降低端到端峰值内存，
+  // 且在超过 51MB 引擎销毁连接时易触发 ECONNRESET（被 BFF 折算为 502 而非 413），故先补 180s 超时。
   { method: 'POST', saasPath: 'companies/:companyId/seller-documents/presign', enginePath: '/companies/:companyId/seller-documents/presign', access: 'member' },
-  { method: 'PUT', saasPath: 'companies/:companyId/seller-documents/:documentId/content', enginePath: '/companies/:companyId/seller-documents/:documentId/content', access: 'member', binary: true },
+  { method: 'PUT', saasPath: 'companies/:companyId/seller-documents/:documentId/content', enginePath: '/companies/:companyId/seller-documents/:documentId/content', access: 'member', binary: true, timeoutMs: 180_000 },
   { method: 'POST', saasPath: 'companies/:companyId/seller-documents/:documentId/commit', enginePath: '/companies/:companyId/seller-documents/:documentId/commit', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents', enginePath: '/companies/:companyId/seller-documents', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents/search', enginePath: '/companies/:companyId/seller-documents/search', access: 'member' },
@@ -44,6 +47,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'seller-documents/:documentId/download-url', enginePath: '/seller-documents/:documentId/download-url', access: 'member' },
   { method: 'POST', saasPath: 'seller-documents/:documentId/retry', enginePath: '/seller-documents/:documentId/retry', access: 'member' },
   { method: 'DELETE', saasPath: 'seller-documents/:documentId', enginePath: '/seller-documents/:documentId', access: 'member' },
+  { method: 'GET', saasPath: 'companies/:companyId/seller-documents/:documentId/chunks/:seq', enginePath: '/companies/:companyId/seller-documents/:documentId/chunks/:seq', access: 'member' },
+  { method: 'POST', saasPath: 'companies/:companyId/seller-documents/:documentId/claim-previews', enginePath: '/companies/:companyId/seller-documents/:documentId/claim-previews', access: 'member' },
+  { method: 'POST', saasPath: 'companies/:companyId/seller-documents/:documentId/claim-drafts', enginePath: '/companies/:companyId/seller-documents/:documentId/claim-drafts', access: 'member' },
   { method: 'GET', saasPath: 'companies', enginePath: '/companies', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/completeness', enginePath: '/companies/:companyId/completeness', access: 'member' },

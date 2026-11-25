@@ -73,7 +73,26 @@ describe('seller documents BFF routes', () => {
     }
     expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
       binary: true,
+      timeoutMs: 180_000,
     });
+  });
+
+  it('registers seller-document-claims 3 routes as member passthroughs without grants', () => {
+    const expected: Array<[string, string]> = [
+      ['GET', 'companies/:companyId/seller-documents/:documentId/chunks/:seq'],
+      ['POST', 'companies/:companyId/seller-documents/:documentId/claim-previews'],
+      ['POST', 'companies/:companyId/seller-documents/:documentId/claim-drafts'],
+    ];
+    for (const [method, saasPath] of expected) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toMatchObject({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
   });
 });
 

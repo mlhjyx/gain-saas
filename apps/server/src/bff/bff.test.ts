@@ -327,3 +327,140 @@ describe('决策人路由的 Grant 接线', () => {
     expect(sent.json?.error?.userCopy?.title).toContain('合法性依据');
   });
 });
+
+describe('资料库上传与文档转 Claim BFF 透传', () => {
+  function makeRes() {
+    const sent: { status?: number; json?: unknown } = {};
+    const res = {
+      status(code: number) {
+        sent.status = code;
+        return this;
+      },
+      json(payload: unknown) {
+        sent.json = payload;
+        return this;
+      },
+      setHeader: () => undefined,
+      type() {
+        return this;
+      },
+      send: () => undefined,
+    };
+    return { res, sent };
+  }
+
+  it('PUT .../seller-documents/:documentId/content 以 binaryBody 与 180s timeoutMs 透传', async () => {
+    const call = vi.fn(async () => ({
+      status: 200,
+      body: { data: { id: 'd1', status: 'uploaded' } },
+      contentType: 'application/json',
+      headers: {},
+    }));
+    const audit = { record: vi.fn(async () => undefined) };
+    const handler = new BffHandler(
+      { call } as never,
+      { issue: vi.fn() } as never,
+      audit as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    const bytes = Buffer.from('%PDF-1.4\ncontent', 'utf8');
+    const req = {
+      method: 'PUT',
+      path: '/api/companies/c1/seller-documents/d1/content',
+      originalUrl: '/api/companies/c1/seller-documents/d1/content',
+      body: bytes,
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'member' },
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/pdf' : undefined),
+    };
+    const { res, sent } = makeRes();
+
+    await handler.handle(req as never, res as never);
+
+    expect(sent.status).toBe(200);
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w-1', role: 'member' }),
+      'PUT',
+      '/companies/c1/seller-documents/d1/content',
+      expect.objectContaining({
+        binaryBody: bytes,
+        binaryContentType: 'application/pdf',
+        timeoutMs: 180_000,
+      }),
+    );
+  });
+
+  it('GET .../chunks/:seq、POST .../claim-previews 与 POST .../claim-drafts 无 grant 透传', async () => {
+    const call = vi.fn(async () => ({
+      status: 200,
+      body: { data: { ok: true } },
+      contentType: 'application/json',
+      headers: {},
+    }));
+    const issue = vi.fn();
+    const audit = { record: vi.fn(async () => undefined) };
+    const handler = new BffHandler(
+      { call } as never,
+      { issue } as never,
+      audit as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+
+    const chunkReq = {
+      method: 'GET',
+      path: '/api/companies/c1/seller-documents/d1/chunks/2',
+      originalUrl: '/api/companies/c1/seller-documents/d1/chunks/2',
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'member' },
+      get: () => undefined,
+    };
+    const chunkRes = makeRes();
+    await handler.handle(chunkReq as never, chunkRes.res as never);
+    expect(chunkRes.sent.status).toBe(200);
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w-1', role: 'member' }),
+      'GET',
+      '/companies/c1/seller-documents/d1/chunks/2',
+      expect.objectContaining({ headers: {} }),
+    );
+
+    const previewBody = { reference: 'chunk:2', type: 'certification', statement: 'ISO 9001' };
+    const previewReq = {
+      method: 'POST',
+      path: '/api/companies/c1/seller-documents/d1/claim-previews',
+      originalUrl: '/api/companies/c1/seller-documents/d1/claim-previews',
+      body: previewBody,
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'member' },
+      get: () => undefined,
+    };
+    const previewRes = makeRes();
+    await handler.handle(previewReq as never, previewRes.res as never);
+    expect(previewRes.sent.status).toBe(200);
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w-1' }),
+      'POST',
+      '/companies/c1/seller-documents/d1/claim-previews',
+      expect.objectContaining({ body: previewBody, headers: {} }),
+    );
+
+    const draftBody = { ...previewBody, requestDigest: 'digest-123' };
+    const draftReq = {
+      method: 'POST',
+      path: '/api/companies/c1/seller-documents/d1/claim-drafts',
+      originalUrl: '/api/companies/c1/seller-documents/d1/claim-drafts',
+      body: draftBody,
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'member' },
+      get: (name: string) => (name.toLowerCase() === 'idempotency-key' ? 'idem-1' : undefined),
+    };
+    const draftRes = makeRes();
+    await handler.handle(draftReq as never, draftRes.res as never);
+    expect(draftRes.sent.status).toBe(200);
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w-1' }),
+      'POST',
+      '/companies/c1/seller-documents/d1/claim-drafts',
+      expect.objectContaining({ body: draftBody, headers: { 'idempotency-key': 'idem-1' } }),
+    );
+    expect(issue).not.toHaveBeenCalled();
+  });
+});
