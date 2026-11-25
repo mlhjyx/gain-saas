@@ -13,6 +13,8 @@ import { loadConfig } from './config/configuration.js';
 import { EngineTokenSigner } from './service/engine-token.signer.js';
 import { EngineBudgetGrantSigner } from './service/engine-budget-grant.signer.js';
 import { BffGuard, BffHandler, registerBffMiddleware } from './bff/bff.module.js';
+import { registerSellerDocumentUploadMiddleware } from './bff/seller-document-upload.middleware.js';
+import { SessionService } from './tenant/session.service.js';
 import { GlobalHttpExceptionFilter } from './shared/http-exception.filter.js';
 import { registerSettlementReadbackProxy } from './model-gateway/settlement-readback-proxy.js';
 import { registerPublicCooperationCors } from './cooperation/public-cooperation-cors.js';
@@ -50,20 +52,11 @@ async function bootstrap(): Promise<void> {
   // 官网合作意向公开端点的 CORS / 体积 / 安全响应头（只作用于该路径前缀）。
   // 注册在 JSON parser 之前：16KB 上限在解析前就按 content-length 拒绝。
   registerPublicCooperationCors(expressInstance, config.PUBLIC_COOPERATION_ALLOWED_ORIGINS);
+  // 资料库上传:注册在 JSON parser 之前并校验真实 saas_session 后才缓冲 51MB 二进制体，
+  // 防止未登录大包 DoS 或 application/json 上传绕过上传鉴权进入 expressLib.json()（raw 已消费流后 json() 会跳过）。
+  registerSellerDocumentUploadMiddleware(expressInstance, app.get(SessionService));
   expressInstance.use(expressLib.json({ limit: '8mb' }));
   expressInstance.use(expressLib.urlencoded({ extended: true, limit: '8mb' }));
-  // 资料库上传:先要求携带会话 cookie 再缓冲 51MB 二进制体，防止未登录大包内存耗尽 DoS。
-  expressInstance.use(
-    '/api/companies/:companyId/seller-documents/:documentId/content',
-    (req: Request, res: Response, next: NextFunction) => {
-      if (!req.cookies?.gain_session) {
-        res.status(401).json({ error: { code: 'AUTH_REQUIRED', message: '请先登录' } });
-        return;
-      }
-      next();
-    },
-    expressLib.raw({ type: () => true, limit: '51mb' }),
-  );
   registerSettlementReadbackProxy(expressInstance, config);
   const bffHandler = app.get(BffHandler);
   const bffGuard = app.get(BffGuard);
