@@ -38,6 +38,21 @@
 
 所有用户可见界面按 [界面设计准则](docs/engineering/ui-design-guidelines.md) 执行；验收方式是让没看过文档的人独立完成主流程，而不是靠追加说明。
 
+### 5.2 Ant Design 基线（2026-11-23 增补，方案 B）
+
+- **唯一实现路径**：登录后业务页面（`/ops`、登录/注册/异常页除外）一律使用 ant-design-vue 组件；页面级 `<style scoped>` 目标为 0 行，视觉来自 `app.vue` 的 ConfigProvider token。规范见 [界面设计系统](docs/engineering/ui-design-system.md)。
+- **薄封装**：需要统一默认值时用 `apps/web/src/components/gainos/ui/`（GsPage/GsSteps/GsCard/GsToolbar/GsSegmented/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsSelect/GsRadar/GsStatusIcon），不在页面里重造按钮/输入/表格/弹层。
+- **响应式按内容区宽度**：页面根节点写 `grid-cols-1 @container`，卡片 / 网格用 `@container (min-width: …)` 窄屏优先分级，不按视口写 `@media` / `lg:`（侧栏展开、收起、抽屉都会改变内容区宽度）。规范见设计系统 §15。
+- **`$t()` 的键必须是字符串键**：文案表里同名的对象（如 `findBuyers.ruleKind` 是选项映射）取出来就是键名本身，界面会直接显示 `gainos.xxx`，且不会报错。
+- **antdv 按 Vue 版 API 写**：`Dropdown` 没有 `menu` 属性（那是 React 版），菜单走 `#overlay` + `Menu`；传错不报错，只会弹出空层。
+- **每个可交互控件至少一条点击断言**：线索卡的「⋯」因从未被 e2e 点过，带着空菜单进了预览才被用户发现。
+- **布局工具类挂在普通 div 上**：Tailwind v4 工具类在 `@layer` 里，antd 的 cssinjs 不在，同属性 antd 永远赢——`-mt-*`/`w-*` 不要直接写在 antd 组件根节点（会被 `.ant-card{margin:0}`、`.ant-input-affix-wrapper{width:100%}` 吃掉），外面包一层 div。
+- **薄封装必须是真组件**：封装内禁止写 `<a-card>`/`<a-tag>` 这类字符串标签（本应用没有全局注册 AntDV，会渲染成无样式自定义元素，表现为卡片 0 padding、标题/标签丢失）；必须显式 `import { Card, Tag, … }` 后用 PascalCase。
+- **反馈统一**：成功/失败提示用 `#/feedback` 的 `feedback.message.*`，确认框用 `feedback.confirm`（danger 显式声明），顶部通知用 `feedback.notification.*`；禁止 `window.confirm/alert` 与静态 `message/notification`。
+- **测试锚点**：页面 DOM 只承诺 role/aria-label 与 `data-gs="<area>"`；旧 BEM 页面类（`.wk__*` / `.ld__*` / `.cp__*` …）迁移后不保留，e2e 同步改写。
+- **取色扫描**：`pass2/pass3-color-scan` 采样背景/边框色必须用短横线属性名（`background-color`），`getPropertyValue('backgroundColor')` 一律返回空串；`outline-style:none` 时不采 `outline-color`。
+- **判定文本**：引擎的聚合判定（`judge-aggregate` / `C1_MATERIAL…` / `reasonCodes`）不得直接上屏；一律经 `apps/web/src/views/leads/judge.ts` 解析成五维业务语言，原文与机器码只进「技术详情」折叠区（规范 §11）。
+
 ### 5.1 简洁性（2026-11-22 增补）
 
 目标简单，设计简单，实现简单。砍掉标语、提示文字和次要标签；如果一个页面非得靠这些东西才看得懂，那就去改布局。每个决定都要同时提升客户体验（UX）、开发者体验（DX）和智能体体验（AX），而且不能弄坏任何东西。

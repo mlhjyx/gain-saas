@@ -97,15 +97,17 @@ const PAGES = [
 function collectColors() {
   const props = [
     'color',
-    'backgroundColor',
-    'borderTopColor',
-    'borderRightColor',
-    'borderBottomColor',
-    'borderLeftColor',
-    'outlineColor',
+    // getComputedStyle().getPropertyValue() 只认短横线属性名：此前写成驼峰
+    // （backgroundColor 等）会一律返回空串，背景色与边框色从未被采样。
+    'background-color',
+    'border-top-color',
+    'border-right-color',
+    'border-bottom-color',
+    'border-left-color',
+    'outline-color',
     'fill',
     'stroke',
-    'textDecorationColor',
+    'text-decoration-color',
   ];
   const rows: Array<{ prop: string; value: string; tag: string; cls: string }> = [];
   for (const el of Array.from(document.querySelectorAll('body *'))) {
@@ -114,6 +116,8 @@ function collectColors() {
     const style = getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
     for (const prop of props) {
+      // 没画出来的描边不采样：outline-style:none 时浏览器仍会报一个 oklab 的默认 outline-color。
+      if (prop === 'outline-color' && style.outlineStyle === 'none') continue;
       const value = style.getPropertyValue(prop);
       if (!value || value === 'none' || value === 'transparent') continue;
       rows.push({

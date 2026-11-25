@@ -97,13 +97,20 @@ test('pass2 measurable specs', async ({ page }) => {
   await page.waitForTimeout(500);
   const leads = await page.evaluate(() => {
     const style = (el: Element | null) => (el ? getComputedStyle(el) : null);
-    const accept = document.querySelector('.ld__actions .ld__action--accept');
-    const card = document.querySelector('.ld__lead');
+    const rect = (el: Element | null) => (el ? el.getBoundingClientRect() : null);
+    // 2026-11-23 方案 B：leads 迁移到 AntDV，度量改为 token 符合度
+    const accept = document.querySelector(
+      "[data-gs='lead-accept']",
+    ) as HTMLElement | null;
+    const card = document.querySelector(
+      "[data-gs='lead-card']",
+    ) as HTMLElement | null;
     return {
-      queueCards: document.querySelectorAll('.ld__queues').length,
-      toolbar: document.querySelectorAll('.ld__toolbar').length,
-      search: document.querySelectorAll('.ld__toolbar input[type="search"]').length,
+      queueSwitch: document.querySelectorAll("[data-gs='queue-switch']").length,
+      toolbar: document.querySelectorAll("[data-gs='queue-toolbar']").length,
+      search: document.querySelectorAll("[data-gs='lead-search']").length,
       acceptRadius: style(accept ?? null)?.borderRadius,
+      acceptHeight: rect(accept ?? null)?.height,
       cardRadius: style(card ?? null)?.borderRadius,
       cardShadow: style(card ?? null)?.boxShadow,
     };
@@ -125,8 +132,12 @@ test('pass2 measurable specs', async ({ page }) => {
   expect(workspace.mainCtaRadius).toBe('9999px');
   expect(workspace.card?.radius).toBe('10px');
   expect(workspace.card?.shadow).not.toBe('none');
-  expect(leads.queueCards).toBe(0);
+  expect(leads.queueSwitch).toBe(1);
   expect(leads.toolbar).toBe(1);
   expect(leads.search).toBe(1);
-  expect(leads.acceptRadius).toBe('9999px');
+  // 企业系统统一 10px 圆角 + 40px 标准控件（设计系统 §4）
+  expect(leads.acceptRadius).toBe('10px');
+  expect(leads.acceptHeight).toBe(40);
+  expect(leads.cardRadius).toBe('10px');
+  expect(leads.cardShadow).not.toBe('none');
 });

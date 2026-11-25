@@ -93,9 +93,9 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
     await loginAs(page);
     await page.goto('/leads');
     await page
-      .locator('.ld__lead')
+      .locator("[data-gs='lead-card']")
       .filter({ hasText: 'Muster Metallbau GmbH' })
-      .getByRole('button', { name: '值得跟进' })
+      .getByRole('button', { name: '跟进', exact: true })
       .click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await audit(page, { include: '[role="dialog"]' });

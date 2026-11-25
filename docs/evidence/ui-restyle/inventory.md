@@ -1635,3 +1635,177 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 既有 spec 适配：nav-shell/main-chain 的「设置」分组点击删除（扁平导航叶子常驻），组标签断言收窄 `.sdr-section__label`。
 - 回归全绿：nav-shell 2、settings-shell、main-chain 9、pass3-cache-normalize、locale-toggle、pass3-interactions、pass2-measure、dark-mode、responsive（desktop/dark/mobile 三 project）。
 - 截图：`pass5/{light,dark}-{workspace,tabs-many}.png`、`light-command-palette.png`、`light-tabs-overflow.png`（1100px 溢出态：无滚动条、两端滚动钮）、`light-tab-hover/tool-hover/help-popover/rail/rail-account-menu.png`、`{light,dark}-account-menu.png`、`dark-tab-hover.png`、`mobile-{workspace,drawer}.png`、`dialog-{members,sources}-light.png`、`dialog-{members,audit}-dark.png`（18 张）。
+
+## 15. Pass6 批次 1（2026-11-23）：Ant Design 基线 + 买家线索样板页
+
+方案 B（全站 AntDV 化）的第 1 批：地基 + 样板页，其余页面按批次 2/3 推进。
+
+### 15.1 地基
+- 设计规范：新增 `docs/engineering/ui-design-system.md`（字阶 12/13/14/16/20、间距 4–32、圆角 10、表格/表单/反馈/动效规则）。
+- 主题 token：`Modal/Drawer` 圆角 20→10；新增 `fontSizeSM:12`、`motionDurationMid:0.15s`、`Card.paddingLG:24`、`Table.fontSize:13`、`Tag/Alert/Notification` 圆角；删除 `gainos.css` 里 `.ant-btn-primary{9999px}` 与 hover 位移/发光覆盖。
+- 反馈层：新增 `apps/web/src/feedback.ts` + `components/feedback-init.vue`（`App.useApp()` 上下文），替换 `api/request.ts`、`router/access.ts`、`store/auth.ts`、`workspace`、`onboarding` 的静态 `message/notification`；`window.confirm` 全部改为 `feedback.confirm`（runs / members / suppressions / companies×4 / find-buyers，共 8 处，ops 除外）。
+- 封装层：`components/gainos/ui/` 九个薄封装（GsPage/GsCard/GsTable/GsEmpty/GsModal/GsTag/GsStat/GsToolbar/GsSelect）；GsSelect 修补 antdv 4.2.6 的 combobox ARIA 缺口（aria-expanded + 关闭态移除无效 aria-controls/owns/activedescendant），a11y 门禁不减项。
+- ErrorNotice 改为 `a-alert` 承载，保留三层文案、`role="alert"` 与 `.error-notice__details` 折叠。
+
+### 15.2 样板页：买家线索（`views/leads/index.vue`）
+- 模板全部换 antd：GsPage + a-steps + GsToolbar(a-radio-group/a-input) + a-alert + a-skeleton + GsEmpty + GsCard 列表 + a-modal 裁决/提商机；页面 scoped CSS 从 225 行降为 **0 行**。
+- 锚点：`data-gs="page-header|stage-steps|queue-toolbar|queue-switch|lead-search|sanctions-banner|lead-card|lead-accept|lead-reject|load-more|decision-modal|promote-modal"`；旧 `.ld__*` 全部移除。
+- 成功提示改 `feedback.message.success`（接受/拒绝/提升），裁决弹层 `okType=danger`（拒绝）。
+
+### 15.3 测试与证据
+- 迁移：nav-shell（leads landmark）、main-chain（卡片/按钮锚点 + antd 确认框交互）、idempotency（卡片锚点）、a11y（卡片锚点）、pass2-measure（leads 段改 token 符合度：按钮 10px/32px、卡片 10px + 阴影）。
+- 本地全绿：typecheck/build、a11y、color-scan（pass2/pass3）、dark-mode、responsive、21 个定向 spec。
+- 证据：`docs/evidence/ui-restyle/antd-system/{leads,leads-modal}-{light,dark}.png`。
+
+## 16. 买家线索判定可读化（2026-11-23）
+
+用户反馈：线索页把引擎的聚合文本（`judge-aggregate/v1`、`C1_MATERIAL pass（score 8）`、`reasonCodes=…`）直接展示，普通用户看不懂。本次把 C1–C5 解析成业务维度，列表按参考图重排，详情加五维雷达。
+
+### 16.1 解析与文案
+- 新增 `views/leads/judge.ts`：`parseJudge()` 解析五维（兼容字符串/数组/JSON 字符串/对象）、结论码、加权说明；`keyDimension()` 选决定性维度；`shortRationale()` 截断；`scoreGrade()` 分档。
+- 新增 `views/leads/judge-labels.ts`：维度名（产品品类/买家角色/生产工艺/经营模式/企业规模）、判据状态词表、`ICP`→「目标客户画像」的展示替换。
+- i18n（zh/en 同步）：`leads.scoreLabel/scoreGrade/criteria*/dimScore/expand/collapse/moreActions/copyDomain/radar*/tech*/evidenceHighlight`，既有 key 未改。
+
+### 16.2 列表（`views/leads/lead-card.vue`，从页面抽出）
+- 卡片五行：公司（首字母牌位 + 国家/域名 + 行业/规模标签）→ 评分（分数 + 高价值/潜力客户/待观察）→ 判断结果+原因（决定性维度一句话，最多 2 行）→ 五维摘要（✓/✗/? + 结论 + 0–10 分）→ 操作（值得跟进/暂不跟进/⋯）。
+- 待我判断的卡片左侧 3px 强调条；展开区显示逐维理由与「技术详情」（聚合原文/verdict/reasonCodes/加权说明）。
+- 页面 scoped CSS 仍为 **0 行**（样式随卡片下沉到组件）。
+
+### 16.3 详情（`views/leads/detail.vue`）
+- 整页迁 AntDV：GsPage + a-tabs（档案/决策人/触达草稿/结果）+ GsCard + a-descriptions + a-modal（裁决/提商机）。
+- 档案页首屏：判断结果 hero（46 + 高价值/待观察 + 1 项符合·3 项不符·1 项证据不足 + 关键理由 + 核心证据）+ 五维雷达（新增 `components/gainos/ui/gs-radar.vue`，纯 SVG、无新依赖、双主题）。
+- 逐维明细：状态图标 + 名称 + 结论 + 0–10 分条 + 理由（新增共享组件 `views/leads/judge-dimensions.vue`）；八维 `scores` 保留为「评分维度」补充卡。
+- 证据不足的维度按 0 绘制，图下注明；机器码与聚合原文只进折叠区。
+
+### 16.4 验证与证据
+- 新增 `e2e/leads-judge.spec.ts`：用用户给出的真实形状数据锁定「列表/详情不出现 C1_MATERIAL / judge-aggregate / reasonCodes / ICP」「展开可见逐维理由」「技术详情内可见机器码」「详情雷达 role=img」。
+- 回归：nav-shell、main-chain（9 条）、idempotency、a11y、resilience、pass2-measure（按钮 40px）、color-scan（pass2/pass3）、dark-mode、responsive、locale-toggle、zero-jargon 全绿；`resilience` 的旧 `.ld__lead` 锚点改 `data-gs="lead-card"`。
+- 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-{light,dark}.png`、`leads-detail-judge-{light,dark}.png`。
+
+### 16.5 边距回归修复（2026-11-23）
+用户验收反馈「页面没有边距」。根因不在页面 padding，而在批次 1 的封装层：`GsCard/GsTag/GsEmpty/GsModal/GsTable/GsStat` 使用了 `<a-card>`/`<a-tag>` 字符串标签，但本应用从未全局注册 AntDV → 浏览器把它们当自定义元素 `A-CARD` 渲染，`body-style` 变成 `[object Object]` 属性，卡片 body padding=0、card head/title 与作用域插槽全部丢失，Tag 退化为纯文本。
+- 修复：六个封装改为显式 `import { Card, Tag, Empty, Modal, Table, Statistic }` 并使用 PascalCase 组件；`GsCard` body padding 24px；`GsEmpty` 的操作区移到 Empty 下方（不再占用 image 槽）；卡片标题包 `role="heading" aria-level="2"`。
+- 页面留白：列表/详情根容器改用 `--gs-page-max`（1280）与 `--gs-page-pad`（桌面 32px），卡片与页面边缘都有可见留白。
+- 验证：typecheck / lint 全绿；定向 e2e 34 项全绿（含 color-scan ×2、a11y、dark、responsive、zero-jargon、main-chain、leads-judge）；证据重拍 `antd-system/leads-*`、`pass2/*`、`pass3/*`。
+
+## 17. 买家线索页对标商业名录页（2026-11-24）
+
+用户第二次给出参考图并要求「弄成这种效果」。§16 的信息结构保留（C1–C5 解析、机器码只进技术详情），这一轮改的是观感。
+
+### 17.1 页头与画布
+- `GsPage` 默认改为渐变页头：通栏品牌蓝极浅渐变带 + 内联 SVG 插画，H1 28/600；`:hero="false"` 回到素净页头。
+- 步骤条装进白色薄面板（`GsCard dense`）并上移压进渐变；列表页根容器去掉顶部内边距，页头通栏贴顶。
+- 画布 `--background-deep` 由纯灰 `0 0% 95%` 改为近白微蓝 `220 30% 97.6%`（全站生效）；暗色侧栏补上中性灰覆盖 `.dark .dark { --sidebar: 0 0% 12% }`。
+
+### 17.2 队列页签与工具栏
+- 新增 `components/gainos/ui/gs-segmented.vue`（药丸页签，`role=group` + `aria-pressed`），替换 `RadioGroup button-style=solid`；原「×」清除按钮随之移除（点「待我判断」即可回到默认队列）。
+- 目标客户画像下拉、搜索（带放大镜前缀）、商机、刷新并入 `GsToolbar`；页头不再放操作按钮。
+
+### 17.3 线索卡
+- 去掉线边框与竖向分隔线，改「环 + 柔和投影」白卡；操作按钮改为一行（跟进 / 排除 / ⋯），垂直居中。
+- 判断结果由队列名改为机器结论药丸；原因压成一行；维度计数摘要移入展开区。
+- 新增 i18n：`leads.cardAccept`（跟进）、`leads.cardReject`（排除）、`leads.verdict.{match,weak,mismatch,unknown}`。既有 key/value 未改。
+- 断点：视口 ≥ 1512px 五列并排，以下四列 + 维度横排，手机单列。
+
+### 17.4 取色扫描夹具缺陷（顺带修复）
+- `pass2/pass3-color-scan` 的属性名写成了驼峰（`backgroundColor` 等），`getPropertyValue` 对标准属性只认短横线名 → 背景色与边框色**从未被采样**。
+- 修复为短横线名后样本量 21,416 → 84,086；暴露出两个此前不可见的问题并一并处理：
+  1. `outline-style:none` 的元素仍会报一个 oklab 的默认 `outline-color`（10,007 个假阳性）→ 没画出来的描边不采样；
+  2. 暗色侧栏是 Vben 自带的带蓝调 `rgb(28,30,35)`（不在色板内）→ 换成同明度纯中性灰。
+- 修复后全站 15 页 × 明暗两套未知色相 0；新画布色被采到并归为品牌色系。
+
+### 17.5 踩坑记录
+- Tailwind 工具类挂在 antd 根节点上不生效（cascade layer）：步骤面板的 `-mt-12` 被 `.ant-card{margin:0}` 吃掉、带前缀的搜索框被 `.ant-input-affix-wrapper{width:100%}` 撑满导致工具栏折成三行。改为包一层普通 div。
+
+### 17.6 验证与证据
+- typecheck / build / lint:terms / lint:date 全绿；定向 e2e 43 项全绿（a11y、取色扫描 ×2、dark-mode、responsive、zero-jargon、locale-toggle、main-chain 9 条、leads-judge、leads-detail、idempotency、resilience、nav-shell、error-copy、interactions ×2、cache-normalize、pass5-shell）。
+- 注意：本机用 8 个 worker 并发跑会把机器压满，pass2-measure / pass5-shell 会出现超时假失败；单独跑或 `--workers=4` 均通过。
+- 证据：`docs/evidence/ui-restyle/antd-system/leads-judge-wide-{light,dark}.png`（1586px，五列）、`leads-judge-{light,dark}.png`（1440px，含展开区）、`leads-detail-judge-{light,dark}.png`。
+
+## 18. 验收反馈两处修正（2026-11-25）
+
+### 18.1 步骤条的「5」
+- 用户：「去掉这个数字 5，用户不知道什么意思。」
+- 当前步改为「蓝底圆 + 白点」标记，不再显示序号；`leads-judge.spec` 断言步骤图标里没有数字。
+
+### 18.2 「⋯」按钮点击无反应
+- 根因：`Dropdown` 按 React 版 antd 的写法传了 `:menu`，而 antdv 4 只认 `overlay` / `#overlay`。弹层被打开但内容为空（36×0），所以看起来毫无反应。
+- 这是 §16 就引入的缺陷，e2e 从未点击过该按钮，直到用户手点才暴露。
+- 修复：`#overlay` + `<Menu :items="menuItems" @click="onMenu" />`。
+- 补测：`leads-judge.spec` 点击「⋯」→ 断言菜单可见且恰为「查看档案包 / 复制官网域名」→ 复制后有提示且剪贴板内容正确 → 「查看档案包」跳转到详情页。
+- 该按钮的用途：收纳两个次要动作（打开档案包、复制官网域名），主动作「跟进 / 排除」已经在卡片上。
+
+### 18.3 验证
+- typecheck / build / lint:terms / lint:date 全绿；定向 e2e 34 项全绿（含 a11y、取色扫描 ×2：84,102 个样本、未知色相 0）。
+
+## 19. 决策人列表重排（2026-11-25）
+
+用户要求：线索档案包的决策人列表也改排版，提高可读性；本轮不跑 e2e，正式上线前统一跑。
+
+### 19.1 改动
+- `views/leads/DecisionMakerCard.vue` 重写：原生按钮 / 自制遮罩弹层 / 手写提示全部换成 antd（Button、Modal、Alert、Checkbox、Skeleton、Tag）+ `GsCard` / `GsEmpty` / `GsTag` / `ErrorNotice`；scoped CSS 从约 80 条规则收敛为卡片三列网格与少量排版。
+- 排版：页头（标题 + 说明 + 操作）落在画布上；每位决策人一张浮起白卡，三列对齐（人 / 联系方式 / 来源）；联系方式行的类型标签等宽、状态药丸与「验证邮箱」上下成列。
+- 状态文案新增 `contacts.badge.*`（已验证 / 待确认 / 推断 / 已拦截 / 无效 / 未验证），不再显示括号里的引擎枚举；既有 `contacts.status.*` 未改。验证完成的提示也改用这组词。
+- 来源去重：同层级已有带链接来源时，不再显示同层级不带链接的重复行（不同链接全部保留）。
+- `GsCard` 新增 `padding` 属性；`detail.vue` 的「决策人」页签去掉多套的一层卡片。
+- 提示条区分语气：验证被拦截 / 验证结果非「已验证」为警告色，其余为成功色。
+
+### 19.2 验证范围（本轮未跑 e2e）
+- 已做：typecheck、build、lint:terms、lint:date；用模拟数据截图确认列表 / 空态 / 错误态 / 验证弹层（明暗两套），控制台无报错。
+- 未做：e2e 套件、a11y（axe）与取色扫描——这张卡片目前没有任何自动化用例覆盖，a11y 审计的页面清单里也不含详情页的「决策人」页签。正式上线前跑全量时建议把该页签补进 a11y 审计清单。
+
+## 20. 找买家页对标买家线索页（2026-11-25）
+
+用户要求：按买家线索页的风格和理念优化找买家页。本轮按约定不跑 e2e，正式上线前统一跑。
+
+### 20.1 列表
+- `views/find-buyers/icp-card.vue`（新）：画像卡五列（画像 / 目标市场 / 寻源方案 / 最近寻源 / 操作），与线索卡同一套卡片语言。
+- 「寻源方案 / 最近寻源」进入页面时按画像并行预取（每个画像 2 个请求），不阻塞列表；取不到显示「—」，确实没有才显示「还没有」。
+- 页头（`GsPage`）、步骤面板、工具栏（`GsToolbar`）与线索页一致；加载用骨架屏，空态 / 错误态用统一组件。
+- 原模板里写死的中文「N 条资格规则 · N 个买家画像」改为文案键。
+
+### 20.2 详情
+- 原来的 920px 手写大弹层改为 antd `Drawer`，正文按卡片分区：画像概览 / 反馈建议 / 寻源方案 / 最近寻源 / 高级（规则与回测，默认收起）。
+- 新建 / 编辑 / 规则改为 antd `Modal`；9 处页面内固定提示条改为统一反馈层。
+- 业务逻辑（规则、回测、方案、发起寻源、本机运行记录、企业事实检查）逐字保留：脚本从旧文件原样截取，只对取值归一、提示方式、列表预取做了逐处断言的替换。
+
+### 20.3 顺带修掉的旧问题
+- 规则弹层的「规则类型 / 比较方式」标签一直显示的是文案键名（`gainos.findBuyers.ruleKind`）——该键在文案表里是选项映射而不是字符串。新增两个标签键。
+- 公司属性字段名（技术与工艺、区域…）写死在代码里，英文界面也显示中文。改为 13 个文案键。
+- 步骤条：当前步之后的步骤仍显示序号（「4 等待寻源」「5 判断线索」），与用户此前指出的「5」是同一个困惑；改为空心圆。antd 还把每一步渲染成点击无效的「按钮」，已去掉。
+- 新建时公司选项带着原始状态枚举（如 `ACTIVE`）；公司状态没有业务词表，改为只显示名称。
+- 卡片断点初设 1279px，实测五列最少需要约 1070px 内容宽度，1280–1407px 会溢出，已调到 1407px。
+
+### 20.4 共用组件
+- 新增 `components/gainos/ui/gs-steps.vue`，买家线索页与找买家页共用（线索页内联的步骤逻辑随之移除）。
+
+### 20.5 验证范围（未跑 e2e）
+- 已做：typecheck、build、lint:terms、lint:date；用模拟数据截图确认列表（1586 / 1280 / 390）、详情抽屉、新建 / 编辑 / 规则弹层、空态、暗色；手机宽度无横向溢出；控制台无报错；买家线索页步骤条无回归（无数字、无假按钮）。
+- 用例锚点：`nav-shell` 的页面锚点由 `.fb` 改为 `[data-gs="page-header"]`。其余依赖本页的用例只用按钮名称（查看与调整 / 生成寻源方案 / 确认方案 / 开始寻源），这些名称未变。
+- 未做：e2e 套件、a11y、取色扫描。
+
+## 21. 响应式：手机导航与平板布局（2026-11-25）
+
+用户反馈：手机上菜单还是旧的，没有通知 / 设置 / 退出登录；平板上功能页右侧的信息显示不出来。
+
+### 21.1 手机导航
+- 原因：新版侧栏是只在桌面宽度下渲染的固定覆盖层，手机抽屉里露出的是 Vben 自带菜单——没有底部账号区（顶栏隐藏后退出登录也没有入口），菜单项还是浅色字落在白底上，除当前项外全部不可见。
+- 处理：侧栏拆成「导航数据（`use-sdr-nav.ts`）+ 内容面板（`sdr-nav-panel.vue`）+ 容器（`sdr-sidebar.vue`）」；手机改为 antd `Drawer`（300px / 84vw），与桌面共用同一份内容和底部账号区，品牌行增加主题 / 语言 / 关闭。汉堡按钮直接打开它，不再代理点击 Vben 的开关。
+- 抽屉在路由跳转后自动收起；设置 / 搜索类动作先收抽屉再打开对应弹层。
+
+### 21.2 平板布局
+- 量到的事实（内容区宽度 544 / 596 / 800px）：买家线索横向溢出 330px，找买家 161px，线索详情「决策人」页签 46px，被内容区的 `overflow-x: hidden` 裁掉。其它页面不溢出。
+- 根因两个：① 页面根是网格但没有约束列宽，子内容一宽就把整列撑开，步骤条、工具栏跟着被撑出屏幕；② 卡片的断点按视口宽度设，没有减去侧栏占掉的 224px。
+- 处理：
+  - 页面根统一 `grid-cols-1 @container`；线索卡、画像卡、决策人卡、详情页网格改为按内容区宽度分级（容器查询），窄屏优先。
+  - 步骤条自己量容器，窄于 760px 竖排（antd 自带的只看视口，侧栏占位时判断不准）。
+  - 工具栏在窄内容区下两两成行。
+  - 平板竖屏（768–1023px）侧栏自动收成图标窄栏：820px 宽的平板内容区从 596px 增加到 760px。自动收起会在本地留标记并在离开该宽度时恢复，不覆盖用户的真实偏好。
+- 雷达图限定最大宽度 420px 并居中（单列堆叠时原先会拉满整张卡片）。
+
+### 21.3 验证
+- 全部 21 个路由在 768 / 820 / 1024px 下逐一测量：内容区横向溢出均为 0（首轮测量因等待时间不足量到的是空页面，作废后重测）。
+- 线索列表、线索详情、决策人页签、找买家在 390 / 768 / 820 / 1024 / 1280 / 1440 / 1586px 下截图检查，明暗两套。
+- 侧栏偏好：平板自动收起 → 刷新仍收起 → 回到桌面宽度恢复展开；平板宽度下刷新后再回到桌面宽度同样恢复。
+- 桌面宽度（1440 / 1586）的卡片布局与改动前一致。
+- 用例：`responsive.spec.ts` 新增 tablet 项目并改为同时测量内容区溢出；`pass5-shell` 的移动端导航用例改为断言新抽屉。这两个文件本轮各跑过一次（手机 + 平板两个项目），通过。其余 e2e 未跑，留到上线前。

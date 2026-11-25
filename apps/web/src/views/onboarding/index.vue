@@ -4,8 +4,9 @@ import { useRouter } from 'vue-router';
 
 import { preferences, usePreferences } from '@vben/preferences';
 
-import { Button, Input, message, Select } from 'ant-design-vue';
+import { Button, Input, Select } from 'ant-design-vue';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 import {
   gainosApi,
@@ -169,7 +170,7 @@ function addProduct(value?: string) {
   const next = (value ?? productDraft.value).trim().slice(0, 120);
   if (!next) return;
   if (products.value.length >= 5) {
-    message.warning($t('gainos.onboarding.productsLimit'));
+    feedback.message.warning($t('gainos.onboarding.productsLimit'));
     return;
   }
   if (!products.value.includes(next)) products.value.push(next);
@@ -354,7 +355,7 @@ async function submit() {
   try {
     await gainosApi.completeOnboarding(buildPayload());
     authStore.markOnboardingCompleted();
-    message.success($t('gainos.onboarding.success'));
+    feedback.message.success($t('gainos.onboarding.success'));
     await router.replace(preferences.app.defaultHomePath);
   } catch (error) {
     handleError(error);

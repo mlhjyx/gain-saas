@@ -47,7 +47,7 @@ test('线索详情深链、四 tab 与接受动作', async ({ page }) => {
   await page.waitForTimeout(600);
 
   // 接受动作：确认后 POST 到 accept
-  await page.getByRole('button', { name: '值得跟进' }).first().click();
+  await page.getByRole('button', { name: '跟进', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: '确认跟进' }).click();
   await expect.poll(() => backend.callsTo('POST', '/leads/lead-1/accept').length).toBe(1);

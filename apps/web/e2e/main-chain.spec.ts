@@ -279,8 +279,8 @@ test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
 
   await loginAs(page);
   await page.goto('/leads');
-  const card = page.locator('.ld__lead').filter({ hasText: 'Muster Metallbau GmbH' });
-  await card.getByRole('button', { name: '值得跟进' }).click();
+  const card = page.locator("[data-gs='lead-card']").filter({ hasText: 'Muster Metallbau GmbH' });
+  await card.getByRole('button', { name: '跟进', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '确认跟进' }).click();
   await expect(page.getByText('已移入「值得跟进」')).toBeVisible();
   await page.getByRole('button', { name: '提升为商机' }).first().click();
@@ -466,10 +466,11 @@ test('主链路 7（展示侧）：禁联队列联动——对象不可裁决', 
   await page.goto('/leads?queue=suppressed');
   await settle(page);
   await expect(page.getByText('禁联', { exact: true }).first()).toBeVisible();
-  // 合规红线：禁联对象没有“值得跟进 / 暂不跟进”的可裁决按钮（队列页签不算）
-  const cardButtons = page.locator('.ld__lead button');
-  await expect(cardButtons.getByText('值得跟进')).toHaveCount(0);
-  await expect(cardButtons.getByText('暂不跟进')).toHaveCount(0);
+  // 合规红线：禁联对象没有「跟进 / 排除」的可裁决按钮
+  const card = page.locator("[data-gs='lead-card']").first();
+  await expect(card.getByRole('button', { name: '跟进', exact: true })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: '排除', exact: true })).toHaveCount(0);
+  await expect(card.locator("[data-gs='lead-accept'], [data-gs='lead-reject']")).toHaveCount(0);
 });
 
 test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发送动作）', async ({ page }) => {
@@ -596,15 +597,19 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
   expect(create!.body).toMatchObject({ reason: 'manual', type: 'email', value: 'noreply@example.com' });
 
   // 解除申请：append-only，记录保留（不给“删除成功”假象）
-  page.once('dialog', (dialog) => void dialog.accept());
+  // 2026-11-23 方案 B：原生 confirm → antd 确认框（okText 与操作同名）
   await page.getByRole('button', { name: '解除申请' }).click();
+  const confirmBox = page.locator('.ant-modal-confirm');
+  await expect(confirmBox).toBeVisible();
+  await confirmBox.getByRole('button', { name: '解除申请' }).click();
+  await expect(confirmBox).toHaveCount(0);
   await expect(page.getByText('已提交解除申请：记录保留并进入复核流程（不会立即解除）。')).toBeVisible();
-  await expect(page.getByText('noreply@example.com')).toBeVisible();
+  await expect(page.getByText('noreply@example.com').first()).toBeVisible();
   await expect(page.locator('.gs-badge', { hasText: '法定' })).toBeVisible();
 
   // 联动文案：禁联对象出现在买家线索的「禁联」队列，且不可裁决
   await page.goto('/leads?queue=suppressed');
   await settle(page);
   await expect(page.getByText('禁联', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.ld__lead button').getByText('值得跟进')).toHaveCount(0);
+  await expect(page.locator("[data-gs='lead-card'] [data-gs='lead-accept']")).toHaveCount(0);
 });

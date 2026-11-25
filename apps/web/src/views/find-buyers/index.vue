@@ -1,41 +1,71 @@
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-
+/**
+ * 找买家（目标客户画像 + 寻源方案）。
+ *
+ * 2026-11-25 按买家线索页的风格与理念重排：
+ * - 列表 = 对齐分列的画像卡，「寻源方案 / 最近寻源」直接摆在卡片上（进入页面时并行预取）；
+ * - 详情 = 右侧抽屉，内容按卡片分区（画像概览 / 反馈建议 / 寻源方案 / 最近运行 / 高级），
+ *   取代原来一个 920px 的手写大弹层；
+ * - 控件全部走 antd + Gs 封装；结果提示走统一反馈层。
+ *
+ * 业务逻辑（规则、回测、方案、发起寻源、本机运行记录）保持不变。
+ */
 import type { StatusTone } from '@gain-saas/shared';
 
-import { formatDateTime, glossaryStatus, glossaryTerm, statusClass } from '@gain-saas/shared';
+import type {
+  AcquisitionTaskView,
+  Backtest,
+  CompanyProfile,
+  Icp,
+  IcpFeedbackReport,
+  IcpRule,
+  IcpRuleInput,
+  QueryPlan,
+  TaskRunView,
+} from '#/api/gainos';
+import type { FbTone, IcpCardRow, SummaryState } from './icp-card-types';
+
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+
+import { formatDateTime, glossaryStatus, glossaryTerm } from '@gain-saas/shared';
+import { RotateCw } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
-import { $t } from '#/locales';
-import ErrorNotice from '#/components/error-notice.vue';
-
 import {
-  failureText,
-  gainosApi,
-  type Backtest,
-  type CompanyProfile,
-  type Icp,
-  type IcpRule,
-  type IcpRuleInput,
-  type IcpFeedbackReport,
-  type AcquisitionTaskView,
-  type QueryPlan,
-  type TaskRunView,
-} from '#/api/gainos';
+  Alert,
+  Button,
+  Collapse,
+  CollapsePanel,
+  Descriptions,
+  DescriptionsItem,
+  Drawer,
+  Input,
+  InputNumber,
+  Modal,
+  Skeleton,
+  Space,
+  Tag,
+} from 'ant-design-vue';
+
+import ErrorNotice from '#/components/error-notice.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
+import GsSteps from '#/components/gainos/ui/gs-steps.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
+import { feedback as uiFeedback } from '#/feedback';
+import { $t } from '#/locales';
+
+import { failureText, gainosApi } from '#/api/gainos';
+
+import IcpCard from './icp-card.vue';
 
 defineOptions({ name: 'FindBuyers' });
 
 const router = useRouter();
-
-const STEP_KEYS = [
-  'gainos.workspace.stepProfile',
-  'gainos.workspace.stepIcp',
-  'gainos.workspace.stepPlan',
-  'gainos.workspace.stepRun',
-  'gainos.workspace.stepJudge',
-] as const;
-const stepLabels = computed(() => STEP_KEYS.map((key) => $t(key)));
 
 const RULE_KINDS = ['MUST_HAVE', 'NICE_TO_HAVE', 'EXCLUSION'] as const;
 const RULE_OPERATORS = ['eq', 'neq', 'in', 'not_in', 'contains', 'not_contains', 'gte', 'lte', 'matches'] as const;
@@ -44,7 +74,6 @@ const icps = ref<Icp[]>([]);
 const companies = ref<CompanyProfile[]>([]);
 const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
-const notice = ref<string | null>(null);
 
 const createOpen = ref(false);
 const selectedCompanyId = ref('');
@@ -175,17 +204,22 @@ const companiesWithoutIcp = computed(() =>
   companies.value.filter((company) =>
     company.id && !icps.value.some((icp) => icp.companyId === company.id)));
 
+/** 词表 tone → 药丸 tone（GsTag 没有 processing，用品牌蓝 info 表示）。 */
+function toneOf(tone: StatusTone): FbTone {
+  return tone === 'processing' ? 'info' : tone;
+}
 // 目标客户画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
 // 未登记的状态显示占位符，绝不把裸枚举直接渲染进界面。
-function icpStatus(status?: string): { label: string; tone: StatusTone } {
+function icpStatus(status?: string): { label: string; tone: FbTone } {
   const meta = glossaryStatus('icp', status, preferences.app.locale);
-  return meta ?? { label: '—', tone: 'neutral' };
+  return meta ? { label: meta.label, tone: toneOf(meta.tone) } : { label: '—', tone: 'neutral' };
 }
-function statusLabel(status?: string): string {
-  return icpStatus(status).label;
-}
-function statusTone(status?: string): string {
-  return statusClass(icpStatus(status).tone);
+/** 寻源方案状态药丸：待确认=琥珀、可执行=品牌蓝、已执行=绿。 */
+function planTone(status?: string): FbTone {
+  if (status === 'READY') return 'info';
+  if (status === 'EXECUTED') return 'success';
+  if (status === 'DRAFT') return 'warning';
+  return 'neutral';
 }
 function planStatusLabel(status?: string): string {
   const key = `gainos.findBuyers.planStatus.${status ?? 'DRAFT'}`;
@@ -273,21 +307,12 @@ function textOf(value: unknown): string {
   }
   return '';
 }
-const ATTRIBUTE_LABELS: Record<string, string> = {
-  tech: '技术与工艺',
-  region: '区域',
-  country: '国家/地区',
-  revenue: '营收规模',
-  industry: '行业',
-  keywords: '关键词',
-  end_markets: '终端市场',
-  sub_industry: '细分行业',
-  business_model: '业务模式',
-  certifications: '认证',
-  employee_count: '员工规模',
-  company_size: '公司规模',
-  role: '产业链角色',
-};
+/** 公司属性字段的业务名；未登记的字段原样显示字段名。 */
+function attributeLabel(key: string): string {
+  const i18nKey = `gainos.findBuyers.attribute.${key}`;
+  const translated = $t(i18nKey);
+  return translated === i18nKey ? key : translated;
+}
 
 function attrText(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => attrText(item)).filter(Boolean).join('、');
@@ -302,7 +327,7 @@ function attrText(value: unknown): string {
 
 function attributesOf(icp: Icp): Array<{ key: string; value: string }> {
   return Object.entries(icp.companyAttributes ?? {})
-    .map(([key, value]) => ({ key: ATTRIBUTE_LABELS[key] ?? key, value: attrText(value) }))
+    .map(([key, value]) => ({ key: attributeLabel(key), value: attrText(value) }))
     .filter((item) => item.value.length > 0);
 }
 function canActivate(icp: Icp): boolean {
@@ -331,6 +356,7 @@ async function load(): Promise<void> {
     const [icpData, companyData] = await Promise.all([gainosApi.icps(), gainosApi.companies()]);
     icps.value = Array.isArray(icpData) ? icpData : [];
     companies.value = Array.isArray(companyData) ? companyData : ((companyData as { data?: CompanyProfile[] })?.data ?? []);
+    void prefetchSummaries();
   } catch (error) {
     loadError.value = failureText(error);
     icps.value = [];
@@ -342,9 +368,9 @@ async function load(): Promise<void> {
 function taskRunStatusLabel(status: string): string {
   return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
 }
-function taskRunStatusTone(status: string): string {
+function taskRunStatusTone(status: string): FbTone {
   const meta = glossaryStatus('run', status, preferences.app.locale);
-  return statusClass(meta?.tone ?? 'neutral');
+  return toneOf(meta?.tone ?? 'neutral');
 }
 
 function formatRunTime(value: string): string {
@@ -456,7 +482,7 @@ const canCreateIcp = computed(() =>
 
 function openCreate(): void {
   if (companies.value.length > 0 && companiesWithoutIcp.value.length === 0) {
-    notice.value = $t('gainos.findBuyers.allCompaniesHaveIcp');
+    uiFeedback.message.success($t('gainos.findBuyers.allCompaniesHaveIcp'));
     return;
   }
   selectedCompanyId.value = companiesWithoutIcp.value[0]?.id ?? '';
@@ -471,7 +497,7 @@ async function createIcp(): Promise<void> {
   try {
     const icp = await gainosApi.createIcp(selectedCompanyId.value);
     createOpen.value = false;
-    notice.value = $t('gainos.findBuyers.created');
+    uiFeedback.message.success($t('gainos.findBuyers.created'));
     await load();
     await openDetail(icp);
   } catch (error) {
@@ -487,7 +513,7 @@ async function activate(): Promise<void> {
   detailError.value = null;
   try {
     selected.value = await gainosApi.activateIcp(selected.value.id);
-    notice.value = $t('gainos.findBuyers.activated');
+    uiFeedback.message.success($t('gainos.findBuyers.activated'));
     await load();
     await loadPlans(selected.value.id);
   } catch (error) {
@@ -543,7 +569,7 @@ async function saveEdit(): Promise<void> {
       expectedVersion: selected.value.version,
     });
     editOpen.value = false;
-    notice.value = $t('gainos.findBuyers.saved');
+    uiFeedback.message.success($t('gainos.findBuyers.saved'));
     await load();
   } catch (error) {
     editError.value = failureText(error);
@@ -588,27 +614,35 @@ async function saveRule(): Promise<void> {
     ruleOpen.value = false;
     selected.value = await gainosApi.icp(selected.value.id);
     void refreshIcpList();
-    notice.value = $t('gainos.findBuyers.ruleSaved');
+    uiFeedback.message.success($t('gainos.findBuyers.ruleSaved'));
   } catch (error) {
     ruleError.value = failureText(error);
   } finally {
     ruleBusy.value = false;
   }
 }
-async function removeRule(rule: IcpRule): Promise<void> {
-  if (!selected.value) return;
-  if (!window.confirm($t('gainos.findBuyers.deleteRuleConfirm'))) return;
-  ruleBusy.value = true;
-  try {
-    await gainosApi.deleteIcpRule(rule.id);
-    selected.value = await gainosApi.icp(selected.value.id);
-    void refreshIcpList();
-    notice.value = $t('gainos.findBuyers.ruleDeleted');
-  } catch (error) {
-    ruleError.value = failureText(error);
-  } finally {
-    ruleBusy.value = false;
-  }
+function removeRule(rule: IcpRule): void {
+  const current = selected.value;
+  if (!current) return;
+  uiFeedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.findBuyers.deleteRuleConfirm'),
+    okText: $t('gainos.findBuyers.deleteRule'),
+    okType: 'danger',
+    onOk: async () => {
+      ruleBusy.value = true;
+      try {
+        await gainosApi.deleteIcpRule(rule.id);
+        selected.value = await gainosApi.icp(current.id);
+        void refreshIcpList();
+        uiFeedback.message.success($t('gainos.findBuyers.ruleDeleted'));
+      } catch (error) {
+        ruleError.value = failureText(error);
+      } finally {
+        ruleBusy.value = false;
+      }
+    },
+  });
 }
 
 async function runBacktest(): Promise<void> {
@@ -643,7 +677,8 @@ async function createPlan(): Promise<void> {
     // P1：每次「生成方案」点击带新的幂等键（同一计划不再被防重放砖化；同一次点击重试复用）。
     await gainosApi.createQueryPlan(selected.value.id, mintAttemptId());
     await loadPlans(selected.value.id);
-    notice.value = $t('gainos.findBuyers.planCreated');
+    void prefetchSummary(selected.value.id);
+    uiFeedback.message.success($t('gainos.findBuyers.planCreated'));
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -656,7 +691,8 @@ async function confirmPlan(plan: QueryPlan): Promise<void> {
   try {
     await gainosApi.confirmQueryPlan(plan.id);
     await loadPlans(plan.icpId);
-    notice.value = $t('gainos.findBuyers.planConfirmed');
+    void prefetchSummary(plan.icpId);
+    uiFeedback.message.success($t('gainos.findBuyers.planConfirmed'));
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -674,7 +710,9 @@ async function executePlan(plan: QueryPlan): Promise<void> {
     if (!result.runId) {
       // 重放命中一条引擎 run 尚未回填的执行（极少数竞态）：刷新任务视图，稍后从任务里进入。
       await Promise.all([loadPlans(plan.icpId), loadTaskRuns(plan.icpId)]);
-      notice.value = $t('gainos.findBuyers.runStarting');
+    void prefetchSummary(plan.icpId);
+      void prefetchSummary(plan.icpId);
+      uiFeedback.message.success($t('gainos.findBuyers.runStarting'));
       return;
     }
     rememberRun(plan.id, result.runId);
@@ -700,552 +738,1024 @@ function openPlanRun(plan: QueryPlan): void {
   if (ref) void openRun(ref.runId);
 }
 
-function onEscape(event: KeyboardEvent): void {
-  if (event.key !== 'Escape') return;
-  if (editOpen.value) {
-    editOpen.value = false;
-  } else if (createOpen.value) {
-    createOpen.value = false;
-  } else if (selected.value) {
-    closeDetail();
-  }
+// ── 列表卡片上的「寻源方案 / 最近寻源」摘要 ──────────────────────────────
+interface IcpSummary {
+  /** undefined = 这次没取到；[] = 确实没有。 */
+  plans?: QueryPlan[];
+  runs?: TaskRunView[];
 }
+const summaries = ref<Record<string, IcpSummary>>({});
+const summaryPending = ref<Set<string>>(new Set());
+
+/**
+ * 并行预取一个画像的方案与最近运行：取不到只影响对应那一列（显示「—」），
+ * 不打断列表，也不把「没取到」显示成「还没有」。
+ */
+async function prefetchSummary(icpId: string): Promise<void> {
+  summaryPending.value = new Set(summaryPending.value).add(icpId);
+  const [plansResult, tasksResult] = await Promise.allSettled([
+    gainosApi.queryPlans(icpId),
+    gainosApi.acquisitionTasks(icpId),
+  ]);
+  const summary: IcpSummary = {};
+  if (plansResult.status === 'fulfilled') {
+    summary.plans = Array.isArray(plansResult.value) ? plansResult.value : [];
+  }
+  if (tasksResult.status === 'fulfilled') {
+    const tasks = Array.isArray(tasksResult.value) ? tasksResult.value : [];
+    summary.runs = tasks[0]?.runs ?? [];
+  }
+  summaries.value = { ...summaries.value, [icpId]: summary };
+  const next = new Set(summaryPending.value);
+  next.delete(icpId);
+  summaryPending.value = next;
+}
+function prefetchSummaries(): void {
+  for (const icp of icps.value) void prefetchSummary(icp.id);
+}
+
+function summaryState(loaded: boolean, pending: boolean, has: boolean): SummaryState {
+  if (!loaded) return pending ? 'loading' : 'failed';
+  return has ? 'ok' : 'none';
+}
+
+const rows = computed<IcpCardRow[]>(() =>
+  icps.value.map((icp) => {
+    const summary = summaries.value[icp.id];
+    const pending = summaryPending.value.has(icp.id);
+    const latestPlan = [...(summary?.plans ?? [])].sort(
+      (a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''),
+    )[0];
+    const latestRun = summary?.runs?.[0];
+    const status = icpStatus(icp.status);
+    return {
+      company: companyName(icp.companyId),
+      icp,
+      id: icp.id,
+      markets: icp.targetMarkets ?? [],
+      name: icp.name,
+      personas: icp.personas?.length ?? 0,
+      plan: latestPlan
+        ? {
+            label: planStatusLabel(latestPlan.status),
+            queries: latestPlan.queries?.length ?? 0,
+            tone: planTone(latestPlan.status),
+          }
+        : null,
+      planState: summaryState(summary?.plans !== undefined, pending, Boolean(latestPlan)),
+      rules: icp.rules?.length ?? 0,
+      run: latestRun
+        ? {
+            label: taskRunStatusLabel(latestRun.status),
+            startedAt: formatRunTime(latestRun.startedAt),
+            tone: taskRunStatusTone(latestRun.status),
+          }
+        : null,
+      runState: summaryState(summary?.runs !== undefined, pending, Boolean(latestRun)),
+      statusLabel: status.label,
+      statusTone: status.tone,
+      version: icp.version,
+    };
+  }),
+);
+
+// ── 详情抽屉 ────────────────────────────────────────────────────────────
+/** antd Drawer 的 v-model:open：关窗统一走 closeDetail（清空方案/运行/反馈等临时状态）。 */
+const detailOpen = computed({
+  get: () => selected.value !== null,
+  set: (open: boolean) => {
+    if (!open) closeDetail();
+  },
+});
+
+const statusOfSelected = computed(() => icpStatus(selected.value?.status));
+const versionOfSelected = computed(() => selected.value?.version ?? 1);
+
+const overviewSections = computed(() => [
+  { items: selected.value?.painPoints ?? [], key: 'painPoints', title: $t('gainos.findBuyers.painPoints') },
+  { items: selected.value?.triggerSignals ?? [], key: 'triggerSignals', title: $t('gainos.findBuyers.triggerSignals') },
+  { items: selected.value?.exclusions ?? [], key: 'exclusions', title: $t('gainos.findBuyers.exclusions') },
+  { items: selected.value?.valueProps ?? [], key: 'valueProps', title: $t('gainos.findBuyers.valueProps') },
+]);
+
+const companyOptions = computed(() =>
+  companiesWithoutIcp.value.map((company) => ({
+    label: company.name || company.website || '',
+    value: company.id ?? '',
+  })),
+);
+const kindOptions = computed(() =>
+  RULE_KINDS.map((kind) => ({ label: kindLabel(kind), value: kind })),
+);
+const operatorOptions = computed(() =>
+  RULE_OPERATORS.map((operator) => ({ label: operatorLabel(operator), value: operator })),
+);
+const ruleModalTitle = computed(() =>
+  editingRuleId.value ? $t('gainos.findBuyers.editRule') : $t('gainos.findBuyers.addRule'),
+);
+const planMetaOf = (plan: QueryPlan): string[] => {
+  const parts = [$t('gainos.findBuyers.planSearchCount', { count: plan.queries?.length ?? 0 })];
+  if (plan.estimatedVolume) parts.push($t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }));
+  const cost = planCostLabel(plan.estimatedCostCents);
+  if (cost) parts.push($t('gainos.findBuyers.planEstimatedCost', { cost }));
+  return parts;
+};
+
 onMounted(() => {
   loadRunRefs();
   void load();
-  window.addEventListener('keydown', onEscape);
 });
-onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
 </script>
 
 <template>
-  <div class="fb">
-    <header class="fb__head">
-      <div>
-        <span class="fb__stage">{{ $t('gainos.findBuyers.stage') }}</span>
-        <h1>{{ $t('gainos.findBuyers.title') }}</h1>
-        <p>{{ $t('gainos.findBuyers.subtitle') }}</p>
-      </div>
-      <button class="fb__refresh" type="button" :class="{ 'is-loading': loading }" @click="load">
-        {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-      </button>
-    </header>
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
+    <GsPage :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
 
-    <ol class="fb__steps" :aria-label="$t('gainos.workspace.stepProgress', { current: currentStep, total: stepLabels.length })">
-      <li v-for="(label, i) in stepLabels" :key="label" class="fb__step" :class="{ 'is-done': i + 1 < currentStep, 'is-current': i + 1 === currentStep }">
-        <span class="fb__step-dot">{{ i + 1 }}</span>
-        <span>{{ label }}</span>
-      </li>
-    </ol>
-
-    <p v-if="notice" class="fb__notice" role="status">{{ notice }}</p>
-
-    <section class="fb__toolbar">
-      <div>
-        <h2>{{ $t('gainos.findBuyers.listTitle') }}</h2>
-        <p>{{ activeIcp ? $t('gainos.findBuyers.activeHint', { name: activeIcp.name }) : $t('gainos.findBuyers.listDesc') }}</p>
-      </div>
-      <button v-if="icps.length > 0" class="fb__cta" type="button" @click="openCreate">{{ $t('gainos.findBuyers.newIcp') }}</button>
-    </section>
-
-    <section v-if="loadError" class="fb__error" role="alert">
-      <h3>{{ loadError.title }}</h3>
-      <p v-if="loadError.next">{{ loadError.next }}</p>
-      <button type="button" class="fb__action" @click="load">{{ $t('gainos.common.retry') }}</button>
-    </section>
-    <p v-else-if="loading" class="fb__muted">{{ $t('gainos.common.loading') }}</p>
-    <section v-else-if="icps.length === 0" class="fb__empty">
-      <div class="fb__empty-mark">🎯</div>
-      <p class="fb__empty-title">{{ $t('gainos.findBuyers.emptyTitle') }}</p>
-      <p class="fb__empty-desc">{{ $t('gainos.findBuyers.emptyDesc') }}</p>
-      <div class="fb__empty-actions">
-        <button class="fb__cta" type="button" @click="openCreate">{{ $t('gainos.findBuyers.emptyCta') }}</button>
-        <RouterLink class="fb__cta-secondary" to="/companies">{{ $t('gainos.companies.title') }}</RouterLink>
-        <RouterLink class="fb__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
-      </div>
-    </section>
-    <section v-else class="fb__list">
-      <article v-for="icp in icps" :key="icp.id" class="fb__card">
-        <header class="fb__card-head">
-          <div>
-            <h2>{{ icp.name }}</h2>
-            <p>{{ companyName(icp.companyId) }} · v{{ icp.version }}</p>
-          </div>
-          <span class="gs-badge" :class="statusTone(icp.status)">{{ statusLabel(icp.status) }}</span>
-        </header>
-        <div v-if="icp.targetMarkets.length" class="fb__chips">
-          <span v-for="market in icp.targetMarkets" :key="market" class="fb__chip">{{ market }}</span>
-        </div>
-        <p class="fb__muted">{{ icp.rules.length }} 条资格规则 · {{ icp.personas.length }} 个买家画像</p>
-        <div class="fb__actions">
-          <button type="button" class="fb__action" @click="openDetail(icp)">{{ $t('gainos.findBuyers.view') }}</button>
-        </div>
-      </article>
-    </section>
-
-    <div v-if="createOpen" class="fb__overlay" @click.self="createOpen = false">
-      <section class="fb__modal fb__modal--narrow" role="dialog" aria-modal="true" :aria-label="$t('gainos.findBuyers.createTitle')">
-        <header class="fb__modal-head">
-          <div>
-            <h2>{{ $t('gainos.findBuyers.createTitle') }}</h2>
-            <p>{{ $t('gainos.findBuyers.createDesc') }}</p>
-          </div>
-          <button class="fb__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="createOpen = false">×</button>
-        </header>
-        <div class="fb__modal-body">
-          <ErrorNotice
-            v-if="createError"
-            :title="createError.title"
-            :why="createError.why"
-            :next="createError.next"
-            :code="createError.code"
-          />
-          <label class="fb__field">
-            <span>{{ $t('gainos.findBuyers.company') }}</span>
-            <select v-model="selectedCompanyId" :disabled="companiesWithoutIcp.length === 0">
-              <option v-for="company in companiesWithoutIcp" :key="company.id" :value="company.id">
-                {{ company.name || company.website }} · {{ company.status }}
-              </option>
-            </select>
-          </label>
-          <p v-if="!companies.length" class="fb__muted">{{ $t('gainos.findBuyers.noCompanies') }}</p>
-          <p v-else-if="companiesWithoutIcp.length === 0" class="fb__warn">{{ $t('gainos.findBuyers.allCompaniesHaveIcp') }}</p>
-          <p v-if="claimsChecking" class="fb__muted">{{ $t('gainos.findBuyers.checkingFacts') }}</p>
-          <div v-else-if="claimsCheckError" class="fb__error" role="alert">
-            <p>{{ $t('gainos.findBuyers.factsCheckFailed') }}</p>
-            <button class="fb__action" type="button" @click="checkApprovedClaims(selectedCompanyId)">
-              {{ $t('gainos.common.retry') }}
-            </button>
-          </div>
-          <p v-else-if="approvedClaimCount === 0" class="fb__warn">{{ $t('gainos.findBuyers.noApprovedFacts') }}</p>
-          <p v-else-if="approvedClaimCount !== null" class="fb__muted">
-            {{ $t('gainos.findBuyers.approvedFactsCount', { count: approvedClaimCount }) }}
-          </p>
-          <p class="fb__muted">{{ $t('gainos.findBuyers.createNote') }}</p>
-        </div>
-        <div class="fb__modal-actions fb__modal-foot">
-          <button class="fb__action" type="button" @click="createOpen = false">{{ $t('gainos.common.cancel') }}</button>
-          <button class="fb__cta" type="button" :disabled="!canCreateIcp" :class="{ 'is-loading': creating }" @click="createIcp">
-            {{ creating ? $t('gainos.findBuyers.generating') : $t('gainos.findBuyers.generate') }}
-          </button>
-        </div>
-      </section>
+    <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
+    <div class="relative z-[1] -mt-12">
+      <GsCard data-gs="stage-steps" dense>
+        <GsSteps :current="currentStep" />
+      </GsCard>
     </div>
 
-    <div v-if="selected" class="fb__overlay" @click.self="closeDetail">
-      <section class="fb__modal" role="dialog" aria-modal="true" :aria-label="selected.name">
-        <header class="fb__modal-head">
-          <div>
-            <span class="fb__modal-kicker">{{ $t('gainos.findBuyers.detailKicker') }}</span>
-            <h2>{{ selected.name }}</h2>
-            <p>{{ companyName(selected.companyId) }} · {{ statusLabel(selected.status) }} · {{ $t('gainos.findBuyers.version', { version: selected.version }) }}</p>
-            <p class="fb__muted">{{ $t('gainos.findBuyers.detailHint') }}</p>
-          </div>
-          <div class="fb__modal-head-actions">
-            <button v-if="canActivate(selected)" class="fb__cta" type="button" :disabled="planBusy === 'activate'" :class="{ 'is-loading': planBusy === 'activate' }" @click="activate">
-              {{ planBusy === 'activate' ? $t('gainos.findBuyers.activating') : $t('gainos.findBuyers.activate') }}
-            </button>
-            <button class="fb__action" type="button" @click="openEdit">{{ $t('gainos.findBuyers.edit') }}</button>
-            <button class="fb__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="closeDetail">×</button>
-          </div>
-        </header>
+    <GsToolbar data-gs="icp-toolbar">
+      <div class="fb-toolbar__main">
+        <h2 class="fb-h2">{{ $t('gainos.findBuyers.listTitle') }}</h2>
+        <p class="fb-muted fb-toolbar__hint">
+          {{
+            activeIcp
+              ? $t('gainos.findBuyers.activeHint', { name: activeIcp.name })
+              : $t('gainos.findBuyers.listDesc')
+          }}
+        </p>
+      </div>
+      <div class="ml-auto flex flex-wrap items-center gap-2 @max-[640px]:ml-0 @max-[640px]:w-full">
+        <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
+          <template v-if="!loading" #icon>
+            <RotateCw :size="14" />
+          </template>
+          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+        </Button>
+        <Button v-if="icps.length > 0" class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="new-icp" type="primary" @click="openCreate">
+          {{ $t('gainos.findBuyers.newIcp') }}
+        </Button>
+      </div>
+    </GsToolbar>
 
-        <div class="fb__modal-body">
-        <p v-if="detailLoading" class="fb__muted">{{ $t('gainos.common.loading') }}</p>
-        <div v-else-if="detailError" class="fb__error" role="alert">
-          <h3>{{ detailError.title }}</h3>
-          <p v-if="detailError.next">{{ detailError.next }}</p>
+    <div v-if="loadError" class="grid gap-3" data-gs="load-error">
+      <ErrorNotice :next="loadError.next" :title="loadError.title" />
+      <Button class="justify-self-start" @click="load">{{ $t('gainos.common.retry') }}</Button>
+    </div>
+
+    <GsCard v-else-if="loading" data-gs="icp-loading" padding="20px 24px">
+      <Skeleton active :paragraph="{ rows: 3 }" />
+      <span class="fb-sr-only">{{ $t('gainos.common.loading') }}</span>
+    </GsCard>
+
+    <GsCard v-else-if="rows.length === 0" data-gs="icp-empty" padding="40px 24px">
+      <GsEmpty :description="$t('gainos.findBuyers.emptyDesc')" :title="$t('gainos.findBuyers.emptyTitle')">
+        <template #actions>
+          <Button type="primary" @click="openCreate">{{ $t('gainos.findBuyers.emptyCta') }}</Button>
+          <Button @click="router.push('/companies')">{{ $t('gainos.companies.title') }}</Button>
+          <Button @click="router.push('/tasks')">{{ $t('gainos.tasks.title') }}</Button>
+        </template>
+      </GsEmpty>
+    </GsCard>
+
+    <template v-else>
+      <IcpCard v-for="row in rows" :key="row.id" :row="row" @open="openDetail(row.icp)" />
+    </template>
+
+    <!-- 详情：右侧抽屉，内容按卡片分区 -->
+    <Drawer
+      v-model:open="detailOpen"
+      :body-style="{ padding: '16px 24px 28px' }"
+      class="fb-drawer"
+      data-gs="icp-detail"
+      width="min(920px, 100vw)"
+    >
+      <template #title>
+        <div class="fb-drawer__title">
+          <p class="fb-kicker">{{ $t('gainos.findBuyers.detailKicker') }}</p>
+          <h2 class="fb-drawer__name">{{ selected?.name }}</h2>
+          <div class="fb-drawer__meta">
+            <GsTag :tone="statusOfSelected.tone">{{ statusOfSelected.label }}</GsTag>
+            <span class="fb-muted">
+              {{ companyName(selected?.companyId) }} ·
+              {{ $t('gainos.findBuyers.version', { version: versionOfSelected }) }}
+            </span>
+          </div>
         </div>
-        <template v-else>
-          <div class="fb__block">
-            <h3>{{ $t('gainos.findBuyers.targetMarkets') }}</h3>
-            <div v-if="selected.targetMarkets.length" class="fb__chips">
-              <span v-for="market in selected.targetMarkets" :key="market" class="fb__chip">{{ market }}</span>
+      </template>
+      <template #extra>
+        <Space :size="8" wrap>
+          <Button
+            v-if="selected && canActivate(selected)"
+            :loading="planBusy === 'activate'"
+            type="primary"
+            @click="activate"
+          >
+            {{ $t('gainos.findBuyers.activate') }}
+          </Button>
+          <Button v-if="selected" @click="openEdit">{{ $t('gainos.findBuyers.edit') }}</Button>
+        </Space>
+      </template>
+
+      <p class="fb-muted fb-drawer__hint">{{ $t('gainos.findBuyers.detailHint') }}</p>
+
+      <Skeleton v-if="detailLoading" active :paragraph="{ rows: 8 }" />
+      <ErrorNotice v-else-if="detailError" :next="detailError.next" :title="detailError.title" />
+      <div v-else-if="selected" class="fb-drawer__body">
+        <!-- 画像概览 -->
+        <GsCard :title="$t('gainos.findBuyers.overviewTitle')" data-gs="icp-overview">
+          <div class="fb-sections">
+          <div class="fb-block">
+            <p class="fb-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
+            <div v-if="(selected.targetMarkets ?? []).length > 0" class="fb-chips">
+              <Tag v-for="market in selected.targetMarkets" :key="market" :bordered="false" class="fb-chip">
+                {{ market }}
+              </Tag>
             </div>
-            <p v-else class="fb__muted">—</p>
+            <p v-else class="fb-muted">—</p>
           </div>
-          <div class="fb__block">
-            <h3>{{ $t('gainos.findBuyers.companyAttributes') }}</h3>
-            <dl class="fb__attr-grid">
-              <div v-for="item in attributesOf(selected)" :key="item.key" class="fb__attr">
-                <dt>{{ item.key }}</dt><dd>{{ item.value }}</dd>
-              </div>
-            </dl>
+
+          <div class="fb-block">
+            <p class="fb-label">{{ $t('gainos.findBuyers.companyAttributes') }}</p>
+            <Descriptions
+              v-if="attributesOf(selected).length > 0"
+              :colon="false"
+              :column="{ md: 2, xs: 1 }"
+              size="small"
+            >
+              <DescriptionsItem
+                v-for="item in attributesOf(selected)"
+                :key="item.key"
+                :label="item.key"
+              >
+                {{ item.value }}
+              </DescriptionsItem>
+            </Descriptions>
+            <p v-else class="fb-muted">—</p>
           </div>
-          <div class="fb__grid fb__grid--two">
-            <div v-for="section in [
-              { key: 'painPoints', title: 'painPoints', items: selected.painPoints },
-              { key: 'triggerSignals', title: 'triggerSignals', items: selected.triggerSignals },
-              { key: 'exclusions', title: 'exclusions', items: selected.exclusions },
-              { key: 'valueProps', title: 'valueProps', items: selected.valueProps },
-            ]" :key="section.key" class="fb__block">
-              <h3>{{ $t(`gainos.findBuyers.${section.title}`) }}</h3>
-              <ul v-if="section.items.length" class="fb__bullets">
+
+          <div class="fb-grid-2">
+            <div v-for="section in overviewSections" :key="section.key" class="fb-block">
+              <p class="fb-label">{{ section.title }}</p>
+              <ul v-if="section.items.length > 0" class="fb-list">
                 <li v-for="(item, i) in section.items" :key="i">{{ item }}</li>
               </ul>
-              <p v-else class="fb__muted">—</p>
+              <p v-else class="fb-muted">—</p>
             </div>
           </div>
 
-          <div v-if="selected.personas.length" class="fb__block">
-            <h3>{{ $t('gainos.findBuyers.personas') }}</h3>
-            <div class="fb__grid">
-              <article v-for="persona in selected.personas" :key="persona.title" class="fb__persona">
-                <h4>{{ persona.title }}</h4>
-                <p v-if="persona.goals.length"><strong>{{ $t('gainos.findBuyers.goals') }}</strong> {{ persona.goals.join(' · ') }}</p>
-                <p v-if="persona.painPoints.length"><strong>{{ $t('gainos.findBuyers.painPoints') }}</strong> {{ persona.painPoints.join(' · ') }}</p>
-              </article>
+          <div v-if="(selected.personas ?? []).length > 0" class="fb-block">
+            <p class="fb-label">{{ $t('gainos.findBuyers.personas') }}</p>
+            <div class="fb-personas">
+              <div v-for="persona in selected.personas" :key="persona.title" class="fb-persona">
+                <p class="fb-persona__title">{{ persona.title }}</p>
+                <p v-if="persona.goals?.length" class="fb-muted">
+                  <em class="fb-key">{{ $t('gainos.findBuyers.goals') }}</em>{{ persona.goals.join(' · ') }}
+                </p>
+                <p v-if="persona.painPoints?.length" class="fb-muted">
+                  <em class="fb-key">{{ $t('gainos.findBuyers.painPoints') }}</em>
+                  {{ persona.painPoints.join(' · ') }}
+                </p>
+              </div>
             </div>
           </div>
-          <div v-if="selected.buyingCommittee.length" class="fb__block">
-            <h3>{{ $t('gainos.findBuyers.buyingCommittee') }}</h3>
-            <ul class="fb__bullets">
+
+          <div v-if="(selected.buyingCommittee ?? []).length > 0" class="fb-block">
+            <p class="fb-label">{{ $t('gainos.findBuyers.buyingCommittee') }}</p>
+            <ul class="fb-list">
               <li v-for="(role, i) in selected.buyingCommittee" :key="i">
-                <strong>{{ role.title || role.role }}</strong><span v-if="role.concerns.length"> · {{ role.concerns.join(' · ') }}</span>
+                <strong>{{ role.title || role.role }}</strong>
+                <span v-if="role.concerns?.length"> · {{ role.concerns.join(' · ') }}</span>
               </li>
             </ul>
           </div>
-
-          <details class="fb__advanced">
-            <summary>{{ $t('gainos.findBuyers.advanced') }}</summary>
-
-          <div v-if="selected.ruleLint.length" class="fb__lint">
-            <h3>{{ $t('gainos.findBuyers.ruleLint') }}</h3>
-            <ul class="fb__bullets"><li v-for="(warning, i) in selected.ruleLint" :key="i">{{ warning }}</li></ul>
           </div>
+        </GsCard>
 
-          <div class="fb__block">
-            <div class="fb__section-head">
-              <div><h3>{{ $t('gainos.findBuyers.rulesTitle') }}</h3><p class="fb__muted">{{ $t('gainos.findBuyers.rulesDesc') }}</p></div>
-              <button class="fb__action" type="button" @click="openRule()">{{ $t('gainos.findBuyers.addRule') }}</button>
-            </div>
-            <div v-if="ruleError" class="fb__error" role="alert"><h3>{{ ruleError.title }}</h3><p v-if="ruleError.next">{{ ruleError.next }}</p></div>
-            <ul v-if="selected.rules.length" class="fb__rules">
-              <li v-for="rule in selected.rules" :key="rule.id">
-                <span class="fb__chip">{{ kindLabel(rule.kind) }}</span>
-                <code>{{ rule.field }} {{ operatorLabel(rule.operator) }} {{ ruleValueText(rule.value) }}</code>
-                <span v-if="rule.kind === 'NICE_TO_HAVE'" class="fb__muted">· ×{{ rule.weight }}</span>
-                <span v-if="rule.rationale" class="fb__muted">· {{ rule.rationale }}</span>
-                <span class="fb__rule-actions">
-                  <button type="button" @click="openRule(rule)">{{ $t('gainos.findBuyers.editRule') }}</button>
-                  <button type="button" @click="removeRule(rule)">{{ $t('gainos.findBuyers.deleteRule') }}</button>
-                </span>
-              </li>
-            </ul>
-            <p v-else class="fb__muted">{{ $t('gainos.findBuyers.noRules') }}</p>
-            <div v-if="ruleOpen" class="fb__rule-form">
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleKind') }}</span>
-                <select v-model="ruleForm.kind"><option v-for="kind in RULE_KINDS" :key="kind" :value="kind">{{ kindLabel(kind) }}</option></select>
-              </label>
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleField') }}</span><input v-model="ruleForm.field" /></label>
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleOperator') }}</span>
-                <select v-model="ruleForm.operator"><option v-for="op in RULE_OPERATORS" :key="op" :value="op">{{ operatorLabel(op) }}</option></select>
-              </label>
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleValue') }}</span><input v-model="ruleForm.valueText" :placeholder="$t('gainos.findBuyers.ruleValueHint')" /></label>
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleWeight') }}</span><input v-model.number="ruleForm.weight" type="number" min="0" step="0.5" /></label>
-              <label class="fb__field"><span>{{ $t('gainos.findBuyers.ruleRationale') }}</span><input v-model="ruleForm.rationale" /></label>
-              <div class="fb__modal-actions">
-                <button class="fb__action" type="button" @click="ruleOpen = false">{{ $t('gainos.common.cancel') }}</button>
-                <button class="fb__cta" type="button" :disabled="ruleBusy" :class="{ 'is-loading': ruleBusy }" @click="saveRule">{{ $t('gainos.findBuyers.saveRule') }}</button>
+        <!-- 反馈建议（只建议，采纳=手动编辑画像） -->
+        <GsCard
+          v-if="feedback && feedback.suggestions.length > 0"
+          :title="$t('gainos.findBuyers.suggestionsTitle')"
+          data-gs="icp-suggestions"
+        >
+          <p class="fb-muted">{{ $t('gainos.findBuyers.suggestionsDesc') }}</p>
+          <ul class="fb-list">
+            <li v-for="(card, index) in feedback.suggestions" :key="index">{{ card.message }}</li>
+          </ul>
+        </GsCard>
+
+        <!-- 寻源方案 -->
+        <GsCard data-gs="icp-plans">
+          <template #title>{{ $t('gainos.findBuyers.plansTitle') }}</template>
+          <template #extra>
+            <Button
+              v-if="!plansLoading && plans.length === 0"
+              :disabled="selected.status !== 'ACTIVE' || planBusy === 'create'"
+              :loading="planBusy === 'create'"
+              :title="selected.status !== 'ACTIVE' ? $t('gainos.findBuyers.planNeedsActive') : undefined"
+              type="primary"
+              @click="createPlan"
+            >
+              {{ $t('gainos.findBuyers.createPlan') }}
+            </Button>
+          </template>
+          <p class="fb-muted">{{ $t('gainos.findBuyers.plansDesc') }}</p>
+
+          <ErrorNotice v-if="plansError" :next="plansError.next" :title="plansError.title" />
+          <Skeleton v-else-if="plansLoading" active :paragraph="{ rows: 2 }" />
+          <ul v-else-if="plans.length > 0" class="fb-stack">
+            <li v-for="plan in plans" :key="plan.id" class="fb-plan">
+              <div class="fb-plan__head">
+                <GsTag :tone="planTone(plan.status)">{{ planStatusLabel(plan.status) }}</GsTag>
+                <span class="fb-muted">{{ planMetaOf(plan).join(' · ') }}</span>
               </div>
-            </div>
-          </div>
+              <p class="fb-muted">
+                {{ $t('gainos.findBuyers.planSources') }}：{{ planSourceSummary(plan) }}
+              </p>
 
-          <div class="fb__block">
-            <h3>{{ $t('gainos.findBuyers.backtestTitle') }}</h3>
-            <p class="fb__muted">{{ $t('gainos.findBuyers.backtestDesc') }}</p>
-            <textarea v-model="backtestText" rows="8" class="fb__textarea fb__mono" :aria-label="$t('gainos.findBuyers.backtestSamples')"></textarea>
-            <div v-if="backtestError" class="fb__error" role="alert"><h3>{{ backtestError.title }}</h3><p v-if="backtestError.next">{{ backtestError.next }}</p></div>
-            <div class="fb__modal-actions">
-              <button class="fb__cta" type="button" :disabled="backtestBusy" :class="{ 'is-loading': backtestBusy }" @click="runBacktest">
-                {{ backtestBusy ? $t('gainos.common.loading') : $t('gainos.findBuyers.runBacktest') }}
-              </button>
-            </div>
-            <template v-if="backtest">
-              <dl class="fb__facts">
-                <div v-for="(value, key) in backtest.metrics" :key="key"><dt>{{ key }}</dt><dd>{{ textOf(value) || JSON.stringify(value) }}</dd></div>
-              </dl>
-              <ul class="fb__bullets">
-                <li v-for="(result, i) in backtest.results" :key="i">{{ textOf(result) || JSON.stringify(result) }}</li>
-              </ul>
-            </template>
-          </div>
-          </details>
-
-          <div v-if="feedback && feedback.suggestions.length" class="fb__block">
-            <div class="fb__section-head">
-              <div>
-                <h3>{{ $t('gainos.findBuyers.suggestionsTitle') }}</h3>
-                <p class="fb__muted">{{ $t('gainos.findBuyers.suggestionsDesc') }}</p>
-              </div>
-            </div>
-            <ul class="fb__plans">
-              <li v-for="(card, index) in feedback.suggestions" :key="index">
-                <p class="fb__muted">{{ card.message }}</p>
-              </li>
-            </ul>
-          </div>
-
-          <div class="fb__block">
-            <div class="fb__section-head">
-              <div><h3>{{ $t('gainos.findBuyers.plansTitle') }}</h3><p class="fb__muted">{{ $t('gainos.findBuyers.plansDesc') }}</p></div>
-              <button v-if="!plansLoading && plans.length === 0" class="fb__action" type="button" :disabled="selected.status !== 'ACTIVE' || planBusy === 'create'" :title="selected.status !== 'ACTIVE' ? $t('gainos.findBuyers.planNeedsActive') : ''" @click="createPlan">
-                {{ planBusy === 'create' ? $t('gainos.common.loading') : $t('gainos.findBuyers.createPlan') }}
-              </button>
-            </div>
-            <p v-if="plansError" class="fb__error-text">{{ plansError.title }}<span v-if="plansError.next"> · {{ plansError.next }}</span></p>
-            <p v-else-if="plansLoading" class="fb__muted">{{ $t('gainos.common.loading') }}</p>
-            <ul v-else-if="plans.length" class="fb__plans">
-              <li v-for="plan in plans" :key="plan.id">
-                <div class="fb__plan-head">
-                  <span class="gs-badge">{{ planStatusLabel(plan.status) }}</span>
-                  <span class="fb__muted">
-                    {{ $t('gainos.findBuyers.planSearchCount', { count: plan.queries.length }) }}<span v-if="plan.estimatedVolume"> · {{ $t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }) }}</span><span v-if="plan.estimatedCostCents"> · {{ $t('gainos.findBuyers.planEstimatedCost', { cost: planCostLabel(plan.estimatedCostCents) }) }}</span>
-                  </span>
-                </div>
-                <p class="fb__muted">{{ $t('gainos.findBuyers.planSources') }}：{{ planSourceSummary(plan) }}</p>
-                <details class="fb__plan-details">
-                  <summary>{{ $t('gainos.findBuyers.planConditions', { count: plan.queries.length }) }}</summary>
-                  <ul class="fb__queries">
-                    <li v-for="(query, i) in plan.queries" :key="i">
-                      <div class="fb__query-head">
+              <Collapse expand-icon-position="end" ghost>
+                <CollapsePanel
+                  key="conditions"
+                  :header="$t('gainos.findBuyers.planConditions', { count: plan.queries.length })"
+                >
+                  <ul class="fb-stack">
+                    <li v-for="(query, i) in plan.queries" :key="i" class="fb-query">
+                      <div class="fb-query__head">
                         <strong>{{ querySourceLabel(query) }}</strong>
-                        <span v-if="query.priority" class="fb__muted">{{ $t('gainos.findBuyers.planPriority', { priority: query.priority }) }}</span>
+                        <span v-if="query.priority" class="fb-muted">
+                          {{ $t('gainos.findBuyers.planPriority', { priority: query.priority }) }}
+                        </span>
                       </div>
-                      <div v-if="queryFilterItems(query).length" class="fb__query-filters">
-                        <span v-for="item in queryFilterItems(query)" :key="item.label" class="fb__query-filter">
+                      <div v-if="queryFilterItems(query).length > 0" class="fb-chips">
+                        <span
+                          v-for="item in queryFilterItems(query)"
+                          :key="item.label"
+                          class="fb-query__filter"
+                        >
                           <em>{{ item.label }}</em>{{ item.value }}
                         </span>
                       </div>
-                      <div v-if="queryKeywords(query).length" class="fb__chips">
-                        <span v-for="keyword in queryKeywords(query)" :key="keyword" class="fb__chip">{{ keyword }}</span>
+                      <div v-if="queryKeywords(query).length > 0" class="fb-chips">
+                        <Tag
+                          v-for="keyword in queryKeywords(query)"
+                          :key="keyword"
+                          :bordered="false"
+                          class="fb-chip"
+                        >
+                          {{ keyword }}
+                        </Tag>
                       </div>
-                      <p v-if="query.rationale" class="fb__muted">{{ textOf(query.rationale) }}</p>
+                      <p v-if="query.rationale" class="fb-muted">{{ textOf(query.rationale) }}</p>
                     </li>
                   </ul>
-                  <details class="fb__raw">
+                  <details class="fb-raw">
                     <summary>{{ $t('gainos.findBuyers.planRaw') }}</summary>
                     <pre>{{ JSON.stringify(plan.queries, null, 2) }}</pre>
                   </details>
-                </details>
-                <div class="fb__actions">
-                  <button v-if="runRefs[plan.id]" class="fb__action" type="button" @click="openPlanRun(plan)">{{ $t('gainos.findBuyers.viewRun') }}</button>
-                  <template v-else>
-                    <button v-if="plan.status === 'DRAFT'" class="fb__action" type="button" :disabled="planBusy === plan.id" @click="confirmPlan(plan)">{{ $t('gainos.findBuyers.confirmPlan') }}</button>
-                    <button v-if="plan.status === 'READY'" class="fb__action fb__action--primary" type="button" :disabled="planBusy === plan.id" @click="executePlan(plan)">{{ $t('gainos.findBuyers.executePlan') }}</button>
+                </CollapsePanel>
+              </Collapse>
+
+              <div class="fb-plan__actions">
+                <Button v-if="runRefs[plan.id]" @click="openPlanRun(plan)">
+                  {{ $t('gainos.findBuyers.viewRun') }}
+                </Button>
+                <template v-else>
+                  <Button
+                    v-if="plan.status === 'DRAFT'"
+                    :disabled="planBusy === plan.id"
+                    @click="confirmPlan(plan)"
+                  >
+                    {{ $t('gainos.findBuyers.confirmPlan') }}
+                  </Button>
+                  <Button
+                    v-if="plan.status === 'READY'"
+                    :disabled="planBusy === plan.id"
+                    :loading="planBusy === plan.id"
+                    type="primary"
+                    @click="executePlan(plan)"
+                  >
+                    {{ $t('gainos.findBuyers.executePlan') }}
+                  </Button>
+                </template>
+              </div>
+              <p v-if="runRefs[plan.id]" class="fb-muted">{{ $t('gainos.findBuyers.runStarted') }}</p>
+              <p v-else-if="plan.status === 'EXECUTED'" class="fb-muted">
+                {{ $t('gainos.findBuyers.runLinkMissing') }}
+              </p>
+            </li>
+          </ul>
+          <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noPlans') }}</p>
+        </GsCard>
+
+        <!-- 最近运行 -->
+        <GsCard :title="$t('gainos.findBuyers.latestRun')" data-gs="icp-runs">
+          <p class="fb-muted">{{ $t('gainos.findBuyers.taskRunsDesc') }}</p>
+          <ul v-if="taskRuns.length > 0" class="fb-stack">
+            <li v-for="run in taskRuns" :key="run.id" class="fb-run">
+              <div class="fb-run__head">
+                <GsTag :tone="taskRunStatusTone(run.status)">{{ taskRunStatusLabel(run.status) }}</GsTag>
+                <span class="fb-muted">{{ formatRunTime(run.startedAt) }}</span>
+              </div>
+              <Button v-if="run.runId" class="fb-run__action" size="small" @click="openRun(run.runId)">
+                {{ $t('gainos.findBuyers.viewRun') }}
+              </Button>
+            </li>
+          </ul>
+          <p v-else class="fb-muted">{{ $t('gainos.findBuyers.taskRunsEmpty') }}</p>
+        </GsCard>
+
+        <!-- 高级：资格规则与回测（默认收起） -->
+        <GsCard data-gs="icp-advanced" padding="4px 20px">
+          <Collapse ghost>
+            <CollapsePanel key="advanced" :header="$t('gainos.findBuyers.advanced')">
+              <div class="fb-stack">
+                <Alert
+                  v-if="selected.ruleLint.length > 0"
+                  :message="$t('gainos.findBuyers.ruleLint')"
+                  show-icon
+                  type="warning"
+                >
+                  <template #description>
+                    <ul class="fb-list">
+                      <li v-for="(warning, i) in selected.ruleLint" :key="i">{{ warning }}</li>
+                    </ul>
+                  </template>
+                </Alert>
+
+                <div class="fb-sub">
+                  <div class="fb-sub__head">
+                    <div>
+                      <p class="fb-h3">{{ $t('gainos.findBuyers.rulesTitle') }}</p>
+                      <p class="fb-muted">{{ $t('gainos.findBuyers.rulesDesc') }}</p>
+                    </div>
+                    <Button size="small" @click="openRule()">{{ $t('gainos.findBuyers.addRule') }}</Button>
+                  </div>
+                  <ErrorNotice
+                    v-if="ruleError && !ruleOpen"
+                    :next="ruleError.next"
+                    :title="ruleError.title"
+                  />
+                  <ul v-if="selected.rules.length > 0" class="fb-stack">
+                    <li v-for="rule in selected.rules" :key="rule.id" class="fb-rule">
+                      <Tag :bordered="false" class="fb-chip">{{ kindLabel(rule.kind) }}</Tag>
+                      <code class="fb-rule__expr">
+                        {{ rule.field }} {{ operatorLabel(rule.operator) }} {{ ruleValueText(rule.value) }}
+                      </code>
+                      <span v-if="rule.kind === 'NICE_TO_HAVE'" class="fb-muted">×{{ rule.weight }}</span>
+                      <span v-if="rule.rationale" class="fb-muted fb-rule__why">{{ rule.rationale }}</span>
+                      <span class="fb-rule__actions">
+                        <Button size="small" type="link" @click="openRule(rule)">
+                          {{ $t('gainos.findBuyers.editRule') }}
+                        </Button>
+                        <Button danger size="small" type="link" @click="removeRule(rule)">
+                          {{ $t('gainos.findBuyers.deleteRule') }}
+                        </Button>
+                      </span>
+                    </li>
+                  </ul>
+                  <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noRules') }}</p>
+                </div>
+
+                <div class="fb-sub">
+                  <p class="fb-h3">{{ $t('gainos.findBuyers.backtestTitle') }}</p>
+                  <p class="fb-muted">{{ $t('gainos.findBuyers.backtestDesc') }}</p>
+                  <Input.TextArea
+                    v-model:value="backtestText"
+                    :aria-label="$t('gainos.findBuyers.backtestSamples')"
+                    :rows="8"
+                    class="fb-mono"
+                  />
+                  <ErrorNotice
+                    v-if="backtestError"
+                    :next="backtestError.next"
+                    :title="backtestError.title"
+                  />
+                  <Button :loading="backtestBusy" class="justify-self-start" type="primary" @click="runBacktest">
+                    {{ $t('gainos.findBuyers.runBacktest') }}
+                  </Button>
+                  <template v-if="backtest">
+                    <dl class="fb-facts">
+                      <div v-for="(value, key) in backtest.metrics" :key="key">
+                        <dt>{{ key }}</dt>
+                        <dd>{{ textOf(value) || JSON.stringify(value) }}</dd>
+                      </div>
+                    </dl>
+                    <ul class="fb-list">
+                      <li v-for="(result, i) in backtest.results" :key="i">
+                        {{ textOf(result) || JSON.stringify(result) }}
+                      </li>
+                    </ul>
                   </template>
                 </div>
-                <p v-if="runRefs[plan.id]" class="fb__muted">{{ $t('gainos.findBuyers.runStarted') }}</p>
-                <p v-else-if="plan.status === 'EXECUTED'" class="fb__muted">{{ $t('gainos.findBuyers.runLinkMissing') }}</p>
-              </li>
-            </ul>
-            <p v-else class="fb__muted">{{ $t('gainos.findBuyers.noPlans') }}</p>
-          </div>
-
-          <div class="fb__block">
-            <div class="fb__section-head">
-              <div>
-                <h3>{{ $t('gainos.findBuyers.taskRunsTitle') }}</h3>
-                <p class="fb__muted">{{ $t('gainos.findBuyers.taskRunsDesc') }}</p>
               </div>
-            </div>
-            <ul v-if="taskRuns.length" class="fb__plans">
-              <li v-for="run in taskRuns" :key="run.id">
-                <div class="fb__plan-head">
-                  <span class="gs-badge" :class="taskRunStatusTone(run.status)">{{ taskRunStatusLabel(run.status) }}</span>
-                  <span class="fb__muted">{{ formatRunTime(run.startedAt) }}</span>
-                </div>
-                <div class="fb__actions">
-                  <button v-if="run.runId" class="fb__action" type="button" @click="openRun(run.runId)">{{ $t('gainos.findBuyers.viewRun') }}</button>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="fb__muted">{{ $t('gainos.findBuyers.taskRunsEmpty') }}</p>
-          </div>
-        </template>
-        </div>
-      </section>
-    </div>
+            </CollapsePanel>
+          </Collapse>
+        </GsCard>
+      </div>
+    </Drawer>
 
-    <div v-if="editOpen && selected" class="fb__overlay fb__overlay--top" @click.self="editOpen = false">
-      <section class="fb__modal fb__modal--narrow" role="dialog" aria-modal="true" :aria-label="$t('gainos.findBuyers.editTitle')">
-        <header class="fb__modal-head">
-          <h2>{{ $t('gainos.findBuyers.editTitle') }}</h2>
-          <button class="fb__close" type="button" :aria-label="$t('gainos.common.cancel')" @click="editOpen = false">×</button>
-        </header>
-        <div class="fb__modal-body">
-          <div v-if="editError" class="fb__error" role="alert"><h3>{{ editError.title }}</h3><p v-if="editError.next">{{ editError.next }}</p></div>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.name') }}</span><input v-model="editForm.name" /></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.targetMarkets') }}</span><input v-model="editForm.targetMarkets" :placeholder="$t('gainos.findBuyers.marketsHint')" /></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.painPoints') }}</span><textarea v-model="editForm.painPoints" rows="4"></textarea></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.triggerSignals') }}</span><textarea v-model="editForm.triggerSignals" rows="4"></textarea></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.exclusions') }}</span><textarea v-model="editForm.exclusions" rows="4"></textarea></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.valueProps') }}</span><textarea v-model="editForm.valueProps" rows="4"></textarea></label>
-          <label class="fb__field"><span>{{ $t('gainos.findBuyers.companyAttributes') }}</span><textarea v-model="editForm.attributesText" rows="5" class="fb__mono"></textarea></label>
-          <p class="fb__muted">{{ $t('gainos.findBuyers.attributesHint') }}</p>
-          <code class="fb__code">{{ '{"industry": "metal fabrication", "country": "DE"}' }}</code>
+    <!-- 设定目标客户画像（从公司档案生成初稿） -->
+    <Modal
+      v-model:open="createOpen"
+      :confirm-loading="creating"
+      :ok-button-props="{ disabled: !canCreateIcp }"
+      :ok-text="$t('gainos.findBuyers.generate')"
+      :title="$t('gainos.findBuyers.createTitle')"
+      :width="560"
+      data-gs="icp-create-modal"
+      @ok="createIcp"
+    >
+      <div class="fb-dialog">
+        <p class="fb-muted">{{ $t('gainos.findBuyers.createDesc') }}</p>
+        <ErrorNotice
+          v-if="createError"
+          :code="createError.code"
+          :next="createError.next"
+          :title="createError.title"
+          :why="createError.why"
+        />
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.company') }}</span>
+          <GsSelect
+            v-model="selectedCompanyId"
+            :ariaLabel="$t('gainos.findBuyers.company')"
+            class="w-full"
+            data-gs="icp-company-select"
+            :disabled="companiesWithoutIcp.length === 0"
+            :options="companyOptions"
+          />
+        </label>
+        <p v-if="companies.length === 0" class="fb-muted">{{ $t('gainos.findBuyers.noCompanies') }}</p>
+        <Alert
+          v-else-if="companiesWithoutIcp.length === 0"
+          :message="$t('gainos.findBuyers.allCompaniesHaveIcp')"
+          show-icon
+          type="warning"
+        />
+        <p v-else-if="claimsChecking" class="fb-muted">{{ $t('gainos.findBuyers.checkingFacts') }}</p>
+        <Alert
+          v-else-if="claimsCheckError"
+          :message="$t('gainos.findBuyers.factsCheckFailed')"
+          role="alert"
+          show-icon
+          type="error"
+        >
+          <template #action>
+            <Button size="small" @click="checkApprovedClaims(selectedCompanyId)">
+              {{ $t('gainos.common.retry') }}
+            </Button>
+          </template>
+        </Alert>
+        <Alert
+          v-else-if="approvedClaimCount === 0"
+          :message="$t('gainos.findBuyers.noApprovedFacts')"
+          show-icon
+          type="warning"
+        />
+        <Alert
+          v-else-if="approvedClaimCount !== null"
+          :message="$t('gainos.findBuyers.approvedFactsCount', { count: approvedClaimCount })"
+          show-icon
+          type="info"
+        />
+        <p class="fb-muted">{{ $t('gainos.findBuyers.createNote') }}</p>
+      </div>
+    </Modal>
+
+    <!-- 编辑画像 -->
+    <Modal
+      v-model:open="editOpen"
+      :confirm-loading="editing"
+      :ok-text="$t('gainos.findBuyers.saveChanges')"
+      :title="$t('gainos.findBuyers.editTitle')"
+      :width="640"
+      data-gs="icp-edit-modal"
+      @ok="saveEdit"
+    >
+      <div class="fb-dialog">
+        <ErrorNotice v-if="editError" :next="editError.next" :title="editError.title" />
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.name') }}</span>
+          <Input v-model:value="editForm.name" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.targetMarkets') }}</span>
+          <Input v-model:value="editForm.targetMarkets" :placeholder="$t('gainos.findBuyers.marketsHint')" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.painPoints') }}</span>
+          <Input.TextArea v-model:value="editForm.painPoints" :rows="3" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.triggerSignals') }}</span>
+          <Input.TextArea v-model:value="editForm.triggerSignals" :rows="3" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.exclusions') }}</span>
+          <Input.TextArea v-model:value="editForm.exclusions" :rows="3" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.valueProps') }}</span>
+          <Input.TextArea v-model:value="editForm.valueProps" :rows="3" />
+        </label>
+        <label class="fb-field">
+          <span>{{ $t('gainos.findBuyers.companyAttributes') }}</span>
+          <Input.TextArea v-model:value="editForm.attributesText" :rows="6" class="fb-mono" />
+        </label>
+        <p class="fb-muted">{{ $t('gainos.findBuyers.attributesHint') }}</p>
+        <pre class="fb-code">{{ '{"industry": "metal fabrication", "country": "DE"}' }}</pre>
+      </div>
+    </Modal>
+
+    <!-- 新增 / 编辑规则 -->
+    <Modal
+      v-model:open="ruleOpen"
+      :confirm-loading="ruleBusy"
+      :ok-text="$t('gainos.findBuyers.saveRule')"
+      :title="ruleModalTitle"
+      :width="640"
+      data-gs="icp-rule-modal"
+      @ok="saveRule"
+    >
+      <div class="fb-dialog">
+        <ErrorNotice v-if="ruleError" :next="ruleError.next" :title="ruleError.title" />
+        <div class="fb-form-grid">
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.ruleKindLabel') }}</span>
+            <GsSelect
+              v-model="ruleForm.kind"
+              :ariaLabel="$t('gainos.findBuyers.ruleKindLabel')"
+              class="w-full"
+              :options="kindOptions"
+            />
+          </label>
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.ruleField') }}</span>
+            <Input v-model:value="ruleForm.field" />
+          </label>
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.ruleOperatorLabel') }}</span>
+            <GsSelect
+              v-model="ruleForm.operator"
+              :ariaLabel="$t('gainos.findBuyers.ruleOperatorLabel')"
+              class="w-full"
+              :options="operatorOptions"
+            />
+          </label>
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.ruleWeight') }}</span>
+            <InputNumber v-model:value="ruleForm.weight" :min="0" :step="0.5" style="width: 100%" />
+          </label>
+          <label class="fb-field fb-field--wide">
+            <span>{{ $t('gainos.findBuyers.ruleValue') }}</span>
+            <Input v-model:value="ruleForm.valueText" :placeholder="$t('gainos.findBuyers.ruleValueHint')" />
+          </label>
+          <label class="fb-field fb-field--wide">
+            <span>{{ $t('gainos.findBuyers.ruleRationale') }}</span>
+            <Input v-model:value="ruleForm.rationale" />
+          </label>
         </div>
-        <div class="fb__modal-actions fb__modal-foot">
-          <button class="fb__action" type="button" @click="editOpen = false">{{ $t('gainos.common.cancel') }}</button>
-          <button class="fb__cta" type="button" :disabled="editing" :class="{ 'is-loading': editing }" @click="saveEdit">{{ $t('gainos.findBuyers.saveChanges') }}</button>
-        </div>
-      </section>
-    </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <style scoped>
-.fb { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
-.fb__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.fb__stage { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .04em; color: var(--gs-accent-strong); }
-.fb__head h1 { margin: 6px 0 0; font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -.011em; color: var(--gs-fg); }
-.fb__head p { margin: 8px 0 0; font-size: 16px; line-height: 24px; letter-spacing: -.011em; color: var(--gs-fg-muted); max-width: 640px; }
-.fb__refresh { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 10px; padding: 8px 16px; font-size: 13px; color: var(--gs-fg-2); cursor: pointer; white-space: nowrap; }
-.fb__refresh.is-loading { opacity: .6; cursor: progress; }
-.fb__steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-.fb__step { display: flex; align-items: center; gap: 6px; flex: none; padding: 6px 10px; border-radius: 999px; font-size: 12px; color: var(--gs-fg-subtle); background: var(--gs-divider); }
-.fb__step-dot { width: 19px; height: 19px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--gs-surface); font-size: 10.5px; font-weight: 700; }
-.fb__step.is-done { color: var(--gs-accent-strong); background: var(--gs-accent-soft); }
-.fb__step.is-current { color: var(--gs-accent-cta-fg); background: var(--gs-accent-cta); }
-.fb__step.is-current .fb__step-dot { background: rgba(255,255,255,.22); color: #fff; }
-.fb__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 13px; font-weight: 600; }
-.fb__toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.fb__toolbar h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
-.fb__toolbar p { margin: 5px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
-.fb__cta { border: 0; border-radius: 10px; padding: 9px 18px; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-size: 13px; font-weight: 600; cursor: pointer; }
-.fb__cta:disabled { opacity: .45; cursor: not-allowed; }
-.fb__action { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2); border-radius: 9px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; }
-.fb__action:disabled { opacity: .45; cursor: not-allowed; }
-.fb__action--primary { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
-.fb__error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
-.fb__error h3 { margin: 0; font-size: 13.5px; color: var(--gs-warn); }
-.fb__error p, .fb__error-text { margin: 0; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.65; }
-.fb__error-text { color: var(--gs-warn); }
-.fb__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
-.fb__warn {
-  margin: 0; padding: 10px 12px; border-radius: 9px; line-height: 1.65;
-  font-size: 12.5px; color: var(--gs-warn); background: var(--gs-warn-bg); border: 1px solid var(--gs-warn);
+/* ── 页面级文字 ───────────────────────────────────────────────────────── */
+.fb-h2 {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
 }
-.fb__empty { max-width: 760px; margin: 0 auto; display: grid; place-items: center; gap: 8px; text-align: center; background: var(--gs-surface); border: 1px dashed var(--gs-border-dashed); border-radius: 16px; padding: 48px 24px; }
-.fb__empty-mark { font-size: 30px; }
-.fb__empty-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--gs-fg); }
-.fb__empty-desc { margin: 0 0 10px; font-size: 13.5px; color: var(--gs-fg-muted); max-width: 540px; line-height: 1.75; }
-.fb__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.fb__cta-secondary {
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
-  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
+.fb-h3 {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
 }
-.fb__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.fb__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-/* 卡片用纵向 flex（而非 grid）：外层网格把同行卡片拉伸到等高时，
-   grid 的 auto 行会把多余高度平摊到每一行——标题/标签/统计行全部被撑高，
-   标签变成竖长椭圆、按钮悬在卡片中部。flex + margin-top:auto 让内容
-   顶部对齐、按钮钉在卡片底部，多余空间只留在按钮上方。 */
-.fb__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
-.fb__card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.fb__card-head h2 { margin: 0; font-size: 16px; font-weight: 650; color: var(--gs-fg); }
-.fb__card-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--gs-fg-subtle); }
-.fb__chips { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 6px; }
-.fb__chip { font-size: 11.5px; background: var(--gs-divider); color: var(--gs-fg-2); border-radius: 999px; padding: 3px 9px; }
-.fb__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
-.fb__overlay {
-  position: fixed; inset: 0; z-index: 1000; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
-  display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden;
+.fb-muted {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 20px;
 }
-.fb__overlay--top { z-index: 1010; }
-.fb__modal {
-  width: min(920px, 100%); max-height: calc(100dvh - 48px); box-sizing: border-box; min-width: 0;
-  background: var(--gs-surface); border-radius: 18px; box-shadow: 0 24px 60px -20px rgba(23,23,23,.4);
-  display: flex; flex-direction: column; overflow: hidden;
+.fb-label {
+  margin: 0 0 4px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
-.fb__modal--narrow { width: min(560px, 100%); }
-.fb__modal-body {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
-  padding: 20px 26px; display: grid; gap: 16px; overflow-wrap: anywhere;
+.fb-toolbar__main {
+  min-width: 0;
+  padding-left: 12px;
 }
-.fb__modal-body > * { min-width: 0; }
-.fb__modal-head {
-  flex: none; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  padding: 22px 26px 16px; border-bottom: 1px solid var(--gs-border);
+.fb-toolbar__hint {
+  margin-top: 2px;
 }
-.fb__modal-head > div { min-width: 0; }
-.fb__modal-foot {
-  flex: none; padding: 14px 26px 20px; border-top: 1px solid var(--gs-border);
+.fb-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── 详情抽屉 ─────────────────────────────────────────────────────────── */
+.fb-drawer :deep(.ant-drawer-header) {
+  padding: 18px 24px 14px;
+}
+.fb-drawer__title {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.fb-kicker {
+  margin: 0;
+  color: var(--gs-accent-fg);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.fb-drawer__name {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.fb-drawer__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.fb-drawer__hint {
+  margin-bottom: 16px;
+}
+.fb-drawer__body {
+  display: grid;
+  gap: 16px;
+}
+
+.fb-block {
+  display: grid;
+  gap: 6px;
+}
+.fb-sections > * + * {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gs-divider);
+}
+.fb-key {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--gs-fg-subtle);
+  font-style: normal;
+}
+.fb-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gs-divider);
+}
+.fb-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--gs-fg);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.fb-list strong {
+  font-weight: 600;
+}
+.fb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fb-chip {
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 22px;
+}
+.fb-personas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.fb-persona {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.fb-persona__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+/* ── 方案 / 运行 / 搜索条件 ────────────────────────────────────────────── */
+.fb-stack {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fb-plan,
+.fb-run,
+.fb-query {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.fb-plan__head,
+.fb-run__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-plan__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-run__action {
+  justify-self: start;
+}
+.fb-query__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-query__head strong {
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fb-query__filter {
+  padding: 1px 8px;
+  border-radius: 6px;
   background: var(--gs-surface);
+  color: var(--gs-fg);
+  font-size: 12px;
+  line-height: 20px;
 }
-.fb__modal-kicker { font-size: 11.5px; font-weight: 700; letter-spacing: .18em; color: var(--gs-accent-strong); }
-.fb__modal-head h2 { margin: 6px 0 0; font-size: 20px; font-weight: 700; color: var(--gs-fg); }
-.fb__modal-head p { margin: 6px 0 0; font-size: 13px; color: var(--gs-fg-muted); line-height: 1.7; }
-.fb__modal-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.fb__close { border: 0; background: transparent; font-size: 24px; line-height: 1; color: var(--gs-fg-subtle); cursor: pointer; padding: 2px 6px; }
-.fb__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-.fb__grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.fb__advanced { border: 1px solid var(--gs-border); border-radius: 10px; padding: 10px 12px; }
-.fb__advanced > summary { cursor: pointer; font-size: 12.5px; color: var(--gs-fg-muted); }
-.fb__advanced[open] > summary { margin-bottom: 12px; }
-.fb__advanced .fb__block { margin-top: 12px; }
-.fb__block { display: grid; gap: 8px; min-width: 0; }
-.fb__block h3 { margin: 0; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
-.fb__attr-grid { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.fb__attr { min-width: 0; display: grid; gap: 3px; padding: 8px 10px; background: var(--gs-divider); border-radius: 9px; }
-.fb__attr dt { font-size: 11.5px; color: var(--gs-fg-subtle); }
-.fb__attr dd { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--gs-fg-2); overflow-wrap: anywhere; }
-.fb__section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.fb__facts { margin: 0; display: grid; gap: 6px; }
-.fb__facts div { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
-.fb__facts dt { color: var(--gs-fg-subtle); }
-.fb__facts dd { margin: 0; color: var(--gs-fg-2); text-align: right; }
-.fb__bullets { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.65; }
-.fb__persona { background: var(--gs-divider); border-radius: 10px; padding: 12px 14px; display: grid; gap: 5px; }
-.fb__persona h4 { margin: 0; font-size: 13px; color: var(--gs-fg); }
-.fb__persona p { margin: 0; font-size: 12px; color: var(--gs-fg-2); line-height: 1.65; }
-.fb__lint { border: 1px solid var(--gs-warn-bg); background: var(--gs-warn-bg); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; }
-.fb__lint h3 { margin: 0; font-size: 13px; color: var(--gs-warn); }
-.fb__rules, .fb__plans { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.fb__rules li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--gs-fg-2); background: var(--gs-divider); border-radius: 9px; padding: 8px 10px; }
-.fb__rules code { font-size: 12px; color: var(--gs-fg); }
-.fb__rule-actions { margin-left: auto; display: flex; gap: 8px; }
-.fb__rule-actions button { border: 0; background: transparent; color: var(--gs-accent-strong); font-size: 12px; cursor: pointer; padding: 0; }
-.fb__rule-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; background: var(--gs-surface-3); border-radius: 10px; padding: 12px; }
-.fb__rule-form .fb__modal-actions { grid-column: 1 / -1; }
-.fb__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); min-width: 0; }
-.fb__field input, .fb__field select, .fb__field textarea { max-width: 100%; box-sizing: border-box; min-width: 0; }
-.fb__field input, .fb__field select, .fb__field textarea, .fb__textarea {
-  width: 100%; box-sizing: border-box; border: 1px solid var(--gs-border-strong); border-radius: 9px; background: var(--gs-surface); color: var(--gs-fg);
-  padding: 9px 11px; font-size: 13px; font-family: inherit;
+.fb-query__filter em {
+  margin-right: 4px;
+  color: var(--gs-fg-muted);
+  font-style: normal;
 }
-.fb__field textarea, .fb__textarea { resize: vertical; }
-.fb__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.fb__code { display: block; margin: 0; padding: 10px 12px; background: var(--gs-divider); border-radius: 9px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; color: var(--gs-fg-2); white-space: pre; overflow-x: auto; }
-.fb__modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.fb__plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fb__plans li { background: var(--gs-divider); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
-.fb__plan-details > summary { cursor: pointer; font-size: 12.5px; color: var(--gs-fg-muted); }
-.fb__queries { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; max-height: 360px; overflow: auto; }
-.fb__queries li { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
-.fb__query-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fb__query-head strong { font-size: 13px; color: var(--gs-fg); }
-.fb__query-filters { display: flex; flex-wrap: wrap; gap: 6px; }
-.fb__query-filter { font-size: 11.5px; color: var(--gs-fg-2); background: var(--gs-divider); border-radius: 6px; padding: 3px 7px; }
-.fb__query-filter em { font-style: normal; color: var(--gs-fg-subtle); margin-right: 4px; }
-.fb__raw { margin-top: 8px; }
-.fb__raw > summary { cursor: pointer; font-size: 12px; color: var(--gs-fg-subtle); }
-.fb__raw pre { margin: 8px 0 0; padding: 10px; background: var(--gs-divider); border-radius: 8px; overflow: auto; max-height: 260px; font-size: 11.5px; }
-.fb__details { font-size: 12px; color: var(--gs-fg-subtle); }
-.fb__details pre { margin: 8px 0 0; padding: 10px; background: var(--gs-divider); border-radius: 8px; overflow: auto; max-height: 260px; }
-@media (max-width: 720px) {
-  .fb__head, .fb__toolbar { flex-direction: column; }
-  .fb__overlay { padding: 10px; }
-  .fb__modal { max-height: calc(100dvh - 20px); }
-  .fb__modal-head { flex-direction: column; align-items: stretch; padding: 18px 16px 14px; }
-  .fb__modal-head:has(> h2:first-child) { flex-direction: row; align-items: flex-start; justify-content: space-between; }
-  .fb__modal-head > div > p.fb__muted { display: none; }
-  .fb__modal-head-actions { width: 100%; justify-content: flex-end; }
-  .fb__modal-body { padding: 16px; }
-  .fb__modal-foot { padding: 12px 16px 16px; }
-  .fb__modal-actions { flex-direction: column; }
-  .fb__modal-actions > * { width: 100%; }
-  .fb__grid--two, .fb__attr-grid { grid-template-columns: minmax(0, 1fr); }
+/* 方案盒内的折叠头与内容贴齐盒子内边距（antd 默认 16px 横向内边距） */
+.fb-plan :deep(.ant-collapse-header) {
+  padding-inline: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+}
+.fb-plan :deep(.ant-collapse-content-box) {
+  padding-inline: 0;
+}
+.fb-raw > summary {
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fb-raw pre {
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--gs-surface);
+  font-size: 11.5px;
+}
+
+/* ── 高级：规则与回测 ──────────────────────────────────────────────────── */
+.fb-sub {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gs-divider);
+}
+.fb-sub__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fb-rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--gs-surface-2);
+}
+.fb-rule__expr {
+  color: var(--gs-fg);
+  font-family: var(--gs-font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.fb-rule__why {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.fb-rule__actions {
+  display: flex;
+  gap: 4px;
+}
+.fb-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.fb-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.fb-facts dt {
+  color: var(--gs-fg-muted);
+}
+.fb-facts dd {
+  margin: 0;
+  text-align: right;
+}
+.fb-mono {
+  font-family: var(--gs-font-mono);
+  font-size: 12px;
+}
+.fb-code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--gs-surface-2);
+  font-family: var(--gs-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── 弹层表单 ─────────────────────────────────────────────────────────── */
+.fb-dialog {
+  display: grid;
+  gap: 12px;
+}
+.fb-field {
+  display: grid;
+  gap: 6px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.fb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.fb-field--wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 719px) {
+  .fb-grid-2,
+  .fb-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

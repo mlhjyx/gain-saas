@@ -278,7 +278,7 @@ test('侧栏拖拽有最小宽度：低于 224px 时拉回且品牌行不重叠'
   expect(geo.brandOverlap, '品牌行 logo 与工具按钮不得重叠').toBe(false);
 });
 
-test('移动端：burger 代理打开抽屉导航', async ({ browser }) => {
+test('移动端：汉堡按钮打开新版侧栏抽屉（导航 + 通知/设置/帮助 + 退出登录）', async ({ browser }) => {
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 },
     locale: 'zh-CN',
@@ -291,9 +291,29 @@ test('移动端：burger 代理打开抽屉导航', async ({ browser }) => {
   await page.goto('/workspace');
   await settle(page, 900);
 
-  await page.locator('.sdr-mobile-burger').click();
-  await settle(page, 400);
-  // 抽屉里是 Vben 菜单（工作台可达）。
-  await expect(page.getByRole('menuitem', { name: '工作台' })).toBeVisible();
+  const burger = page.locator('.sdr-mobile-burger');
+  await expect(burger).toHaveAttribute('aria-expanded', 'false');
+  await burger.click();
+  await settle(page, 500);
+  const drawer = page.locator("[data-gs='mobile-nav']");
+  await expect(drawer).toBeVisible();
+  await expect(burger).toHaveAttribute('aria-expanded', 'true');
+
+  // 与桌面侧栏同一份内容：分组导航 + 底部三行。
+  for (const name of ['工作台', '公司档案', '找买家', '买家线索', '通知', '设置', '帮助']) {
+    await expect(drawer.getByRole('menuitem', { name })).toBeVisible();
+  }
+  // Vben 自带的旧菜单抽屉不再出现（它的菜单项是浅色字落在白底上，也没有底部账号区）
+  await expect(page.locator("aside[data-layout-region='sidebar']")).toHaveCount(0);
+
+  // 账号卡 → 菜单里有退出登录
+  await drawer.locator('.sdr-account').click();
+  await expect(page.getByRole('menuitem', { name: '退出登录' })).toBeVisible();
+
+  // 点菜单项：跳转并收起抽屉
+  await drawer.locator('.sdr-mobile__name').click();
+  await drawer.getByRole('menuitem', { name: '找买家' }).click();
+  await page.waitForURL(/\/find-buyers/);
+  await expect(drawer).toBeHidden();
   await ctx.close();
 });

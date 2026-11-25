@@ -1,33 +1,45 @@
 <script lang="ts" setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
-
-import { $t } from '#/locales';
-import { newAttemptId } from '#/utils/attempt-id';
-import { formatDate as formatDateValue } from '@gain-saas/shared';
-
-import {
-  failureText,
-  gainosApi,
-  type CanonicalCompanyDetail,
-  type CanonicalContact,
-  type CanonicalContactPoint,
-  type ComplianceInfoView,
-  type ContactEvidence,
-} from '#/api/gainos';
-
 /**
- * 决策人卡片（联系人挖掘 M4）。
+ * 决策人（线索档案包 →「决策人」页签，联系人挖掘 M4）。
  *
  * - 数据来自引擎 canonical 公司详情（联系人 + 联系方式 + 字段级证据）；
- * - 三个写操作都先让操作者声明 GDPR Art.6 合法性依据，BFF 再按引擎合同签一次性预算 Grant；
- * - RISKY / 推断（猜测）邮箱必须二次确认才能发起验证；
+ * - 三个写操作都先确认再执行，RISKY / 推断邮箱必须二次勾选才能发起验证；
+ *   合法依据由 BFF 按租户「数据处理声明」自动注入，这里只读取展示依据引用；
  * - 来源层级按引擎许可区分「索引片段 / 历史档案 / 公开页」，绝不把推断显示成确定。
+ *
+ * 2026-11-25 排版对齐买家线索卡：每位决策人一张浮起白卡，三列对齐
+ * （人 / 联系方式 / 来源），状态用统一药丸；按钮、弹层、提示全部走 antd。
  */
+import type {
+  CanonicalCompanyDetail,
+  CanonicalContact,
+  CanonicalContactPoint,
+  ComplianceInfoView,
+  ContactEvidence,
+} from '#/api/gainos';
+
+import { computed, onMounted, reactive, ref } from 'vue';
+
+import { formatDate as formatDateValue } from '@gain-saas/shared';
+
+import { Alert, Button, Checkbox, Modal, Skeleton, Space, Tag } from 'ant-design-vue';
+
+import ErrorNotice from '#/components/error-notice.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import { $t } from '#/locales';
+import { newAttemptId } from '#/utils/attempt-id';
+
+import { failureText, gainosApi } from '#/api/gainos';
+
 defineOptions({ name: 'DecisionMakerCard' });
 
 const props = defineProps<{ companyId: string }>();
 
 type DialogKind = 'discover' | 'guess' | 'verify';
+type GsTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
+type NoticeTone = 'error' | 'info' | 'success' | 'warning';
 
 interface DialogState {
   kind: DialogKind;
@@ -40,9 +52,9 @@ const loading = ref(false);
 const loadError = ref<{ title: string; next?: string } | null>(null);
 const busy = ref<DialogKind | null>(null);
 const notice = ref<string | null>(null);
+const noticeTone = ref<NoticeTone>('success');
 const actionError = ref<{ title: string; next?: string } | null>(null);
 const dialog = ref<DialogState | null>(null);
-const dialogRoot = ref<HTMLElement | null>(null);
 const form = reactive({
   acknowledged: false,
 });
@@ -60,7 +72,7 @@ function evidenceOf(contactId: string): ContactEvidence[] {
   return (detail.value?.evidence ?? []).filter((row) => row.entityId === contactId);
 }
 
-/** 该联系人的邮箱是否来自猜测（email.guess 证据）——UI 上标为「推断（PROBABLE）」。 */
+/** 该联系人的邮箱是否来自猜测（email.guess 证据）——UI 上标为「推断」。 */
 function isGuessed(contact: CanonicalContact): boolean {
   return evidenceOf(contact.id).some((row) => row.field === 'email.guess');
 }
@@ -77,34 +89,30 @@ function isGuessedEmailPoint(contact: CanonicalContact, point: CanonicalContactP
   return emails.length === 1;
 }
 
-interface PointBadge {
-  label: string;
-  tone: 'ok' | 'warn' | 'danger' | 'muted';
+/** 状态文案只给业务词：不把引擎枚举码摆给用户（未登记的值才原样回退）。 */
+function statusText(status: string): string {
+  const key = `gainos.contacts.badge.${status}`;
+  const translated = $t(key);
+  return translated === key ? status : translated;
 }
 
-/** 状态徽标：VALID / RISKY / PROBABLE（推断）/ BLOCKED / INVALID / UNVERIFIED 一律照实显示。 */
-function pointBadge(contact: CanonicalContact, point: CanonicalContactPoint): PointBadge {
-  if (point.status === 'VALID') return { label: $t('gainos.contacts.status.VALID'), tone: 'ok' };
-  if (point.status === 'RISKY') {
-    return isGuessedEmailPoint(contact, point)
-      ? { label: $t('gainos.contacts.status.PROBABLE'), tone: 'warn' }
-      : { label: $t('gainos.contacts.status.RISKY'), tone: 'warn' };
-  }
-  if (point.status === 'BLOCKED') return { label: $t('gainos.contacts.status.BLOCKED'), tone: 'danger' };
-  if (point.status === 'INVALID') return { label: $t('gainos.contacts.status.INVALID'), tone: 'muted' };
-  return { label: $t('gainos.contacts.status.UNVERIFIED'), tone: 'muted' };
+/** 联系方式状态：VALID / RISKY / 推断 / BLOCKED / INVALID / UNVERIFIED 一律照实显示。 */
+function pointLabel(contact: CanonicalContact, point: CanonicalContactPoint): string {
+  if (isGuessedEmailPoint(contact, point)) return $t('gainos.contacts.badge.PROBABLE');
+  return statusText(point.status);
+}
+
+function pointTone(point: CanonicalContactPoint): GsTone {
+  if (point.status === 'VALID') return 'success';
+  if (point.status === 'RISKY') return 'warning';
+  if (point.status === 'BLOCKED') return 'danger';
+  return 'neutral';
 }
 
 function pointTypeLabel(type: string): string {
   const key = `gainos.contacts.type.${type}`;
   const translated = $t(key);
   return translated === key ? type : translated;
-}
-
-function statusLabel(status: string): string {
-  const key = `gainos.contacts.status.${status}`;
-  const translated = $t(key);
-  return translated === key ? status : translated;
 }
 
 function layerLabel(license?: string): string {
@@ -139,6 +147,11 @@ function pointHref(point: CanonicalContactPoint): string {
   return '';
 }
 
+/** 链接类联系方式只显示去掉协议头的地址，避免长串 https:// 挤占一整行。 */
+function displayValue(point: CanonicalContactPoint): string {
+  return point.type === 'linkedin' ? point.value.replace(/^https?:\/\//i, '') : point.value;
+}
+
 interface ContactSource {
   key: string;
   url: string;
@@ -157,8 +170,10 @@ function evidenceUrlOf(row: ContactEvidence): string {
 }
 
 /**
- * 每个联系人的来源面：优先 sourceUrl，其次 person.profile 的 source_page；按许可去重。
+ * 每个联系人的来源面：优先 sourceUrl，其次 person.profile 的 source_page。
  * 带 URL 的行排在前面——联系点证据本身没有来源页，别让它挤掉唯一的来源链接。
+ * 同一层级已有带链接的来源时，丢掉该层级不带链接的行（显示上完全重复，只是少了链接）；
+ * 不同链接的来源全部保留。
  */
 function contactSources(contact: CanonicalContact): ContactSource[] {
   const rows = evidenceOf(contact.id)
@@ -166,11 +181,18 @@ function contactSources(contact: CanonicalContact): ContactSource[] {
     .sort((a, b) => Date.parse(b.fetchedAt ?? '') - Date.parse(a.fetchedAt ?? ''));
   const ordered = [...rows.filter((row) => evidenceUrlOf(row)), ...rows.filter((row) => !evidenceUrlOf(row))];
   const out: ContactSource[] = [];
+  const linkedLayers = new Set<string>();
   for (const row of ordered) {
     const url = evidenceUrlOf(row);
-    const key = `${url}|${row.license ?? ''}`;
+    const layer = layerLabel(row.license);
+    const key = url ? `${url}|${layer}` : `none|${layer}`;
     if (out.some((item) => item.key === key)) continue;
-    out.push({ key, url, layer: layerLabel(row.license), at: formatDate(row.fetchedAt) });
+    if (url) {
+      linkedLayers.add(layer);
+    } else if (linkedLayers.has(layer)) {
+      continue;
+    }
+    out.push({ key, url, layer, at: formatDate(row.fetchedAt) });
     if (out.length >= 3) break;
   }
   return out;
@@ -185,6 +207,35 @@ function missingEmailCount(): number {
 
 function roleLine(contact: CanonicalContact): string {
   return [contact.title, contact.department].filter((part): part is string => !!part && part.trim() !== '').join(' · ');
+}
+
+/** 渲染行：模板里不再做字符串拼接/状态判断，只负责排版。 */
+const rows = computed(() =>
+  contacts.value.map((contact) => ({
+    contact,
+    id: contact.id,
+    initials: initials(contact.fullName),
+    name: contact.fullName,
+    role: roleLine(contact) || $t('gainos.contacts.roleUnknown'),
+    seniority: seniorityLabel(contact.seniority),
+    points: visiblePoints(contact).map((point) => ({
+      action: point.type === 'email',
+      href: pointHref(point),
+      id: point.id,
+      label: pointLabel(contact, point),
+      point,
+      text: displayValue(point),
+      tone: pointTone(point),
+      type: pointTypeLabel(point.type),
+      verifiedAt: point.verifiedAt ? formatDate(point.verifiedAt) : '',
+    })),
+    sources: contactSources(contact),
+  })),
+);
+
+function setNotice(text: string, tone: NoticeTone = 'success'): void {
+  notice.value = text;
+  noticeTone.value = tone;
 }
 
 async function load(): Promise<void> {
@@ -206,8 +257,6 @@ async function openDialog(kind: DialogKind, contact?: CanonicalContact, point?: 
   notice.value = null;
   form.acknowledged = false;
   dialog.value = { kind, contact, point };
-  // 把焦点移进弹窗,键盘用户不会继续停在背景卡片上。
-  void nextTick(() => dialogRoot.value?.focus());
   if (!platformBasisLoaded) {
     try {
       platformBasis.value = (await gainosApi.complianceInfo())?.platform ?? null;
@@ -223,6 +272,14 @@ function closeDialog(): void {
   dialog.value = null;
   actionError.value = null;
 }
+
+/** antd Modal 的 v-model:open：关窗统一走 closeDialog（执行中不允许关）。 */
+const dialogOpen = computed({
+  get: () => dialog.value !== null,
+  set: (open: boolean) => {
+    if (!open) closeDialog();
+  },
+});
 
 const dialogTitle = computed(() => {
   if (!dialog.value) return '';
@@ -249,6 +306,10 @@ const canSubmit = computed(() => {
   return true;
 });
 
+const basisText = computed(
+  () => `${$t('gainos.contacts.lawfulBasis')}：${$t('gainos.contacts.platformBasis')}`,
+);
+
 async function submit(): Promise<void> {
   if (!dialog.value || !canSubmit.value) return;
   const current = dialog.value;
@@ -260,24 +321,33 @@ async function submit(): Promise<void> {
       const result = await gainosApi.discoverContacts(props.companyId, {
         attemptId: newAttemptId(),
       });
-      notice.value = $t('gainos.contacts.discoverDone', { count: result.contacts?.length ?? 0 });
+      setNotice($t('gainos.contacts.discoverDone', { count: result.contacts?.length ?? 0 }));
     } else if (current.kind === 'guess') {
       const result = await gainosApi.guessEmails(props.companyId, {});
-      notice.value = $t('gainos.contacts.guessDone', {
-        attempted: result.attempted ?? 0,
-        persisted: result.persisted ?? 0,
-        verified: result.verified ?? 0,
-      });
+      setNotice(
+        $t('gainos.contacts.guessDone', {
+          attempted: result.attempted ?? 0,
+          persisted: result.persisted ?? 0,
+          verified: result.verified ?? 0,
+        }),
+      );
       if ((result.blocked ?? 0) > 0) {
-        notice.value += ' ' + $t('gainos.contacts.guessBlocked', { count: result.blocked ?? 0 });
+        setNotice(
+          `${notice.value} ${$t('gainos.contacts.guessBlocked', { count: result.blocked ?? 0 })}`,
+          'warning',
+        );
       }
     } else if (current.point) {
       const result = await gainosApi.verifyContactPoint(current.point.id, {});
       const status = result.verification?.status ?? result.status;
-      notice.value =
-        status === 'BLOCKED'
-          ? $t('gainos.contacts.verifyBlocked')
-          : $t('gainos.contacts.verifyDone', { status: statusLabel(status) });
+      if (status === 'BLOCKED') {
+        setNotice($t('gainos.contacts.verifyBlocked'), 'warning');
+      } else {
+        setNotice(
+          $t('gainos.contacts.verifyDone', { status: statusText(status) }),
+          status === 'VALID' ? 'success' : 'warning',
+        );
+      }
     }
     dialog.value = null;
     await load();
@@ -298,229 +368,458 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 合法性依据弹窗打开时先截住 Escape,避免把外层的线索档案包一起关掉。 */
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !dialog.value) return;
-  event.stopPropagation();
-  event.preventDefault();
-  closeDialog();
-}
+/** 加载失败里的「授权对接未就绪」需要补一句给管理员的处理说明。 */
+const needsScopeHint = computed(() => Boolean(loadError.value?.title.includes('授权对接')));
 
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown, true);
   void load();
 });
-onUnmounted(() => window.removeEventListener('keydown', onKeydown, true));
 </script>
 
 <template>
-  <section class="dm">
+  <section
+    aria-labelledby="dm-title"
+    class="dm"
+    data-gs="decision-makers"
+  >
     <header class="dm__head">
-      <div>
-        <h3>{{ $t('gainos.contacts.title') }}</h3>
+      <div class="dm__head-main">
+        <h2 class="dm__title" id="dm-title">{{ $t('gainos.contacts.title') }}</h2>
         <p class="dm__subtitle">{{ $t('gainos.contacts.subtitle') }}</p>
       </div>
-      <div class="dm__head-actions">
-        <button v-if="contacts.length" type="button" class="dm__action" :disabled="!!busy" @click="openDialog('guess')">
+      <Space :size="8" class="dm__head-actions" wrap>
+        <Button
+          v-if="contacts.length"
+          :disabled="!!busy"
+          :loading="busy === 'guess'"
+          data-gs="contacts-guess"
+          @click="openDialog('guess')"
+        >
           {{ $t('gainos.contacts.guess') }}
-        </button>
-        <button type="button" class="dm__action dm__action--primary" :disabled="!!busy" @click="openDialog('discover')">
+        </Button>
+        <Button
+          :disabled="!!busy"
+          :loading="busy === 'discover'"
+          data-gs="contacts-discover"
+          type="primary"
+          @click="openDialog('discover')"
+        >
           {{ $t('gainos.contacts.discover') }}
-        </button>
-      </div>
+        </Button>
+      </Space>
     </header>
 
-    <p v-if="loading" class="dm__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="loadError" class="dm__error" role="alert">
-      <h4>{{ loadError.title }}</h4>
-      <p v-if="loadError.next">{{ loadError.next }}</p>
-      <p v-if="loadError.title.includes('授权对接')" class="dm__muted">{{ $t('gainos.contacts.scopeHint') }}</p>
-      <button type="button" class="dm__action" @click="load">{{ $t('gainos.common.refresh') }}</button>
+    <GsCard v-if="loading" data-gs="decision-makers-loading" padding="20px 24px">
+      <Skeleton active :avatar="{ size: 44 }" :paragraph="{ rows: 3 }" />
+      <span class="dm__sr-only">{{ $t('gainos.common.loading') }}</span>
+    </GsCard>
+
+    <div v-else-if="loadError" class="dm__state" data-gs="decision-makers-error">
+      <ErrorNotice :next="loadError.next" :title="loadError.title" />
+      <p v-if="needsScopeHint" class="dm__hint">{{ $t('gainos.contacts.scopeHint') }}</p>
+      <Button class="dm__state-button" @click="load">{{ $t('gainos.common.refresh') }}</Button>
     </div>
+
     <template v-else>
-      <p v-if="notice" class="dm__notice" role="status">{{ notice }}</p>
+      <Alert
+        v-if="notice"
+        :message="notice"
+        :type="noticeTone"
+        closable
+        data-gs="contacts-notice"
+        role="status"
+        show-icon
+        @close="notice = null"
+      />
 
-      <div v-if="!contacts.length" class="dm__empty">
-        <p class="dm__empty-title">{{ $t('gainos.contacts.emptyTitle') }}</p>
-        <p class="dm__muted">{{ $t('gainos.contacts.emptyDesc') }}</p>
-        <button type="button" class="dm__action dm__action--primary" :disabled="!!busy" @click="openDialog('discover')">
-          {{ $t('gainos.contacts.emptyCta') }}
-        </button>
-      </div>
+      <GsCard v-if="rows.length === 0" data-gs="decision-makers-empty" padding="32px 24px">
+        <GsEmpty :description="$t('gainos.contacts.emptyDesc')" :title="$t('gainos.contacts.emptyTitle')">
+          <template #actions>
+            <Button :disabled="!!busy" type="primary" @click="openDialog('discover')">
+              {{ $t('gainos.contacts.emptyCta') }}
+            </Button>
+          </template>
+        </GsEmpty>
+      </GsCard>
 
-      <ul v-else class="dm__list">
-        <li v-for="contact in contacts" :key="contact.id" class="dm__person">
-          <div class="dm__person-head">
-            <span class="dm__avatar" aria-hidden="true">{{ initials(contact.fullName) }}</span>
-            <div class="dm__person-id">
-              <p class="dm__name">{{ contact.fullName }}</p>
-              <p class="dm__role">{{ roleLine(contact) || $t('gainos.contacts.roleUnknown') }}</p>
+      <template v-else>
+        <Alert
+          v-if="missingEmailCount() > 0"
+          :message="$t('gainos.contacts.missingEmail', { count: missingEmailCount() })"
+          data-gs="contacts-missing-email"
+          show-icon
+          type="info"
+        >
+          <template #action>
+            <Button :disabled="!!busy" size="small" type="link" @click="openDialog('guess')">
+              {{ $t('gainos.contacts.guess') }}
+            </Button>
+          </template>
+        </Alert>
+
+        <GsCard
+          v-for="row in rows"
+          :key="row.id"
+          class="dm-person-card"
+          data-gs="decision-maker"
+          padding="18px 24px"
+        >
+          <!-- 三列网格必须挂在卡片内容的内层：antd Card 会把插槽再包一层 .ant-card-body -->
+          <div class="dm-person">
+          <!-- 人 -->
+          <div class="dm-person__identity">
+            <span aria-hidden="true" class="dm-person__avatar">{{ row.initials }}</span>
+            <div class="min-w-0">
+              <h3 class="dm-person__name">{{ row.name }}</h3>
+              <p class="dm-person__role">{{ row.role }}</p>
+              <Tag v-if="row.seniority" :bordered="false" class="dm-chip dm-person__seniority">
+                {{ row.seniority }}
+              </Tag>
             </div>
-            <span v-if="contact.seniority" class="dm__seniority">{{ seniorityLabel(contact.seniority) }}</span>
           </div>
 
-          <ul v-if="visiblePoints(contact).length" class="dm__points">
-            <li v-for="point in visiblePoints(contact)" :key="point.id" class="dm__point">
-              <span class="dm__point-type">{{ pointTypeLabel(point.type) }}</span>
-              <a v-if="pointHref(point)" class="dm__value" :href="pointHref(point)" target="_blank" rel="noreferrer">{{ point.value }}</a>
-              <span v-else class="dm__value">{{ point.value }}</span>
-              <span class="dm__badge" :class="`dm__badge--${pointBadge(contact, point).tone}`">
-                {{ pointBadge(contact, point).label }}
-              </span>
-              <span v-if="point.verifiedAt" class="dm__date">{{ formatDate(point.verifiedAt) }}</span>
-              <button
-                v-if="point.type === 'email'"
-                type="button"
-                class="dm__verify"
+          <!-- 联系方式 -->
+          <ul v-if="row.points.length > 0" class="dm-points">
+            <li v-for="point in row.points" :key="point.id" class="dm-point">
+              <Tag :bordered="false" class="dm-chip dm-point__type">{{ point.type }}</Tag>
+              <a
+                v-if="point.href"
+                class="dm-point__value"
+                :href="point.href"
+                rel="noreferrer"
+                target="_blank"
+                :title="point.text"
+              >
+                {{ point.text }}
+              </a>
+              <span v-else class="dm-point__value" :title="point.text">{{ point.text }}</span>
+              <GsTag class="dm-point__badge" :tone="point.tone">{{ point.label }}</GsTag>
+              <!-- 日期位常驻（无日期时留空），保证各行的状态药丸上下对齐 -->
+              <span class="dm-point__date">{{ point.verifiedAt }}</span>
+              <Button
+                v-if="point.action"
                 :disabled="!!busy"
-                @click="openDialog('verify', contact, point)"
+                :loading="busy === 'verify'"
+                class="dm-point__action"
+                size="small"
+                type="link"
+                @click="openDialog('verify', row.contact, point.point)"
               >
                 {{ $t('gainos.contacts.verify') }}
-              </button>
+              </Button>
             </li>
           </ul>
-          <p v-else class="dm__muted">{{ $t('gainos.contacts.noPoints') }}</p>
+          <p v-else class="dm-person__role dm-points">{{ $t('gainos.contacts.noPoints') }}</p>
 
-          <div class="dm__sources">
-            <span class="dm__sources-label">{{ $t('gainos.contacts.source') }}</span>
-            <template v-if="contactSources(contact).length">
-              <span v-for="source in contactSources(contact)" :key="source.key" class="dm__source">
-                <a v-if="source.url" :href="source.url" target="_blank" rel="noreferrer">{{ source.layer }}</a>
+          <!-- 来源 -->
+          <div class="dm-sources">
+            <p class="dm-label">{{ $t('gainos.contacts.source') }}</p>
+            <template v-if="row.sources.length > 0">
+              <p v-for="source in row.sources" :key="source.key" class="dm-source">
+                <a v-if="source.url" :href="source.url" rel="noreferrer" target="_blank">
+                  {{ source.layer }}
+                </a>
                 <span v-else>{{ source.layer }}</span>
-                <time v-if="source.at">· {{ source.at }}</time>
-              </span>
+                <span v-if="source.at" class="dm-source__at">{{ source.at }}</span>
+              </p>
             </template>
-            <span v-else class="dm__muted">{{ $t('gainos.contacts.sourceUnknown') }}</span>
+            <p v-else class="dm-source dm-source--empty">{{ $t('gainos.contacts.sourceUnknown') }}</p>
           </div>
-        </li>
-      </ul>
-
-      <p v-if="contacts.length && missingEmailCount()" class="dm__muted">
-        {{ $t('gainos.contacts.missingEmail', { count: missingEmailCount() }) }}
-      </p>
+          </div>
+        </GsCard>
+      </template>
     </template>
 
-    <div v-if="dialog" class="dm__overlay" @click.self="closeDialog">
-      <section ref="dialogRoot" class="dm__dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="dialogTitle">
-        <header class="dm__dialog-head">
-          <h4>{{ dialogTitle }}</h4>
-          <button type="button" class="dm__close" :aria-label="$t('gainos.contacts.closeDialog')" @click="closeDialog">×</button>
-        </header>
-        <p class="dm__muted">{{ dialogDesc }}</p>
-
-        <p v-if="riskyTarget" class="dm__warning" role="alert">{{ $t('gainos.contacts.riskyWarning') }}</p>
-
-        <div class="dm__basis-hint">
-          <span>
-            {{ $t('gainos.contacts.lawfulBasis') }}：
-            {{ platformBasis ? $t('gainos.contacts.platformBasis') : $t('gainos.contacts.platformBasis') }}
-          </span>
-          <span v-if="platformBasis?.ref" class="dm__muted">{{ platformBasis.ref }}</span>
-        </div>
-
-        <label v-if="riskyTarget" class="dm__ack">
-          <input v-model="form.acknowledged" type="checkbox" />
-          <span>{{ $t('gainos.contacts.acknowledge') }}</span>
-        </label>
-
-        <div v-if="actionError" class="dm__error" role="alert">
-          <h4>{{ actionError.title }}</h4>
-          <p v-if="actionError.next">{{ actionError.next }}</p>
-        </div>
-
-        <div class="dm__dialog-actions">
-          <button type="button" class="dm__action" :disabled="!!busy" @click="closeDialog">{{ $t('gainos.common.cancel') }}</button>
-          <button type="button" class="dm__action dm__action--primary" :disabled="!canSubmit" @click="submit">
-            {{ busy ? $t('gainos.contacts.submitting') : $t('gainos.contacts.submit') }}
-          </button>
-        </div>
-      </section>
-    </div>
+    <!-- 发现 / 猜测 / 验证 的确认弹层 -->
+    <Modal
+      v-model:open="dialogOpen"
+      :confirm-loading="busy !== null"
+      :mask-closable="!busy"
+      :ok-button-props="{ disabled: !canSubmit }"
+      :ok-text="$t('gainos.contacts.submit')"
+      :title="dialogTitle"
+      :width="520"
+      data-gs="contacts-modal"
+      @ok="submit"
+    >
+      <div class="dm-dialog">
+        <p class="dm-dialog__desc">{{ dialogDesc }}</p>
+        <Alert
+          v-if="riskyTarget"
+          :message="$t('gainos.contacts.riskyWarning')"
+          role="alert"
+          show-icon
+          type="warning"
+        />
+        <Alert :message="basisText" show-icon type="info">
+          <template v-if="platformBasis?.ref" #description>
+            {{ platformBasis.ref }}
+          </template>
+        </Alert>
+        <Checkbox v-if="riskyTarget" v-model:checked="form.acknowledged" class="dm-dialog__ack">
+          {{ $t('gainos.contacts.acknowledge') }}
+        </Checkbox>
+        <ErrorNotice
+          v-if="actionError"
+          :next="actionError.next"
+          :title="actionError.title"
+        />
+      </div>
+    </Modal>
   </section>
 </template>
 
 <style scoped>
-.dm { display: grid; gap: 10px; border-top: 1px solid var(--gs-border); padding-top: 16px; }
-.dm__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.dm__head h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
-.dm__subtitle { margin: 0; font-size: 12px; color: var(--gs-fg-subtle); line-height: 1.65; max-width: 560px; }
-.dm__head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.dm__action {
-  border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg-2);
-  border-radius: 9px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+.dm {
+  display: grid;
+  gap: 12px;
 }
-.dm__action:hover:not(:disabled) { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.dm__action:disabled { opacity: .55; cursor: not-allowed; }
-.dm__action--primary { background: var(--gs-accent-cta); border-color: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); font-weight: 600; }
-.dm__action--primary:hover:not(:disabled) { color: var(--gs-accent-cta-fg); }
-.dm__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.7; }
-.dm__notice { margin: 0; padding: 8px 12px; border-radius: 9px; background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 12.5px; font-weight: 600; }
-.dm__error { border: 1px solid var(--gs-warn); background: var(--gs-warn-bg); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; justify-items: start; }
-.dm__error h4 { margin: 0; font-size: 13px; color: var(--gs-warn); }
-.dm__error p { margin: 0; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.65; }
-.dm__empty {
-  border: 1px dashed var(--gs-border-dashed); border-radius: 12px; padding: 20px 16px;
-  display: grid; gap: 6px; justify-items: start;
+.dm__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 4px 0;
 }
-.dm__empty-title { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--gs-fg); }
-.dm__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.dm__person { border: 1px solid var(--gs-border); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; background: var(--gs-surface); }
-.dm__person-head { display: flex; align-items: center; gap: 10px; }
-.dm__avatar {
-  width: 34px; height: 34px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-size: 12px; font-weight: 700;
+.dm__head-main {
+  min-width: 0;
 }
-.dm__person-id { min-width: 0; flex: 1 1 auto; }
-.dm__name { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--gs-fg); }
-.dm__role { margin: 2px 0 0; font-size: 12px; color: var(--gs-fg-subtle); }
-.dm__seniority { flex: none; font-size: 11px; font-weight: 600; color: var(--gs-fg-2); background: var(--gs-divider); border-radius: 999px; padding: 2px 8px; }
-.dm__points { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
-.dm__point { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
-.dm__point-type { flex: none; font-size: 11px; color: var(--gs-fg-subtle); min-width: 44px; }
-.dm__value { color: var(--gs-fg-2); overflow-wrap: anywhere; }
-a.dm__value { color: var(--gs-accent-strong); text-decoration: underline; }
-.dm__badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--gs-divider); color: var(--gs-fg-2); }
-.dm__badge--ok { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.dm__badge--warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
-.dm__badge--danger { background: var(--gs-warn-bg); color: var(--gs-danger); }
-.dm__badge--muted { background: var(--gs-divider); color: var(--gs-fg-subtle); }
-.dm__date { font-size: 11px; color: var(--gs-fg-subtle); font-variant-numeric: tabular-nums; }
-.dm__verify {
-  border: 0; background: transparent; color: var(--gs-accent-strong); font-size: 12px; cursor: pointer;
-  padding: 0; text-decoration: underline; font-family: inherit;
+.dm__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
 }
-.dm__verify:disabled { opacity: .55; cursor: not-allowed; }
-.dm__sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--gs-fg-subtle); }
-.dm__sources-label { font-weight: 600; }
-.dm__source { display: inline-flex; gap: 4px; align-items: center; }
-.dm__source a { color: var(--gs-accent-strong); text-decoration: underline; }
-.dm__overlay {
-  position: fixed; inset: 0; z-index: 1020; background: rgba(23,23,23,.58); backdrop-filter: blur(2px);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
+.dm__subtitle {
+  margin: 4px 0 0;
+  max-width: 720px;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 20px;
 }
-.dm__dialog {
-  width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; box-sizing: border-box;
-  background: var(--gs-surface); border-radius: 16px; padding: 18px 20px 20px; display: grid; gap: 10px;
-  box-shadow: 0 24px 60px -20px rgba(23,23,23,.4); outline: none;
+.dm__head-actions {
+  flex: none;
 }
-.dm__dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.dm__dialog-head h4 { margin: 0; font-size: 15px; font-weight: 700; color: var(--gs-fg); }
-.dm__close { border: 0; background: transparent; font-size: 22px; line-height: 1; color: var(--gs-fg-subtle); cursor: pointer; padding: 0 4px; }
-.dm__warning { margin: 0; padding: 9px 12px; border-radius: 9px; background: var(--gs-warn-bg); border: 1px solid var(--gs-warn); color: var(--gs-warn); font-size: 12.5px; line-height: 1.65; }
-.dm__field { display: grid; gap: 5px; font-size: 12.5px; color: var(--gs-fg-2); }
-.dm__field em { color: var(--gs-warn); font-style: normal; }
-.dm__field select, .dm__field input {
-  width: 100%; box-sizing: border-box; border: 1px solid var(--gs-border-strong); border-radius: 9px; background: var(--gs-surface);
-  color: var(--gs-fg); padding: 8px 10px; font-size: 13px; font-family: inherit;
+.dm__state {
+  display: grid;
+  gap: 10px;
 }
-.dm__basis-hint { margin: 0; font-size: 12px; color: var(--gs-fg-subtle); line-height: 1.6; }
-.dm__basis-hint.is-warn { color: var(--gs-warn); }
-.dm__ack { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--gs-fg-2); line-height: 1.55; }
-.dm__ack input { margin-top: 2px; }
-.dm__dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
-@media (max-width: 720px) {
-  .dm__head { flex-direction: column; }
-  .dm__dialog-actions { flex-direction: column-reverse; }
-  .dm__dialog-actions .dm__action { width: 100%; }
+.dm__state-button {
+  justify-self: start;
 }
+.dm__hint {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.dm__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── 一位决策人 ──────────────────────────────────────────────────────────
+   窄屏优先，按内容区实际宽度分级（容器查询）：默认三段竖排（人 / 联系方式 / 来源），
+   ≥ 860px 才是「人 / 联系方式 / 来源」三列对齐（卡片内边距 48 + 三列最小 788）。 */
+.dm-person {
+  display: grid;
+  grid-template-areas:
+    'identity'
+    'points'
+    'sources';
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.dm-person__identity {
+  grid-area: identity;
+  display: flex;
+  min-width: 0;
+  gap: 12px;
+  align-items: flex-start;
+}
+.dm-person__avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dm-person__name {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dm-person__role {
+  margin: 2px 0 0;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.dm-person__seniority {
+  margin-top: 6px;
+}
+
+.dm-chip {
+  flex: none;
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.dm-points {
+  grid-area: points;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--gs-divider);
+  list-style: none;
+}
+/* 窄内容区放不下一整行时，状态 / 日期 / 操作折到第二行 */
+.dm-point {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  min-height: 32px;
+}
+.dm-point__value {
+  flex: 1 1 140px;
+}
+.dm-point__type {
+  /* 等宽：邮箱 / 电话 / LinkedIn 后面的值从同一位置起排 */
+  box-sizing: border-box;
+  width: 68px;
+  padding-inline: 0;
+  text-align: center;
+}
+.dm-point__value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gs-fg);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+a.dm-point__value {
+  color: var(--gs-accent-fg);
+  text-decoration: none;
+}
+a.dm-point__value:hover {
+  text-decoration: underline;
+}
+.dm-point__badge {
+  flex: none;
+}
+.dm-point__date {
+  flex: none;
+  min-width: 80px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dm-point__action {
+  flex: none;
+  padding-inline: 6px;
+}
+
+.dm-sources {
+  grid-area: sources;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--gs-divider);
+}
+.dm-label {
+  margin: 0 0 4px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dm-source {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.dm-source a {
+  color: var(--gs-accent-fg);
+  text-decoration: none;
+}
+.dm-source a:hover {
+  text-decoration: underline;
+}
+.dm-source__at {
+  margin-left: 8px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dm-source--empty {
+  color: var(--gs-fg-subtle);
+}
+
+/* ── 弹层 ────────────────────────────────────────────────────────────── */
+.dm-dialog {
+  display: grid;
+  gap: 12px;
+}
+.dm-dialog__desc {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.dm-dialog__ack {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@container (min-width: 860px) {
+  .dm-person {
+    grid-template-areas: 'identity points sources';
+    grid-template-columns: 300px minmax(0, 1fr) 220px;
+    column-gap: 24px;
+  }
+  .dm-points,
+  .dm-sources {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .dm-point {
+    flex-wrap: nowrap;
+  }
+  .dm-point__value {
+    flex: 1 1 auto;
+  }
+}
+
 </style>

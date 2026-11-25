@@ -1,12 +1,13 @@
 {
-  "generatedAt": "2026-11-22T17:57:14.978Z",
+  "generatedAt": "2026-11-24T23:28:04.713Z",
   "leads": {
-    "queueCards": 0,
+    "queueSwitch": 1,
     "toolbar": 1,
     "search": 1,
-    "acceptRadius": "9999px",
+    "acceptRadius": "10px",
+    "acceptHeight": 40,
     "cardRadius": "10px",
-    "cardShadow": "rgba(10, 10, 10, 0.03) 0px 1px 2px 0px"
+    "cardShadow": "rgba(23, 23, 23, 0.035) 0px 0px 0px 1px, rgba(10, 10, 10, 0.03) 0px 1px 2px 0px, rgba(10, 10, 10, 0.12) 0px 10px 24px -16px"
   },
   "workspace": {
     "groupLabel": {
@@ -14,7 +15,7 @@
       "fontSize": "12px",
       "height": 20,
       "titleFontSize": "12px",
-      "html": "<p data-v-5ba0ff96=\"\" class=\"sdr-section__label\">工作空间</p>"
+      "html": "<p data-v-616439cc=\"\" class=\"sdr-section__label\">工作空间</p>"
     },
     "items": {
       "count": 9,

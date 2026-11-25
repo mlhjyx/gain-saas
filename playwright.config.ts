@@ -36,7 +36,17 @@ export default defineConfig({
         '**/real-stack-smoke.spec.ts',
       ],
     },
-    { name: 'mobile', testMatch: ['**/responsive.spec.ts'] },
+    {
+      name: 'mobile',
+      testMatch: ['**/responsive.spec.ts'],
+      use: { viewport: { height: 844, width: 390 } },
+    },
+    {
+      // 平板竖屏（iPad 10.2/10.9 介于 768–834）：侧栏自动收成图标窄栏，内容区约 760px
+      name: 'tablet',
+      testMatch: ['**/responsive.spec.ts'],
+      use: { hasTouch: true, viewport: { height: 1180, width: 820 } },
+    },
     { name: 'dark', testMatch: ['**/dark-mode.spec.ts'] },
     { name: 'real-stack', testMatch: ['**/real-stack-smoke.spec.ts'] },
   ],

@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue';
 
 import { Alert, Button, Form, Input, Modal, RadioGroup, RadioButton, Skeleton } from 'ant-design-vue';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import EmptyState from '#/components/gainos/empty-state.vue';
@@ -82,14 +83,21 @@ async function changeRole(id: string, role: 'admin' | 'member'): Promise<void> {
   }
 }
 
-async function remove(id: string): Promise<void> {
-  if (!window.confirm($t('gainos.members.confirmRemove'))) return;
-  try {
-    await gainosApi.removeMember(id);
-    await load();
-  } catch (err) {
-    error.value = failureText(err).title;
-  }
+function remove(id: string): void {
+  feedback.confirm({
+    cancelText: $t('gainos.common.cancel'),
+    content: $t('gainos.members.confirmRemove'),
+    okText: $t('gainos.members.remove'),
+    okType: 'danger',
+    onOk: async () => {
+      try {
+        await gainosApi.removeMember(id);
+        await load();
+      } catch (err) {
+        error.value = failureText(err).title;
+      }
+    },
+  });
 }
 
 onMounted(load);
