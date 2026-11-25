@@ -75,7 +75,14 @@ export class MembersController {
     }
     const updated = await this.prisma.membership.update({ where: { id: membershipId }, data: { role: body.role } });
     await this.prisma.auditLog.create({
-      data: { realm: 'tenant', actorId: tenant.userId, action: 'members.change_role', target: membershipId, detail: { role: body.role } },
+      data: {
+        realm: 'tenant',
+        actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
+        action: 'members.change_role',
+        target: membershipId,
+        detail: { role: body.role },
+      },
     });
     return { data: { id: updated.id, role: updated.role } };
   }
@@ -112,7 +119,13 @@ export class MembersController {
         data: { revokedAt: new Date() },
       });
       await tx.auditLog.create({
-        data: { realm: 'tenant', actorId: tenant.userId, action: 'members.remove', target: membershipId },
+        data: {
+          realm: 'tenant',
+          actorId: tenant.userId,
+          workspaceId: tenant.workspaceId,
+          action: 'members.remove',
+          target: membershipId,
+        },
       });
     });
     return { data: { ok: true } };

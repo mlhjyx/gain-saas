@@ -176,7 +176,7 @@ describe('MembersController', () => {
         data: { role: 'admin' },
       });
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
-        data: { realm: 'tenant', actorId: ADMIN_USER_ID, action: 'members.change_role', target: TARGET_MEMBERSHIP_ID, detail: { role: 'admin' } },
+        data: { realm: 'tenant', actorId: ADMIN_USER_ID, workspaceId: WS_ID, action: 'members.change_role', target: TARGET_MEMBERSHIP_ID, detail: { role: 'admin' } },
       });
     });
 
@@ -238,7 +238,7 @@ describe('MembersController', () => {
       expect(sessions.find((s) => s.jti === 's-other-ws')?.revokedAt).toBeNull();
       expect(sessions.find((s) => s.jti === 's-other-user')?.revokedAt).toBeNull();
       expect(tx.auditLog.create).toHaveBeenCalledWith({
-        data: { realm: 'tenant', actorId: ADMIN_USER_ID, action: 'members.remove', target: TARGET_MEMBERSHIP_ID },
+        data: { realm: 'tenant', actorId: ADMIN_USER_ID, workspaceId: WS_ID, action: 'members.remove', target: TARGET_MEMBERSHIP_ID },
       });
     });
   });

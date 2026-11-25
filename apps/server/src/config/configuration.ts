@@ -230,6 +230,11 @@ const schema = z.object({
   // 运营域(SD9):未配置时运营域整体 503,不影响租户域
   OPS_APP_DATABASE_URL: z.string().optional(),
   OPS_OWNER_DATABASE_URL: z.string().optional(),
+  // 运营会话独立签名钥(HS256):生产必填且不得与 SESSION_SECRET 相同;非生产缺省时从 SESSION_SECRET HKDF 隔离派生
+  OPS_SESSION_SECRET: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(32, 'OPS_SESSION_SECRET 至少 32 字符(openssl rand -hex 32)').optional(),
+  ),
   OPS_SESSION_TTL_MINUTES: z.coerce.number().min(5).max(24 * 60).default(480),
   /** 运营台批量导出：每个操作员每小时的导出次数上限（进程内滑动窗口）。 */
   OPS_EXPORT_HOURLY_LIMIT: z.coerce.number().int().min(1).max(1000).default(20),
@@ -350,6 +355,21 @@ const schema = z.object({
     .default('{"acq-sweep":"ENABLED","intent-sweep":"ENABLED","sanctions-refresh":"ENABLED"}'),
   // 撤销 target 的候选上限：只在该 schedule 最近 N 张未过期的 Grant 里找 locator。
   R4_REVOCATION_MAX_TARGET_CANDIDATES: z.coerce.number().int().min(1).max(32).default(8),
+}).superRefine((data, ctx) => {
+  if (data.NODE_ENV === 'production' && !data.OPS_SESSION_SECRET) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['OPS_SESSION_SECRET'],
+      message: '生产环境必须配置独立的 OPS_SESSION_SECRET(至少 32 字符)',
+    });
+  }
+  if (data.OPS_SESSION_SECRET && data.OPS_SESSION_SECRET === data.SESSION_SECRET) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['OPS_SESSION_SECRET'],
+      message: 'OPS_SESSION_SECRET 不能与 SESSION_SECRET 相同',
+    });
+  }
 });
 
 export type AppConfig = z.infer<typeof schema>;

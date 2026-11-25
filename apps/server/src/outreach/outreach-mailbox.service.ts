@@ -94,7 +94,7 @@ export class OutreachMailboxService {
       },
     );
     if (!mailbox) return { mailbox: null, usage: null, warmupCaps: null };
-    const usage = await this.usage(mailbox.id, now);
+    const usage = await this.usage(tenant.workspaceId, mailbox.id, now);
     return {
       mailbox,
       usage,
@@ -144,15 +144,15 @@ export class OutreachMailboxService {
   }
 
   /** 当前日/周已发送数（来自落库计数，P4-02）。 */
-  async usage(mailboxId: string, now: Date): Promise<OutboxUsage> {
+  async usage(workspaceId: string, mailboxId: string, now: Date): Promise<OutboxUsage> {
     const day = utcDay(now);
     const weekStart = new Date(day.getTime() - 6 * 86_400_000);
     const [today, week] = await Promise.all([
-      this.prisma.outreachMailboxCounter.findUnique({
-        where: { mailboxId_day: { mailboxId, day } },
+      this.prisma.outreachMailboxCounter.findFirst({
+        where: { workspaceId, mailboxId, day },
       }),
       this.prisma.outreachMailboxCounter.aggregate({
-        where: { mailboxId, day: { gte: weekStart } },
+        where: { workspaceId, mailboxId, day: { gte: weekStart } },
         _sum: { sent: true },
       }),
     ]);
@@ -161,7 +161,7 @@ export class OutreachMailboxService {
 
   /** 一封发送成功后原子递增日计数与「发件域×收件域」小时计数。 */
   async recordSend(
-    mailbox: { id: string; domainId: string },
+    mailbox: { id: string; domainId: string; workspaceId: string },
     recipientEmail: string,
     now: Date,
   ): Promise<void> {
@@ -178,7 +178,7 @@ export class OutreachMailboxService {
     await this.prisma.$transaction([
       this.prisma.outreachMailboxCounter.upsert({
         where: { mailboxId_day: { mailboxId: mailbox.id, day } },
-        create: { mailboxId: mailbox.id, day, sent: 1 },
+        create: { workspaceId: mailbox.workspaceId, mailboxId: mailbox.id, day, sent: 1 },
         update: { sent: { increment: 1 } },
       }),
       this.prisma.outreachDomainCounter.upsert({
@@ -189,7 +189,13 @@ export class OutreachMailboxService {
             recipientDomain,
           },
         },
-        create: { domainId: mailbox.domainId, hour, recipientDomain, sent: 1 },
+        create: {
+          workspaceId: mailbox.workspaceId,
+          domainId: mailbox.domainId,
+          hour,
+          recipientDomain,
+          sent: 1,
+        },
         update: { sent: { increment: 1 } },
       }),
       this.prisma.outreachMailbox.update({
@@ -200,11 +206,11 @@ export class OutreachMailboxService {
   }
 
   /** 硬拒绝（5xx）记入信箱当日计数，供未来按信箱熔断读取。 */
-  async recordHardBounce(mailboxId: string, now: Date): Promise<void> {
+  async recordHardBounce(workspaceId: string, mailboxId: string, now: Date): Promise<void> {
     const day = utcDay(now);
     await this.prisma.outreachMailboxCounter.upsert({
       where: { mailboxId_day: { mailboxId, day } },
-      create: { mailboxId, day, hardBounces: 1 },
+      create: { workspaceId, mailboxId, day, hardBounces: 1 },
       update: { hardBounces: { increment: 1 } },
     });
   }
@@ -237,6 +243,7 @@ export class OutreachMailboxService {
       await this.audit.record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'outreach.mailbox.created',
         target: mailbox.id,
         detail: { address: mailbox.address, warmupStage: mailbox.warmupStage },
@@ -279,6 +286,7 @@ export class OutreachMailboxService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.mailbox.updated',
       target: mailboxId,
       detail: {

@@ -40,16 +40,13 @@ class FakeT0Prisma {
       [...this.audits]
         .reverse()
         .filter((row) => {
-          if (row.realm !== where.realm || row.action !== where.action || row.target !== where.target) {
+          if (
+            row.realm !== where.realm ||
+            row.action !== where.action ||
+            row.target !== where.target ||
+            (where.workspaceId !== undefined && row.workspaceId !== where.workspaceId)
+          ) {
             return false;
-          }
-          const detailFilter = where.detail as { path?: string[]; equals?: unknown } | undefined;
-          if (detailFilter?.path?.length) {
-            let cur: unknown = row.detail;
-            for (const key of detailFilter.path) {
-              cur = cur && typeof cur === 'object' ? (cur as Record<string, unknown>)[key] : undefined;
-            }
-            if (cur !== detailFilter.equals) return false;
           }
           return true;
         })
@@ -140,6 +137,7 @@ describe('OutreachT0Service（T0 四通道合规门禁与轻触达留痕）', ()
       outcome: 'OPENED',
     });
     expect(created.targetMasked).toBe('m***@refeel.it');
+    expect(prisma.audits[0]?.workspaceId).toBe(WS_A);
     expect(JSON.stringify(prisma.audits)).not.toContain('maria.rossi@refeel.it');
 
     const listA = await svc.listTouches(memberA, LEAD);

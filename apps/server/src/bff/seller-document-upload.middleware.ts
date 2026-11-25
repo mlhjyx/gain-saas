@@ -8,7 +8,8 @@ export const SELLER_DOCUMENT_CONTENT_UPLOAD_PATH =
 
 export const SELLER_DOCUMENT_MAX_BYTES = 51 * 1024 * 1024;
 
-export type SessionVerifier = Pick<SessionService, 'verify'>;
+export type SessionVerifier = Pick<SessionService, 'verify'> &
+  Partial<Pick<SessionService, 'clearCookieOptions'>>;
 
 function sendUploadError(
   req: Request,
@@ -103,7 +104,9 @@ export function createSellerDocumentUploadMiddleware(
       claims = null;
     }
     if (!claims) {
-      res.clearCookie?.(SESSION_COOKIE);
+      const clearOpts = sessionService.clearCookieOptions?.();
+      if (clearOpts) res.clearCookie?.(SESSION_COOKIE, clearOpts);
+      else res.clearCookie?.(SESSION_COOKIE);
       sendUploadError(req, res, 401, 'AUTH_REQUIRED', '会话已过期,请重新登录');
       return;
     }

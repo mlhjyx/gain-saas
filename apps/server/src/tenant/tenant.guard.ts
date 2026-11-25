@@ -33,7 +33,9 @@ export class TenantGuard implements CanActivate {
     }
     const claims = await this.sessions.verify(token);
     if (!claims) {
-      res.clearCookie(SESSION_COOKIE);
+      const clearOpts = this.sessions.clearCookieOptions?.();
+      if (clearOpts) res.clearCookie(SESSION_COOKIE, clearOpts);
+      else res.clearCookie(SESSION_COOKIE);
       throw new UnauthorizedException({ error: { code: 'AUTH_REQUIRED', message: '会话已过期,请重新登录' } });
     }
     // 先核验成员资格与工作空间 ACTIVE 状态，再决定是否滑动续期——绝不允许停用空间或被移出成员续签新 cookie。
@@ -46,7 +48,9 @@ export class TenantGuard implements CanActivate {
       },
     });
     if (!membership) {
-      res.clearCookie(SESSION_COOKIE);
+      const clearOpts = this.sessions.clearCookieOptions?.();
+      if (clearOpts) res.clearCookie(SESSION_COOKIE, clearOpts);
+      else res.clearCookie(SESSION_COOKIE);
       throw new UnauthorizedException({ error: { code: 'NOT_A_MEMBER', message: '工作空间成员资格已失效' } });
     }
     if (membership.workspace.status !== 'ACTIVE') {

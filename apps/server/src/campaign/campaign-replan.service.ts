@@ -130,6 +130,7 @@ export class CampaignReplanService {
         .record({
           realm: 'service',
           actorId: PLANNER_ACTOR,
+          workspaceId: tenant.workspaceId,
           action: 'campaign.replan.trigger_failed',
           target: `campaign/${campaignId}`,
           detail: { jobId, fromJobId: job.id },
@@ -169,6 +170,7 @@ export class CampaignReplanService {
       .record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'campaign.replan.triggered',
         target: `campaign/${campaignId}`,
         detail: { jobId, fromJobId: job.id },
@@ -214,6 +216,7 @@ export class CampaignReplanService {
       .record({
         realm: 'service',
         actorId: PLANNER_ACTOR,
+        workspaceId: tenant.workspaceId,
         action: 'campaign.plan_job.needs_human',
         target: `campaign/${campaignId}`,
         detail: { jobId },

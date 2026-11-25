@@ -45,4 +45,43 @@ describe('loadConfig', () => {
     const config = loadConfig({ ...baseEnv, EVENT_CONSUMER_ENABLED: 'true' } as NodeJS.ProcessEnv);
     expect(config.EVENT_CONSUMER_ENABLED).toBe(true);
   });
+
+  it('OPS_SESSION_SECRET: 生产环境必填、至少 32 字符、且任何环境均不能与 SESSION_SECRET 相同', () => {
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: 'production' } as NodeJS.ProcessEnv),
+    ).toThrow(/OPS_SESSION_SECRET/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: 'production', OPS_SESSION_SECRET: '' } as NodeJS.ProcessEnv),
+    ).toThrow(/OPS_SESSION_SECRET/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: 'production', OPS_SESSION_SECRET: 'short' } as NodeJS.ProcessEnv),
+    ).toThrow(/OPS_SESSION_SECRET/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: 'production', OPS_SESSION_SECRET: baseEnv.SESSION_SECRET } as NodeJS.ProcessEnv),
+    ).toThrow(/OPS_SESSION_SECRET/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, NODE_ENV: 'development', OPS_SESSION_SECRET: baseEnv.SESSION_SECRET } as NodeJS.ProcessEnv),
+    ).toThrow(/OPS_SESSION_SECRET/);
+
+    resetConfigCache();
+    const prodConfig = loadConfig({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      OPS_SESSION_SECRET: 'y'.repeat(32),
+    } as NodeJS.ProcessEnv);
+    expect(prodConfig.OPS_SESSION_SECRET).toBe('y'.repeat(32));
+
+    resetConfigCache();
+    const devConfig = loadConfig({ ...baseEnv, OPS_SESSION_SECRET: '' } as NodeJS.ProcessEnv);
+    expect(devConfig.OPS_SESSION_SECRET).toBeUndefined();
+  });
 });

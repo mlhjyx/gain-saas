@@ -4,9 +4,8 @@
  *
  * 安全边界(不得弱化):
  * - appPool(app_user):RLS 生效。平台表(无 RLS)直查;租户表必须走 withWorkspace。
- *   白名单写:monitored_source 的 INSERT/UPDATE/DELETE。
- * - ownerPool(迁移 owner):仅当 OWNER_DATABASE_URL 配置时创建,只服务于
- *   data_provider.status 白名单语句(app_user 无该表写权限,属预期)。
+ * - ownerPool(迁移 owner):仅当 OWNER_DATABASE_URL 配置时创建,服务于白名单写语句
+ *   (data_provider.status 与 monitored_source 的 INSERT/UPDATE/DELETE;app_user 仅保留只读)。
  * - schema 探针 fail-closed:探针未通过时,写端点整体拒绝。
  */
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
@@ -131,7 +130,7 @@ export class OpsPg {
     }
   }
 
-  /** 仅限已登记的 owner 白名单语句(当前:data_provider 启停、monitored_source 删除)。 */
+  /** 仅限已登记的 owner 白名单语句(data_provider 启停、monitored_source 增删改)。 */
   async ownerQuery<T extends Row = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
     if (!this.ownerPool) throw new Error('OWNER_DATABASE_URL 未配置,该操作不可用');
     const { rows } = await this.ownerPool.query<T>(sql, params as never[]);

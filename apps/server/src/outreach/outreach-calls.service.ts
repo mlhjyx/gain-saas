@@ -214,6 +214,7 @@ export class OutreachCallsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.call_basis.created',
       target: row.id,
       detail: { triggerType, scriptTemplateId: input.scriptTemplateId, validUntil: validUntil.toISOString() },
@@ -364,6 +365,7 @@ export class OutreachCallsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.call_attempt.recorded',
       target: attempt.id,
       detail: { basisId, outcome, objectionCode, attemptNo },

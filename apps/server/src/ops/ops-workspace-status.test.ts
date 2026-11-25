@@ -133,6 +133,7 @@ describe('OpsService.setWorkspaceStatus', () => {
       expect(audit.record).toHaveBeenCalledWith({
         realm: 'ops',
         actorId: OPS_ACTOR,
+        workspaceId: WS_ID,
         action: 'workspace.status',
         target: 'Acme Export Co',
         detail: {

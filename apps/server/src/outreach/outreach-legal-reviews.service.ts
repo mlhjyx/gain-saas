@@ -91,6 +91,7 @@ export class OutreachLegalReviewsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.legal_review.recorded',
       target: row.id,
       detail: { subjectKind, reviewerKind, verdict },

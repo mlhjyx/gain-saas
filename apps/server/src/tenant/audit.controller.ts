@@ -41,7 +41,7 @@ function parseTo(value?: string): Date | null {
 
 /**
  * 租户自查审计(PRD 设置页:审计,仅 admin)。
- * audit_log 没有 workspace_id 列,为避免跨租户泄露,这里只返回当前操作者本人的 tenant 审计。
+ * 按 workspaceId 隔离，只返回当前工作空间的 tenant 审计日志。
  * P5b-13：支持 action / from / to 过滤与游标分页（at+id 复合键，倒序），返回 total 与 nextCursor。
  */
 @Controller('api/audit')
@@ -63,7 +63,7 @@ export class AuditController {
 
     const where: Prisma.AuditLogWhereInput = {
       realm: 'tenant',
-      actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
     };
     const actionFilter = action?.trim();
     if (actionFilter) where.action = actionFilter;

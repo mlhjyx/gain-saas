@@ -37,8 +37,22 @@ class FakeWarmupPrisma {
       ) ?? null,
   };
   readonly outreachMailboxCounter = {
-    findUnique: async ({ where }: { where: Row }) => null,
-    aggregate: async () => ({ _sum: { sent: null } }),
+    findFirst: async ({ where }: { where: Row }) =>
+      this.counters.find(
+        (row) =>
+          row.workspaceId === where.workspaceId &&
+          row.mailboxId === where.mailboxId &&
+          (row.day as Date).getTime() === (where.day as Date).getTime(),
+      ) ?? null,
+    aggregate: async ({ where }: { where: Row }) => {
+      const rows = this.counters.filter(
+        (row) =>
+          row.workspaceId === where.workspaceId &&
+          row.mailboxId === where.mailboxId &&
+          (row.day as Date).getTime() >= (where.day as { gte: Date }).gte.getTime(),
+      );
+      return { _sum: { sent: rows.reduce((sum, row) => sum + ((row.sent as number) ?? 0), 0) || null } };
+    },
   };
 }
 

@@ -65,7 +65,7 @@ export class WorkspacesController {
       throw new BadRequestException({ error: { code: 'FORBIDDEN', message: '只有管理员可以修改工作空间名称' } });
     }
     const updated = await this.prisma.workspace.update({ where: { id: workspaceId }, data: { name } });
-    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, action: 'workspaces.rename', target: workspaceId, detail: { name } });
+    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, workspaceId, action: 'workspaces.rename', target: workspaceId, detail: { name } });
     return { data: { id: updated.id, name: updated.name } };
   }
 
@@ -100,10 +100,12 @@ export class WorkspacesController {
         data: { revokedAt: new Date() },
       });
     });
-    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, action: 'workspaces.leave', target: workspaceId });
+    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, workspaceId, action: 'workspaces.leave', target: workspaceId });
     if (workspaceId === tenant.workspaceId) {
       await this.sessions.revoke(tenant.jti);
-      res.clearCookie(SESSION_COOKIE);
+      const clearOpts = this.sessions.clearCookieOptions?.();
+      if (clearOpts) res.clearCookie(SESSION_COOKIE, clearOpts);
+      else res.clearCookie(SESSION_COOKIE);
       return { data: { left: true, currentWorkspace: true } };
     }
     return { data: { left: true, currentWorkspace: false } };

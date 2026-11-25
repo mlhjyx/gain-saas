@@ -50,6 +50,7 @@ export class OutreachUnsubscribeService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.unsubscribe_token.issued',
       target: contactRef,
       detail: { tokenId: row.id, expiresAt: expiresAt.toISOString() },
@@ -109,6 +110,7 @@ export class OutreachUnsubscribeService {
     await this.audit.record({
       realm: 'tenant',
       actorId: 'public:unsubscribe',
+      workspaceId: row.workspaceId,
       action: 'outreach.consent.opted_out',
       target: row.contactRef,
       detail: { tokenId: row.id, source: 'unsubscribe' },

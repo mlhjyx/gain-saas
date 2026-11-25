@@ -235,6 +235,7 @@ export class OutreachHealthService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.breaker.recovered',
       target: `${normalizedScope}:${ref}`,
       detail: { reason: note },
@@ -265,6 +266,7 @@ export class OutreachHealthService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.breaker.closed',
       target: `${normalizedScope}:${ref}`,
       detail: { reason: note },

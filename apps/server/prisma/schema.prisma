@@ -679,6 +679,7 @@ model OutreachExperiment {
 /// 确定性分配：bucket = first8bits(sha256(salt|experimentId|subjectRef))；holdout 当 bucket < floor(ratio*256)。
 model OutreachExperimentAssignment {
   id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
   experimentId String   @map("experiment_id") @db.Uuid
   /// account | contact（v1 发送路径按 contact 排除；account 需草稿携带账户引用后启用）
   subjectType  String   @default("account") @map("subject_type") @db.VarChar(16)
@@ -692,6 +693,7 @@ model OutreachExperimentAssignment {
 
   @@unique([experimentId, subjectType, subjectRef])
   @@index([experimentId, arm])
+  @@index([workspaceId, experimentId])
   @@map("outreach_experiment_assignment")
 }
 
@@ -803,6 +805,7 @@ model OutreachMailbox {
 
 /// 信箱日配额计数（P4-02 落库版；发送成功后原子递增，供日/周上限读取）。
 model OutreachMailboxCounter {
+  workspaceId String   @map("workspace_id") @db.Uuid
   mailboxId   String   @map("mailbox_id") @db.Uuid
   day         DateTime @db.Date
   sent        Int      @default(0)
@@ -812,11 +815,13 @@ model OutreachMailboxCounter {
   mailbox OutreachMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
 
   @@id([mailboxId, day])
+  @@index([workspaceId, mailboxId, day])
   @@map("outreach_mailbox_counter")
 }
 
 /// 发件域 × 收件域的小时计数（P4-02 限速落库版）。
 model OutreachDomainCounter {
+  workspaceId     String   @map("workspace_id") @db.Uuid
   domainId        String   @map("domain_id") @db.Uuid
   hour            DateTime
   recipientDomain String   @map("recipient_domain") @db.VarChar(253)
@@ -825,6 +830,7 @@ model OutreachDomainCounter {
   domain OutreachDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
 
   @@id([domainId, hour, recipientDomain])
+  @@index([workspaceId, domainId, hour])
   @@map("outreach_domain_counter")
 }
 
@@ -1178,15 +1184,18 @@ model Notification {
 
 /// 控制面 + 运营域白名单写全量审计(A7/E4)。
 model AuditLog {
-  id      String   @id @default(uuid()) @db.Uuid
-  realm   String // tenant | ops | service
-  actorId String   @map("actor_id")
-  action  String
-  target  String?
-  detail  Json?
-  at      DateTime @default(now())
+  id          String   @id @default(uuid()) @db.Uuid
+  realm       String // tenant | ops | service
+  actorId     String   @map("actor_id")
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  action      String
+  target      String?
+  detail      Json?
+  at          DateTime @default(now())
 
   @@index([realm, actorId])
+  @@index([realm, workspaceId, at])
+  @@index([workspaceId, at])
   @@index([at])
   @@map("audit_log")
 }

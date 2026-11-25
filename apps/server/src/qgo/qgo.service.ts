@@ -210,6 +210,7 @@ export class QgoService {
     await this.audit.record({
       realm: 'tenant',
       actorId: ctx.userId,
+      workspaceId: ctx.workspaceId,
       action: 'qgo.promote',
       target: created.id,
       detail: { leadRef, evidenceCount: evidence.length, campaignId: campaignId ?? null },
@@ -278,6 +279,7 @@ export class QgoService {
     await this.audit.record({
       realm: 'tenant',
       actorId: ctx.userId,
+      workspaceId: ctx.workspaceId,
       action: 'qgo.accept',
       target: id,
       detail: { saoId: result.saoId },
@@ -293,6 +295,7 @@ export class QgoService {
     await this.audit.record({
       realm: 'tenant',
       actorId: ctx.userId,
+      workspaceId: ctx.workspaceId,
       action: 'qgo.decline',
       target: id,
       detail: { saoId: result.saoId, reason: text },
@@ -384,6 +387,7 @@ export class QgoService {
     await this.audit.record({
       realm: 'tenant',
       actorId: ctx.userId,
+      workspaceId: ctx.workspaceId,
       action: 'opportunity.outcome',
       target: saoId,
       detail: { outcome, occurredAt: occurredAt.toISOString() },

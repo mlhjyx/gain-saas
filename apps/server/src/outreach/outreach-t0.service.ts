@@ -176,6 +176,7 @@ export class OutreachT0Service {
       data: {
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: T0_TOUCH_ACTION,
         target: input.leadId,
         detail: {
@@ -205,12 +206,9 @@ export class OutreachT0Service {
     const rows = await this.prisma.auditLog.findMany({
       where: {
         realm: 'tenant',
+        workspaceId: tenant.workspaceId,
         action: T0_TOUCH_ACTION,
         target: leadId,
-        detail: {
-          path: ['workspaceId'],
-          equals: tenant.workspaceId,
-        },
       },
       orderBy: { at: 'desc' },
       take: 50,

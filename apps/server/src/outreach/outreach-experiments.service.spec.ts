@@ -103,6 +103,7 @@ class FakeExperimentsPrisma {
           : [condition];
       return this.assignments.filter(
         (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
           idList(where.experimentId).includes(row.experimentId) &&
           (!where.subjectType || row.subjectType === where.subjectType) &&
           (!where.arm || row.arm === where.arm) &&
@@ -202,6 +203,7 @@ describe('OutreachExperimentsService（P4-09）', () => {
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(2);
     expect(prisma.assignments).toHaveLength(2);
+    expect(prisma.assignments.every((row) => row.workspaceId === WS)).toBe(true);
     const byRef = new Map(first.map((row) => [row.subjectRef, row]));
     expect(byRef.get(REF_A)!.bucket).toBe(
       assignmentBucket(created.assignmentSalt, created.id, REF_A),

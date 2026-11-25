@@ -238,6 +238,7 @@ class FakeSendPrisma {
     findMany: async ({ where }: { where: Row }) =>
       this.assignments.filter(
         (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
           (where.experimentId as { in: string[] }).in.includes(row.experimentId as string) &&
           (!where.subjectType || row.subjectType === where.subjectType) &&
           (!where.arm || row.arm === where.arm) &&
@@ -357,26 +358,22 @@ class FakeSendPrisma {
       this.mailboxCounters.push(row);
       return { ...row };
     },
-    findUnique: async ({
-      where,
-    }: {
-      where: { mailboxId_day: { mailboxId: string; day: Date } };
-    }) => {
-      const { mailboxId, day } = where.mailboxId_day;
-      return (
-        this.mailboxCounters.find(
-          (row) => row.mailboxId === mailboxId && (row.day as Date).getTime() === day.getTime(),
-        ) ?? null
-      );
-    },
+    findFirst: async ({ where }: { where: Row }) =>
+      this.mailboxCounters.find(
+        (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
+          row.mailboxId === where.mailboxId &&
+          (row.day as Date).getTime() === (where.day as Date).getTime(),
+      ) ?? null,
     aggregate: async ({
       where,
     }: {
-      where: { mailboxId: string; day: { gte: Date } };
+      where: { workspaceId?: string; mailboxId: string; day: { gte: Date } };
       _sum: { sent: boolean };
     }) => {
       const rows = this.mailboxCounters.filter(
         (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
           row.mailboxId === where.mailboxId &&
           (row.day as Date).getTime() >= where.day.gte.getTime(),
       );
@@ -1568,6 +1565,7 @@ describe('OutreachSendService · 实验 holdout 排除（P4-09）', () => {
       state: 'RUNNING',
     });
     prisma.assignments.push({
+      workspaceId: WS_A,
       experimentId: 'experiment-1',
       subjectType: 'contact',
       subjectRef: CONTACT_1,
@@ -1594,6 +1592,7 @@ describe('OutreachSendService · 实验 holdout 排除（P4-09）', () => {
       state: 'RUNNING',
     });
     prisma.assignments.push({
+      workspaceId: WS_A,
       experimentId: 'experiment-1',
       subjectType: 'contact',
       subjectRef: CONTACT_1,

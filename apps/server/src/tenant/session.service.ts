@@ -26,6 +26,7 @@ export interface SessionClaims {
 export class SessionService {
   private readonly secret: Uint8Array;
   private readonly ttlSeconds: number;
+  private readonly isProduction: boolean;
 
   constructor(
     @Inject(APP_CONFIG) config: AppConfig,
@@ -33,6 +34,7 @@ export class SessionService {
   ) {
     this.secret = new TextEncoder().encode(config.SESSION_SECRET);
     this.ttlSeconds = config.SESSION_TTL_MINUTES * 60;
+    this.isProduction = config.NODE_ENV === 'production';
   }
 
   async issue(userId: string, workspaceId: string, role: 'admin' | 'member'): Promise<{ token: string; claims: SessionClaims }> {
@@ -78,11 +80,18 @@ export class SessionService {
     await this.prisma.session.updateMany({ where: { jti }, data: { revokedAt: new Date() } });
   }
 
-  cookieOptions(maxAgeSeconds: number) {
+  clearCookieOptions() {
     return {
       httpOnly: true,
       sameSite: 'lax' as const,
       path: '/',
+      secure: this.isProduction,
+    };
+  }
+
+  cookieOptions(maxAgeSeconds: number) {
+    return {
+      ...this.clearCookieOptions(),
       maxAge: maxAgeSeconds * 1000,
     };
   }

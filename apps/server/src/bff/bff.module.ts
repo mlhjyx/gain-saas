@@ -282,6 +282,7 @@ export class BffHandler {
         void this.audit.record({
           realm: 'tenant',
           actorId: tenant.userId,
+          workspaceId: tenant.workspaceId,
           action: 'bff.request',
           target: route.saasPath,
           detail: { method: req.method, workspaceId: tenant.workspaceId },

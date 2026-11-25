@@ -269,6 +269,7 @@ export class CampaignPlanJobService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.plan_job.created',
       target: `campaign/${campaignId}`,
       detail: { jobId },
@@ -406,6 +407,7 @@ export class CampaignPlanJobService {
     await this.audit.record({
       realm: 'service',
       actorId: PLANNER_ACTOR,
+      workspaceId,
       action: 'campaign.revision.created',
       target: `campaign/${campaignId}`,
       detail: { revisionId: revision.id, planHash, revisionNo: revision.revisionNo, jobId },
@@ -479,6 +481,7 @@ export class CampaignPlanJobService {
     await this.audit.record({
       realm: 'service',
       actorId: PLANNER_ACTOR,
+      workspaceId,
       action:
         targetState === 'NEEDS_HUMAN'
           ? 'campaign.plan_job.needs_human'

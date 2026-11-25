@@ -36,7 +36,7 @@ export class OutreachWarmupService {
       ]);
       const mailboxes = [];
       for (const mailbox of mailboxRows) {
-        const usage = await this.mailboxes.usage(mailbox.id, now);
+        const usage = await this.mailboxes.usage(tenant.workspaceId, mailbox.id, now);
         mailboxes.push({
           address: mailbox.address,
           state: mailbox.state,

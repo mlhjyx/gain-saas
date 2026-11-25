@@ -146,14 +146,24 @@ export class OpsService {
     target: string,
     rows: number,
     filters: Record<string, unknown>,
+    workspaceId?: string,
   ): Promise<void> {
     await this.audit.record({
       realm: 'ops',
       actorId,
+      ...(workspaceId ? { workspaceId } : {}),
       action,
       target,
       detail: { rows, truncated: rows >= EXPORT_ROW_LIMIT, filters },
     });
+  }
+
+  private requireOwnerPool(db: { ownerPool: unknown }, actionLabel: string): void {
+    if (!db.ownerPool) {
+      throw new BadRequestException({
+        error: { code: 'OWNER_REQUIRED', message: `${actionLabel}需要 OWNER_DATABASE_URL` },
+      });
+    }
   }
 
   private async safe<T extends Row>(query: () => Promise<T[]>, fallback: T[] = []): Promise<T[]> {
@@ -252,6 +262,7 @@ export class OpsService {
     const db = await this.database.writable();
     const before = await db.query(`SELECT key, status FROM data_provider WHERE key = $1`, [key]);
     if (before.length === 0) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: `provider ${key} 不存在` } });
+    this.requireOwnerPool(db, '切换数据源状态');
     const after = await db.ownerQuery(
       `UPDATE data_provider SET status = $2 WHERE key = $1 RETURNING key, status`,
       [key, status],
@@ -307,7 +318,8 @@ export class OpsService {
     if (before[0].status !== 'ACTIVE') {
       throw new ConflictException({ error: { code: 'NOT_ACTIVE', message: `源状态为 ${String(before[0].status)},sweep 只调度 ACTIVE 源` } });
     }
-    const rows = await db.query(
+    this.requireOwnerPool(db, '立即抓取');
+    const rows = await db.ownerQuery(
       `UPDATE monitored_source SET next_fetch_at = now(), updated_at = now() WHERE id = $1
        RETURNING id::text, source_key, status, next_fetch_at`,
       [id],
@@ -321,7 +333,8 @@ export class OpsService {
     const db = await this.database.writable();
     const before = await db.query(`SELECT id::text, source_key, status FROM monitored_source WHERE id = $1`, [id]);
     if (before.length === 0) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '源不存在' } });
-    const rows = await db.query(
+    this.requireOwnerPool(db, '修改源状态');
+    const rows = await db.ownerQuery(
       `UPDATE monitored_source SET status = $2, updated_at = now() WHERE id = $1 RETURNING id::text, source_key, status`,
       [id, status],
     );
@@ -392,6 +405,7 @@ export class OpsService {
     await this.audit.record({
       realm: 'ops',
       actorId,
+      workspaceId: id,
       action: 'workspace.status',
       target: String(before.name),
       detail: { before, after, revokedAuthorizations, revokedSessions },
@@ -410,7 +424,7 @@ export class OpsService {
     if (Number(used[0]?.n ?? 0) > 0) {
       throw new ConflictException({ error: { code: 'HAS_DATA', message: '该源已有抓取/实体数据,不能删除;请改用 ARCHIVED' } });
     }
-    if (!db.ownerPool) throw new BadRequestException({ error: { code: 'OWNER_REQUIRED', message: '删除需要 OWNER_DATABASE_URL' } });
+    this.requireOwnerPool(db, '删除');
     const rows = await db.ownerQuery<{ source_key: string }>(`DELETE FROM monitored_source WHERE id = $1 RETURNING source_key`, [id]);
     await this.audit.record({ realm: 'ops', actorId, action: 'source.delete', target: String(rows[0]?.source_key ?? id), detail: { before: before[0] } });
     return { deleted: rows[0]?.source_key };
@@ -426,8 +440,9 @@ export class OpsService {
     const db = await this.database.writable();
     const dup = await db.query(`SELECT source_key FROM monitored_source WHERE source_key = $1`, [b.sourceKey]);
     if (dup.length > 0) throw new ConflictException({ error: { code: 'DUPLICATE', message: `source_key 已存在:${b.sourceKey}` } });
+    this.requireOwnerPool(db, '新建源');
     const id = randomUUID();
-    const rows = await db.query(
+    const rows = await db.ownerQuery(
       `INSERT INTO monitored_source
          (id, provider_key, source_key, label, config, sector_tags, region, series_key, status, cadence, next_fetch_at, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, 'ACTIVE', $9::jsonb, $10, now(), now())
@@ -464,6 +479,7 @@ export class OpsService {
       [id],
     );
     if (before.length === 0) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '源不存在' } });
+    this.requireOwnerPool(db, '更新源');
     const sets: string[] = [];
     const params: unknown[] = [];
     const add = (column: string, value: unknown, cast = ''): void => {
@@ -479,7 +495,7 @@ export class OpsService {
     if (b.cadence !== undefined) add('cadence', b.cadence === null ? null : JSON.stringify(b.cadence), '::jsonb');
     sets.push('updated_at = now()');
     params.push(id);
-    const rows = await db.query(
+    const rows = await db.ownerQuery(
       `UPDATE monitored_source SET ${sets.join(', ')} WHERE id = $${params.length}
        RETURNING id::text, provider_key, source_key, label, config, sector_tags, region, series_key, status, cadence, next_fetch_at, created_at, updated_at`,
       params,
@@ -838,7 +854,7 @@ export class OpsService {
       );
       return rows;
     });
-    await this.auditExport(actorId, 'export.leads', workspaceId, rows.length, { queue: queue ?? null });
+    await this.auditExport(actorId, 'export.leads', workspaceId, rows.length, { queue: queue ?? null }, workspaceId);
     return { csv: toCsv(rows, LEAD_EXPORT_COLUMNS), filename: csvFilename('leads') };
   }
 
@@ -895,9 +911,16 @@ export class OpsService {
     }
   }
 
-  async auditLog(limit = 100): Promise<Row[]> {
-    const take = Math.min(limit, 500);
-    const rows = await this.prisma.auditLog.findMany({ where: { realm: 'ops' }, orderBy: { at: 'desc' }, take });
+  async auditLog(
+    limit = 100,
+    filter: { workspaceId?: string; realm?: 'ops' | 'tenant' | 'service' } = {},
+  ): Promise<Row[]> {
+    const take = Math.min(Math.max(limit, 1), 500);
+    const where: { realm?: 'ops' | 'tenant' | 'service'; workspaceId?: string } = {
+      ...(filter.realm ? { realm: filter.realm } : filter.workspaceId ? {} : { realm: 'ops' }),
+      ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
+    };
+    const rows = await this.prisma.auditLog.findMany({ where, orderBy: { at: 'desc' }, take });
     return rows.map((row) => ({ ...row, at: row.at.toISOString() }));
   }
 }

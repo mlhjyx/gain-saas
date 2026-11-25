@@ -310,6 +310,7 @@ export class OnboardingController {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'onboarding.preview_started',
       target: tenant.workspaceId,
       detail: {
@@ -402,6 +403,7 @@ export class OnboardingController {
       await this.audit.record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'onboarding.complete',
         target: tenant.workspaceId,
         detail: { companyId, ...completionMetrics(before, facts) },
@@ -458,6 +460,7 @@ export class OnboardingController {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'onboarding.complete',
       target: tenant.workspaceId,
       detail: { companyId: createdCompanyId },

@@ -239,6 +239,7 @@ export class OutreachMetricsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.metrics.snapshot',
       target: tenant.workspaceId,
       detail: { windowDays: days, definitionVersion: METRICS_DEFINITION_VERSION },

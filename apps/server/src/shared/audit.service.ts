@@ -13,6 +13,7 @@ export class AuditService {
   async record(input: {
     realm: 'tenant' | 'ops' | 'service';
     actorId: string;
+    workspaceId?: string | null;
     action: string;
     target?: string;
     detail?: Record<string, unknown>;
@@ -22,6 +23,7 @@ export class AuditService {
         data: {
           realm: input.realm,
           actorId: input.actorId,
+          ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
           action: input.action,
           target: input.target,
           detail: input.detail as Prisma.InputJsonValue | undefined,

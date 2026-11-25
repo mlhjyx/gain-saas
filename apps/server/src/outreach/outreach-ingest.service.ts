@@ -189,6 +189,7 @@ export class OutreachIngestService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.reply.ingested',
       target: reply.id,
       detail: {
@@ -253,6 +254,7 @@ export class OutreachIngestService {
       .record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'outreach.reply.ingest_unmatched',
         target: externalId,
         detail: { reason },
