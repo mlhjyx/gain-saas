@@ -1981,6 +1981,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/battle-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 19 列受审计多通道作战清表 CSV：含决策委员会轨道、S/A/B/C 通道分层、D3 法域合规标签、Art.14/LIA 状态与 C 级转交信，复用 DataRights EXPORT 审计、制裁与隔离闸门
+         * @description 导出 19 列受审计多通道作战清表 CSV：按 ICP 与可选 ISO 周汇总已交付线索的买方决策委员会轨道、S/A/B/C 通道分层、D3 法域合规标签、GDPR Art.14/LIA 告知状态与 C 级转交话术，支持 maskEmails 前缀脱敏；每行复用 DataRights EXPORT 审计、制裁拦截、合成隔离与抑制过滤。需要 acquisition:export。
+         */
+        get: operations["ReportController_battleCsv_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/weekly/feedback": {
         parameters: {
             query?: never;
@@ -10549,6 +10569,97 @@ export interface operations {
                 };
             };
             /** @description 该周 accept 的线索超过 1000 条，拒绝而不截断 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "WEEKLY_REPORT_TOO_LARGE";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    ReportController_battleCsv_v1: {
+        parameters: {
+            query: {
+                /** @description 是否脱敏触达邮箱前缀（true 适用于对外汇报/审计，默认 false 供内部外贸团队作战导入） */
+                maskEmails?: boolean;
+                /** @description 可选 ISO 周（如 2026-W48）；缺省导出该 ICP 全部已交付线索（上限 1000 条） */
+                week?: string;
+                icpId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UTF-8（带 BOM）19 列作战 CSV，带 CWE-1236 公式注入防护 */
+            200: {
+                headers: {
+                    /** @description 附件文件名 */
+                    "Content-Disposition"?: string;
+                    /** @description 本次导出的 policy_decision_log correlation_id */
+                    "X-Report-Id"?: string;
+                    /** @description 导出的 ISO 周或 all */
+                    "X-Report-Week"?: string;
+                    /** @description 导出的行数 */
+                    "X-Report-Rows"?: number;
+                    /** @description DataRights EXPORT 拒绝而未导出的行数 */
+                    "X-Report-Withheld-Rights"?: number;
+                    /** @description 制裁命中未经人工清除而未导出的行数 */
+                    "X-Report-Withheld-Sanctions"?: number;
+                    /** @description 历史合成来源被隔离而未导出的行数 */
+                    "X-Report-Withheld-Quarantined"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description icpId 或 week 不合法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "VALIDATION_ERROR";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description 当前 workspace 不可见该 ICP */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "NOT_FOUND";
+                            message: string;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            /** @description 匹配线索超过 1000 条，拒绝而不截断 */
             422: {
                 headers: {
                     [name: string]: unknown;

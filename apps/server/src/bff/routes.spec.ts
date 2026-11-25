@@ -182,3 +182,17 @@ describe('market candidate execute quote preserves raw input', () => {
     });
   });
 });
+
+describe('battle-csv BFF route (Batch 1.4-C)', () => {
+  it('registers GET reports/battle-csv as admin passthrough without grant', () => {
+    const route = BFF_ROUTES.find(
+      (candidate) => candidate.method === 'GET' && candidate.saasPath === 'reports/battle-csv',
+    );
+    expect(route).toEqual({
+      method: 'GET',
+      saasPath: 'reports/battle-csv',
+      enginePath: '/reports/battle-csv',
+      access: 'admin',
+    });
+  });
+});
