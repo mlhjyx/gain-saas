@@ -1861,13 +1861,15 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - typecheck / build / lint:terms / lint:date 绿；定向 e2e（`companies-profile`、`nav-shell`、`main-chain` 事实审批、a11y `/companies`、
   responsive 手机与平板、`market-candidates-read` 的 V01/V01b）通过。
 - 模拟数据截图：1586 / 1920 / 820 / 390、暗色、超长简介、30 条产品服务、草稿档案、带冲突；整块工作台只剩事实清单一个内滚动区。
-- 未做：全量 e2e、取色扫描（上线前补）；真实数据下的效果由用户在 5666 验收。
+- pass2 / pass3 取色扫描通过。未做：全量 e2e（由 PR CI 复核）；真实数据下的效果由用户在 5666 验收。
 
 ## 24. 线索档案包「决策人」改为「联系人」（2026-11-25）
 
 - 改动：`leads.tab.people`、`leads.peopleAdminOnly` 与 `contacts.*`（title / emptyTitle / scopeHint / discoverOnceHint / missingEmail /
   discoverTitle / guessDesc / discoverDone），中文 10 处、英文 9 处。这些键只被线索档案包使用，其余页面不受影响。
   路由参数 `?tab=people`、组件名 `DecisionMakerCard` 不变；`leads-detail` 用例的页签断言与设计系统 §13 同步。
+- 合并 #203 后，其新增的查邮验真文案（`contacts.enrichDesc / enrichDone / enrichNoContacts`，英文含 `enrichTitle`）在同一个页签里，一并改为「联系人」。
+- 未改：线索列表卡片的 `leads.channelDecisionMakers`（「{count} 位决策人」）在买家线索列表而非档案包，不在本次范围内。
 - 未做：`packages/shared/src/errors.ts` 里 BFF 返回的错误文案 `CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED` 仍写「发现决策人前需要先声明合法性依据」。
   改它要动共享包和服务端构建，按「不动 packages / server」的约束未改。
 
@@ -1890,7 +1892,7 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 ### 25.3 验证
 - 新增 `main-chain` 3b（编辑画像 → 提示 → 重新生成 → 确认 → 旧方案再跑一次并校验请求体）、3c（运行中不重复发起）。
 - 主链路与档案包 12 条、a11y 9 条、responsive 2 条、dark-mode 1 条通过；模拟数据截图（改动前 / 编辑后 / 重新生成后 / 暗色 / 手机）。
-- 未做：全量 e2e、取色扫描（上线前补）；真实环境下的重跑未验证。
+- 合并主分支后复跑上述用例全部通过；pass2 / pass3 取色扫描、零术语扫描通过。未做：全量 e2e（由 PR CI 复核）；真实环境下的重跑未验证。
 
 ### 25.4 搁置项
 - 编辑已完成档案的行业 / 目标市场 / 官网、已完成档案重新理解、同一张画像原地升版：引擎当前只允许 DRAFT 编辑与启动理解，
