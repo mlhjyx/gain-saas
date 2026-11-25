@@ -367,3 +367,67 @@ export function looksLikeUnsubscribe(email: ParsedEmail): boolean {
   const stripped = stripQuotedReplyText(email.textBody);
   return UNSUBSCRIBE_RE.test(email.subject ?? '') || UNSUBSCRIBE_RE.test(stripped);
 }
+
+export type OutreachReplyIntent =
+  | 'REFERRAL_NEW_CONTACT'
+  | 'ASK_DATASHEET_QUOTE'
+  | 'TIMING_LATER'
+  | 'OUT_OF_OFFICE'
+  | 'NONE';
+
+export interface ReplyIntentAnalysis {
+  readonly intent: OutreachReplyIntent;
+  readonly classification: 'POSITIVE' | 'NEUTRAL' | 'OUT_OF_OFFICE' | 'UNKNOWN';
+  /** 从转交回复正文里提取到的候选新决策人邮箱（已剔除发件人/原收件人自身）。 */
+  readonly referredEmails: readonly string[];
+}
+
+const REFERRAL_RE =
+  /\b(?:please\s+(?:contact|reach\s+out\s+to|write\s+to|email)|right\s+person|person\s+in\s+charge|forward(?:ed|ing)?\s+(?:this|your)|loop(?:ed|ing)?\s+in|in\s+cc|cc'?d|copied|wenden\s+sie\s+sich\s+an|weitergeleitet|zust[äa]ndig|ansprechpartner|contattare|inoltrato|responsabile\s+acquisti|contactar\s+(?:con|a)|encaminh(?:ei|ando)|respons[áa]vel\s+de\s+compras|contacter|transmis\s+[àa])\b/iu;
+
+const DATASHEET_QUOTE_RE =
+  /\b(?:data\s*sheet|spec(?:ification)?\s*sheet|quote|quotation|price\s*list|pricing|moq|sample|cif|fob|ddp|iec\s*6\d{4}|angebot|datenblatt|preisliste|muster|preventivo|scheda\s+tecnica|listino|cotizaci[óo]n|ficha\s+t[ée]cnica|or[çc]amento|tabela\s+de\s+pre[çc]os|devis|fiche\s+technique)\b/iu;
+
+const TIMING_LATER_RE =
+  /\b(?:next\s+(?:quarter|year|month)|in\s+(?:q[1-4]|\d+\s+months?)|reach\s+out\s+(?:later|again\s+in)|check\s+back|not\s+(?:right\s+now|at\s+the\s+moment)|n[äa]chstes\s+(?:quartal|jahr)|sp[äa]ter\s+(?:nochmal|wieder)|prossimo\s+trimestre|pi[ùu]\s+avanti|m[áa]s\s+adelante|pr[óo]ximo\s+trimestre|plus\s+tard|trimestre\s+prochain)\b/iu;
+
+const INLINE_EMAIL_RE = /\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})\b/giu;
+
+/**
+ * 细粒度回复意图分类（Batch 1.4 闭环）：
+ *  - REFERRAL_NEW_CONTACT：C 级 info@ 转交信收到「请联系采购经理 X (x@company.com)」时自动提取候选新联系人；
+ *  - ASK_DATASHEET_QUOTE：高意向索取规格书/认证/报价；
+ *  - TIMING_LATER：对方要求下季度/延后联系。
+ * 严格在 stripQuotedReplyText 后分析，绝不把原发信正文的词或邮箱误当成买家意图。
+ */
+export function classifyReplyIntent(
+  email: ParsedEmail,
+  excludeEmails: readonly (string | null | undefined)[] = [],
+): ReplyIntentAnalysis {
+  if (isAutoReplyOrOoo(email)) {
+    return { intent: 'OUT_OF_OFFICE', classification: 'OUT_OF_OFFICE', referredEmails: [] };
+  }
+  const stripped = stripQuotedReplyText(email.textBody);
+  const combined = `${email.subject ?? ''}\n${stripped}`;
+  const excluded = new Set(
+    excludeEmails
+      .map((addr) => addr?.trim().toLowerCase())
+      .filter((addr): addr is string => Boolean(addr)),
+  );
+  const referred = new Set<string>();
+  for (const match of stripped.matchAll(INLINE_EMAIL_RE)) {
+    const addr = match[1]!.toLowerCase();
+    if (!excluded.has(addr)) referred.add(addr);
+  }
+  const referredEmails = [...referred].slice(0, 5);
+  if (REFERRAL_RE.test(stripped) && (referredEmails.length > 0 || /\b(?:procurement|purchasing|buyer|einkauf|acquisti|compras|achats)\b/iu.test(stripped))) {
+    return { intent: 'REFERRAL_NEW_CONTACT', classification: 'POSITIVE', referredEmails };
+  }
+  if (DATASHEET_QUOTE_RE.test(combined)) {
+    return { intent: 'ASK_DATASHEET_QUOTE', classification: 'POSITIVE', referredEmails };
+  }
+  if (TIMING_LATER_RE.test(stripped)) {
+    return { intent: 'TIMING_LATER', classification: 'NEUTRAL', referredEmails };
+  }
+  return { intent: 'NONE', classification: 'UNKNOWN', referredEmails };
+}

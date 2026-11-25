@@ -5,11 +5,13 @@ import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import {
+  classifyReplyIntent,
   isAutoReplyOrOoo,
   looksLikeUnsubscribe,
   parseArf,
   parseDsn,
   parseEmail,
+  type OutreachReplyIntent,
 } from './outreach-email-ingest.js';
 import { OutreachReplyService } from './outreach-reply.service.js';
 import { OutreachBounceWritebackService } from './outreach-bounce-writeback.service.js';
@@ -23,6 +25,10 @@ export type OutreachIngestOutcome =
       contactRef: string;
       /** 仅 BOUNCE：SMTP 状态 5.x.x=true（硬退，永久压制）；4.x.x=false（软退，只计数）。 */
       hardBounce?: boolean;
+      /** 仅 REPLY：细粒度回复意图（转交新联系人 / 要规格书报价 / 延后联系 / 休假）。 */
+      replyIntent?: OutreachReplyIntent;
+      /** 仅 REPLY 且命中转交时提取到的新联系人候选邮箱。 */
+      referredEmails?: readonly string[];
     }
   | { outcome: 'DUPLICATE'; externalId: string }
   | { outcome: 'UNMATCHED'; reason: string };
@@ -117,13 +123,25 @@ export class OutreachIngestService {
       arf?.recipient ??
       fromAddress(email.from) ??
       send.recipientEmail;
+    const intentAnalysis =
+      kind === 'REPLY'
+        ? classifyReplyIntent(email, [
+            recipientEmail,
+            send.recipientEmail,
+            fromAddress(email.from),
+          ])
+        : null;
+    const derivedClassification =
+      kind === 'REPLY'
+        ? (intentAnalysis?.classification ?? (autoReply ? 'OUT_OF_OFFICE' : 'UNKNOWN'))
+        : 'UNKNOWN';
     let reply: { id: string };
     try {
       reply = await this.replies.record(tenant, {
         contactRef: draft.contactRef,
         recipientEmail,
         kind,
-        classification: autoReply ? 'OUT_OF_OFFICE' : 'UNKNOWN',
+        classification: derivedClassification,
         subject: email.subject,
         snippet: email.textBody.slice(0, 500) || null,
         externalId,
@@ -159,6 +177,12 @@ export class OutreachIngestService {
         kind,
         hardBounce: hardBounce ?? null,
         externalId,
+        ...(intentAnalysis && intentAnalysis.intent !== 'NONE'
+          ? {
+              replyIntent: intentAnalysis.intent,
+              referredEmails: intentAnalysis.referredEmails,
+            }
+          : {}),
         matchedMessageId:
           candidates.find((candidate) => candidate === email.inReplyTo) ?? candidates[0],
       },
@@ -168,6 +192,14 @@ export class OutreachIngestService {
       replyId: reply.id,
       contactRef: draft.contactRef,
       ...(kind === 'BOUNCE' ? { hardBounce } : {}),
+      ...(intentAnalysis && intentAnalysis.intent !== 'NONE'
+        ? {
+            replyIntent: intentAnalysis.intent,
+            ...(intentAnalysis.referredEmails.length > 0
+              ? { referredEmails: intentAnalysis.referredEmails }
+              : {}),
+          }
+        : {}),
     };
   }
 

@@ -82,6 +82,7 @@ export class OutreachHealthService {
       ]);
       const attempts = sends + hardRejects;
       const rate = attempts > 0 ? hardRejects / attempts : 0;
+      const bounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
       if (
         attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
         rate >= this.config.OUTREACH_BOUNCE_RATE_HALT
@@ -96,6 +97,13 @@ export class OutreachHealthService {
         ) {
           opened += 1;
         }
+      } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && rate >= bounceWarn) {
+        await this.recordWarning(workspaceId, 'mailbox', mailbox.address, 'HARD_BOUNCE_RATE', rate, {
+          threshold: bounceWarn,
+          windowMinutes,
+          detail: { sends, hardRejects },
+          now,
+        });
       }
     }
 
@@ -122,6 +130,7 @@ export class OutreachHealthService {
       ]);
       const attempts = sends + hardRejects;
       const bounceRate = attempts > 0 ? (dsnBounces + hardRejects) / attempts : 0;
+      const domainBounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
       if (
         attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
         bounceRate >= this.config.OUTREACH_DOMAIN_BOUNCE_HALT_RATE
@@ -136,8 +145,16 @@ export class OutreachHealthService {
         ) {
           opened += 1;
         }
+      } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && bounceRate >= domainBounceWarn) {
+        await this.recordWarning(workspaceId, 'domain', senderDomain, 'BOUNCE_RATE', bounceRate, {
+          threshold: domainBounceWarn,
+          windowMinutes,
+          detail: { sends, dsnBounces, hardRejects },
+          now,
+        });
       }
       const complaintRate = sends > 0 ? complaints / sends : 0;
+      const complaintWarn = this.config.OUTREACH_COMPLAINT_RATE_WARN ?? 0.001;
       if (
         sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE &&
         complaintRate >= this.config.OUTREACH_COMPLAINT_RATE_HALT
@@ -152,6 +169,13 @@ export class OutreachHealthService {
         ) {
           opened += 1;
         }
+      } else if (sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE && complaintRate >= complaintWarn) {
+        await this.recordWarning(workspaceId, 'domain', senderDomain, 'COMPLAINT_RATE', complaintRate, {
+          threshold: complaintWarn,
+          windowMinutes,
+          detail: { sends, complaints },
+          now,
+        });
       }
     }
     return { opened };
@@ -261,6 +285,30 @@ export class OutreachHealthService {
       }),
     ]);
     return { breakers, events };
+  }
+
+  private async recordWarning(
+    workspaceId: string,
+    scope: BreakerScope,
+    scopeRef: string,
+    metric: string,
+    value: number,
+    options: { threshold: number; windowMinutes: number; detail: Prisma.InputJsonValue; now: Date },
+  ): Promise<void> {
+    await this.prisma.outreachHealthEvent.create({
+      data: {
+        workspaceId,
+        scope,
+        scopeRef,
+        metric,
+        windowMinutes: options.windowMinutes,
+        value,
+        threshold: options.threshold,
+        action: 'WARN',
+        detail: options.detail,
+        detectedAt: options.now,
+      },
+    });
   }
 
   private async openBreaker(

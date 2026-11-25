@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyReplyIntent,
   decodeRfc2047Header,
   isAutoReplyOrOoo,
   looksLikeUnsubscribe,
@@ -230,5 +231,52 @@ describe('looksLikeUnsubscribe（保守关键词识别）', () => {
     );
     expect(isAutoReplyOrOoo(ooo)).toBe(true);
     expect(looksLikeUnsubscribe(ooo)).toBe(false);
+  });
+
+  it('Batch 1.4 细粒度意图识别：转交新联系人 / 要规格书报价 / 下季度再联', () => {
+    const referral = parseEmail(
+      [
+        'From: Reception <info@solarepc.it>',
+        'Subject: Re: Richiesta di inoltro',
+        '',
+        'Buongiorno, per questi acquisti può contattare la nostra responsabile acquisti Maria Rossi: m.rossi@solarepc.it',
+        '',
+        'Il giorno mar 24 nov 2026 ha scritto:',
+        '> sales@ourfactory.com',
+      ].join('\r\n'),
+    );
+    expect(classifyReplyIntent(referral, ['info@solarepc.it'])).toEqual({
+      intent: 'REFERRAL_NEW_CONTACT',
+      classification: 'POSITIVE',
+      referredEmails: ['m.rossi@solarepc.it'],
+    });
+
+    const quote = parseEmail(
+      [
+        'From: Buyer <buyer@epc.de>',
+        'Subject: Re: HJT 720W',
+        '',
+        'Bitte senden Sie uns das Datenblatt und Ihr Angebot für 5 MW CIF Hamburg.',
+      ].join('\r\n'),
+    );
+    expect(classifyReplyIntent(quote, ['buyer@epc.de'])).toEqual({
+      intent: 'ASK_DATASHEET_QUOTE',
+      classification: 'POSITIVE',
+      referredEmails: [],
+    });
+
+    const later = parseEmail(
+      [
+        'From: Buyer <buyer@solar.us>',
+        'Subject: Re: Module supply',
+        '',
+        'Thanks, our Q1 allocation is full — please reach out again in Q3 next quarter.',
+      ].join('\r\n'),
+    );
+    expect(classifyReplyIntent(later, ['buyer@solar.us'])).toEqual({
+      intent: 'TIMING_LATER',
+      classification: 'NEUTRAL',
+      referredEmails: [],
+    });
   });
 });

@@ -125,11 +125,14 @@ const schema = z.object({
     .default('1,2,3,4,5'),
   OUTREACH_BOUNCE_WINDOW_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   OUTREACH_BOUNCE_MIN_SAMPLE: z.coerce.number().int().min(1).default(20),
-  OUTREACH_BOUNCE_RATE_HALT: z.coerce.number().min(0).max(1).default(0.05),
-  // 域级退信率红线（ch05 §5.3.5.6：≥10% 暂停域名）。
-  OUTREACH_DOMAIN_BOUNCE_HALT_RATE: z.coerce.number().min(0).max(1).default(0.1),
+  // 2025–2026 Gmail / Microsoft 发信红线（Batch 1.4 收紧）：硬退信 2% 预警 / 3% 熔断；投诉 0.1% 预警 / 0.25% 熔断。
+  OUTREACH_BOUNCE_RATE_WARN: z.coerce.number().min(0).max(1).default(0.02),
+  OUTREACH_BOUNCE_RATE_HALT: z.coerce.number().min(0).max(1).default(0.03),
+  // 域级退信率红线（收紧至 3%，防止跑到 10% 时发信域名已不可逆报废）。
+  OUTREACH_DOMAIN_BOUNCE_HALT_RATE: z.coerce.number().min(0).max(1).default(0.03),
   OUTREACH_COMPLAINT_MIN_SAMPLE: z.coerce.number().int().min(1).default(100),
-  OUTREACH_COMPLAINT_RATE_HALT: z.coerce.number().min(0).max(1).default(0.003),
+  OUTREACH_COMPLAINT_RATE_WARN: z.coerce.number().min(0).max(1).default(0.001),
+  OUTREACH_COMPLAINT_RATE_HALT: z.coerce.number().min(0).max(1).default(0.0025),
   // 发送成本估算（µUSD/封，全载摊销口径 §5.3.5.5），用于授权预算上限校验。
   OUTREACH_COST_PER_EMAIL_MICROS: z.coerce.number().int().min(0).default(37000),
   // CAN-SPAM 物理邮政地址（US 收件人必需）与 CNIL 来源告知（FR 收件人必需）：缺省时对应国家拒发。

@@ -294,4 +294,44 @@ describe('OutreachHealthService（P4-08 熔断持久化与恢复）', () => {
     expect(panel.breakers).toHaveLength(1);
     expect(panel.events).toHaveLength(1);
   });
+
+  it('Batch 1.4 收紧预警：硬退信 ≥2% 未达 3% / 投诉 ≥0.1% 未达 0.25% 时写 WARN 事件且不误熔断', async () => {
+    const prisma = new FakeHealthPrisma();
+    prisma.mailboxes.push({ workspaceId: WS, address: 'outreach@example.test' });
+    seedSends(prisma, 1_000);
+    // 25/1025 ≈ 2.44% 硬退信（介于 2% WARN 与 3% HALT 之间）
+    for (let index = 0; index < 25; index += 1) {
+      prisma.sends.push({
+        workspaceId: WS,
+        status: 'FAILED',
+        bounceType: 'HARD',
+        mailboxAddress: 'outreach@example.test',
+        recipientEmail: `warn${index}@ziel.de`,
+        createdAt: new Date(NOW.getTime() - 3_600_000),
+      });
+    }
+    // 2/1000 = 0.2% 投诉（介于 0.1% WARN 与 0.25% HALT 之间）
+    for (let index = 0; index < 2; index += 1) {
+      prisma.replies.push({
+        workspaceId: WS,
+        kind: 'COMPLAINT',
+        receivedAt: new Date(NOW.getTime() - 3_600_000),
+      });
+    }
+    const instance = build(prisma, {
+      OUTREACH_BOUNCE_RATE_WARN: 0.02,
+      OUTREACH_BOUNCE_RATE_HALT: 0.03,
+      OUTREACH_DOMAIN_BOUNCE_HALT_RATE: 0.03,
+      OUTREACH_COMPLAINT_RATE_WARN: 0.001,
+      OUTREACH_COMPLAINT_RATE_HALT: 0.0025,
+    });
+    expect(await instance.evaluateWorkspace(WS, NOW)).toEqual({ opened: 0 });
+    expect(prisma.breakers).toHaveLength(0);
+    const warns = prisma.events.filter((row) => row.action === 'WARN');
+    expect(warns.map((row) => `${row.scope}:${row.metric}`)).toEqual([
+      'mailbox:HARD_BOUNCE_RATE',
+      'domain:BOUNCE_RATE',
+      'domain:COMPLAINT_RATE',
+    ]);
+  });
 });
