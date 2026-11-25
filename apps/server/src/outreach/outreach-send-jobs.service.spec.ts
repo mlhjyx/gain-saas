@@ -44,6 +44,41 @@ class FakeJobsPrisma {
     },
   };
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
+  readonly $queryRaw = async (
+    _strings: TemplateStringsArray,
+    limit: number,
+    now: Date,
+    claimToken: string,
+  ) => {
+    const due = this.jobs
+      .filter(
+        (row) =>
+          row.state === 'PENDING' &&
+          (row.nextAttemptAt as Date).getTime() <= now.getTime(),
+      )
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.nextAttemptAt as Date).getTime() - (b.nextAttemptAt as Date).getTime() ||
+          (a.id as string).localeCompare(b.id as string),
+      )
+      .slice(0, limit);
+    for (const row of due) {
+      row.state = 'CLAIMED';
+      row.claimToken = claimToken;
+      row.attempts = ((row.attempts as number) ?? 0) + 1;
+    }
+    return due.map((row) => ({
+      id: row.id as string,
+      workspace_id: row.workspaceId as string,
+      batch_id: row.batchId as string,
+      draft_id: row.draftId as string,
+      attempts: row.attempts as number,
+    }));
+  };
+
   readonly $transaction = async (
     operations: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>),
   ) => {
@@ -110,7 +145,7 @@ describe('OutreachSendJobsService（P4-04 job 队列）', () => {
     const [claimed] = await instance.claim(1, NOW);
 
     const nextAt = new Date(NOW.getTime() + 120_000);
-    await instance.reschedule([claimed.id], nextAt, 'DEFERRED');
+    await instance.reschedule(claimed.workspaceId, [claimed.id], nextAt, 'DEFERRED');
     expect(prisma.jobs[0]).toMatchObject({
       state: 'PENDING',
       claimToken: null,
@@ -120,21 +155,22 @@ describe('OutreachSendJobsService（P4-04 job 队列）', () => {
 
     const [again] = await instance.claim(1, new Date(nextAt.getTime() + 1));
     expect(again.attempts).toBe(2);
-    await instance.markDone([again.id]);
+    await instance.markDone(again.workspaceId, [again.id]);
     expect(prisma.jobs[0]).toMatchObject({ state: 'DONE', claimToken: null, lastError: null });
     expect(row.state).toBe('DONE');
   });
 
   it('markFailed/markCancelled 只作用于 CLAIMED 状态', async () => {
     const prisma = new FakeJobsPrisma();
+    const ws = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     seed(prisma, { state: 'PENDING' });
     const instance = service(prisma);
-    await instance.markFailed(['1'], 'x');
-    await instance.markCancelled(['1']);
+    await instance.markFailed(ws, ['1'], 'x');
+    await instance.markCancelled(ws, ['1']);
     expect(prisma.jobs[0].state).toBe('PENDING'); // 未被误改
 
     const [claimed] = await instance.claim(1, NOW);
-    await instance.markFailed([claimed.id], 'SMTP_DELIVERY_FAILED');
+    await instance.markFailed(claimed.workspaceId, [claimed.id], 'SMTP_DELIVERY_FAILED');
     expect(prisma.jobs[0]).toMatchObject({ state: 'FAILED', lastError: 'SMTP_DELIVERY_FAILED' });
   });
 });

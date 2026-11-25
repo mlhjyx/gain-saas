@@ -80,7 +80,7 @@ function makeHarness(initialStatus: 'ACTIVE' | 'DISABLED' | 'ARCHIVED' = 'ACTIVE
   };
 
   const prisma = {
-    $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
+    withWorkspace: vi.fn(async (_wid: string, fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
   };
   const audit = { record: vi.fn(async () => undefined) };
   const service = new OpsService(
@@ -102,7 +102,7 @@ describe('OpsService.setWorkspaceStatus', () => {
 
       const result = await service.setWorkspaceStatus(WS_ID, targetStatus, OPS_ACTOR, 'incident freeze');
 
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.withWorkspace).toHaveBeenCalledWith(WS_ID, expect.any(Function));
       expect(result).toEqual({
         workspace: {
           id: WS_ID,

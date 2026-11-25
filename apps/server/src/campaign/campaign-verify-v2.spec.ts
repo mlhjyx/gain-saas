@@ -28,6 +28,7 @@ class FakeVerifyPrisma {
     findUnique: async ({ where }: { where: { id: string } }) =>
       this.workspaces.find((row) => row.id === where.id) ?? null,
   };
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
 }
 
 function build(scope: Row, options: { state?: string; expiresInMs?: number } = {}) {

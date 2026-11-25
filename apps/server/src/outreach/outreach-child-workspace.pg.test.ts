@@ -15,6 +15,7 @@ import { OpsExportThrottle } from '../ops/ops-export-throttle.js';
 import { OpsController } from '../ops/ops.controller.js';
 import { OpsService } from '../ops/ops.service.js';
 import { AuditService } from '../shared/audit.service.js';
+import { PrismaService } from '../shared/prisma.service.js';
 import { AuditController } from '../tenant/audit.controller.js';
 import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
@@ -30,6 +31,7 @@ if (!available) {
 describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离（disposable PG16）', () => {
   let pg: DisposablePostgres;
   let prisma: PrismaClient;
+  let appPrisma: PrismaService;
 
   const WS_1 = randomUUID();
   const WS_2 = randomUUID();
@@ -37,9 +39,12 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
   beforeAll(async () => {
     pg = startDisposablePostgres();
     prisma = new PrismaClient({ datasourceUrl: pg.databaseUrl });
+    appPrisma = new PrismaService({ datasourceUrl: pg.appDatabaseUrl, enforcePrincipal: true });
+    await appPrisma.verifyPrincipal();
   }, 900_000);
 
   afterAll(async () => {
+    await appPrisma?.onModuleDestroy().catch(() => undefined);
     await prisma?.$disconnect().catch(() => undefined);
     pg?.stop();
   }, 120_000);
@@ -91,7 +96,7 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
   }, 60_000);
 
   it('AuditService + AuditController + OpsController.audit enforce workspace_id isolation against PG16', async () => {
-    const auditService = new AuditService(prisma as never);
+    const auditService = new AuditService(appPrisma);
     await auditService.record({
       realm: 'tenant',
       actorId: 'u-1',
@@ -132,7 +137,7 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
       target: 'op@example.test',
     });
 
-    const auditController = new AuditController(prisma as never);
+    const auditController = new AuditController(appPrisma);
     const tenantRes = await auditController.list({
       tenant: {
         userId: 'u-1',
@@ -153,7 +158,7 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
       {} as never,
       {} as never,
       auditService,
-      prisma as never,
+      appPrisma,
       new OpsExportThrottle(10),
     );
     const opsController = new OpsController(opsService, {} as never, {} as never);
@@ -172,9 +177,9 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
   }, 60_000);
 
   it('OutreachMailboxService & OutreachExperimentsService persist and isolate workspace_id end-to-end on PG16', async () => {
-    const auditService = new AuditService(prisma as never);
+    const auditService = new AuditService(appPrisma);
     const mailboxService = new OutreachMailboxService(
-      prisma as never,
+      appPrisma,
       auditService,
       {
         OUTREACH_SMTP_FROM_ADDRESS: 'outreach@example.test',
@@ -182,7 +187,7 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
         OUTREACH_MAILBOX_WEEKLY_CAP: 120,
       } as AppConfig,
     );
-    const experimentsService = new OutreachExperimentsService(prisma as never, auditService);
+    const experimentsService = new OutreachExperimentsService(appPrisma, auditService);
 
     const mailbox1 = (await mailboxService.ensureDefaultMailbox(WS_1, 'sales1@ws1.example.test'))!;
     expect(mailbox1.workspaceId).toBe(WS_1);
@@ -209,6 +214,22 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
     expect(domainCounter).toMatchObject({ workspaceId: WS_1, recipientDomain: 'ziel.de', sent: 1 });
 
     const campaignId = randomUUID();
+    await prisma.workspace.upsert({
+      where: { id: WS_1 },
+      update: {},
+      create: { id: WS_1, name: 'WS 1' },
+    });
+    await prisma.campaign.create({
+      data: {
+        id: campaignId,
+        workspaceId: WS_1,
+        name: 'Holdout Campaign',
+        objective: 'probe',
+        status: 'ACTIVE',
+        createdBy: 'u-1',
+        updatedBy: 'u-1',
+      },
+    });
     const contactRef = randomUUID();
     const exp = await experimentsService.create(
       { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
@@ -267,7 +288,8 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
       const preDirs = migrationDirs.filter(
         (name) =>
           name !== '20261126010000_audit_log_workspace_id' &&
-          name !== '20261126020000_outreach_child_workspace_id',
+          name !== '20261126020000_outreach_child_workspace_id' &&
+          name !== '20261126030000_gain_saas_rls_and_app_role',
       );
       for (const dir of preDirs) {
         const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8');

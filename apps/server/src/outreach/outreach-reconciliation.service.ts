@@ -51,55 +51,61 @@ export class OutreachReconciliationService {
   async reconcile(tenant: OutreachTenant, dayInput?: Date): Promise<ReconciliationResult> {
     const day = utcDay(dayInput ?? new Date(Date.now() - 86_400_000));
     const dayEnd = new Date(day.getTime() + 86_400_000);
-    const sends = await this.prisma.outreachSend.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        createdAt: { gte: day, lt: dayEnd },
+    const { sends, drafts, batchDrafts, allSentForDrafts } = await this.prisma.withWorkspace(
+      tenant.workspaceId,
+      async (tx) => {
+        const sendRows = await tx.outreachSend.findMany({
+          where: {
+            workspaceId: tenant.workspaceId,
+            createdAt: { gte: day, lt: dayEnd },
+          },
+          select: {
+            id: true,
+            batchId: true,
+            draftId: true,
+            status: true,
+            messageId: true,
+            authorizationId: true,
+            authorizationUse: true,
+            error: true,
+          },
+        });
+        const batchIdList = [...new Set(sendRows.map((send) => send.batchId))];
+        const draftIdList = [...new Set(sendRows.map((send) => send.draftId))];
+        const draftRows =
+          draftIdList.length > 0
+            ? await tx.outreachDraft.findMany({
+                where: { id: { in: draftIdList } },
+                select: { id: true, status: true },
+              })
+            : [];
+        const batchDraftRows =
+          batchIdList.length > 0
+            ? await tx.outreachDraft.findMany({
+                where: { batchId: { in: batchIdList }, status: 'SENT' },
+                select: { id: true, batchId: true },
+              })
+            : [];
+        const allSentRows =
+          batchDraftRows.length > 0
+            ? await tx.outreachSend.findMany({
+                where: {
+                  workspaceId: tenant.workspaceId,
+                  draftId: { in: batchDraftRows.map((draft) => draft.id) },
+                  status: 'SENT',
+                },
+                select: { draftId: true },
+              })
+            : [];
+        return {
+          sends: sendRows,
+          drafts: draftRows,
+          batchDrafts: batchDraftRows,
+          allSentForDrafts: allSentRows,
+        };
       },
-      select: {
-        id: true,
-        batchId: true,
-        draftId: true,
-        status: true,
-        messageId: true,
-        authorizationId: true,
-        authorizationUse: true,
-        error: true,
-      },
-    });
-    const batchIds = [...new Set(sends.map((send) => send.batchId))];
-    const draftIds = [...new Set(sends.map((send) => send.draftId))];
-    const drafts =
-      draftIds.length > 0
-        ? await this.prisma.outreachDraft.findMany({
-            where: { id: { in: draftIds } },
-            select: { id: true, status: true },
-          })
-        : [];
-    const draftStatus = new Map(drafts.map((draft) => [draft.id, draft.status]));
-
-    // 台账声称 SENT 的草稿，必须真的有一条 SENT 台账（任意日期，覆盖跨日重试）。
-    const sentLedgerDraftIds = new Set(
-      sends.filter((send) => send.status === 'SENT').map((send) => send.draftId),
     );
-    const batchDrafts =
-      batchIds.length > 0
-        ? await this.prisma.outreachDraft.findMany({
-            where: { batchId: { in: batchIds }, status: 'SENT' },
-            select: { id: true, batchId: true },
-          })
-        : [];
-    const allSentForDrafts =
-      batchDrafts.length > 0
-        ? await this.prisma.outreachSend.findMany({
-            where: {
-              workspaceId: tenant.workspaceId,
-              draftId: { in: batchDrafts.map((draft) => draft.id) },
-              status: 'SENT',
-            },
-            select: { draftId: true },
-          })
-        : [];
+    const draftStatus = new Map(drafts.map((draft) => [draft.id, draft.status]));
     const everSent = new Set(allSentForDrafts.map((row) => row.draftId));
 
     const discrepancies: ReconciliationDiscrepancy[] = [];

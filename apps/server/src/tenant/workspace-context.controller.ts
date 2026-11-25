@@ -29,14 +29,16 @@ export class WorkspaceContextController {
   async context(@Req() req: Request) {
     const tenant = req.tenant!;
     const [membership, user] = await Promise.all([
-      this.prisma.membership.findFirst({
-        where: {
-          userId: tenant.userId,
-          workspaceId: tenant.workspaceId,
-          status: 'active',
-        },
-        include: { workspace: { select: { id: true, name: true } } },
-      }),
+      this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        tx.membership.findFirst({
+          where: {
+            userId: tenant.userId,
+            workspaceId: tenant.workspaceId,
+            status: 'active',
+          },
+          include: { workspace: { select: { id: true, name: true } } },
+        }),
+      ),
       this.prisma.user.findUnique({
         where: { id: tenant.userId },
         select: { id: true, email: true },

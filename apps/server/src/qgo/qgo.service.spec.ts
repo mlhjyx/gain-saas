@@ -55,7 +55,7 @@ interface QgoRowShape {
   updatedAt: Date;
 }
 
-function fixture(options: { qualified?: unknown; existingQgo?: QgoRowShape; sao?: { id: string; state: string } } = {}) {
+function fixture(options: { qualified?: unknown; existingQgo?: QgoRowShape; sao?: { id: string; state: string }; campaigns?: Array<{ id: string; workspaceId: string }> } = {}) {
   const qgos = new Map<string, QgoRowShape>();
   if (options.existingQgo) qgos.set(options.existingQgo.id, options.existingQgo);
   const saoRows = new Map<string, { id: string; workspaceId: string; qgoId: string; state: string; decidedBy: string; decidedAt: Date; reason: string | null }>();
@@ -140,10 +140,18 @@ function fixture(options: { qualified?: unknown; existingQgo?: QgoRowShape; sao?
       }),
     },
   };
-  const prisma = {
+  const prisma: Record<string, unknown> = {
+    campaign: {
+      findFirst: vi.fn(async (args: { where: { id: string; workspaceId: string } }) =>
+        (options.campaigns ?? []).find(
+          (c) => c.id === args.where.id && c.workspaceId === args.where.workspaceId,
+        ) ?? null,
+      ),
+    },
     qgo: { findFirst: qgoFindFirst, create: qgoCreate, findMany: qgoFindMany, updateMany: qgoUpdateMany },
     qualifiedLead: { findFirst: vi.fn(async () => options.qualified ?? null) },
     sao: {
+      create: tx.sao.create,
       findFirst: vi.fn(async (args: { where: { id: string; workspaceId: string } }) => {
         const row = saoRows.get(args.where.id);
         if (!row || row.workspaceId !== args.where.workspaceId) return null;
@@ -159,6 +167,7 @@ function fixture(options: { qualified?: unknown; existingQgo?: QgoRowShape; sao?
     },
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
   };
+  prisma.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) => fn(prisma));
   const audit = { record: vi.fn(async () => undefined) };
   const service = new QgoService(prisma as unknown as PrismaService, audit as unknown as AuditService);
   return { service, prisma, audit, qgos, saoRows, outcomes, qgoCreate };
@@ -342,5 +351,25 @@ describe('QgoService.addOutcome（append-only 结果登记）', () => {
     await expect(
       f.service.addOutcome(ctx(WS_OTHER), SAO_ID, { outcome: 'REPLIED' }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('promote 传入不存在或他空间 campaignId → 404 CAMPAIGN_NOT_FOUND 且不写入 QGO', async () => {
+    const foreignCampaignId = '88888888-8888-4888-8888-888888888888';
+    const f = fixture({
+      qualified: { snapshot: snapshot() },
+      campaigns: [{ id: foreignCampaignId, workspaceId: WS_OTHER }],
+    });
+    await expect(
+      f.service.promote(ctx(WS), {
+        leadRef: LEAD,
+        evidence: EVIDENCE,
+        nextStep: '约会议',
+        campaignId: foreignCampaignId,
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'CAMPAIGN_NOT_FOUND' } },
+    });
+    expect(f.qgoCreate).not.toHaveBeenCalled();
   });
 });

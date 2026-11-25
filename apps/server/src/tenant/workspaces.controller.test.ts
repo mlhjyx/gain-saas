@@ -49,15 +49,27 @@ function makeController(
     },
   );
   const membershipUpdate = vi.fn(async () => ({ id: 'm-1', status: 'left' }));
-  const prisma = {
+  const prisma: Record<string, unknown> = {
+    $executeRaw: vi.fn(async () => 0),
+    workspace: {
+      findUnique: vi.fn(async () => ({ status: 'ACTIVE' })),
+    },
     membership: {
-      findFirst: vi.fn(async () => ({ id: 'm-1', userId: USER_ID, workspaceId: WS_CURR, role, status: 'active' })),
+      findFirst: vi.fn(async () => ({
+        id: 'm-1',
+        userId: USER_ID,
+        workspaceId: WS_CURR,
+        role,
+        status: 'active',
+        workspace: { status: 'ACTIVE' },
+      })),
       count: vi.fn(async () => 2),
       update: membershipUpdate,
     },
     session: {
       updateMany: sessionUpdateMany,
     },
+    withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
     $transaction: vi.fn(async (fn: (tx: { membership: { update: typeof membershipUpdate }; session: { updateMany: typeof sessionUpdateMany } }) => Promise<unknown>) =>
       fn({ membership: { update: membershipUpdate }, session: { updateMany: sessionUpdateMany } }),
     ),

@@ -122,13 +122,26 @@ export class OutreachBatchService {
       }
       campaignId = input.campaignId;
     }
-    const batch = await this.prisma.outreachBatch.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        campaignId,
-        name,
-        createdBy: tenant.userId,
-      },
+    const batch = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      if (campaignId !== null) {
+        const campaign = await tx.campaign.findFirst({
+          where: { id: campaignId, workspaceId: tenant.workspaceId },
+          select: { id: true },
+        });
+        if (!campaign) {
+          throw new NotFoundException({
+            error: { code: 'CAMPAIGN_NOT_FOUND', message: 'campaign 不存在' },
+          });
+        }
+      }
+      return tx.outreachBatch.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          campaignId,
+          name,
+          createdBy: tenant.userId,
+        },
+      });
     });
     await this.event(tenant, batch.id, 'BATCH_CREATED', { name });
     return batch;
@@ -136,18 +149,20 @@ export class OutreachBatchService {
 
   async listBatches(tenant: OutreachTenant) {
     await this.expireStaleBatches(tenant);
-    const rows = await this.prisma.outreachBatch.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        _count: { select: { drafts: true } },
-        approvals: {
-          where: { state: 'PENDING' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatch.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          _count: { select: { drafts: true } },
+          approvals: {
+            where: { state: 'PENDING' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
         },
-      },
-    });
+      }),
+    );
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -165,35 +180,39 @@ export class OutreachBatchService {
   async getBatch(tenant: OutreachTenant, batchId: string) {
     if (!UUID_RE.test(batchId)) notFound();
     await this.expireBatchIfStale(tenant, batchId);
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { workspaceId: tenant.workspaceId, id: batchId },
-      include: {
-        drafts: { orderBy: { createdAt: 'asc' } },
-        approvals: { orderBy: { createdAt: 'desc' } },
-        events: { orderBy: { createdAt: 'asc' } },
-      },
-    });
+    const batch = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+        include: {
+          drafts: { orderBy: { createdAt: 'asc' } },
+          approvals: { orderBy: { createdAt: 'desc' } },
+          events: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
     if (!batch) notFound();
     return batch;
   }
 
   async addDraft(tenant: OutreachTenant, batchId: string, input: OutreachDraftInput) {
     const normalized = normalizeDraft(input);
-    await this.requireDraftableBatch(tenant, batchId);
-    const existing = await this.prisma.outreachDraft.count({ where: { batchId } });
-    if (existing >= this.maxRecipients) {
-      conflict(
-        'OUTREACH_BATCH_SIZE_EXCEEDED',
-        `单批收件人上限 ${this.maxRecipients}，请拆分为多个批次`,
-      );
-    }
     try {
-      const draft = await this.prisma.outreachDraft.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          ...normalized,
-        },
+      const draft = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+        await this.requireDraftableBatchTx(tx, tenant, batchId);
+        const existing = await tx.outreachDraft.count({ where: { batchId } });
+        if (existing >= this.maxRecipients) {
+          conflict(
+            'OUTREACH_BATCH_SIZE_EXCEEDED',
+            `单批收件人上限 ${this.maxRecipients}，请拆分为多个批次`,
+          );
+        }
+        return tx.outreachDraft.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            batchId,
+            ...normalized,
+          },
+        });
       });
       await this.event(tenant, batchId, 'DRAFT_ADDED', {
         draftId: draft.id,
@@ -215,27 +234,29 @@ export class OutreachBatchService {
     input: OutreachDraftInput,
   ) {
     const normalized = normalizeDraft(input);
-    await this.requireDraftableBatch(tenant, batchId);
-    const draft = await this.prisma.outreachDraft.findFirst({
-      where: { id: draftId, batchId, workspaceId: tenant.workspaceId },
-    });
-    if (!draft) {
-      throw new NotFoundException({
-        error: { code: 'OUTREACH_DRAFT_NOT_FOUND', message: '触达草稿不存在' },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      await this.requireDraftableBatchTx(tx, tenant, batchId);
+      const draft = await tx.outreachDraft.findFirst({
+        where: { id: draftId, batchId, workspaceId: tenant.workspaceId },
       });
-    }
-    // PATCH 语义：未提供 countryCode 时保留原值，不能被整体替换悄悄清空。
-    const data: Partial<typeof normalized> = { ...normalized };
-    if (input.countryCode === undefined) delete data.countryCode;
-    if (input.contactPointId === undefined) delete data.contactPointId;
-    // 换了收件邮箱而未随附新通讯点 → 清空旧 pointId：回写按 pointId 寻址，
-    // 旧 id 绑新邮箱会把退信记到别人的联系点上（引擎侧 INVALID 是粘滞的）。
-    if (normalized.recipientEmail !== draft.recipientEmail && input.contactPointId === undefined) {
-      data.contactPointId = null;
-    }
-    const updated = await this.prisma.outreachDraft.update({
-      where: { id: draftId },
-      data,
+      if (!draft) {
+        throw new NotFoundException({
+          error: { code: 'OUTREACH_DRAFT_NOT_FOUND', message: '触达草稿不存在' },
+        });
+      }
+      // PATCH 语义：未提供 countryCode 时保留原值，不能被整体替换悄悄清空。
+      const data: Partial<typeof normalized> = { ...normalized };
+      if (input.countryCode === undefined) delete data.countryCode;
+      if (input.contactPointId === undefined) delete data.contactPointId;
+      // 换了收件邮箱而未随附新通讯点 → 清空旧 pointId：回写按 pointId 寻址，
+      // 旧 id 绑新邮箱会把退信记到别人的联系点上（引擎侧 INVALID 是粘滞的）。
+      if (normalized.recipientEmail !== draft.recipientEmail && input.contactPointId === undefined) {
+        data.contactPointId = null;
+      }
+      return tx.outreachDraft.update({
+        where: { id: draftId },
+        data,
+      });
     });
     await this.event(tenant, batchId, 'DRAFT_EDITED', {
       draftId,
@@ -245,60 +266,62 @@ export class OutreachBatchService {
   }
 
   async removeDraft(tenant: OutreachTenant, batchId: string, draftId: string) {
-    await this.requireDraftableBatch(tenant, batchId);
-    const deleted = await this.prisma.outreachDraft.deleteMany({
-      where: { id: draftId, batchId, workspaceId: tenant.workspaceId },
-    });
-    if (deleted.count === 0) {
-      throw new NotFoundException({
-        error: { code: 'OUTREACH_DRAFT_NOT_FOUND', message: '触达草稿不存在' },
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      await this.requireDraftableBatchTx(tx, tenant, batchId);
+      const deleted = await tx.outreachDraft.deleteMany({
+        where: { id: draftId, batchId, workspaceId: tenant.workspaceId },
       });
-    }
+      if (deleted.count === 0) {
+        throw new NotFoundException({
+          error: { code: 'OUTREACH_DRAFT_NOT_FOUND', message: '触达草稿不存在' },
+        });
+      }
+    });
     await this.event(tenant, batchId, 'DRAFT_REMOVED', { draftId });
     return { removed: true };
   }
 
   async submitBatch(tenant: OutreachTenant, batchId: string) {
     if (!UUID_RE.test(batchId)) notFound();
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { workspaceId: tenant.workspaceId, id: batchId },
-      include: { drafts: true },
-    });
-    if (!batch) notFound();
-    if (batch.status !== 'DRAFT') {
-      conflict('OUTREACH_BATCH_NOT_DRAFT', '只有草稿状态的批次可以提交审批');
-    }
-    if (batch.drafts.length === 0) {
-      conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
-    }
-    if (batch.drafts.length > this.maxRecipients) {
-      conflict(
-        'OUTREACH_BATCH_SIZE_EXCEEDED',
-        `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.maxRecipients}`,
-      );
-    }
-    const contentHash = hashOutreachDrafts(batch.drafts);
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + this.approvalTtlMs);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const { result, contentHash } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const batch = await tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+        include: { drafts: true },
+      });
+      if (!batch) notFound();
+      if (batch.status !== 'DRAFT') {
+        conflict('OUTREACH_BATCH_NOT_DRAFT', '只有草稿状态的批次可以提交审批');
+      }
+      if (batch.drafts.length === 0) {
+        conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
+      }
+      if (batch.drafts.length > this.maxRecipients) {
+        conflict(
+          'OUTREACH_BATCH_SIZE_EXCEEDED',
+          `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.maxRecipients}`,
+        );
+      }
+      const nextHash = hashOutreachDrafts(batch.drafts);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + this.approvalTtlMs);
       const approval = await tx.outreachBatchApproval.create({
         data: {
           workspaceId: tenant.workspaceId,
           batchId,
-          contentHash,
+          contentHash: nextHash,
           requestedBy: tenant.userId,
           expiresAt,
         },
       });
       await tx.outreachDraft.updateMany({
         where: { batchId, status: 'DRAFT' },
-        data: { status: 'PENDING_APPROVAL', contentHash },
+        data: { status: 'PENDING_APPROVAL', contentHash: nextHash },
       });
       await tx.outreachBatch.update({
         where: { id: batchId },
         data: {
           status: 'PENDING_APPROVAL',
-          contentHash,
+          contentHash: nextHash,
           submittedAt: now,
           decidedAt: null,
           queuedAt: null,
@@ -310,10 +333,10 @@ export class OutreachBatchService {
           batchId,
           type: 'BATCH_SUBMITTED',
           actor: tenant.userId,
-          detail: { approvalId: approval.id, contentHash, expiresAt: expiresAt.toISOString() },
+          detail: { approvalId: approval.id, contentHash: nextHash, expiresAt: expiresAt.toISOString() },
         },
       });
-      return approval;
+      return { result: approval, contentHash: nextHash };
     });
     await this.audit.record({
       realm: 'tenant',
@@ -339,24 +362,24 @@ export class OutreachBatchService {
     const reason =
       typeof input.reason === 'string' ? input.reason.trim().slice(0, 500) : null;
     await this.expireBatchIfStale(tenant, batchId);
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { workspaceId: tenant.workspaceId, id: batchId },
-    });
-    if (!batch) notFound();
-    const approval = await this.prisma.outreachBatchApproval.findFirst({
-      where: { id: approvalId, batchId, workspaceId: tenant.workspaceId },
-    });
-    if (!approval) {
-      throw new NotFoundException({
-        error: { code: 'OUTREACH_APPROVAL_NOT_FOUND', message: '审批不存在' },
+    const requestedBy = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const batch = await tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
       });
-    }
-    if (approval.state !== 'PENDING') {
-      conflict('OUTREACH_APPROVAL_NOT_PENDING', '该审批已结束，不能重复裁决');
-    }
-    const now = new Date();
-    if (input.decision === 'approve') {
-      await this.prisma.$transaction(async (tx) => {
+      if (!batch) notFound();
+      const approval = await tx.outreachBatchApproval.findFirst({
+        where: { id: approvalId, batchId, workspaceId: tenant.workspaceId },
+      });
+      if (!approval) {
+        throw new NotFoundException({
+          error: { code: 'OUTREACH_APPROVAL_NOT_FOUND', message: '审批不存在' },
+        });
+      }
+      if (approval.state !== 'PENDING') {
+        conflict('OUTREACH_APPROVAL_NOT_PENDING', '该审批已结束，不能重复裁决');
+      }
+      const now = new Date();
+      if (input.decision === 'approve') {
         await tx.outreachBatchApproval.update({
           where: { id: approvalId },
           data: {
@@ -397,26 +420,7 @@ export class OutreachBatchService {
             detail: { approvalId, selfApproval: approval.requestedBy === tenant.userId },
           },
         });
-      });
-      await this.audit.record({
-        realm: 'tenant',
-        actorId: tenant.userId,
-        workspaceId: tenant.workspaceId,
-        action: 'outreach.batch.approved',
-        target: batchId,
-        detail: { approvalId, selfApproval: approval.requestedBy === tenant.userId },
-      });
-      // P4-03 签发侧：默认不自动签发（OUTREACH_AUTHORIZATION_AUTO_ISSUE=false）；
-      // 开启后审批即签发 v2 授权并绑定批次，失败只落事件、不回滚审批本身。
-      if (this.config.OUTREACH_AUTHORIZATION_AUTO_ISSUE) {
-        await this.authorizationIssuer.issue(tenant, batchId).catch(async (error) => {
-          await this.event(tenant, batchId, 'AUTHORIZATION_ISSUE_FAILED', {
-            code: authorizationErrorCode(error),
-          });
-        });
-      }
-    } else {
-      await this.prisma.$transaction(async (tx) => {
+      } else {
         await tx.outreachBatchApproval.update({
           where: { id: approvalId },
           data: {
@@ -443,7 +447,28 @@ export class OutreachBatchService {
             detail: { approvalId, reason },
           },
         });
+      }
+      return approval.requestedBy;
+    });
+    if (input.decision === 'approve') {
+      await this.audit.record({
+        realm: 'tenant',
+        actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
+        action: 'outreach.batch.approved',
+        target: batchId,
+        detail: { approvalId, selfApproval: requestedBy === tenant.userId },
       });
+      // P4-03 签发侧：默认不自动签发（OUTREACH_AUTHORIZATION_AUTO_ISSUE=false）；
+      // 开启后审批即签发 v2 授权并绑定批次，失败只落事件、不回滚审批本身。
+      if (this.config.OUTREACH_AUTHORIZATION_AUTO_ISSUE) {
+        await this.authorizationIssuer.issue(tenant, batchId).catch(async (error) => {
+          await this.event(tenant, batchId, 'AUTHORIZATION_ISSUE_FAILED', {
+            code: authorizationErrorCode(error),
+          });
+        });
+      }
+    } else {
       await this.audit.record({
         realm: 'tenant',
         actorId: tenant.userId,
@@ -457,14 +482,14 @@ export class OutreachBatchService {
   }
 
   async reopenBatch(tenant: OutreachTenant, batchId: string) {
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { workspaceId: tenant.workspaceId, id: batchId },
-    });
-    if (!batch) notFound();
-    if (batch.status !== 'DECLINED' && batch.status !== 'EXPIRED') {
-      conflict('OUTREACH_BATCH_NOT_REOPENABLE', '只有被拒绝或过期的批次可以重新编辑');
-    }
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const batch = await tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+      });
+      if (!batch) notFound();
+      if (batch.status !== 'DECLINED' && batch.status !== 'EXPIRED') {
+        conflict('OUTREACH_BATCH_NOT_REOPENABLE', '只有被拒绝或过期的批次可以重新编辑');
+      }
       await tx.outreachBatch.update({
         where: { id: batchId },
         data: {
@@ -491,9 +516,13 @@ export class OutreachBatchService {
     return this.getBatch(tenant, batchId);
   }
 
-  private async requireDraftableBatch(tenant: OutreachTenant, batchId: string) {
+  private async requireDraftableBatchTx(
+    tx: Prisma.TransactionClient,
+    tenant: OutreachTenant,
+    batchId: string,
+  ) {
     if (!UUID_RE.test(batchId)) notFound();
-    const batch = await this.prisma.outreachBatch.findFirst({
+    const batch = await tx.outreachBatch.findFirst({
       where: { workspaceId: tenant.workspaceId, id: batchId },
     });
     if (!batch) notFound();
@@ -504,32 +533,34 @@ export class OutreachBatchService {
   }
 
   private async expireStaleBatches(tenant: OutreachTenant) {
-    const stale = await this.prisma.outreachBatchApproval.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        state: 'PENDING',
-        expiresAt: { lte: new Date() },
-      },
-      select: { batchId: true },
-    });
+    const stale = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatchApproval.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          state: 'PENDING',
+          expiresAt: { lte: new Date() },
+        },
+        select: { batchId: true },
+      }),
+    );
     for (const row of stale) {
       await this.expireBatchIfStale(tenant, row.batchId);
     }
   }
 
   private async expireBatchIfStale(tenant: OutreachTenant, batchId: string) {
-    const approval = await this.prisma.outreachBatchApproval.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        batchId,
-        state: 'PENDING',
-        expiresAt: { lte: new Date() },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!approval) return;
-    const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const approval = await tx.outreachBatchApproval.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          state: 'PENDING',
+          expiresAt: { lte: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!approval) return;
+      const now = new Date();
       await tx.outreachBatchApproval.update({
         where: { id: approval.id },
         data: { state: 'EXPIRED', decidedAt: now, decisionReason: 'expired' },
@@ -560,16 +591,18 @@ export class OutreachBatchService {
     type: string,
     detail?: Record<string, unknown>,
   ) {
-    await this.prisma.outreachBatchEvent
-      .create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          type,
-          actor: tenant.userId,
-          detail: (detail ?? undefined) as Prisma.InputJsonValue | undefined,
-        },
-      })
+    await this.prisma
+      .withWorkspace(tenant.workspaceId, (tx) =>
+        tx.outreachBatchEvent.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            batchId,
+            type,
+            actor: tenant.userId,
+            detail: (detail ?? undefined) as Prisma.InputJsonValue | undefined,
+          },
+        }),
+      )
       .catch(() => undefined);
   }
 }

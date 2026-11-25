@@ -67,10 +67,12 @@ function buildService() {
     workspaceBudgetPolicy: { findUnique: vi.fn(async () => null) },
     workspace: { findUnique: vi.fn(async () => ({ status: 'ACTIVE' })) },
   };
-  const prisma = {
+  const prismaObj: Record<string, unknown> = {
     ...tx,
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
-  } as unknown as PrismaService;
+  };
+  prismaObj.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) => fn(prismaObj));
+  const prisma = prismaObj as unknown as PrismaService;
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
   const signer = {
     sign: vi.fn(async () => 'signed-token'),

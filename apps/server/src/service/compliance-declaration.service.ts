@@ -14,10 +14,12 @@ export class ComplianceDeclarationService {
 
   /** 该工作空间留存的历史声明（最新在前，最多 20 版）。 */
   async history(workspaceId: string) {
-    return this.prisma.workspaceComplianceDeclaration.findMany({
-      where: { workspaceId },
-      orderBy: { version: 'desc' },
-      take: 20,
-    });
+    return this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.workspaceComplianceDeclaration.findMany({
+        where: { workspaceId },
+        orderBy: { version: 'desc' },
+        take: 20,
+      }),
+    );
   }
 }

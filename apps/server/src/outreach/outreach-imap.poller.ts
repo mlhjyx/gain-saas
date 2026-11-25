@@ -113,10 +113,10 @@ export class OutreachImapPoller implements OnModuleInit, OnModuleDestroy {
 
   async pollOnce(): Promise<ImapPollSummary> {
     const summary: ImapPollSummary = { processed: 0, duplicates: 0, unmatched: 0, errors: 0 };
-    const mailboxes = await this.prisma.outreachMailbox.findMany({
-      where: { state: 'ACTIVE' },
-      select: { address: true, workspaceId: true },
-    });
+    const rows = await this.prisma.$queryRaw<Array<{ workspace_id: string; address: string }>>`
+      SELECT workspace_id, address FROM public.app_list_active_outreach_mailboxes()
+    `;
+    const mailboxes = rows.map((row) => ({ workspaceId: row.workspace_id, address: row.address }));
     const multiTenant = new Set(mailboxes.map((m) => m.workspaceId)).size > 1;
     for (const mailbox of mailboxes) {
       let messages: OutreachImapMessage[];

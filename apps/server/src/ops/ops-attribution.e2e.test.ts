@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CampaignService } from '../campaign/campaign.service.js';
 import { QgoService } from '../qgo/qgo.service.js';
+import { PrismaService } from '../shared/prisma.service.js';
 import type { OpsDatabase } from './ops-database.service.js';
 import { OpsAttributionService } from './ops-attribution.service.js';
 import {
@@ -31,6 +32,7 @@ if (!available) {
 describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归因（真实服务 + 真库）', () => {
   let pg: DisposablePostgres;
   let prisma: PrismaClient;
+  let appPrisma: PrismaService;
   let campaigns: CampaignService;
   let qgos: QgoService;
   let attribution: OpsAttributionService;
@@ -63,6 +65,8 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
   beforeAll(async () => {
     pg = startDisposablePostgres();
     prisma = new PrismaClient({ datasourceUrl: pg.databaseUrl });
+    appPrisma = new PrismaService({ datasourceUrl: pg.appDatabaseUrl, enforcePrincipal: true });
+    await appPrisma.verifyPrincipal();
     await prisma.workspace.create({ data: { id: ids.workspace, name: '12-3 rehearsal' } });
 
     const audit = { record: async () => undefined } as never;
@@ -72,8 +76,8 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
       CAMPAIGN_AUTHZ_TTL_MINUTES: 30,
       CAMPAIGN_AUDIENCE_SIZE_CAP_MAX: 1000,
     } as never;
-    campaigns = new CampaignService(prisma as never, audit, signer, { onApprovalDeclined: async () => undefined } as never, config);
-    qgos = new QgoService(prisma as never, audit);
+    campaigns = new CampaignService(appPrisma, audit, signer, { onApprovalDeclined: async () => undefined } as never, config);
+    qgos = new QgoService(appPrisma, audit);
 
     const database = {
       db: {
@@ -83,10 +87,11 @@ describe.skipIf(!available)('12-3 联调预演：战役→商机→outcome→归
         ) => fn({ query: async () => ({ rows: enginePlanRows }) }),
       },
     } as unknown as OpsDatabase;
-    attribution = new OpsAttributionService(database, prisma as never);
+    attribution = new OpsAttributionService(database, appPrisma);
   }, 900_000);
 
   afterAll(async () => {
+    await appPrisma?.onModuleDestroy().catch(() => undefined);
     await prisma?.$disconnect().catch(() => undefined);
     pg?.stop();
   }, 120_000);

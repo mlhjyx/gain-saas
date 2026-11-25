@@ -18,6 +18,8 @@ class FakeWarmupPrisma {
   seeds: Row[] = [];
   counters: Row[] = [];
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   readonly outreachDomain = {
     findMany: async ({ where }: { where: Row }) =>
       this.domains.filter((row) => row.workspaceId === where.workspaceId),

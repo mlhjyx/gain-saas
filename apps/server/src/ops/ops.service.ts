@@ -350,7 +350,7 @@ export class OpsService {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'status 需要 ACTIVE|DISABLED|ARCHIVED' } });
     }
     const now = new Date();
-    const { before, after, revokedAuthorizations, revokedSessions } = await this.prisma.$transaction(async (tx) => {
+    const { before, after, revokedAuthorizations, revokedSessions } = await this.prisma.withWorkspace(id, async (tx) => {
       const current = await tx.workspace.findUnique({
         where: { id },
         select: { id: true, name: true, status: true },
@@ -530,27 +530,26 @@ export class OpsService {
   }
 
   async workspaces(): Promise<Row[]> {
-    // workspace 是 SaaS 自有库（5433）的表；provider/source 等运维表在引擎库（5432），不能混用。
-    const rows = await this.prisma.workspace.findMany({
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        statusUpdatedAt: true,
-        statusNote: true,
-        createdAt: true,
-        _count: { select: { memberships: { where: { status: 'active' } } } },
-      },
-    });
+    // workspace 是 SaaS 自有库（5433）的表；member_count 经 SECURITY DEFINER RPC 跨空间聚合（FORCE RLS 下不泄漏行）。
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        status: string;
+        status_updated_at: Date | null;
+        status_note: string | null;
+        created_at: Date;
+        member_count: bigint;
+      }>
+    >`SELECT id, name, status, status_updated_at, status_note, created_at, member_count FROM public.app_ops_list_workspaces()`;
     return rows.map((w) => ({
       id: w.id,
       name: w.name,
       status: w.status,
-      status_updated_at: w.statusUpdatedAt,
-      status_note: w.statusNote,
-      created_at: w.createdAt,
-      members: String(w._count.memberships),
+      status_updated_at: w.status_updated_at,
+      status_note: w.status_note,
+      created_at: w.created_at,
+      members: String(w.member_count),
     }));
   }
 
@@ -561,20 +560,25 @@ export class OpsService {
       where: q ? { email: { contains: q, mode: 'insensitive' } } : {},
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: {
-        memberships: {
-          where: { status: 'active' },
-          include: { workspace: { select: { id: true, name: true } } },
-        },
-      },
     });
     const ids = rows.map((row) => row.id);
-    const sessions = ids.length
-      ? await this.prisma.session.findMany({
-          where: { realm: 'tenant', subjectType: 'user', subjectId: { in: ids }, revokedAt: null, expiresAt: { gt: new Date() } },
-          select: { subjectId: true, createdAt: true },
-        })
-      : [];
+    const [memberships, sessions] = ids.length
+      ? await Promise.all([
+          this.prisma.$queryRaw<
+            Array<{ user_id: string; workspace_id: string; workspace_name: string; role: string }>
+          >`SELECT user_id, workspace_id, workspace_name, role FROM public.app_ops_list_user_memberships(${ids}::uuid[])`,
+          this.prisma.session.findMany({
+            where: { realm: 'tenant', subjectType: 'user', subjectId: { in: ids }, revokedAt: null, expiresAt: { gt: new Date() } },
+            select: { subjectId: true, createdAt: true },
+          }),
+        ])
+      : [[], []];
+    const membershipMap = new Map<string, Array<{ id: string; name: string; role: string }>>();
+    for (const m of memberships) {
+      const list = membershipMap.get(m.user_id) ?? [];
+      list.push({ id: m.workspace_id, name: m.workspace_name, role: m.role });
+      membershipMap.set(m.user_id, list);
+    }
     const sessionMap = new Map<string, { count: number; lastSeenAt: Date | null }>();
     for (const session of sessions) {
       const current = sessionMap.get(session.subjectId) ?? { count: 0, lastSeenAt: null };
@@ -587,11 +591,7 @@ export class OpsService {
       email: row.email,
       status: row.status,
       createdAt: row.createdAt.toISOString(),
-      workspaces: row.memberships.map((membership) => ({
-        id: membership.workspace.id,
-        name: membership.workspace.name,
-        role: membership.role,
-      })),
+      workspaces: membershipMap.get(row.id) ?? [],
       activeSessions: sessionMap.get(row.id)?.count ?? 0,
       lastSeenAt: sessionMap.get(row.id)?.lastSeenAt?.toISOString() ?? null,
     }));
@@ -658,16 +658,18 @@ export class OpsService {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'workspaceId 需要 UUID' } });
     }
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
-    const rows = await this.prisma.eventInbox.findMany({
-      where: {
-        workspaceId,
-        type: 'CandidateBatchCompleted',
-        OR: [{ projectionStatus: 'APPLIED' }, { projectionStatus: null }],
-      },
-      orderBy: { occurredAt: 'desc' },
-      take: limit,
-      select: { eventId: true, payload: true, occurredAt: true },
-    });
+    const rows = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.eventInbox.findMany({
+        where: {
+          workspaceId,
+          type: 'CandidateBatchCompleted',
+          OR: [{ projectionStatus: 'APPLIED' }, { projectionStatus: null }],
+        },
+        orderBy: { occurredAt: 'desc' },
+        take: limit,
+        select: { eventId: true, payload: true, occurredAt: true },
+      }),
+    );
     const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
     const str = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
     return rows.map((row) => {

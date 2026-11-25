@@ -228,37 +228,41 @@ export class OutreachSendControls {
    */
   async assertHealthy(tenant: OutreachTenant, now: Date = new Date()): Promise<void> {
     const since = new Date(now.getTime() - this.bounceWindowDays * 86_400_000);
-    const [sends, dsnBounces, hardRejects, complaints] = await Promise.all([
-      this.prisma.outreachSend.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          status: 'SENT',
-          sentAt: { gte: since },
-        },
-      }),
-      this.prisma.outreachReply.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          kind: 'BOUNCE',
-          receivedAt: { gte: since },
-        },
-      }),
-      this.prisma.outreachSend.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          status: 'FAILED',
-          bounceType: 'HARD',
-          createdAt: { gte: since },
-        },
-      }),
-      this.prisma.outreachReply.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          kind: 'COMPLAINT',
-          receivedAt: { gte: since },
-        },
-      }),
-    ]);
+    const [sends, dsnBounces, hardRejects, complaints] = await this.prisma.withWorkspace(
+      tenant.workspaceId,
+      (tx) =>
+        Promise.all([
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              status: 'SENT',
+              sentAt: { gte: since },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'BOUNCE',
+              receivedAt: { gte: since },
+            },
+          }),
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              status: 'FAILED',
+              bounceType: 'HARD',
+              createdAt: { gte: since },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'COMPLAINT',
+              receivedAt: { gte: since },
+            },
+          }),
+        ]),
+    );
     const attempts = sends + hardRejects;
     const bounces = dsnBounces + hardRejects;
     if (attempts >= this.bounceMinSample && bounces / attempts >= this.bounceRateHalt) {
@@ -311,33 +315,37 @@ export class OutreachSendControls {
     );
     const weekStart = new Date(now.getTime() - 7 * 86_400_000);
     const hourStart = new Date(now.getTime() - 3_600_000);
-    const [ledgerDaily, ledgerWeekly, hourlyRows] = await Promise.all([
-      this.prisma.outreachSend.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          mailboxAddress,
-          status: 'SENT',
-          sentAt: { gte: dayStart },
-        },
-      }),
-      this.prisma.outreachSend.count({
-        where: {
-          workspaceId: tenant.workspaceId,
-          mailboxAddress,
-          status: 'SENT',
-          sentAt: { gte: weekStart },
-        },
-      }),
-      this.prisma.outreachSend.findMany({
-        where: {
-          workspaceId: tenant.workspaceId,
-          mailboxAddress,
-          status: 'SENT',
-          sentAt: { gte: hourStart },
-        },
-        select: { recipientEmail: true },
-      }),
-    ]);
+    const [ledgerDaily, ledgerWeekly, hourlyRows] = await this.prisma.withWorkspace(
+      tenant.workspaceId,
+      (tx) =>
+        Promise.all([
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              mailboxAddress,
+              status: 'SENT',
+              sentAt: { gte: dayStart },
+            },
+          }),
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              mailboxAddress,
+              status: 'SENT',
+              sentAt: { gte: weekStart },
+            },
+          }),
+          tx.outreachSend.findMany({
+            where: {
+              workspaceId: tenant.workspaceId,
+              mailboxAddress,
+              status: 'SENT',
+              sentAt: { gte: hourStart },
+            },
+            select: { recipientEmail: true },
+          }),
+        ]),
+    );
     // 计数表与台账取较大值：计数表跨进程一致，台账覆盖计数表上线前的存量历史。
     const dailySent = Math.max(options.usage?.dailySent ?? 0, ledgerDaily);
     const weeklySent = Math.max(options.usage?.weeklySent ?? 0, ledgerWeekly);

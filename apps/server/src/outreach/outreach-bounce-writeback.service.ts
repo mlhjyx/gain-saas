@@ -43,54 +43,48 @@ export class OutreachBounceWritebackService {
     }
     const messageId = input.messageId.slice(0, 256);
     if (!messageId) return;
-    await this.prisma.outreachBounceWriteback
-      .create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          contactPointId: input.contactPointId,
-          event: input.event,
-          messageId,
-          smtpCode: input.smtpCode?.slice(0, 64) ?? null,
-          receivedAt: input.receivedAt ?? new Date(),
-        },
-      })
+    await this.prisma
+      .withWorkspace(tenant.workspaceId, (tx) =>
+        tx.outreachBounceWriteback.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            contactPointId: input.contactPointId,
+            event: input.event,
+            messageId,
+            smtpCode: input.smtpCode?.slice(0, 64) ?? null,
+            receivedAt: input.receivedAt ?? new Date(),
+          },
+        }),
+      )
       .catch(() => undefined); // 唯一索引吸收重复入队；队列故障不阻塞发送主链路
   }
 
-  /** worker tick：优先经 FOR UPDATE SKIP LOCKED 抢占 PENDING 避免多副本重复回写；回退 findMany 兼容单测 mock。 */
+  /** worker tick：经 SECURITY DEFINER FOR UPDATE SKIP LOCKED 抢占 PENDING 避免多副本重复回写。 */
   async drain(): Promise<{ done: number; failed: number; skipped: number }> {
     if (!this.config.OUTREACH_ENGINE_SERVICE_TOKEN) return { done: 0, failed: 0, skipped: 0 };
-    const prismaRaw = this.prisma as unknown as {
-      $queryRaw?: <T>(strings: TemplateStringsArray, ...values: unknown[]) => Promise<T>;
-    };
-    const rows =
-      typeof prismaRaw.$queryRaw === 'function'
-        ? await prismaRaw.$queryRaw<
-            Array<{
-              id: string;
-              workspaceId: string;
-              contactPointId: string;
-              event: string;
-              messageId: string;
-              smtpCode: string | null;
-              receivedAt: Date;
-              attempts: number;
-            }>
-          >`
-            SELECT id, workspace_id AS "workspaceId", contact_point_id AS "contactPointId",
-                   event, message_id AS "messageId", smtp_code AS "smtpCode",
-                   received_at AS "receivedAt", attempts
-              FROM outreach_bounce_writeback
-             WHERE status = 'PENDING' AND attempts < ${MAX_ATTEMPTS}
-             ORDER BY created_at ASC
-             LIMIT ${DRAIN_BATCH}
-             FOR UPDATE SKIP LOCKED
-          `
-        : await this.prisma.outreachBounceWriteback.findMany({
-            where: { status: 'PENDING', attempts: { lt: MAX_ATTEMPTS } },
-            orderBy: { createdAt: 'asc' },
-            take: DRAIN_BATCH,
-          });
+    const rawRows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        workspace_id: string;
+        contact_point_id: string;
+        event: string;
+        message_id: string;
+        smtp_code: string | null;
+        received_at: Date;
+        attempts: number;
+      }>
+    >`SELECT id, workspace_id, contact_point_id, event, message_id, smtp_code, received_at, attempts
+      FROM public.app_list_pending_bounce_writebacks(${DRAIN_BATCH}::integer, ${MAX_ATTEMPTS}::integer)`;
+    const rows = rawRows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      contactPointId: row.contact_point_id,
+      event: row.event,
+      messageId: row.message_id,
+      smtpCode: row.smtp_code,
+      receivedAt: row.received_at,
+      attempts: row.attempts,
+    }));
     let done = 0;
     let failed = 0;
     let skipped = 0;
@@ -118,19 +112,23 @@ export class OutreachBounceWritebackService {
           throw Object.assign(new Error(`引擎回写失败（HTTP ${result.status}）`), { permanent });
         }
         done += 1;
-        await this.prisma.outreachBounceWriteback.update({
-          where: { id: row.id },
-          data: { status: 'DONE', lastError: null },
-        });
+        await this.prisma.withWorkspace(row.workspaceId, (tx) =>
+          tx.outreachBounceWriteback.update({
+            where: { id: row.id },
+            data: { status: 'DONE', lastError: null },
+          }),
+        );
       } catch (error) {
         const permanent = (error as { permanent?: boolean }).permanent === true;
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
         const attempts = row.attempts + 1;
         const terminal = permanent || attempts >= MAX_ATTEMPTS;
-        await this.prisma.outreachBounceWriteback.update({
-          where: { id: row.id },
-          data: { status: terminal ? 'FAILED' : 'PENDING', attempts, lastError: message },
-        });
+        await this.prisma.withWorkspace(row.workspaceId, (tx) =>
+          tx.outreachBounceWriteback.update({
+            where: { id: row.id },
+            data: { status: terminal ? 'FAILED' : 'PENDING', attempts, lastError: message },
+          }),
+        );
         if (terminal) {
           this.logger.warn(`退信回写终结失败 point=${row.contactPointId} msg=${row.messageId}: ${message}`);
           failed += 1;

@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -96,29 +97,31 @@ export class OutreachTemplatesService {
     if (!body || body.length > 20_000) invalid('body 必填且不超过 20000 字');
 
     const contentHash = hashJson({ kind: templateKind, jurisdiction: jurisdictionRaw, language, subject, body });
-    const latest = await this.prisma.outreachTemplateVersion.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        kind: templateKind,
-        jurisdiction: jurisdictionRaw,
-        language,
-      },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    const row = await this.prisma.outreachTemplateVersion.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        kind: templateKind,
-        jurisdiction: jurisdictionRaw,
-        language,
-        version: (latest?.version ?? 0) + 1,
-        subject,
-        body,
-        contentHash,
-        state: 'DRAFT',
-        createdBy: tenant.userId,
-      },
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const latest = await tx.outreachTemplateVersion.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          kind: templateKind,
+          jurisdiction: jurisdictionRaw,
+          language,
+        },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      return tx.outreachTemplateVersion.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          kind: templateKind,
+          jurisdiction: jurisdictionRaw,
+          language,
+          version: (latest?.version ?? 0) + 1,
+          subject,
+          body,
+          contentHash,
+          state: 'DRAFT',
+          createdBy: tenant.userId,
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -132,15 +135,17 @@ export class OutreachTemplatesService {
   }
 
   async list(tenant: OutreachTenant, filters: { kind?: string; state?: string } = {}) {
-    return this.prisma.outreachTemplateVersion.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        ...(filters.kind ? { kind: filters.kind } : {}),
-        ...(filters.state ? { state: filters.state } : {}),
-      },
-      orderBy: [{ kind: 'asc' }, { jurisdiction: 'asc' }, { language: 'asc' }, { version: 'desc' }],
-      take: 200,
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachTemplateVersion.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          ...(filters.kind ? { kind: filters.kind } : {}),
+          ...(filters.state ? { state: filters.state } : {}),
+        },
+        orderBy: [{ kind: 'asc' }, { jurisdiction: 'asc' }, { language: 'asc' }, { version: 'desc' }],
+        take: 200,
+      }),
+    );
   }
 
   async get(tenant: OutreachTenant, templateId: string) {
@@ -148,11 +153,13 @@ export class OutreachTemplatesService {
   }
 
   async submitReview(tenant: OutreachTenant, templateId: string) {
-    const template = await this.requireTemplate(tenant, templateId);
-    if (template.state !== 'DRAFT') stateConflict(template.state, 'DRAFT');
-    const updated = await this.prisma.outreachTemplateVersion.update({
-      where: { id: templateId },
-      data: { state: 'LEGAL_REVIEW' },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const template = await this.requireTemplateTx(tx, tenant, templateId);
+      if (template.state !== 'DRAFT') stateConflict(template.state, 'DRAFT');
+      return tx.outreachTemplateVersion.update({
+        where: { id: templateId },
+        data: { state: 'LEGAL_REVIEW' },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -166,54 +173,56 @@ export class OutreachTemplatesService {
 
   /** 绑定法审：必须 APPROVED + subjectKind 匹配 + documentHash === template.contentHash。 */
   async approve(tenant: OutreachTenant, templateId: string, legalReviewId: unknown) {
-    const template = await this.requireTemplate(tenant, templateId);
-    if (template.state !== 'LEGAL_REVIEW') stateConflict(template.state, 'LEGAL_REVIEW');
     if (typeof legalReviewId !== 'string' || !UUID_RE.test(legalReviewId)) {
       invalid('legalReviewId must be a UUID');
     }
-    const review = await this.prisma.legalReview.findFirst({
-      where: { id: legalReviewId, workspaceId: tenant.workspaceId },
-    });
-    if (!review) {
-      throw new NotFoundException({
-        error: { code: 'OUTREACH_LEGAL_REVIEW_NOT_FOUND', message: '法审记录不存在' },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const template = await this.requireTemplateTx(tx, tenant, templateId);
+      if (template.state !== 'LEGAL_REVIEW') stateConflict(template.state, 'LEGAL_REVIEW');
+      const review = await tx.legalReview.findFirst({
+        where: { id: legalReviewId, workspaceId: tenant.workspaceId },
       });
-    }
-    if (review.subjectKind !== reviewKindFor(template.kind as TemplateKind)) {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_LEGAL_REVIEW_KIND_MISMATCH',
-          message: `法审类型 ${review.subjectKind} 与模板类型不匹配（需要 ${reviewKindFor(template.kind as TemplateKind)}）`,
-        },
+      if (!review) {
+        throw new NotFoundException({
+          error: { code: 'OUTREACH_LEGAL_REVIEW_NOT_FOUND', message: '法审记录不存在' },
+        });
+      }
+      if (review.subjectKind !== reviewKindFor(template.kind as TemplateKind)) {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_LEGAL_REVIEW_KIND_MISMATCH',
+            message: `法审类型 ${review.subjectKind} 与模板类型不匹配（需要 ${reviewKindFor(template.kind as TemplateKind)}）`,
+          },
+        });
+      }
+      if (review.verdict !== 'APPROVED') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_LEGAL_REVIEW_NOT_APPROVED',
+            message: `法审结论为 ${review.verdict}，只有 APPROVED 可以激活模板`,
+          },
+        });
+      }
+      if (review.documentHash !== template.contentHash) {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_TEMPLATE_REVIEW_MISMATCH',
+            message: '法审文档哈希与当前模板内容不一致（模板改过），需重新提交法审',
+          },
+        });
+      }
+      if (this.config.OUTREACH_LEGAL_REQUIRE_COUNSEL && review.reviewerKind !== 'LAWYER') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_LEGAL_COUNSEL_REQUIRED',
+            message: '当前要求外部律师书面意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true），负责人风险接受记录不可用于激活',
+          },
+        });
+      }
+      return tx.outreachTemplateVersion.update({
+        where: { id: templateId },
+        data: { state: 'APPROVED', legalReviewId },
       });
-    }
-    if (review.verdict !== 'APPROVED') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_LEGAL_REVIEW_NOT_APPROVED',
-          message: `法审结论为 ${review.verdict}，只有 APPROVED 可以激活模板`,
-        },
-      });
-    }
-    if (review.documentHash !== template.contentHash) {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_TEMPLATE_REVIEW_MISMATCH',
-          message: '法审文档哈希与当前模板内容不一致（模板改过），需重新提交法审',
-        },
-      });
-    }
-    if (this.config.OUTREACH_LEGAL_REQUIRE_COUNSEL && review.reviewerKind !== 'LAWYER') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_LEGAL_COUNSEL_REQUIRED',
-          message: '当前要求外部律师书面意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true），负责人风险接受记录不可用于激活',
-        },
-      });
-    }
-    const updated = await this.prisma.outreachTemplateVersion.update({
-      where: { id: templateId },
-      data: { state: 'APPROVED', legalReviewId },
     });
     await this.audit.record({
       realm: 'tenant',
@@ -228,9 +237,9 @@ export class OutreachTemplatesService {
 
   /** 激活：APPROVED→ACTIVE，同组旧 ACTIVE 自动退役（同一时刻只有一版生效）。 */
   async activate(tenant: OutreachTenant, templateId: string) {
-    const template = await this.requireTemplate(tenant, templateId);
-    if (template.state !== 'APPROVED') stateConflict(template.state, 'APPROVED');
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const template = await this.requireTemplateTx(tx, tenant, templateId);
+      if (template.state !== 'APPROVED') stateConflict(template.state, 'APPROVED');
       await tx.outreachTemplateVersion.updateMany({
         where: {
           workspaceId: tenant.workspaceId,
@@ -258,13 +267,15 @@ export class OutreachTemplatesService {
   }
 
   async retire(tenant: OutreachTenant, templateId: string) {
-    const template = await this.requireTemplate(tenant, templateId);
-    if (template.state !== 'ACTIVE' && template.state !== 'APPROVED') {
-      stateConflict(template.state, 'ACTIVE 或 APPROVED');
-    }
-    const updated = await this.prisma.outreachTemplateVersion.update({
-      where: { id: templateId },
-      data: { state: 'RETIRED' },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const template = await this.requireTemplateTx(tx, tenant, templateId);
+      if (template.state !== 'ACTIVE' && template.state !== 'APPROVED') {
+        stateConflict(template.state, 'ACTIVE 或 APPROVED');
+      }
+      return tx.outreachTemplateVersion.update({
+        where: { id: templateId },
+        data: { state: 'RETIRED' },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -283,20 +294,32 @@ export class OutreachTemplatesService {
     jurisdiction: string,
     language: string,
   ) {
-    return this.prisma.outreachTemplateVersion.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        kind,
-        jurisdiction,
-        language,
-        state: 'ACTIVE',
-      },
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachTemplateVersion.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          kind,
+          jurisdiction,
+          language,
+          state: 'ACTIVE',
+        },
+      }),
+    );
   }
 
   private async requireTemplate(tenant: OutreachTenant, templateId: string) {
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      this.requireTemplateTx(tx, tenant, templateId),
+    );
+  }
+
+  private async requireTemplateTx(
+    tx: Prisma.TransactionClient,
+    tenant: OutreachTenant,
+    templateId: string,
+  ) {
     if (!UUID_RE.test(templateId)) notFound();
-    const template = await this.prisma.outreachTemplateVersion.findFirst({
+    const template = await tx.outreachTemplateVersion.findFirst({
       where: { id: templateId, workspaceId: tenant.workspaceId },
     });
     if (!template) notFound();

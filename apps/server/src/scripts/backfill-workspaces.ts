@@ -10,7 +10,7 @@ import '../shared/load-env.js';
  * 注意:消费还需要引擎侧 saas-event-consumer 角色映射(deploy/engine-integration.md)。
  */
 import { Pool } from 'pg';
-import { PrismaService } from '../shared/prisma.service.js';
+import { PrismaClient } from '@prisma/client';
 
 async function main(): Promise<void> {
   const connectionString =
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const pool = new Pool({ connectionString, max: 2, connectionTimeoutMillis: 5000 });
-  const prisma = new PrismaService();
+  const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
   try {
     const { rows } = await pool.query<{ workspace_id: string; events: string; name: string | null }>(
       `SELECT e.workspace_id::text, count(*)::text AS events, w.name

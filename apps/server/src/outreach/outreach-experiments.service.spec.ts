@@ -21,11 +21,19 @@ interface Row {
 class FakeExperimentsPrisma {
   experiments: Row[] = [];
   assignments: Row[] = [];
+  campaigns: Row[] = [{ id: CAMPAIGN, workspaceId: WS }];
   seq = 0;
 
   private id(): string {
     return `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`;
   }
+
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
+  readonly campaign = {
+    findFirst: async ({ where }: { where: Row }) =>
+      this.campaigns.find((c) => c.id === where.id && c.workspaceId === where.workspaceId) ?? null,
+  };
 
   readonly outreachExperiment = {
     create: async ({ data }: { data: Row }) => {
@@ -259,5 +267,21 @@ describe('OutreachExperimentsService（P4-09）', () => {
       new Set<string>(),
     );
     expect(prisma.experiments.length).toBe(2);
+  });
+
+  it('创建实验时传入不存在或他空间 campaignId → 404 CAMPAIGN_NOT_FOUND 且不落库', async () => {
+    const { prisma, service } = build();
+    const foreignCampaignId = '99999999-9999-4999-8999-999999999999';
+    prisma.campaigns.push({
+      id: foreignCampaignId,
+      workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    });
+    await expect(
+      service.create(tenant, { ...baseInput, campaignId: foreignCampaignId }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'CAMPAIGN_NOT_FOUND' } },
+    });
+    expect(prisma.experiments).toHaveLength(0);
   });
 });

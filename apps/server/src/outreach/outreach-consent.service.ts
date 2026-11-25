@@ -78,17 +78,19 @@ export class OutreachConsentService {
     if (!lawfulBasis || lawfulBasis.length > 64) {
       invalid('VALIDATION_ERROR', 'lawfulBasis must be 1..64 characters');
     }
-    const row = await this.prisma.outreachConsent.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        contactRef: input.contactRef,
-        channel: 'email',
-        status: input.status,
-        source,
-        lawfulBasis,
-        evidence: (input.evidence ?? undefined) as Prisma.InputJsonValue | undefined,
-      },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachConsent.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          contactRef: input.contactRef,
+          channel: 'email',
+          status: input.status,
+          source,
+          lawfulBasis,
+          evidence: (input.evidence ?? undefined) as Prisma.InputJsonValue | undefined,
+        },
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -104,14 +106,16 @@ export class OutreachConsentService {
     if (!UUID_RE.test(contactRef)) {
       invalid('VALIDATION_ERROR', 'contactRef must be a UUID');
     }
-    return this.prisma.outreachConsent.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        contactRef,
-        channel: 'email',
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachConsent.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          contactRef,
+          channel: 'email',
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
   }
 
   async getLatest(tenant: OutreachTenant, contactRef: string) {

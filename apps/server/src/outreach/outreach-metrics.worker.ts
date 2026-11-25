@@ -35,14 +35,13 @@ export class OutreachMetricsWorker implements OnModuleInit, OnModuleDestroy {
     if (this.running) return { workspaces: 0, snapshots: 0 };
     this.running = true;
     try {
-      const rows = await this.prisma.outreachMailbox.findMany({
-        distinct: ['workspaceId'],
-        select: { workspaceId: true },
-      });
+      const rows = await this.prisma.$queryRaw<Array<{ workspace_id: string }>>`
+        SELECT workspace_id FROM public.app_list_active_outreach_workspaces()
+      `;
       let snapshots = 0;
       for (const row of rows) {
         const created = await this.metrics.snapshot(
-          { userId: 'outreach-metrics-worker', workspaceId: row.workspaceId, role: 'admin' },
+          { userId: 'outreach-metrics-worker', workspaceId: row.workspace_id, role: 'admin' },
           { now },
         );
         snapshots += created.length;

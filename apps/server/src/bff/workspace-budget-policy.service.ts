@@ -63,7 +63,7 @@ export class WorkspaceBudgetPolicyService {
     purpose: string,
     now: Date = new Date(),
   ): Promise<WorkspaceBudgetDecision> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.withWorkspace(workspaceId, async (tx) => {
       const policy = await tx.workspaceBudgetPolicy.upsert({
         where: { workspaceId },
         create: {

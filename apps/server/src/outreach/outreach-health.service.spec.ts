@@ -37,6 +37,8 @@ class FakeHealthPrisma {
     return `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`;
   }
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   readonly outreachMailbox = {
     findMany: async ({ where }: { where: Row }) =>
       this.mailboxes.filter((row) => row.workspaceId === where.workspaceId),

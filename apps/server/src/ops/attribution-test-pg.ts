@@ -29,6 +29,7 @@ export function dockerAvailable(): boolean {
 
 export interface DisposablePostgres {
   readonly databaseUrl: string;
+  readonly appDatabaseUrl: string;
   stop(): void;
 }
 
@@ -83,8 +84,21 @@ export function startDisposablePostgres(): DisposablePostgres {
       throw new Error(`prisma migrate deploy failed: ${stderr || String(error)}`);
     }
 
+    const appRolePassword = `rls-test-${randomUUID().slice(0, 12)}`;
+    execFileSync(
+      'docker',
+      [
+        'exec', containerName,
+        'psql', '-h', '127.0.0.1', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1',
+        '-c', `ALTER ROLE gain_saas_app WITH LOGIN PASSWORD '${appRolePassword}';`,
+      ],
+      { env: dockerEnv, stdio: 'pipe' },
+    );
+    const appDatabaseUrl = `postgresql://gain_saas_app:${appRolePassword}@127.0.0.1:${port}/postgres`;
+
     return {
       databaseUrl,
+      appDatabaseUrl,
       stop: () => {
         try {
           execFileSync('docker', ['rm', '-f', containerName], { env: dockerEnv, stdio: 'ignore' });

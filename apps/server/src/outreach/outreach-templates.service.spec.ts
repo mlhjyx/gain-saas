@@ -86,6 +86,8 @@ class FakeTemplatesPrisma {
     if (typeof operations === 'function') return operations(this);
     return Promise.all(operations);
   };
+
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
 }
 
 function build(

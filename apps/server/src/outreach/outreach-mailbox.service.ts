@@ -111,51 +111,55 @@ export class OutreachMailboxService {
   ) {
     if (!fromAddress || !EMAIL_RE.test(fromAddress)) return null;
     const address = fromAddress.trim().toLowerCase();
-    const domain = await this.ensureDomain(workspaceId, domainOf(address), 'cold_outbound');
-    const existing = await this.prisma.outreachMailbox.findUnique({
-      where: { workspaceId_address: { workspaceId, address } },
-    });
-    if (existing) return existing;
-    try {
-      return await this.prisma.outreachMailbox.create({
-        data: {
-          workspaceId,
-          domainId: domain.id,
-          address,
-          displayName: address.split('@')[0] ?? address,
-          provider: 'smtp',
-          // 存量单信箱：保持 v1 行为（MATURE + env 上限），不因引入资产表而突然降到 W1。
-          warmupStage: 'MATURE',
-          dailyCap: options.dailyCap ?? 30,
-          weeklyCap: options.weeklyCap ?? 120,
-          timezone: 'Europe/Berlin',
-          state: 'ACTIVE',
-          healthState: 'CLOSED',
-        },
+    return this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const domain = await this.ensureDomainTx(tx, workspaceId, domainOf(address), 'cold_outbound');
+      const existing = await tx.outreachMailbox.findUnique({
+        where: { workspaceId_address: { workspaceId, address } },
       });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return this.prisma.outreachMailbox.findUnique({
-          where: { workspaceId_address: { workspaceId, address } },
+      if (existing) return existing;
+      try {
+        return await tx.outreachMailbox.create({
+          data: {
+            workspaceId,
+            domainId: domain.id,
+            address,
+            displayName: address.split('@')[0] ?? address,
+            provider: 'smtp',
+            // 存量单信箱：保持 v1 行为（MATURE + env 上限），不因引入资产表而突然降到 W1。
+            warmupStage: 'MATURE',
+            dailyCap: options.dailyCap ?? 30,
+            weeklyCap: options.weeklyCap ?? 120,
+            timezone: 'Europe/Berlin',
+            state: 'ACTIVE',
+            healthState: 'CLOSED',
+          },
         });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          return tx.outreachMailbox.findUnique({
+            where: { workspaceId_address: { workspaceId, address } },
+          });
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   /** 当前日/周已发送数（来自落库计数，P4-02）。 */
   async usage(workspaceId: string, mailboxId: string, now: Date): Promise<OutboxUsage> {
     const day = utcDay(now);
     const weekStart = new Date(day.getTime() - 6 * 86_400_000);
-    const [today, week] = await Promise.all([
-      this.prisma.outreachMailboxCounter.findFirst({
-        where: { workspaceId, mailboxId, day },
-      }),
-      this.prisma.outreachMailboxCounter.aggregate({
-        where: { workspaceId, mailboxId, day: { gte: weekStart } },
-        _sum: { sent: true },
-      }),
-    ]);
+    const [today, week] = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      Promise.all([
+        tx.outreachMailboxCounter.findFirst({
+          where: { workspaceId, mailboxId, day },
+        }),
+        tx.outreachMailboxCounter.aggregate({
+          where: { workspaceId, mailboxId, day: { gte: weekStart } },
+          _sum: { sent: true },
+        }),
+      ]),
+    );
     return { dailySent: today?.sent ?? 0, weeklySent: week._sum.sent ?? 0 };
   }
 
@@ -175,70 +179,78 @@ export class OutreachMailboxService {
       ),
     );
     const recipientDomain = recipientDomainOf(recipientEmail);
-    await this.prisma.$transaction([
-      this.prisma.outreachMailboxCounter.upsert({
-        where: { mailboxId_day: { mailboxId: mailbox.id, day } },
-        create: { workspaceId: mailbox.workspaceId, mailboxId: mailbox.id, day, sent: 1 },
-        update: { sent: { increment: 1 } },
-      }),
-      this.prisma.outreachDomainCounter.upsert({
-        where: {
-          domainId_hour_recipientDomain: {
+    await this.prisma.withWorkspace(mailbox.workspaceId, (tx) =>
+      Promise.all([
+        tx.outreachMailboxCounter.upsert({
+          where: { mailboxId_day: { mailboxId: mailbox.id, day } },
+          create: { workspaceId: mailbox.workspaceId, mailboxId: mailbox.id, day, sent: 1 },
+          update: { sent: { increment: 1 } },
+        }),
+        tx.outreachDomainCounter.upsert({
+          where: {
+            domainId_hour_recipientDomain: {
+              domainId: mailbox.domainId,
+              hour,
+              recipientDomain,
+            },
+          },
+          create: {
+            workspaceId: mailbox.workspaceId,
             domainId: mailbox.domainId,
             hour,
             recipientDomain,
+            sent: 1,
           },
-        },
-        create: {
-          workspaceId: mailbox.workspaceId,
-          domainId: mailbox.domainId,
-          hour,
-          recipientDomain,
-          sent: 1,
-        },
-        update: { sent: { increment: 1 } },
-      }),
-      this.prisma.outreachMailbox.update({
-        where: { id: mailbox.id },
-        data: { lastSendAt: now },
-      }),
-    ]);
+          update: { sent: { increment: 1 } },
+        }),
+        tx.outreachMailbox.update({
+          where: { id: mailbox.id },
+          data: { lastSendAt: now },
+        }),
+      ]),
+    );
   }
 
   /** 硬拒绝（5xx）记入信箱当日计数，供未来按信箱熔断读取。 */
   async recordHardBounce(workspaceId: string, mailboxId: string, now: Date): Promise<void> {
     const day = utcDay(now);
-    await this.prisma.outreachMailboxCounter.upsert({
-      where: { mailboxId_day: { mailboxId, day } },
-      create: { workspaceId, mailboxId, day, hardBounces: 1 },
-      update: { hardBounces: { increment: 1 } },
-    });
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachMailboxCounter.upsert({
+        where: { mailboxId_day: { mailboxId, day } },
+        create: { workspaceId, mailboxId, day, hardBounces: 1 },
+        update: { hardBounces: { increment: 1 } },
+      }),
+    );
   }
 
   async listMailboxes(tenant: OutreachTenant) {
-    return this.prisma.outreachMailbox.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { createdAt: 'asc' },
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachMailbox.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
   }
 
   async createMailbox(tenant: OutreachTenant, input: OutreachMailboxInput) {
     const normalized = this.normalize(input, { partial: false });
-    const domain = await this.ensureDomain(tenant.workspaceId, domainOf(normalized.address));
     try {
-      const mailbox = await this.prisma.outreachMailbox.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          domainId: domain.id,
-          address: normalized.address,
-          displayName: normalized.displayName ?? '',
-          provider: normalized.provider ?? 'smtp',
-          warmupStage: normalized.warmupStage ?? 'W1',
-          dailyCap: normalized.dailyCap ?? this.config.OUTREACH_MAILBOX_DAILY_CAP,
-          weeklyCap: normalized.weeklyCap ?? this.config.OUTREACH_MAILBOX_WEEKLY_CAP,
-          timezone: normalized.timezone ?? 'Europe/Berlin',
-          state: normalized.state ?? 'ACTIVE',
-        },
+      const mailbox = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+        const domain = await this.ensureDomainTx(tx, tenant.workspaceId, domainOf(normalized.address));
+        return tx.outreachMailbox.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            domainId: domain.id,
+            address: normalized.address,
+            displayName: normalized.displayName ?? '',
+            provider: normalized.provider ?? 'smtp',
+            warmupStage: normalized.warmupStage ?? 'W1',
+            dailyCap: normalized.dailyCap ?? this.config.OUTREACH_MAILBOX_DAILY_CAP,
+            weeklyCap: normalized.weeklyCap ?? this.config.OUTREACH_MAILBOX_WEEKLY_CAP,
+            timezone: normalized.timezone ?? 'Europe/Berlin',
+            state: normalized.state ?? 'ACTIVE',
+          },
+        });
       });
       await this.audit.record({
         realm: 'tenant',
@@ -259,29 +271,31 @@ export class OutreachMailboxService {
 
   async updateMailbox(tenant: OutreachTenant, mailboxId: string, input: OutreachMailboxInput) {
     if (!UUID_RE.test(mailboxId)) notFound();
-    const existing = await this.prisma.outreachMailbox.findFirst({
-      where: { id: mailboxId, workspaceId: tenant.workspaceId },
-    });
-    if (!existing) notFound();
-    const normalized = this.normalize(input, { partial: true });
-    if (normalized.address && normalized.address !== existing.address) {
-      invalid('不允许修改发件地址；请新建信箱并停用旧信箱');
-    }
-    const updated = await this.prisma.outreachMailbox.update({
-      where: { id: mailboxId },
-      data: {
-        ...(normalized.displayName !== undefined
-          ? { displayName: normalized.displayName }
-          : {}),
-        ...(normalized.provider !== undefined ? { provider: normalized.provider } : {}),
-        ...(normalized.warmupStage !== undefined
-          ? { warmupStage: normalized.warmupStage }
-          : {}),
-        ...(normalized.dailyCap !== undefined ? { dailyCap: normalized.dailyCap } : {}),
-        ...(normalized.weeklyCap !== undefined ? { weeklyCap: normalized.weeklyCap } : {}),
-        ...(normalized.timezone !== undefined ? { timezone: normalized.timezone } : {}),
-        ...(normalized.state !== undefined ? { state: normalized.state } : {}),
-      },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const existing = await tx.outreachMailbox.findFirst({
+        where: { id: mailboxId, workspaceId: tenant.workspaceId },
+      });
+      if (!existing) notFound();
+      const normalized = this.normalize(input, { partial: true });
+      if (normalized.address && normalized.address !== existing.address) {
+        invalid('不允许修改发件地址；请新建信箱并停用旧信箱');
+      }
+      return tx.outreachMailbox.update({
+        where: { id: mailboxId },
+        data: {
+          ...(normalized.displayName !== undefined
+            ? { displayName: normalized.displayName }
+            : {}),
+          ...(normalized.provider !== undefined ? { provider: normalized.provider } : {}),
+          ...(normalized.warmupStage !== undefined
+            ? { warmupStage: normalized.warmupStage }
+            : {}),
+          ...(normalized.dailyCap !== undefined ? { dailyCap: normalized.dailyCap } : {}),
+          ...(normalized.weeklyCap !== undefined ? { weeklyCap: normalized.weeklyCap } : {}),
+          ...(normalized.timezone !== undefined ? { timezone: normalized.timezone } : {}),
+          ...(normalized.state !== undefined ? { state: normalized.state } : {}),
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -299,8 +313,13 @@ export class OutreachMailboxService {
     return updated;
   }
 
-  private async ensureDomain(workspaceId: string, domain: string, kind = 'cold_outbound') {
-    return this.prisma.outreachDomain.upsert({
+  private async ensureDomainTx(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    domain: string,
+    kind = 'cold_outbound',
+  ) {
+    return tx.outreachDomain.upsert({
       where: { workspaceId_domain: { workspaceId, domain } },
       create: { workspaceId, domain, kind, state: 'ACTIVE' },
       update: {},

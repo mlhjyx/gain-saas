@@ -153,63 +153,68 @@ export class OutreachCallsService {
     if (typeof input.scriptTemplateId !== 'string' || !UUID_RE.test(input.scriptTemplateId)) {
       invalid('scriptTemplateId must be a UUID');
     }
-    const script = await this.prisma.outreachTemplateVersion.findFirst({
-      where: { id: input.scriptTemplateId, workspaceId: tenant.workspaceId },
-    });
-    if (!script || script.kind !== 'phone_script' || script.state !== 'ACTIVE') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_CALL_SCRIPT_NOT_APPROVED',
-          message: '拨号话术必须是已激活（ACTIVE）的 phone_script 模板版本（需先过法审）',
-        },
-      });
-    }
     if (typeof input.legalReviewId !== 'string' || !UUID_RE.test(input.legalReviewId)) {
       invalid('legalReviewId must be a UUID');
-    }
-    const review = await this.prisma.legalReview.findFirst({
-      where: { id: input.legalReviewId, workspaceId: tenant.workspaceId },
-    });
-    if (!review || review.subjectKind !== 'phone_script' || review.verdict !== 'APPROVED') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_CALL_LEGAL_REVIEW_REQUIRED',
-          message: '拨号依据必须引用 APPROVED 的 phone_script 书面意见（律师意见或负责人风险接受记录）',
-        },
-      });
-    }
-    if (this.config.OUTREACH_LEGAL_REQUIRE_COUNSEL && review.reviewerKind !== 'LAWYER') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_LEGAL_COUNSEL_REQUIRED',
-          message: '当前要求外部律师书面意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true），负责人风险接受记录不可用于拨号依据',
-        },
-      });
     }
     const reviewedBy = typeof input.reviewedBy === 'string' ? input.reviewedBy.trim() : '';
     if (!reviewedBy || reviewedBy.length > 200) invalid('reviewedBy 必填且不超过 200 字');
     const reviewedAt = new Date(String(input.reviewedAt));
     if (Number.isNaN(reviewedAt.getTime())) invalid('reviewedAt 不是合法时间');
 
-    const row = await this.prisma.outreachCallBasis.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        contactRef: input.contactRef,
-        phoneE164,
-        companyName,
-        contactRole,
-        triggerType,
-        triggerEvidence: input.triggerEvidence as Prisma.InputJsonValue,
-        relevanceStatement,
-        collectedSourceUrl,
-        collectedAt,
-        scriptTemplateId: input.scriptTemplateId,
-        legalReviewId: input.legalReviewId,
-        reviewedBy,
-        reviewedAt,
-        validUntil,
-        createdBy: tenant.userId,
-      },
+    const scriptTemplateId = input.scriptTemplateId;
+    const legalReviewId = input.legalReviewId;
+    const contactRef = input.contactRef;
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const script = await tx.outreachTemplateVersion.findFirst({
+        where: { id: scriptTemplateId, workspaceId: tenant.workspaceId },
+      });
+      if (!script || script.kind !== 'phone_script' || script.state !== 'ACTIVE') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_CALL_SCRIPT_NOT_APPROVED',
+            message: '拨号话术必须是已激活（ACTIVE）的 phone_script 模板版本（需先过法审）',
+          },
+        });
+      }
+      const review = await tx.legalReview.findFirst({
+        where: { id: legalReviewId, workspaceId: tenant.workspaceId },
+      });
+      if (!review || review.subjectKind !== 'phone_script' || review.verdict !== 'APPROVED') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_CALL_LEGAL_REVIEW_REQUIRED',
+            message: '拨号依据必须引用 APPROVED 的 phone_script 书面意见（律师意见或负责人风险接受记录）',
+          },
+        });
+      }
+      if (this.config.OUTREACH_LEGAL_REQUIRE_COUNSEL && review.reviewerKind !== 'LAWYER') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_LEGAL_COUNSEL_REQUIRED',
+            message: '当前要求外部律师书面意见（OUTREACH_LEGAL_REQUIRE_COUNSEL=true），负责人风险接受记录不可用于拨号依据',
+          },
+        });
+      }
+      return tx.outreachCallBasis.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          contactRef,
+          phoneE164,
+          companyName,
+          contactRole,
+          triggerType,
+          triggerEvidence: input.triggerEvidence as Prisma.InputJsonValue,
+          relevanceStatement,
+          collectedSourceUrl,
+          collectedAt,
+          scriptTemplateId,
+          legalReviewId,
+          reviewedBy,
+          reviewedAt,
+          validUntil,
+          createdBy: tenant.userId,
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -224,14 +229,16 @@ export class OutreachCallsService {
 
   async listBasis(tenant: OutreachTenant, contactRef?: string) {
     if (contactRef !== undefined && !UUID_RE.test(contactRef)) invalid('contactRef must be a UUID');
-    return this.prisma.outreachCallBasis.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        ...(contactRef ? { contactRef } : {}),
-      },
-      orderBy: [{ collectedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 100,
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachCallBasis.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          ...(contactRef ? { contactRef } : {}),
+        },
+        orderBy: [{ collectedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 100,
+      }),
+    );
   }
 
   async getBasis(tenant: OutreachTenant, basisId: string) {
@@ -239,41 +246,16 @@ export class OutreachCallsService {
   }
 
   async listAttempts(tenant: OutreachTenant, basisId: string) {
-    await this.requireBasis(tenant, basisId);
-    return this.prisma.outreachCallAttempt.findMany({
-      where: { basisId, workspaceId: tenant.workspaceId },
-      orderBy: { attemptNo: 'asc' },
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      await this.requireBasisTx(tx, tenant, basisId);
+      return tx.outreachCallAttempt.findMany({
+        where: { basisId, workspaceId: tenant.workspaceId },
+        orderBy: { attemptNo: 'asc' },
+      });
     });
   }
 
   async createAttempt(tenant: OutreachTenant, basisId: string, input: CallAttemptInput) {
-    const basis = await this.requireBasis(tenant, basisId);
-    if (dayStart(basis.validUntil).getTime() < dayStart(new Date()).getTime()) {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_CALL_BASIS_EXPIRED',
-          message: '拨号依据已过期（validUntil），请重新采集证据后再拨号',
-        },
-      });
-    }
-    const phoneOptOut = await this.prisma.outreachConsent.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        contactRef: basis.contactRef,
-        channel: 'phone',
-        status: 'OPT_OUT',
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
-    if (phoneOptOut) {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_CALL_OBJECTED',
-          message: '该联系人已在电话渠道明确反对联系（OPT_OUT），不得再拨号',
-        },
-      });
-    }
-
     const outcome = typeof input.outcome === 'string' ? input.outcome : '';
     if (!(CALL_OUTCOMES as readonly string[]).includes(outcome)) {
       invalid(`outcome 必须是 ${CALL_OUTCOMES.join('/')}`);
@@ -309,28 +291,75 @@ export class OutreachCallsService {
     const notesRef =
       typeof input.notesRef === 'string' ? input.notesRef.trim().slice(0, 256) : null;
 
-    const last = await this.prisma.outreachCallAttempt.findFirst({
-      where: { basisId, workspaceId: tenant.workspaceId },
-      orderBy: { attemptNo: 'desc' },
-      select: { attemptNo: true },
-    });
-    const attemptNo = (last?.attemptNo ?? 0) + 1;
     let attempt;
     try {
-      attempt = await this.prisma.outreachCallAttempt.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          basisId,
-          attemptNo,
-          startedAt,
-          endedAt,
-          durationSeconds,
-          outcome,
-          objectionCode,
-          notesHash,
-          notesRef,
-          createdBy: tenant.userId,
-        },
+      attempt = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+        const basis = await this.requireBasisTx(tx, tenant, basisId);
+        if (dayStart(basis.validUntil).getTime() < dayStart(new Date()).getTime()) {
+          throw new ConflictException({
+            error: {
+              code: 'OUTREACH_CALL_BASIS_EXPIRED',
+              message: '拨号依据已过期（validUntil），请重新采集证据后再拨号',
+            },
+          });
+        }
+        const phoneOptOut = await tx.outreachConsent.findFirst({
+          where: {
+            workspaceId: tenant.workspaceId,
+            contactRef: basis.contactRef,
+            channel: 'phone',
+            status: 'OPT_OUT',
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        });
+        if (phoneOptOut) {
+          throw new ConflictException({
+            error: {
+              code: 'OUTREACH_CALL_OBJECTED',
+              message: '该联系人已在电话渠道明确反对联系（OPT_OUT），不得再拨号',
+            },
+          });
+        }
+        const last = await tx.outreachCallAttempt.findFirst({
+          where: { basisId, workspaceId: tenant.workspaceId },
+          orderBy: { attemptNo: 'desc' },
+          select: { attemptNo: true },
+        });
+        const attemptNo = (last?.attemptNo ?? 0) + 1;
+        const created = await tx.outreachCallAttempt.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            basisId,
+            attemptNo,
+            startedAt,
+            endedAt,
+            durationSeconds,
+            outcome,
+            objectionCode,
+            notesHash,
+            notesRef,
+            createdBy: tenant.userId,
+          },
+        });
+        if (outcome === 'OBJECTED' || objectionCode === 'nie_anrufen') {
+          await tx.outreachConsent.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              contactRef: basis.contactRef,
+              channel: 'phone',
+              status: 'OPT_OUT',
+              source: 'call:objected',
+              lawfulBasis: 'consent_withdrawal',
+              evidence: {
+                basisId,
+                attemptId: created.id,
+                outcome,
+                objectionCode,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }
+        return created;
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -343,39 +372,30 @@ export class OutreachCallsService {
       }
       throw error;
     }
-
-    if (outcome === 'OBJECTED' || objectionCode === 'nie_anrufen') {
-      await this.prisma.outreachConsent.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          contactRef: basis.contactRef,
-          channel: 'phone',
-          status: 'OPT_OUT',
-          source: 'call:objected',
-          lawfulBasis: 'consent_withdrawal',
-          evidence: {
-            basisId,
-            attemptId: attempt.id,
-            outcome,
-            objectionCode,
-          } as Prisma.InputJsonValue,
-        },
-      });
-    }
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
       workspaceId: tenant.workspaceId,
       action: 'outreach.call_attempt.recorded',
       target: attempt.id,
-      detail: { basisId, outcome, objectionCode, attemptNo },
+      detail: { basisId, outcome, objectionCode, attemptNo: attempt.attemptNo },
     });
     return attempt;
   }
 
   private async requireBasis(tenant: OutreachTenant, basisId: string) {
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      this.requireBasisTx(tx, tenant, basisId),
+    );
+  }
+
+  private async requireBasisTx(
+    tx: Prisma.TransactionClient,
+    tenant: OutreachTenant,
+    basisId: string,
+  ) {
     if (!UUID_RE.test(basisId)) notFound();
-    const basis = await this.prisma.outreachCallBasis.findFirst({
+    const basis = await tx.outreachCallBasis.findFirst({
       where: { id: basisId, workspaceId: tenant.workspaceId },
     });
     if (!basis) notFound();

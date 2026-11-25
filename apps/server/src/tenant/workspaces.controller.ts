@@ -1,4 +1,4 @@
-import { BadRequestException, Body, GoneException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ForbiddenException, GoneException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -27,17 +27,15 @@ export class WorkspacesController {
   @Get()
   async list(@Req() req: Request) {
     const tenant = req.tenant!;
-    const memberships = await this.prisma.membership.findMany({
-      where: { userId: tenant.userId, status: 'active' },
-      include: { workspace: { select: { id: true, name: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
+    const memberships = await this.prisma.$queryRaw<
+      Array<{ workspace_id: string; workspace_name: string; workspace_status: string; role: string }>
+    >`SELECT workspace_id, workspace_name, workspace_status, role FROM public.app_list_user_workspaces(${tenant.userId}::uuid)`;
     return {
       data: memberships.map((membership) => ({
-        id: membership.workspace.id,
-        name: membership.workspace.name,
+        id: membership.workspace_id,
+        name: membership.workspace_name,
         role: membership.role,
-        current: membership.workspaceId === tenant.workspaceId,
+        current: membership.workspace_id === tenant.workspaceId,
       })),
     };
   }
@@ -57,14 +55,20 @@ export class WorkspacesController {
     const tenant = req.tenant!;
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 128) : '';
     if (!name) throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: '工作空间名称必填' } });
-    const membership = await this.prisma.membership.findFirst({
-      where: { userId: tenant.userId, workspaceId, status: 'active' },
+    const updated = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const membership = await tx.membership.findFirst({
+        where: { userId: tenant.userId, workspaceId, status: 'active' },
+        include: { workspace: { select: { status: true } } },
+      });
+      if (!membership) throw new NotFoundException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
+      if (membership.workspace.status !== 'ACTIVE') {
+        throw new ForbiddenException({ error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' } });
+      }
+      if (membership.role !== 'admin') {
+        throw new BadRequestException({ error: { code: 'FORBIDDEN', message: '只有管理员可以修改工作空间名称' } });
+      }
+      return tx.workspace.update({ where: { id: workspaceId }, data: { name } });
     });
-    if (!membership) throw new NotFoundException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
-    if (membership.role !== 'admin') {
-      throw new BadRequestException({ error: { code: 'FORBIDDEN', message: '只有管理员可以修改工作空间名称' } });
-    }
-    const updated = await this.prisma.workspace.update({ where: { id: workspaceId }, data: { name } });
     await this.audit.record({ realm: 'tenant', actorId: tenant.userId, workspaceId, action: 'workspaces.rename', target: workspaceId, detail: { name } });
     return { data: { id: updated.id, name: updated.name } };
   }
@@ -73,21 +77,26 @@ export class WorkspacesController {
   async leave(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Param('workspaceId') workspaceId: string) {
     const tenant = req.tenant!;
     if (!this.isUuid(workspaceId)) throw new NotFoundException({ error: { code: 'WORKSPACE_NOT_FOUND', message: '工作空间不存在' } });
-    const membership = await this.prisma.membership.findFirst({
-      where: { userId: tenant.userId, workspaceId, status: 'active' },
-    });
-    if (!membership) throw new NotFoundException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
-    const [activeMembers, admins] = await Promise.all([
-      this.prisma.membership.count({ where: { workspaceId, status: 'active' } }),
-      this.prisma.membership.count({ where: { workspaceId, status: 'active', role: 'admin' } }),
-    ]);
-    if (activeMembers <= 1) {
-      throw new BadRequestException({ error: { code: 'LAST_MEMBER', message: '你是这个工作空间的最后一名成员，不能退出' } });
-    }
-    if (membership.role === 'admin' && admins <= 1) {
-      throw new BadRequestException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员；请先移交管理员角色' } });
-    }
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('workspace-membership'), hashtext(${workspaceId}))`;
+      const membership = await tx.membership.findFirst({
+        where: { userId: tenant.userId, workspaceId, status: 'active' },
+        include: { workspace: { select: { status: true } } },
+      });
+      if (!membership) throw new NotFoundException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
+      if (membership.workspace.status !== 'ACTIVE') {
+        throw new ForbiddenException({ error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' } });
+      }
+      const [activeMembers, admins] = await Promise.all([
+        tx.membership.count({ where: { workspaceId, status: 'active' } }),
+        tx.membership.count({ where: { workspaceId, status: 'active', role: 'admin' } }),
+      ]);
+      if (activeMembers <= 1) {
+        throw new BadRequestException({ error: { code: 'LAST_MEMBER', message: '你是这个工作空间的最后一名成员，不能退出' } });
+      }
+      if (membership.role === 'admin' && admins <= 1) {
+        throw new BadRequestException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员；请先移交管理员角色' } });
+      }
       await tx.membership.update({ where: { id: membership.id }, data: { status: 'left' } });
       await tx.session.updateMany({
         where: {

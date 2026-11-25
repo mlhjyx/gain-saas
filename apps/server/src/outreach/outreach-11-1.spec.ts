@@ -38,6 +38,36 @@ class FakePrisma {
   readonly consents: ConsentRow[] = [];
   readonly tokens: TokenRow[] = [];
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
+  readonly $queryRaw = async (_strings: TemplateStringsArray, tokenHash: string) => {
+    const row = this.tokens.find((item) => item.tokenHash === tokenHash);
+    if (!row) return [];
+    return [
+      {
+        id: row.id,
+        workspace_id: row.workspaceId,
+        contact_ref: row.contactRef,
+        recipient_email: row.recipientEmail ?? null,
+        expires_at: row.expiresAt,
+        used_at: row.usedAt,
+      },
+    ];
+  };
+
+  readonly outreachUnsubscribeTokenUpdateMany = async ({
+    where,
+    data,
+  }: {
+    where: { id: string; usedAt: null };
+    data: { usedAt: Date };
+  }) => {
+    const row = this.tokens.find((item) => item.id === where.id);
+    if (!row || row.usedAt) return { count: 0 };
+    row.usedAt = data.usedAt;
+    return { count: 1 };
+  };
+
   readonly outreachConsent = {
     create: async ({ data }: { data: Omit<ConsentRow, 'id' | 'createdAt'> }) => {
       const row: ConsentRow = { id: randomUUID(), createdAt: new Date(), ...data };
@@ -72,6 +102,7 @@ class FakePrisma {
     },
     findUnique: async ({ where }: { where: { tokenHash: string } }) =>
       this.tokens.find((row) => row.tokenHash === where.tokenHash) ?? null,
+    updateMany: this.outreachUnsubscribeTokenUpdateMany,
   };
 
   readonly $transaction = async <T>(

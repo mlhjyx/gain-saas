@@ -86,66 +86,68 @@ export class OutreachMetricsService {
     windowEnd: Date,
   ): Promise<EmailWindowMetrics> {
     const [sent, hardBounces, dsnBounces, complaints, replies, unsubscribes, optOuts, meetings] =
-      await Promise.all([
-        this.prisma.outreachSend.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            status: 'SENT',
-            sentAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachSend.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            status: 'FAILED',
-            bounceType: 'HARD',
-            createdAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachReply.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            kind: 'BOUNCE',
-            receivedAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachReply.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            kind: 'COMPLAINT',
-            receivedAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachReply.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            kind: 'REPLY',
-            receivedAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachReply.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            kind: 'UNSUBSCRIBE',
-            receivedAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.outreachConsent.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            channel: 'email',
-            status: 'OPT_OUT',
-            createdAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-        this.prisma.opportunityOutcome.count({
-          where: {
-            workspaceId: tenant.workspaceId,
-            outcome: 'MEETING_BOOKED',
-            occurredAt: { gte: windowStart, lt: windowEnd },
-          },
-        }),
-      ]);
+      await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        Promise.all([
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              status: 'SENT',
+              sentAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachSend.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              status: 'FAILED',
+              bounceType: 'HARD',
+              createdAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'BOUNCE',
+              receivedAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'COMPLAINT',
+              receivedAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'REPLY',
+              receivedAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachReply.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              kind: 'UNSUBSCRIBE',
+              receivedAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.outreachConsent.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              channel: 'email',
+              status: 'OPT_OUT',
+              createdAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+          tx.opportunityOutcome.count({
+            where: {
+              workspaceId: tenant.workspaceId,
+              outcome: 'MEETING_BOOKED',
+              occurredAt: { gte: windowStart, lt: windowEnd },
+            },
+          }),
+        ]),
+      );
     const attempts = sent + hardBounces;
     return {
       windowStart,
@@ -218,24 +220,27 @@ export class OutreachMetricsService {
         denominator: metrics.meetings,
       },
     ];
-    const created = [];
-    for (const row of rows) {
-      created.push(
-        await this.prisma.outreachMetricSnapshot.create({
-          data: {
-            workspaceId: tenant.workspaceId,
-            channel: 'email',
-            metric: row.metric,
-            numerator: row.numerator,
-            denominator: row.denominator,
-            windowStart,
-            windowEnd: now,
-            definitionVersion: METRICS_DEFINITION_VERSION,
-            costMicros: metrics.costMicros,
-          },
-        }),
-      );
-    }
+    const created = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const items = [];
+      for (const row of rows) {
+        items.push(
+          await tx.outreachMetricSnapshot.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              channel: 'email',
+              metric: row.metric,
+              numerator: row.numerator,
+              denominator: row.denominator,
+              windowStart,
+              windowEnd: now,
+              definitionVersion: METRICS_DEFINITION_VERSION,
+              costMicros: metrics.costMicros,
+            },
+          }),
+        );
+      }
+      return items;
+    });
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,

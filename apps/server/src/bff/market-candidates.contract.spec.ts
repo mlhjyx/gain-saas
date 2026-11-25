@@ -142,10 +142,14 @@ function harness(options: HarnessOptions = {}) {
     discoveryRunLink: { count: async () => { runQueries += 1; return 999; } },
     costLedger: { aggregate: async () => { spendQueries += 1; events.push('spend'); return { _sum: { amountMicros: options.spent ?? 0 } }; } },
   };
+  const quotaPrisma = {
+    withWorkspace: async (_wid: string, fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
+    $transaction: async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
+  };
   const quota = new WorkspaceBudgetPolicyService({
     WORKSPACE_QUOTA_ENFORCE: true, WORKSPACE_QUOTA_WINDOW_DAYS: 30,
     WORKSPACE_QUOTA_MAX_RUNS: 1, WORKSPACE_QUOTA_MAX_SPEND_MICROS: 1_000_000,
-  } as never, { $transaction: async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx) } as never);
+  } as never, quotaPrisma as never);
   const engine = new EngineHttp({ ENGINE_ORIGIN: 'http://synthetic-engine.invalid' } as never, {
     mint: async (claims: unknown) => { identityClaims.push(claims); events.push('identity'); return 'synthetic-identity-only'; },
   } as never);
@@ -164,11 +168,13 @@ function harness(options: HarnessOptions = {}) {
       ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false, ENGINE_RETRY_ATTEMPT_ID_ENABLED: false, ENGINE_MANUFACTURER_NETWORK_ENABLED: false,
     } as never);
   const claims = { userId: USER, workspaceId: WORKSPACE, role: options.role ?? 'member', jti: 'synthetic-session-id', exp: Math.floor(Date.now() / 1000) + 3600 };
-  const tenant = new TenantGuard({ verify: async (token: string) => token === 'synthetic-session' ? claims : null, needsRefresh: () => false } as never, {
+  const tenantPrisma: Record<string, unknown> = {
     membership: { findFirst: async () => options.membership === false ? null : {
       role: options.role ?? 'member', workspace: { status: 'ACTIVE', onboardingCompletedAt: options.onboarding === false ? null : new Date(AT), onboardingCompanyId: COMPANY },
     } },
-  } as never);
+    withWorkspace: async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(tenantPrisma),
+  };
+  const tenant = new TenantGuard({ verify: async (token: string) => token === 'synthetic-session' ? claims : null, needsRefresh: () => false } as never, tenantPrisma as never);
   const guard = new BffGuard(tenant, new AdminGuard());
   let middleware!: (req: Request, res: Response, next: () => void) => void;
   registerBffMiddleware({ use: (fn) => { middleware = fn; } }, handler, guard);

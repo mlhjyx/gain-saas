@@ -39,7 +39,10 @@ function makeService(options: {
     }
     return [];
   });
-  const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+  const prisma: Record<string, unknown> = {
+    $queryRaw: queryRaw,
+    withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+  };
   const clientQuery = vi.fn(async () => ({ rows: options.engineRows ?? [] }));
   const database = {
     db: {
@@ -48,7 +51,7 @@ function makeService(options: {
       ),
     },
   } as unknown as OpsDatabase;
-  return { service: new OpsAttributionService(database, prisma), queryRaw, clientQuery };
+  return { service: new OpsAttributionService(database, prisma as unknown as PrismaService), queryRaw, clientQuery };
 }
 
 describe('OpsAttributionService（M2 步 12-1 归因闭环）', () => {

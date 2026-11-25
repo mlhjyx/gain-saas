@@ -31,8 +31,14 @@ export class PlatformGrantController {
   @Post()
   @HttpCode(200)
   async issue(@Body() body: Partial<Record<keyof PlatformGrantRequest, unknown>>, @Req() req: Request) {
-    const cn = (req.socket as { getPeerCertificate?: () => { subject?: { CN?: string } } })
-      .getPeerCertificate?.()?.subject?.CN;
+    const socket = req.socket as {
+      encrypted?: boolean;
+      authorized?: boolean;
+      getPeerCertificate?: () => { subject?: { CN?: string } };
+    };
+    const cn = socket?.encrypted === true && socket?.authorized === true
+      ? socket.getPeerCertificate?.()?.subject?.CN
+      : undefined;
     if (typeof cn !== 'string' || cn !== this.config.R4_PLATFORM_GRANT_CLIENT_SUBJECT) {
       throw new UnauthorizedException({
         error: { code: 'PLATFORM_GRANT_MTLS_REQUIRED', message: '需要平台 worker 的客户端证书' },

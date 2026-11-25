@@ -23,13 +23,16 @@ export class NotificationsController {
   @Get()
   async list(@Req() req: Request) {
     const tenant = req.tenant!;
-    const rows = await this.prisma.notification.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-    const unreadCount = await this.prisma.notification.count({
-      where: { workspaceId: tenant.workspaceId, readAt: null },
+    const { rows, unreadCount } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const items = await tx.notification.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      const count = await tx.notification.count({
+        where: { workspaceId: tenant.workspaceId, readAt: null },
+      });
+      return { rows: items, unreadCount: count };
     });
     return {
       data: {
@@ -51,36 +54,42 @@ export class NotificationsController {
   @Post('read-all')
   async readAll(@Req() req: Request) {
     const tenant = req.tenant!;
-    const result = await this.prisma.notification.updateMany({
-      where: { workspaceId: tenant.workspaceId, readAt: null },
-      data: { readAt: new Date() },
-    });
+    const result = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.notification.updateMany({
+        where: { workspaceId: tenant.workspaceId, readAt: null },
+        data: { readAt: new Date() },
+      }),
+    );
     return { data: { updated: result.count } };
   }
 
   @Post(':notificationId/read')
   async read(@Req() req: Request, @Param('notificationId') notificationId: string) {
     const tenant = req.tenant!;
-    const result = await this.prisma.notification.updateMany({
-      where: { id: notificationId, workspaceId: tenant.workspaceId, readAt: null },
-      data: { readAt: new Date() },
-    });
-    if (result.count === 0) {
-      const exists = await this.prisma.notification.findFirst({
-        where: { id: notificationId, workspaceId: tenant.workspaceId },
-        select: { id: true },
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const result = await tx.notification.updateMany({
+        where: { id: notificationId, workspaceId: tenant.workspaceId, readAt: null },
+        data: { readAt: new Date() },
       });
-      if (!exists) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'notification not found' } });
-    }
+      if (result.count === 0) {
+        const exists = await tx.notification.findFirst({
+          where: { id: notificationId, workspaceId: tenant.workspaceId },
+          select: { id: true },
+        });
+        if (!exists) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'notification not found' } });
+      }
+    });
     return { data: { ok: true } };
   }
 
   @Delete(':notificationId')
   async remove(@Req() req: Request, @Param('notificationId') notificationId: string) {
     const tenant = req.tenant!;
-    const result = await this.prisma.notification.deleteMany({
-      where: { id: notificationId, workspaceId: tenant.workspaceId },
-    });
+    const result = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.notification.deleteMany({
+        where: { id: notificationId, workspaceId: tenant.workspaceId },
+      }),
+    );
     if (result.count === 0) {
       throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'notification not found' } });
     }

@@ -72,22 +72,24 @@ export class OutreachLegalReviewsService {
       typeof input.documentRef === 'string' ? input.documentRef.trim() : '';
     if (!documentRef || documentRef.length > 256) invalid('documentRef 必填且不超过 256 字');
 
-    const row = await this.prisma.legalReview.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        subjectKind,
-        reviewerKind,
-        documentHash,
-        reviewerName,
-        reviewerFirm,
-        reviewedAt,
-        scope,
-        verdict,
-        conditions,
-        documentRef,
-        createdBy: tenant.userId,
-      },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.legalReview.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          subjectKind,
+          reviewerKind,
+          documentHash,
+          reviewerName,
+          reviewerFirm,
+          reviewedAt,
+          scope,
+          verdict,
+          conditions,
+          documentRef,
+          createdBy: tenant.userId,
+        },
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -100,21 +102,25 @@ export class OutreachLegalReviewsService {
   }
 
   async list(tenant: OutreachTenant, subjectKind?: string) {
-    return this.prisma.legalReview.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        ...(subjectKind ? { subjectKind } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.legalReview.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          ...(subjectKind ? { subjectKind } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    );
   }
 
   async get(tenant: OutreachTenant, reviewId: string) {
     if (!UUID_RE.test(reviewId)) notFound();
-    const row = await this.prisma.legalReview.findFirst({
-      where: { id: reviewId, workspaceId: tenant.workspaceId },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.legalReview.findFirst({
+        where: { id: reviewId, workspaceId: tenant.workspaceId },
+      }),
+    );
     if (!row) notFound();
     return row;
   }

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -25,15 +25,17 @@ export class DiscoveryRunsController {
     if ((!icpId && !planId) || (icpId && !UUID.test(icpId)) || (planId && !UUID.test(planId))) {
       throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'icpId 或 planId 必须是 UUID' } });
     }
-    const rows = await this.prisma.discoveryRunLink.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        ...(icpId ? { icpId } : {}),
-        ...(planId ? { planId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.discoveryRunLink.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          ...(icpId ? { icpId } : {}),
+          ...(planId ? { planId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    );
     return {
       data: rows.map((row) => ({
         runId: row.runId,
@@ -57,18 +59,34 @@ export class DiscoveryRunsController {
         error: { code: 'VALIDATION_ERROR', message: 'runId、planId、icpId 必须是 UUID' },
       });
     }
-    // runId 是全局唯一主键(引擎共享库生成):update 分支必须校验归属,
-    // 否则其它工作空间可以用一个已知 runId 改写他人的 plan/icp 归属(跨租户污染)。
-    const existing = await this.prisma.discoveryRunLink.findUnique({ where: { runId } });
-    if (existing && existing.workspaceId !== tenant.workspaceId) {
-      throw new ConflictException({
-        error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
-      });
-    }
-    const row = await this.prisma.discoveryRunLink.upsert({
-      where: { runId },
-      create: { runId, workspaceId: tenant.workspaceId, planId, icpId },
-      update: { planId, icpId },
+    // runId 是全局唯一主键(引擎共享库生成):不得泄露是否已被其他工作空间占用,
+    // 否则会形成 runId 存在性 oracle;FORCE RLS 下跨租户行不可见时拦截 P2002/42501 统一返回 404。
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const existing = await tx.discoveryRunLink.findFirst({ where: { runId } });
+      if (existing && existing.workspaceId !== tenant.workspaceId) {
+        throw new NotFoundException({
+          error: { code: 'NOT_FOUND', message: '寻源任务不存在' },
+        });
+      }
+      if (existing) {
+        return tx.discoveryRunLink.update({
+          where: { runId },
+          data: { planId, icpId },
+        });
+      }
+      try {
+        return await tx.discoveryRunLink.create({
+          data: { runId, workspaceId: tenant.workspaceId, planId, icpId },
+        });
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        if (code === 'P2002' || code === '42501') {
+          throw new NotFoundException({
+            error: { code: 'NOT_FOUND', message: '寻源任务不存在' },
+          });
+        }
+        throw error;
+      }
     });
     await this.audit.record({
       realm: 'tenant',

@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { APP_CONFIG } from '../shared/config.module.js';
@@ -42,6 +42,8 @@ export function findEnterpriseConflict(input: string, existing: readonly string[
   }
   return null;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class AuthService {
@@ -98,10 +100,12 @@ export class AuthService {
         });
       }
       const createdUser = await tx.user.create({ data: { email, passwordHash } });
+      const workspaceId = randomUUID();
+      await tx.$executeRaw`SELECT set_config('app.current_workspace_id', ${workspaceId}, true)`;
       // 工作空间 + 管理员成员 + 事件消费登记,同一事务
       const createdWorkspace = await tx.workspace.create({
         data: {
-          id: randomUUID(),
+          id: workspaceId,
           name: companyName,
           memberships: { create: { userId: createdUser.id, role: 'admin' } },
           registry: { create: {} },
@@ -122,19 +126,30 @@ export class AuthService {
     if (!email || !password) {
       throw new UnauthorizedException({ error: { code: 'VALIDATION_ERROR', message: '邮箱与密码必填' } });
     }
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: { memberships: { where: { status: 'active' }, orderBy: { createdAt: 'asc' }, take: 1 } },
-    });
+    const user = await this.prisma.user.findUnique({ where: { email } });
     const ok = user && (await argon2.verify(user.passwordHash, password));
-    if (!user || !ok || user.memberships.length === 0) {
+    if (!user || !ok) {
       // 统一文案,不区分"用户不存在/密码错"(防枚举)
+      throw new UnauthorizedException({ error: { code: 'AUTH_FAILED', message: '邮箱或密码不正确' } });
+    }
+    const memberships = await this.prisma.$queryRaw<
+      Array<{ id: string; workspace_id: string; role: string; workspace_status: string }>
+    >`SELECT id, workspace_id, role, workspace_status FROM public.app_find_login_membership(${user.id}::uuid)`;
+    if (memberships.length === 0) {
       throw new UnauthorizedException({ error: { code: 'AUTH_FAILED', message: '邮箱或密码不正确' } });
     }
     if (user.status !== 'active') {
       throw new UnauthorizedException({ error: { code: 'AUTH_DISABLED', message: '账号已停用,请联系管理员' } });
     }
-    const membership = user.memberships[0];
+    const activeMembership = memberships.find((m) => m.workspace_status === 'ACTIVE');
+    if (!activeMembership) {
+      throw new ForbiddenException({ error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' } });
+    }
+    const membership = {
+      id: activeMembership.id,
+      workspaceId: activeMembership.workspace_id,
+      role: activeMembership.role,
+    };
     await this.audit.record({ realm: 'tenant', actorId: user.id, workspaceId: membership.workspaceId, action: 'auth.login', target: membership.workspaceId });
     const session = await this.sessions.issue(user.id, membership.workspaceId, membership.role as 'admin' | 'member');
     return { user, membership, session };
@@ -179,13 +194,22 @@ export class AuthService {
     });
   }
 
-  /** SD2:切换当前工作空间 —— 必须是本人有效成员资格,重发会话 cookie。 */
+  /** SD2:切换当前工作空间 —— 必须是本人有效成员资格且工作空间处于 ACTIVE,重发会话 cookie。 */
   async switchWorkspace(userId: string, jti: string, workspaceId: string) {
-    const membership = await this.prisma.membership.findFirst({
-      where: { userId, workspaceId, status: 'active' },
-    });
+    if (!UUID_RE.test(workspaceId)) {
+      throw new NotFoundException({ error: { code: 'WORKSPACE_NOT_FOUND', message: '工作空间不存在' } });
+    }
+    const membership = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.membership.findFirst({
+        where: { userId, workspaceId, status: 'active' },
+        include: { workspace: { select: { status: true } } },
+      }),
+    );
     if (!membership) {
       throw new UnauthorizedException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
+    }
+    if (membership.workspace.status !== 'ACTIVE') {
+      throw new ForbiddenException({ error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' } });
     }
     await this.sessions.revoke(jti);
     await this.audit.record({ realm: 'tenant', actorId: userId, workspaceId, action: 'auth.switch_workspace', target: workspaceId });
@@ -199,14 +223,16 @@ export class AuthService {
       throw new UnauthorizedException({ error: { code: 'VALIDATION_ERROR', message: '邮箱与角色必填' } });
     }
     const existingUser = await this.prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      const alreadyMember = await this.prisma.membership.findFirst({ where: { workspaceId, userId: existingUser.id } });
-      if (alreadyMember) {
-        throw new UnauthorizedException({ error: { code: 'ALREADY_MEMBER', message: '该用户已是工作空间成员' } });
+    const invitation = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      if (existingUser) {
+        const alreadyMember = await tx.membership.findFirst({ where: { workspaceId, userId: existingUser.id } });
+        if (alreadyMember) {
+          throw new UnauthorizedException({ error: { code: 'ALREADY_MEMBER', message: '该用户已是工作空间成员' } });
+        }
       }
-    }
-    const invitation = await this.prisma.invitation.create({
-      data: { workspaceId, email, role, token: randomBytes(24).toString('hex'), expiresAt: invitationExpiry() },
+      return tx.invitation.create({
+        data: { workspaceId, email, role, token: randomBytes(24).toString('hex'), expiresAt: invitationExpiry() },
+      });
     });
     await this.audit.record({ realm: 'tenant', actorId, workspaceId, action: 'members.invite', target: invitation.id, detail: { email, role } });
     return invitation;
@@ -218,32 +244,57 @@ export class AuthService {
     if (!token || !password) {
       throw new UnauthorizedException({ error: { code: 'VALIDATION_ERROR', message: '邀请链接无效或密码不合规(≥10 位含字母数字)' } });
     }
-    const invitation = await this.prisma.invitation.findUnique({ where: { token } });
-    if (!invitation || !isInvitationUsable(invitation)) {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        workspace_id: string;
+        email: string;
+        role: string;
+        expires_at: Date;
+        accepted_at: Date | null;
+        workspace_status: string;
+      }>
+    >`SELECT id, workspace_id, email, role, expires_at, accepted_at, workspace_status FROM public.app_lookup_invitation_by_token(${token})`;
+    const invitation = rows[0];
+    if (!invitation || !isInvitationUsable({ expiresAt: invitation.expires_at, acceptedAt: invitation.accepted_at })) {
       throw new UnauthorizedException({ error: { code: 'INVITE_INVALID', message: '邀请不存在、已使用或已过期' } });
+    }
+    if (invitation.workspace_status !== 'ACTIVE') {
+      throw new ForbiddenException({ error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' } });
     }
     let user = await this.prisma.user.findUnique({ where: { email: invitation.email } });
     if (!user) {
       user = await this.prisma.user.create({ data: { email: invitation.email, passwordHash: await argon2.hash(password) } });
     } else {
+      if (user.status !== 'active') {
+        throw new UnauthorizedException({ error: { code: 'AUTH_DISABLED', message: '账号已停用,请联系管理员' } });
+      }
       const ok = await argon2.verify(user.passwordHash, password).catch(() => false);
       if (!ok) {
         throw new UnauthorizedException({ error: { code: 'AUTH_FAILED', message: '该邮箱已存在,请用已有密码接受邀请' } });
       }
     }
-    const membership = await this.prisma.membership.create({
-      data: { userId: user.id, workspaceId: invitation.workspaceId, role: invitation.role },
+    const membership = await this.prisma.withWorkspace(invitation.workspace_id, async (tx) => {
+      const claimed = await tx.invitation.updateMany({
+        where: { id: invitation.id, acceptedAt: null },
+        data: { acceptedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new UnauthorizedException({ error: { code: 'INVITE_INVALID', message: '邀请不存在、已使用或已过期' } });
+      }
+      return tx.membership.create({
+        data: { userId: user.id, workspaceId: invitation.workspace_id, role: invitation.role },
+      });
     });
-    await this.prisma.invitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
     await this.audit.record({
       realm: 'tenant',
       actorId: user.id,
-      workspaceId: invitation.workspaceId,
+      workspaceId: invitation.workspace_id,
       action: 'members.accept_invite',
-      target: invitation.workspaceId,
+      target: invitation.workspace_id,
       detail: { role: invitation.role },
     });
-    const session = await this.sessions.issue(user.id, invitation.workspaceId, invitation.role as 'admin' | 'member');
+    const session = await this.sessions.issue(user.id, invitation.workspace_id, invitation.role as 'admin' | 'member');
     return { user, membership, session };
   }
 }

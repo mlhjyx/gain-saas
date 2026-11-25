@@ -75,10 +75,12 @@ export class OutreachIngestService {
     const externalId =
       email.messageId ?? createHash('sha256').update(raw, 'utf8').digest('hex');
 
-    const duplicate = await this.prisma.outreachReply.findFirst({
-      where: { workspaceId: tenant.workspaceId, externalId },
-      select: { id: true },
-    });
+    const duplicate = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachReply.findFirst({
+        where: { workspaceId: tenant.workspaceId, externalId },
+        select: { id: true },
+      }),
+    );
     if (duplicate) return { outcome: 'DUPLICATE', externalId };
 
     const dsn = parseDsn(email);
@@ -104,21 +106,25 @@ export class OutreachIngestService {
       await this.recordUnmatched(tenant, externalId, 'NO_MESSAGE_ID');
       return { outcome: 'UNMATCHED', reason: 'NO_MESSAGE_ID' };
     }
-    const send = await this.prisma.outreachSend.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        messageId: { in: candidates },
-      },
-      select: { draftId: true, recipientEmail: true },
+    const { send, draft } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const foundSend = await tx.outreachSend.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          messageId: { in: candidates },
+        },
+        select: { draftId: true, recipientEmail: true },
+      });
+      if (!foundSend) return { send: null, draft: null };
+      const foundDraft = await tx.outreachDraft.findFirst({
+        where: { id: foundSend.draftId, workspaceId: tenant.workspaceId },
+        select: { contactRef: true, contactPointId: true },
+      });
+      return { send: foundSend, draft: foundDraft };
     });
     if (!send) {
       await this.recordUnmatched(tenant, externalId, 'SEND_NOT_FOUND');
       return { outcome: 'UNMATCHED', reason: 'SEND_NOT_FOUND' };
     }
-    const draft = await this.prisma.outreachDraft.findFirst({
-      where: { id: send.draftId, workspaceId: tenant.workspaceId },
-      select: { contactRef: true, contactPointId: true },
-    });
     if (!draft) {
       await this.recordUnmatched(tenant, externalId, 'DRAFT_NOT_FOUND');
       return { outcome: 'UNMATCHED', reason: 'DRAFT_NOT_FOUND' };
@@ -228,21 +234,23 @@ export class OutreachIngestService {
     tenant: OutreachTenant,
     contactRef: string,
   ): Promise<string | null> {
-    if (!this.prisma.sao?.findFirst) return null;
-    const matched = await this.prisma.sao
-      .findFirst({
-        where: {
-          workspaceId: tenant.workspaceId,
-          state: 'ACCEPTED',
-          qgo: {
-            OR: [{ leadRef: contactRef }, { canonicalCompanyRef: contactRef }],
+    return this.prisma
+      .withWorkspace(tenant.workspaceId, async (tx) => {
+        if (!tx.sao?.findFirst) return null;
+        const matched = await tx.sao.findFirst({
+          where: {
+            workspaceId: tenant.workspaceId,
+            state: 'ACCEPTED',
+            qgo: {
+              OR: [{ leadRef: contactRef }, { canonicalCompanyRef: contactRef }],
+            },
           },
-        },
-        orderBy: { decidedAt: 'desc' },
-        select: { id: true },
+          orderBy: { decidedAt: 'desc' },
+          select: { id: true },
+        });
+        return matched?.id ?? null;
       })
       .catch(() => null);
-    return matched?.id ?? null;
   }
 
   private async recordUnmatched(

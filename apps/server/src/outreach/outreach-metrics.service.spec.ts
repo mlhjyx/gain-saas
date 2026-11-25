@@ -37,6 +37,8 @@ class FakeMetricsPrisma {
   snapshots: Row[] = [];
   seq = 0;
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   readonly outreachSend = {
     count: async ({ where }: { where: Row }) =>
       this.sends.filter((row) => matches(row, where)).length,

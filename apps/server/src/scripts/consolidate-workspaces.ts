@@ -12,7 +12,7 @@ import '../shared/load-env.js';
  *
  * 运行:pnpm bootstrap:consolidate [--apply]
  */
-import { PrismaService } from '../shared/prisma.service.js';
+import { PrismaClient } from '@prisma/client';
 // 与注册闸门同一套企业名比对(NFKC 归一化 + 精确/包含),避免"公司名1"式后缀漏配
 import { findEnterpriseConflict } from '../tenant/auth.service.js';
 
@@ -45,7 +45,7 @@ interface Tally {
   members: number;
 }
 
-async function tally(prisma: PrismaService, workspaceId: string): Promise<Tally> {
+async function tally(prisma: PrismaClient, workspaceId: string): Promise<Tally> {
   const [runLinks, tasks, leads, campaigns, batches, sends, inbox, compliance, members] = await Promise.all([
     prisma.discoveryRunLink.count({ where: { workspaceId } }),
     prisma.acquisitionTask.count({ where: { workspaceId } }),
@@ -70,7 +70,7 @@ function isTestWorkspace(name: string): boolean {
 }
 
 async function archive(
-  prisma: PrismaService,
+  prisma: PrismaClient,
   workspaceId: string,
   label: string,
   log: (line: string) => void,
@@ -85,7 +85,7 @@ async function archive(
 }
 
 async function main(): Promise<void> {
-  const prisma = new PrismaService();
+  const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
   const log = (line: string): void => console.log(line);
   try {
     log(`一企一空间存量收编 — 模式:${APPLY ? 'APPLY(写库)' : 'DRY-RUN(只读)'}`);

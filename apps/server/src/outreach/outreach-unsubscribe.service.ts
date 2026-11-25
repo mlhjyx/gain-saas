@@ -38,15 +38,17 @@ export class OutreachUnsubscribeService {
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
-    const row = await this.prisma.outreachUnsubscribeToken.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        contactRef,
-        recipientEmail: email,
-        tokenHash,
-        expiresAt,
-      },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachUnsubscribeToken.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          contactRef,
+          recipientEmail: email,
+          tokenHash,
+          expiresAt,
+        },
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -68,10 +70,25 @@ export class OutreachUnsubscribeService {
       invalidToken();
     }
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const row = await this.prisma.outreachUnsubscribeToken.findUnique({
-      where: { tokenHash },
-    });
-    if (!row || row.expiresAt.getTime() <= Date.now()) invalidToken();
+    const lookupRows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        workspace_id: string;
+        contact_ref: string;
+        recipient_email: string | null;
+        expires_at: Date;
+        used_at: Date | null;
+      }>
+    >`SELECT id, workspace_id, contact_ref, recipient_email, expires_at, used_at FROM public.app_lookup_unsubscribe_token(${tokenHash}::char(64))`;
+    const found = lookupRows[0];
+    if (!found || found.expires_at.getTime() <= Date.now()) invalidToken();
+    const row = {
+      id: found.id,
+      workspaceId: found.workspace_id,
+      contactRef: found.contact_ref,
+      recipientEmail: found.recipient_email,
+      usedAt: found.used_at,
+    };
     if (row.usedAt) {
       return {
         contactRef: row.contactRef,
@@ -80,7 +97,7 @@ export class OutreachUnsubscribeService {
         alreadyUsed: true,
       };
     }
-    const used = await this.prisma.$transaction(async (tx) => {
+    const used = await this.prisma.withWorkspace(row.workspaceId, async (tx) => {
       const claimed = await tx.outreachUnsubscribeToken.updateMany({
         where: { id: row.id, usedAt: null },
         data: { usedAt: new Date() },

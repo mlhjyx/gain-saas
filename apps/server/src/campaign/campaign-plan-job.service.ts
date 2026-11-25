@@ -191,43 +191,46 @@ export class CampaignPlanJobService {
         error: { code: 'VALIDATION_ERROR', message: '规划参数不合法' },
       });
     }
-    const campaign = await this.prisma.campaign.findFirst({
-      where: { id: campaignId, workspaceId: tenant.workspaceId },
-    });
-    if (!campaign) campaignNotFound();
-    const objective = parsed.data.objective ?? campaign.objective.trim();
-    if (objective.length === 0) {
-      throw new BadRequestException({
-        error: { code: 'VALIDATION_ERROR', message: 'objective 必填' },
+    const { jobId, job } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const campaign = await tx.campaign.findFirst({
+        where: { id: campaignId, workspaceId: tenant.workspaceId },
       });
-    }
-
-    const jobId = randomUUID();
-    let job;
-    try {
-      job = await this.prisma.campaignPlanJob.create({
-        data: {
-          id: jobId,
-          workspaceId: tenant.workspaceId,
-          campaignId,
-          state: 'PENDING',
-          objective,
-          ...(parsed.data.icpId !== undefined ? { icpId: parsed.data.icpId } : {}),
-          engineRunRef: `campaign-plan-${jobId}`,
-          createdBy: tenant.userId,
-        },
-      });
-    } catch (error) {
-      // 部分唯一索引 (campaign_id) WHERE state IN ('PENDING','RUNNING') → Prisma P2002。
-      if (
-        error &&
-        typeof error === 'object' &&
-        (error as { code?: unknown }).code === 'P2002'
-      ) {
-        stateConflict('CAMPAIGN_PLAN_JOB_ACTIVE', '该 Campaign 已有进行中的规划 job');
+      if (!campaign) campaignNotFound();
+      const objective = parsed.data.objective ?? campaign.objective.trim();
+      if (objective.length === 0) {
+        throw new BadRequestException({
+          error: { code: 'VALIDATION_ERROR', message: 'objective 必填' },
+        });
       }
-      throw error;
-    }
+
+      const nextJobId = randomUUID();
+      try {
+        const createdJob = await tx.campaignPlanJob.create({
+          data: {
+            id: nextJobId,
+            workspaceId: tenant.workspaceId,
+            campaignId,
+            state: 'PENDING',
+            objective,
+            ...(parsed.data.icpId !== undefined ? { icpId: parsed.data.icpId } : {}),
+            engineRunRef: `campaign-plan-${nextJobId}`,
+            createdBy: tenant.userId,
+          },
+        });
+        return { jobId: nextJobId, job: createdJob };
+      } catch (error) {
+        // 部分唯一索引 (campaign_id) WHERE state IN ('PENDING','RUNNING') → Prisma P2002。
+        if (
+          error &&
+          typeof error === 'object' &&
+          (error as { code?: unknown }).code === 'P2002'
+        ) {
+          stateConflict('CAMPAIGN_PLAN_JOB_ACTIVE', '该 Campaign 已有进行中的规划 job');
+        }
+        throw error;
+      }
+    });
+    const objective = job.objective;
 
     try {
       await this.engine.trigger(tenant, {
@@ -247,24 +250,31 @@ export class CampaignPlanJobService {
       });
     } catch (error) {
       // 触发失败（quote/引擎拒绝/不可达）：job 立即 FAILED，重试须重新发起（新 jobId + 新 Grant）。
-      await this.prisma.campaignPlanJob
-        .updateMany({
-          where: { id: jobId, workspaceId: tenant.workspaceId, state: 'PENDING' },
-          data: {
-            state: 'FAILED',
-            error: 'CAMPAIGN_PLAN_TRIGGER_FAILED',
-            issues: [
-              { path: '', message: '引擎触发失败，请重试' },
-            ] as unknown as Prisma.InputJsonValue,
-          },
-        })
+      await this.prisma
+        .withWorkspace(tenant.workspaceId, (tx) =>
+          tx.campaignPlanJob.updateMany({
+            where: { id: jobId, workspaceId: tenant.workspaceId, state: 'PENDING' },
+            data: {
+              state: 'FAILED',
+              error: 'CAMPAIGN_PLAN_TRIGGER_FAILED',
+              issues: [
+                { path: '', message: '引擎触发失败，请重试' },
+              ] as unknown as Prisma.InputJsonValue,
+            },
+          }),
+        )
         .catch(() => undefined);
       throw error;
     }
 
-    await this.prisma.campaignPlanJob.updateMany({
-      where: { id: jobId, workspaceId: tenant.workspaceId, state: 'PENDING' },
-      data: { state: 'RUNNING' },
+    const created = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      await tx.campaignPlanJob.updateMany({
+        where: { id: jobId, workspaceId: tenant.workspaceId, state: 'PENDING' },
+        data: { state: 'RUNNING' },
+      });
+      return tx.campaignPlanJob.findFirst({
+        where: { id: jobId, workspaceId: tenant.workspaceId },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -273,9 +283,6 @@ export class CampaignPlanJobService {
       action: 'campaign.plan_job.created',
       target: `campaign/${campaignId}`,
       detail: { jobId },
-    });
-    const created = await this.prisma.campaignPlanJob.findFirst({
-      where: { id: jobId, workspaceId: tenant.workspaceId },
     });
     return this.toView(created ?? job);
   }
@@ -287,9 +294,11 @@ export class CampaignPlanJobService {
     jobId: string,
   ): Promise<CampaignPlanJobView> {
     if (!UUID_RE.test(campaignId) || !UUID_RE.test(jobId)) jobNotFound();
-    const job = await this.prisma.campaignPlanJob.findFirst({
-      where: { id: jobId, campaignId, workspaceId: tenant.workspaceId },
-    });
+    const job = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.campaignPlanJob.findFirst({
+        where: { id: jobId, campaignId, workspaceId: tenant.workspaceId },
+      }),
+    );
     if (!job) jobNotFound();
     return this.toView(job);
   }
@@ -319,34 +328,38 @@ export class CampaignPlanJobService {
       plan,
     );
 
-    const existing = await this.prisma.campaignPlanJob.findFirst({
-      where: { id: jobId, workspaceId, campaignId },
-    });
-    if (!existing) jobNotFound();
-    if (existing.state === 'SUCCEEDED') {
-      if (existing.planHash === planHash && existing.revisionId) {
-        const revision = await this.prisma.campaignRevision.findFirst({
-          where: { id: existing.revisionId, workspaceId },
-        });
-        if (revision) {
-          return {
-            revisionId: revision.id,
-            revisionNo: revision.revisionNo,
-            planHash,
-            state: revision.state,
-            idempotent: true,
-          };
+    const precheck = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const existing = await tx.campaignPlanJob.findFirst({
+        where: { id: jobId, workspaceId, campaignId },
+      });
+      if (!existing) jobNotFound();
+      if (existing.state === 'SUCCEEDED') {
+        if (existing.planHash === planHash && existing.revisionId) {
+          const revision = await tx.campaignRevision.findFirst({
+            where: { id: existing.revisionId, workspaceId },
+          });
+          if (revision) {
+            return {
+              revisionId: revision.id,
+              revisionNo: revision.revisionNo,
+              planHash,
+              state: revision.state,
+              idempotent: true,
+            };
+          }
         }
+        stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已完成且计划不同');
       }
-      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已完成且计划不同');
-    }
-    if (existing.state === 'FAILED') {
-      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已失败');
-    }
+      if (existing.state === 'FAILED') {
+        stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已失败');
+      }
+      return null;
+    });
+    if (precheck) return precheck;
 
     let revision;
     try {
-      revision = await this.prisma.$transaction(async (tx) => {
+      revision = await this.prisma.withWorkspace(workspaceId, async (tx) => {
         const created = await this.campaigns.createRevisionRecord(tx, {
           workspaceId,
           campaignId,
@@ -384,23 +397,27 @@ export class CampaignPlanJobService {
       });
     } catch (error) {
       // 并发回调竞争：以先落库者的结果为准（同 hash 幂等返回，否则 409）。
-      const raced = await this.prisma.campaignPlanJob.findFirst({
-        where: { id: jobId, workspaceId, campaignId },
-      });
-      if (raced?.state === 'SUCCEEDED' && raced.planHash === planHash && raced.revisionId) {
-        const revision = await this.prisma.campaignRevision.findFirst({
-          where: { id: raced.revisionId, workspaceId },
+      const racedResult = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+        const raced = await tx.campaignPlanJob.findFirst({
+          where: { id: jobId, workspaceId, campaignId },
         });
-        if (revision) {
-          return {
-            revisionId: revision.id,
-            revisionNo: revision.revisionNo,
-            planHash,
-            state: revision.state,
-            idempotent: true,
-          };
+        if (raced?.state === 'SUCCEEDED' && raced.planHash === planHash && raced.revisionId) {
+          const rev = await tx.campaignRevision.findFirst({
+            where: { id: raced.revisionId, workspaceId },
+          });
+          if (rev) {
+            return {
+              revisionId: rev.id,
+              revisionNo: rev.revisionNo,
+              planHash,
+              state: rev.state,
+              idempotent: true,
+            };
+          }
         }
-      }
+        return null;
+      });
+      if (racedResult) return racedResult;
       throw error;
     }
 
@@ -436,18 +453,20 @@ export class CampaignPlanJobService {
     const { workspaceId, error, issues } = parsed.data;
     const targetState = parsed.data.state;
     const replanHistory = parsed.data.replanHistory;
-    const job = await this.prisma.campaignPlanJob.findFirst({
-      where: { id: jobId, workspaceId },
-    });
-    if (!job) jobNotFound();
-    if (job.state === 'SUCCEEDED') {
-      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已完成，不能再回写失败');
-    }
-    if (job.state === 'FAILED' || job.state === 'NEEDS_HUMAN') {
-      if (job.state === targetState && job.error === error) return this.toView(job);
-      stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已终结且终态不同');
-    }
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const { job, updatedCount, raced, refreshed } = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const found = await tx.campaignPlanJob.findFirst({
+        where: { id: jobId, workspaceId },
+      });
+      if (!found) jobNotFound();
+      if (found.state === 'SUCCEEDED') {
+        stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已完成，不能再回写失败');
+      }
+      if (found.state === 'FAILED' || found.state === 'NEEDS_HUMAN') {
+        if (found.state === targetState && found.error === error) {
+          return { job: found, updatedCount: 0, raced: found, refreshed: found };
+        }
+        stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 已终结且终态不同');
+      }
       const result = await tx.campaignPlanJob.updateMany({
         where: { id: jobId, workspaceId, state: { in: ['PENDING', 'RUNNING'] } },
         data: {
@@ -464,17 +483,26 @@ export class CampaignPlanJobService {
       if (result.count === 1 && replanHistory !== undefined && replanHistory.length > 0) {
         await this.writeReplanTraces(tx, {
           workspaceId,
-          campaignId: job.campaignId,
+          campaignId: found.campaignId,
           jobId,
           history: replanHistory,
         });
       }
-      return result;
-    });
-    if (updated.count !== 1) {
-      const raced = await this.prisma.campaignPlanJob.findFirst({
+      if (result.count !== 1) {
+        const racedRow = await tx.campaignPlanJob.findFirst({
+          where: { id: jobId, workspaceId },
+        });
+        return { job: found, updatedCount: result.count, raced: racedRow, refreshed: null };
+      }
+      const nextRefreshed = await tx.campaignPlanJob.findFirst({
         where: { id: jobId, workspaceId },
       });
+      return { job: found, updatedCount: result.count, raced: null, refreshed: nextRefreshed };
+    });
+    if (job.state === 'FAILED' || job.state === 'NEEDS_HUMAN') {
+      return this.toView(job);
+    }
+    if (updatedCount !== 1) {
       if (raced?.state === targetState && raced.error === error) return this.toView(raced);
       stateConflict('CAMPAIGN_PLAN_JOB_CONFLICT', 'job 状态已变化');
     }
@@ -488,9 +516,6 @@ export class CampaignPlanJobService {
           : 'campaign.plan_job.failed',
       target: `campaign/${job.campaignId}`,
       detail: { jobId, error },
-    });
-    const refreshed = await this.prisma.campaignPlanJob.findFirst({
-      where: { id: jobId, workspaceId },
     });
     if (!refreshed) jobNotFound();
     return this.toView(refreshed);

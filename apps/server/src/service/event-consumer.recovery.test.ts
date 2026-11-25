@@ -90,18 +90,21 @@ function worker(seed: InboxRow[] = []) {
       return { count };
     },
   };
-  const prisma = {
+  const prismaObj: Record<string, unknown> = {
+    $queryRaw: async () => [{ workspace_id: WORKSPACE, cursor }],
     workspaceRegistry: {
       findMany: async () => [{ workspaceId: WORKSPACE, cursor }],
       update: async ({ data }: { data: { cursor: string | null } }) => { cursor = data.cursor; },
     },
     eventInbox: inbox,
-    $transaction: async (fn: (tx: unknown) => Promise<void>) => {
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
       const before = new Map(rows);
       const stagedNotifications: unknown[] = [];
       const stagedCosts: Array<{ sourceEventId: string; occurredAt: Date }> = [];
+      let result: unknown;
       try {
-        await fn({
+        result = await fn({
+          workspaceRegistry: prismaObj.workspaceRegistry,
           eventInbox: inbox,
           taskRun: { updateMany: async () => ({ count: 1 }) },
           notification: { create: async ({ data }: { data: unknown }) => {
@@ -122,8 +125,12 @@ function worker(seed: InboxRow[] = []) {
       for (const cost of stagedCosts) {
         if (!costs.has(cost.sourceEventId)) costs.set(cost.sourceEventId, cost);
       }
+      return result;
     },
-  } as unknown as PrismaService;
+  };
+  prismaObj.withWorkspace = async (_wid: string, fn: (tx: unknown) => Promise<unknown>) =>
+    (prismaObj.$transaction as (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>)(fn);
+  const prisma = prismaObj as unknown as PrismaService;
   const config = {
     EVENT_CONSUMER_ENABLED: true,
     EVENT_CONSUMER_PAGE_LIMIT: 100,

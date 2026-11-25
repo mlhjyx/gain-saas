@@ -104,12 +104,14 @@ export class AcquisitionTasksController {
   async list(@Req() req: Request, @Query('icpId') icpId?: string) {
     const tenant = req.tenant!;
     if (icpId !== undefined && !UUID.test(icpId)) invalid('icpId 必须是 UUID');
-    const rows = await this.prisma.acquisitionTask.findMany({
-      where: { workspaceId: tenant.workspaceId, ...(icpId ? { icpId } : {}) },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      include: { runs: { orderBy: { createdAt: 'desc' }, take: 20 } },
-    });
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.acquisitionTask.findMany({
+        where: { workspaceId: tenant.workspaceId, ...(icpId ? { icpId } : {}) },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: { runs: { orderBy: { createdAt: 'desc' }, take: 20 } },
+      }),
+    );
     return { data: (rows as unknown as TaskRow[]).map(taskView) };
   }
 
@@ -124,14 +126,16 @@ export class AcquisitionTasksController {
     if (name.length < 1 || name.length > MAX_TASK_NAME) {
       invalid(`name 必须是 1–${MAX_TASK_NAME} 个字符`);
     }
-    const task = await this.prisma.acquisitionTask.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        icpId: (icpId as string | null | undefined) ?? null,
-        name,
-        createdBy: tenant.userId,
-      },
-    });
+    const task = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.acquisitionTask.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          icpId: (icpId as string | null | undefined) ?? null,
+          name,
+          createdBy: tenant.userId,
+        },
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -154,9 +158,11 @@ export class AcquisitionTasksController {
     const planId = typeof body?.planId === 'string' ? body.planId : '';
     if (!UUID.test(planId)) invalid('planId 必须是 UUID');
 
-    const task = await this.prisma.acquisitionTask.findFirst({
-      where: { id: taskId, workspaceId: tenant.workspaceId },
-    });
+    const task = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.acquisitionTask.findFirst({
+        where: { id: taskId, workspaceId: tenant.workspaceId },
+      }),
+    );
     if (!task) {
       throw new NotFoundException({ error: { code: 'TASK_NOT_FOUND', message: '任务不存在' } });
     }
@@ -198,10 +204,12 @@ export class AcquisitionTasksController {
 
     // 同键重放（双击/网络重试）：直接返回既有记录，绝不再调引擎（避免双扣费）。
     if (attemptId) {
-      const replayed = await this.prisma.taskRun.findFirst({
-        where: { taskId: task.id, attemptKey: attemptId },
-        select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
-      });
+      const replayed = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        tx.taskRun.findFirst({
+          where: { taskId: task.id, attemptKey: attemptId },
+          select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
+        }),
+      );
       if (replayed) {
         this.assertReplayBinding(replayed, planId, executionRequestSha256);
         return {
@@ -230,7 +238,7 @@ export class AcquisitionTasksController {
         ...(Object.keys(canonical).length ? { body: canonical } : {}),
       });
     } catch (error) {
-      await this.failRun(run.id);
+      await this.failRun(tenant.workspaceId, run.id);
       if (error instanceof WorkspaceBudgetQuotaExceededError) {
         throw new HttpException(
           { error: { code: error.code, message: error.message, details: error.details } },
@@ -256,7 +264,7 @@ export class AcquisitionTasksController {
         headers: { 'x-execution-budget-grant': grant },
       });
     } catch {
-      await this.failRun(run.id);
+      await this.failRun(tenant.workspaceId, run.id);
       throw new HttpException(
         { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: '引擎不可达' } },
         502,
@@ -265,41 +273,60 @@ export class AcquisitionTasksController {
 
     const data = (response.body as { data?: { runId?: unknown; status?: unknown; icpId?: unknown } } | null)?.data;
     if (response.status !== 202 || !data || typeof data.runId !== 'string' || !UUID.test(data.runId)) {
-      await this.failRun(run.id);
+      await this.failRun(tenant.workspaceId, run.id);
       throw new HttpException(
         this.engine.toClientError(response.status, response.body),
         this.engine.toClientStatus(response.status, response.body),
       );
     }
 
+    const engineRunId = data.runId;
     const runStatus = typeof data.status === 'string' ? data.status : 'RUNNING';
-    await this.prisma.taskRun.update({
-      where: { id: run.id },
-      data: { engineRunId: data.runId, status: runStatus },
-    });
     const resolvedIcpId =
       task.icpId ??
       (typeof data.icpId === 'string' && UUID.test(data.icpId) ? data.icpId : UNSCOPED_TASK_ICP_ID);
-    // 无论 task.icpId 是否为空，均必须登记 discovery_run_link（封堵 icpId=null 绕过月度运行次数配额）。
-    const existingLink = await this.prisma.discoveryRunLink.findUnique({ where: { runId: data.runId } });
-    if (existingLink && existingLink.workspaceId !== tenant.workspaceId) {
-      throw new ConflictException({
-        error: { code: 'RUN_LINK_FOREIGN_WORKSPACE', message: '该寻源任务属于其它工作空间' },
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      await tx.taskRun.update({
+        where: { id: run.id },
+        data: { engineRunId, status: runStatus },
       });
-    }
-    await this.prisma.discoveryRunLink.upsert({
-      where: { runId: data.runId },
-      create: {
-        runId: data.runId,
-        workspaceId: tenant.workspaceId,
-        planId,
-        icpId: resolvedIcpId,
-      },
-      update: { planId, icpId: resolvedIcpId },
-    });
-    await this.prisma.acquisitionTask.update({
-      where: { id: task.id },
-      data: { lastRunAt: new Date() },
+      // 无论 task.icpId 是否为空，均必须登记 discovery_run_link（封堵 icpId=null 绕过月度运行次数配额）；
+      // 不泄露 runId 是否属于其他工作空间，统一返回 404 NOT_FOUND。
+      const existingLink = await tx.discoveryRunLink.findFirst({ where: { runId: engineRunId } });
+      if (existingLink && existingLink.workspaceId !== tenant.workspaceId) {
+        throw new NotFoundException({
+          error: { code: 'NOT_FOUND', message: '寻源任务不存在' },
+        });
+      }
+      if (existingLink) {
+        await tx.discoveryRunLink.update({
+          where: { runId: engineRunId },
+          data: { planId, icpId: resolvedIcpId },
+        });
+      } else {
+        try {
+          await tx.discoveryRunLink.create({
+            data: {
+              runId: engineRunId,
+              workspaceId: tenant.workspaceId,
+              planId,
+              icpId: resolvedIcpId,
+            },
+          });
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === 'P2002' || code === '42501') {
+            throw new NotFoundException({
+              error: { code: 'NOT_FOUND', message: '寻源任务不存在' },
+            });
+          }
+          throw error;
+        }
+      }
+      await tx.acquisitionTask.update({
+        where: { id: task.id },
+        data: { lastRunAt: new Date() },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -335,7 +362,7 @@ export class AcquisitionTasksController {
     executionRequestSha256: string | undefined,
   ): Promise<{ run: Record<string, unknown>; previousAttempt: string | null; replayed?: boolean }> {
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.withWorkspace(workspaceId, async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "acquisition_task" WHERE "id" = ${taskId}::uuid FOR UPDATE`;
         const last = await tx.taskRun.findFirst({
           where: { taskId },
@@ -364,10 +391,12 @@ export class AcquisitionTasksController {
       });
     } catch (error) {
       if (attemptId && (error as { code?: string } | null)?.code === 'P2002') {
-        const replayed = await this.prisma.taskRun.findFirst({
-          where: { taskId, attemptKey: attemptId },
-          select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
-        });
+        const replayed = await this.prisma.withWorkspace(workspaceId, (tx) =>
+          tx.taskRun.findFirst({
+            where: { taskId, attemptKey: attemptId },
+            select: { id: true, engineRunId: true, status: true, planId: true, executionRequestSha256: true },
+          }),
+        );
         if (replayed) {
           this.assertReplayBinding(replayed, planId, executionRequestSha256);
           return { run: replayed as unknown as Record<string, unknown>, previousAttempt: null, replayed: true };
@@ -388,9 +417,11 @@ export class AcquisitionTasksController {
     }
   }
 
-  private async failRun(taskRunId: string): Promise<void> {
-    await this.prisma.taskRun
-      .update({ where: { id: taskRunId }, data: { status: 'FAILED', finishedAt: new Date() } })
+  private async failRun(workspaceId: string, taskRunId: string): Promise<void> {
+    await this.prisma
+      .withWorkspace(workspaceId, (tx) =>
+        tx.taskRun.update({ where: { id: taskRunId }, data: { status: 'FAILED', finishedAt: new Date() } }),
+      )
       .catch(() => undefined);
   }
 }

@@ -31,7 +31,7 @@ function makeService(options: {
   engineQuery?: () => Promise<Rows>;
 }) {
   const revisionCalls: Rows[] = [];
-  const prisma = {
+  const prisma: Record<string, unknown> = {
     campaignApproval: { findMany: vi.fn(async () => options.approvals ?? []) },
     campaignRevision: {
       findMany: vi.fn(async (args: { where: Record<string, unknown> }) => {
@@ -49,6 +49,50 @@ function makeService(options: {
       }),
     },
     campaignDecisionTrace: { findMany: vi.fn(async () => options.traces ?? []) },
+    withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join(' ');
+      if (sql.includes('app_ops_campaign_approvals')) {
+        return (options.approvals ?? []).map((row) => ({
+          id: row['id'],
+          revision_id: row['revisionId'],
+          state: row['state'],
+          decided_at: row['decidedAt'],
+          expires_at: row['expiresAt'],
+          created_at: row['createdAt'],
+          campaign_id: (row['revision'] as { campaignId: string })['campaignId'],
+        }));
+      }
+      if (sql.includes('app_ops_campaign_revisions_by_ids')) {
+        const ids = (values[0] as string[]) ?? [];
+        const rows = (options.revisions ?? []).filter((row) => ids.includes(String(row['id'])));
+        revisionCalls.push(rows);
+        return rows.map((row) => ({
+          id: row['id'],
+          campaign_id: row['campaignId'],
+          revision_no: row['revisionNo'],
+          plan: row['plan'],
+        }));
+      }
+      if (sql.includes('app_ops_campaign_revisions_by_campaigns')) {
+        const campaignIds = (values[0] as string[]) ?? [];
+        const rows = (options.revisions ?? []).filter((row) => campaignIds.includes(String(row['campaignId'])));
+        revisionCalls.push(rows);
+        return rows.map((row) => ({
+          id: row['id'],
+          campaign_id: row['campaignId'],
+          revision_no: row['revisionNo'],
+          plan: row['plan'],
+        }));
+      }
+      if (sql.includes('app_ops_campaign_replan_traces')) {
+        return (options.traces ?? []).map((row) => ({
+          campaign_id: row['campaignId'],
+          cost_actual_micros: row['costActualMicros'],
+        }));
+      }
+      return [];
+    }),
   };
   const engine = { query: vi.fn(options.engineQuery ?? (async () => [])) };
   const service = new OpsCampaignMetricsService(prisma as never, { db: engine } as never);

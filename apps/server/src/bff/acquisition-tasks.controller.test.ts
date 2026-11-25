@@ -68,9 +68,16 @@ function makeController(overrides: {
       update: vi.fn(async () => ({})),
       findFirst: vi.fn(async () => (overrides.taskRunFindFirst ?? []).shift() ?? null),
     },
-    discoveryRunLink: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
+    discoveryRunLink: {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async () => ({})),
+      update: vi.fn(async () => ({})),
+    },
     $queryRaw: vi.fn(async () => [{ id: TASK_ID }]),
   };
+  (prisma as Record<string, unknown>).withWorkspace = vi.fn(
+    async (_wid: string, callback: (client: typeof prisma) => Promise<unknown>) => callback(prisma),
+  );
   (prisma as Record<string, unknown>).$transaction = vi.fn(
     async (callback: (client: typeof prisma) => Promise<unknown>) => callback(prisma),
   );
@@ -317,12 +324,9 @@ describe('Run 2.0 任务对象（M0②）', () => {
       where: { id: TASK_RUN_ID },
       data: { engineRunId: ENGINE_RUN_ID, status: 'RUNNING' },
     });
-    expect(prisma.discoveryRunLink.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { runId: ENGINE_RUN_ID },
-        create: expect.objectContaining({ workspaceId: WORKSPACE_ID, planId: PLAN_ID, icpId: ICP_ID }),
-      }),
-    );
+    expect(prisma.discoveryRunLink.create).toHaveBeenCalledWith({
+      data: { runId: ENGINE_RUN_ID, workspaceId: WORKSPACE_ID, planId: PLAN_ID, icpId: ICP_ID },
+    });
     expect(prisma.acquisitionTask.update).toHaveBeenCalledWith({
       where: { id: TASK_ID },
       data: { lastRunAt: expect.any(Date) },
@@ -489,15 +493,34 @@ describe('Run 2.0 任务对象（M0②）', () => {
       },
     });
     await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
-    expect(prisma.discoveryRunLink.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { runId: ENGINE_RUN_ID },
-        create: expect.objectContaining({
-          runId: ENGINE_RUN_ID,
-          workspaceId: WORKSPACE_ID,
-          icpId: '00000000-0000-4000-8000-000000000000',
-        }),
-      }),
+    expect(prisma.discoveryRunLink.create).toHaveBeenCalledWith({
+      data: {
+        runId: ENGINE_RUN_ID,
+        workspaceId: WORKSPACE_ID,
+        planId: PLAN_ID,
+        icpId: '00000000-0000-4000-8000-000000000000',
+      },
+    });
+  });
+
+  it('returns 404 NOT_FOUND without leaking foreign workspace ownership when runId collides (findFirst or P2002)', async () => {
+    const first = makeController();
+    first.prisma.discoveryRunLink.findFirst.mockResolvedValueOnce({
+      runId: ENGINE_RUN_ID,
+      workspaceId: '99999999-9999-4999-8999-999999999999',
+    } as never);
+    await expect(first.controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'NOT_FOUND' } },
+    });
+
+    const rlsConflict = makeController();
+    rlsConflict.prisma.discoveryRunLink.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
     );
+    await expect(rlsConflict.controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'NOT_FOUND' } },
+    });
   });
 });

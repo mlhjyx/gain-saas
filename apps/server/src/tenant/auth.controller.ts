@@ -97,16 +97,17 @@ export class AuthController {
   @UseGuards(TenantGuard)
   async session(@Req() req: Request) {
     const tenant = req.tenant!;
-    const user = await this.prisma.user.findUnique({ where: { id: tenant.userId } });
-    const memberships = await this.prisma.membership.findMany({
-      where: { userId: tenant.userId, status: 'active' },
-      include: { workspace: { select: { id: true, name: true } } },
-    });
+    const [user, memberships] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: tenant.userId } }),
+      this.prisma.$queryRaw<
+        Array<{ workspace_id: string; workspace_name: string; workspace_status: string; role: string }>
+      >`SELECT workspace_id, workspace_name, workspace_status, role FROM public.app_list_user_workspaces(${tenant.userId}::uuid)`,
+    ]);
     return {
       data: {
         user: { id: tenant.userId, email: user?.email },
         workspace: { id: tenant.workspaceId, role: tenant.role },
-        workspaces: memberships.map((m) => ({ id: m.workspace.id, name: m.workspace.name, role: m.role })),
+        workspaces: memberships.map((m) => ({ id: m.workspace_id, name: m.workspace_name, role: m.role })),
       },
     };
   }
