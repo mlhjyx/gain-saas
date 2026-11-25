@@ -117,6 +117,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // 部署侧 scope 未就绪时这些路由按「授权对接未就绪」502 降级。
   { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'admin' },
   { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
+  { method: 'POST', saasPath: 'canonical-companies/:id/enrich-contacts', enginePath: '/canonical-companies/:id/enrich-contacts', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
   { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
   { method: 'POST', saasPath: 'contact-points/:pointId/verify', enginePath: '/contact-points/:pointId/verify', access: 'admin', grant: true, timeoutMs: 120_000, complianceInject: true },
   { method: 'GET', saasPath: 'data-providers', enginePath: '/data-providers', access: 'admin' },
@@ -280,6 +281,14 @@ export function budgetQuoteRequest(
         return { operation, companyId: params.id };
       }
       return { operation, companyId: params.id, body: { attemptId } };
+    }
+    case '/canonical-companies/:id/enrich-contacts': {
+      const attemptId = (body as { attemptId?: unknown } | null)?.attemptId;
+      return {
+        operation: 'POST /canonical-companies/:id/enrich-contacts',
+        companyId: params.id,
+        ...(typeof attemptId === 'string' && attemptId.length > 0 ? { body: { attemptId } } : {}),
+      };
     }
     // 猜测/验证把请求体一起绑定:引擎按 operation + ID + body 计算 requestSha256,
     // 少传或改写 body 会被 GRANT_SCOPE_MISMATCH 拒绝。

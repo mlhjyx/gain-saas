@@ -134,6 +134,41 @@ const tags = computed(() =>
   ].filter(Boolean),
 );
 
+function safeHttpUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : '';
+}
+
+function socialPlatformLabel(platform: string): string {
+  const key = `gainos.leads.socialPlatform.${platform.toLowerCase()}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? platform : translated;
+}
+
+const channelSummary = computed(() => props.lead.channelSummary ?? null);
+const channelSocials = computed(() =>
+  (channelSummary.value?.socials ?? [])
+    .map((item) => ({
+      platform: item.platform,
+      label: socialPlatformLabel(item.platform),
+      url: safeHttpUrl(item.url),
+    }))
+    .filter((item) => Boolean(item.url))
+    .slice(0, 5),
+);
+const channelPrimaryForm = computed(() => safeHttpUrl(channelSummary.value?.forms?.[0] ?? ''));
+const hasChannelSummary = computed(() => {
+  const s = channelSummary.value;
+  if (!s) return false;
+  return (
+    s.verifiedEmailCount > 0 ||
+    s.decisionMakerCount > 0 ||
+    s.emails.length > 0 ||
+    s.phones.length > 0 ||
+    s.forms.length > 0 ||
+    channelSocials.value.length > 0
+  );
+});
+
 /**
  * 没有 C1–C5 聚合文本时的降级：用引擎八维评分的前五项画小条。
  * （新线索通常有聚合文本；历史线索可能只有 scores，不能让这一列空着。）
@@ -319,6 +354,60 @@ function onMenu(info: MenuClickInfo): void {
           </template>
         </Dropdown>
       </div>
+    </div>
+
+    <!-- 触达通道速览条（公司级公开邮箱/电话/社媒/表单 + 决策人数与已验真邮箱数） -->
+    <div v-if="hasChannelSummary && channelSummary" class="lead-channels" data-gs="lead-channels">
+      <span class="lead-channels__label">{{ $t('gainos.leads.channelsLabel') }}</span>
+      <GsTag v-if="channelSummary.verifiedEmailCount > 0" tone="success">
+        {{ $t('gainos.leads.channelVerifiedEmails', { count: channelSummary.verifiedEmailCount }) }}
+      </GsTag>
+      <Tag v-if="channelSummary.decisionMakerCount > 0" :bordered="false" class="lead-channel-chip">
+        {{ $t('gainos.leads.channelDecisionMakers', { count: channelSummary.decisionMakerCount }) }}
+      </Tag>
+      <a
+        v-if="channelSummary.emails.length > 0"
+        class="lead-channel-link"
+        :href="`mailto:${channelSummary.emails[0]}`"
+        :title="channelSummary.emails.join(', ')"
+      >
+        {{ channelSummary.emails[0] }}
+        <span v-if="channelSummary.emails.length > 1" class="lead-channel-more">
+          +{{ channelSummary.emails.length - 1 }}
+        </span>
+      </a>
+      <a
+        v-if="channelSummary.phones.length > 0"
+        class="lead-channel-link"
+        :href="`tel:${channelSummary.phones[0]}`"
+        :title="channelSummary.phones.join(', ')"
+      >
+        {{ channelSummary.phones[0] }}
+        <span v-if="channelSummary.phones.length > 1" class="lead-channel-more">
+          +{{ channelSummary.phones.length - 1 }}
+        </span>
+      </a>
+      <a
+        v-for="social in channelSocials"
+        :key="`${social.platform}-${social.url}`"
+        class="lead-channel-social"
+        :href="social.url"
+        rel="noreferrer"
+        target="_blank"
+        :title="social.url"
+      >
+        {{ social.label }}
+      </a>
+      <a
+        v-if="channelSummary.forms.length > 0 && channelPrimaryForm"
+        class="lead-channel-link"
+        :href="channelPrimaryForm"
+        rel="noreferrer"
+        target="_blank"
+        :title="channelSummary.forms.join(', ')"
+      >
+        {{ $t('gainos.leads.channelFormCount', { count: channelSummary.forms.length }) }}
+      </a>
     </div>
 
     <!-- 展开：完整五维理由 + 技术详情（机器码只进折叠区） -->
@@ -657,6 +746,58 @@ function onMenu(info: MenuClickInfo): void {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--gs-divider);
+}
+.lead-channels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--gs-divider);
+  font-size: 12px;
+  line-height: 20px;
+}
+.lead-channels__label {
+  color: var(--gs-fg-subtle);
+  font-size: 11.5px;
+}
+.lead-channel-chip {
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+.lead-channel-link {
+  color: var(--gs-fg-2);
+  text-decoration: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lead-channel-link:hover {
+  color: var(--gs-accent-fg);
+  text-decoration: underline;
+}
+.lead-channel-more {
+  margin-left: 2px;
+  color: var(--gs-fg-subtle);
+}
+.lead-channel-social {
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+  font-size: 11.5px;
+  line-height: 20px;
+  text-decoration: none;
+}
+.lead-channel-social:hover {
+  text-decoration: underline;
 }
 .lead-tech {
   color: var(--gs-fg-subtle);

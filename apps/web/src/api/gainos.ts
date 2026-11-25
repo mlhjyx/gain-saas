@@ -94,6 +94,30 @@ export interface LeadCompanySummary {
   employeeCount?: number | null;
 }
 
+export interface CompanyChannelItem {
+  channel: 'email' | 'phone' | 'form_url' | string;
+  value: string;
+  email_type?: string | null;
+  status: string;
+  source_type?: string;
+  source_url?: string | null;
+}
+
+export interface SocialProfileItem {
+  platform: 'linkedin' | 'facebook' | 'instagram' | 'x' | 'youtube' | 'whatsapp' | 'other' | string;
+  url: string;
+  source?: string;
+}
+
+export interface LeadChannelSummary {
+  emails: string[];
+  phones: string[];
+  forms: string[];
+  socials: Array<{ platform: string; url: string }>;
+  decisionMakerCount: number;
+  verifiedEmailCount: number;
+}
+
 export interface Lead {
   id: string;
   icpId?: string;
@@ -110,6 +134,7 @@ export interface Lead {
   updatedAt?: string;
   scoredAt?: string | null;
   company?: LeadCompanySummary | null;
+  channelSummary?: LeadChannelSummary | null;
 }
 
 /** 联系方式状态（引擎 contact_point.status；BLOCKED 是验证时合规门拦截的结果，也会回写状态）。 */
@@ -159,6 +184,9 @@ export interface CanonicalCompanyDetail {
     contacts?: CanonicalContact[];
   };
   evidence: ContactEvidence[];
+  contactChannels?: CompanyChannelItem[];
+  contactPoints?: Array<{ kind: string; value: string; status: string }>;
+  socialProfiles?: SocialProfileItem[];
 }
 
 /** GDPR Art.6 的合法性基础；发现决策人必须显式给出，猜测/验证人名邮箱同理。 */
@@ -181,6 +209,20 @@ export interface DiscoverContactsResult {
   skippedSuppressed?: number;
   skippedInvalid?: number;
   diagnostics?: Record<string, number>;
+}
+
+export interface EnrichContactsInput extends ContactComplianceInput {
+  attemptId?: string;
+  contactIds?: string[];
+}
+
+export interface EnrichContactsResult {
+  status: string;
+  executionId?: string;
+  reasonCode?: string;
+  tier?: string;
+  attempted?: number;
+  results?: Array<{ contactId: string; status: string }>;
 }
 
 export interface GuessEmailsResult {
@@ -226,6 +268,8 @@ export interface LeadPackage {
   registered_address?: string | null;
   identifiers?: Record<string, string | null>;
   contact_points?: Array<{ kind: string; url: string; status: string }>;
+  company_channels?: CompanyChannelItem[];
+  social_profiles?: SocialProfileItem[];
   suggested_contact_path?: { kind: string; url: string; legal_note: string } | null;
   /** 意向信号（引擎 intent events，最多 3 条）：type 原样、at 为 ISO、url 仅 https。 */
   signals?: Array<{ type: string; at: string; url: string | null }>;
@@ -920,6 +964,8 @@ export const gainosApi = {
     requestClient.get<CanonicalCompanyDetail>(`/canonical-companies/${companyId}`),
   discoverContacts: (companyId: string, input: DiscoverContactsInput) =>
     requestClient.post<DiscoverContactsResult>(`/canonical-companies/${companyId}/discover-contacts`, input),
+  enrichContacts: (companyId: string, input: EnrichContactsInput) =>
+    requestClient.post<EnrichContactsResult>(`/canonical-companies/${companyId}/enrich-contacts`, input),
   guessEmails: (companyId: string, input: ContactComplianceInput & { maxContacts?: number; maxProbe?: number }) =>
     requestClient.post<GuessEmailsResult>(`/canonical-companies/${companyId}/guess-emails`, input),
   verifyContactPoint: (pointId: string, input?: ContactComplianceInput) =>
