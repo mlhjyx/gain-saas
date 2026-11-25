@@ -121,12 +121,14 @@ export class OpsAttributionService {
 
   async attribution(workspaceId: string): Promise<AttributionResponse> {
     assertWorkspaceId(workspaceId);
-    const rawRows = await this.prisma.$queryRaw<RawCampaignRow[]>(Prisma.sql`
-      SELECT *
-      FROM "v_campaign_attribution"
-      WHERE "workspace_id" = ${workspaceId}::uuid
-      ORDER BY "spend_total_micros" DESC, "campaign_name" ASC
-    `);
+    const rawRows = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.$queryRaw<RawCampaignRow[]>(Prisma.sql`
+        SELECT *
+        FROM "v_campaign_attribution"
+        WHERE "workspace_id" = ${workspaceId}::uuid
+        ORDER BY "spend_total_micros" DESC, "campaign_name" ASC
+      `),
+    );
     const campaigns: AttributionCampaignRow[] = rawRows.map((row) => ({
       campaignId: row.campaign_id,
       campaignName: row.campaign_name,
@@ -175,37 +177,39 @@ export class OpsAttributionService {
     workspaceId: string,
     campaigns: AttributionCampaignRow[],
   ): Promise<AttributionReconciliationRow[]> {
-    const ledgerRows = await this.prisma.$queryRaw<RawLedgerRow[]>(Prisma.sql`
-      WITH "auth_icps" AS (
-        SELECT
-          a."workspace_id", a."campaign_id", (icp.value)::uuid AS "icp_id", a."issued_at"
-        FROM "campaign_execution_authorization" AS a
-        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a."scope" -> 'actions', '[]'::jsonb)) AS action
-        CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(action -> 'icpIds', '[]'::jsonb)) AS icp
-        WHERE a."workspace_id" = ${workspaceId}::uuid
-      ),
-      "campaign_icps" AS (
-        SELECT "workspace_id", "campaign_id", "icp_id", min("issued_at") AS "first_issued_at"
-        FROM "auth_icps" GROUP BY 1, 2, 3
-      ),
-      "campaign_plans" AS (
-        SELECT DISTINCT ci."campaign_id", l."plan_id"
-        FROM "campaign_icps" AS ci
-        JOIN "discovery_run_link" AS l
-          ON l."workspace_id" = ci."workspace_id"
-         AND l."icp_id" = ci."icp_id"
-         AND l."created_at" >= ci."first_issued_at"
-      )
-      SELECT cp."campaign_id", COALESCE(sum(cl."amount_micros"), 0)::bigint AS "exec_ledger_micros"
-      FROM "campaign_plans" AS cp
-      JOIN "event_inbox" AS e
-        ON e."workspace_id" = ${workspaceId}::uuid
-       AND (e."payload" ->> 'planId') = cp."plan_id"::text
-      JOIN "cost_ledger" AS cl
-        ON cl."workspace_id" = e."workspace_id"
-       AND cl."source_event_id" = e."event_id"
-      GROUP BY 1
-    `);
+    const ledgerRows = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.$queryRaw<RawLedgerRow[]>(Prisma.sql`
+        WITH "auth_icps" AS (
+          SELECT
+            a."workspace_id", a."campaign_id", (icp.value)::uuid AS "icp_id", a."issued_at"
+          FROM "campaign_execution_authorization" AS a
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a."scope" -> 'actions', '[]'::jsonb)) AS action
+          CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(action -> 'icpIds', '[]'::jsonb)) AS icp
+          WHERE a."workspace_id" = ${workspaceId}::uuid
+        ),
+        "campaign_icps" AS (
+          SELECT "workspace_id", "campaign_id", "icp_id", min("issued_at") AS "first_issued_at"
+          FROM "auth_icps" GROUP BY 1, 2, 3
+        ),
+        "campaign_plans" AS (
+          SELECT DISTINCT ci."campaign_id", l."plan_id"
+          FROM "campaign_icps" AS ci
+          JOIN "discovery_run_link" AS l
+            ON l."workspace_id" = ci."workspace_id"
+           AND l."icp_id" = ci."icp_id"
+           AND l."created_at" >= ci."first_issued_at"
+        )
+        SELECT cp."campaign_id", COALESCE(sum(cl."amount_micros"), 0)::bigint AS "exec_ledger_micros"
+        FROM "campaign_plans" AS cp
+        JOIN "event_inbox" AS e
+          ON e."workspace_id" = ${workspaceId}::uuid
+         AND (e."payload" ->> 'planId') = cp."plan_id"::text
+        JOIN "cost_ledger" AS cl
+          ON cl."workspace_id" = e."workspace_id"
+         AND cl."source_event_id" = e."event_id"
+        GROUP BY 1
+      `),
+    );
     const ledgerByCampaign = new Map(
       ledgerRows.map((row) => [row.campaign_id, micros(row.exec_ledger_micros)]),
     );

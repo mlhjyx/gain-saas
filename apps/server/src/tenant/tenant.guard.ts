@@ -1,7 +1,41 @@
-import { type CanActivate, type ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  type CanActivate,
+  type ExecutionContext,
+  ForbiddenException,
+  HttpException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
+
+const ONBOARDING_ALLOWED_PREFIXES = [
+  '/api/auth',
+  '/api/onboarding',
+  '/api/workspaces',
+  '/api/workspace/context',
+  '/api/notifications',
+  '/api/members',
+  '/api/audit',
+] as const;
+
+function resolveNormalizedPath(req: Request): string {
+  const raw =
+    typeof req.path === 'string' && req.path
+      ? req.path
+      : typeof req.originalUrl === 'string'
+        ? req.originalUrl.split('?')[0]
+        : '';
+  return raw.replace(/\/+/g, '/');
+}
+
+export function isOnboardingAllowedPath(req: Request): boolean {
+  const path = resolveNormalizedPath(req);
+  return ONBOARDING_ALLOWED_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}
 
 export interface TenantRequestContext {
   userId: string;
@@ -39,14 +73,16 @@ export class TenantGuard implements CanActivate {
       throw new UnauthorizedException({ error: { code: 'AUTH_REQUIRED', message: '会话已过期,请重新登录' } });
     }
     // 先核验成员资格与工作空间 ACTIVE 状态，再决定是否滑动续期——绝不允许停用空间或被移出成员续签新 cookie。
-    const membership = await this.prisma.membership.findFirst({
-      where: { userId: claims.userId, workspaceId: claims.workspaceId, status: 'active' },
-      include: {
-        workspace: {
-          select: { status: true, onboardingCompletedAt: true, onboardingCompanyId: true },
+    const membership = await this.prisma.withWorkspace(claims.workspaceId, (tx) =>
+      tx.membership.findFirst({
+        where: { userId: claims.userId, workspaceId: claims.workspaceId, status: 'active' },
+        include: {
+          workspace: {
+            select: { status: true, onboardingCompletedAt: true, onboardingCompanyId: true },
+          },
         },
-      },
-    });
+      }),
+    );
     if (!membership) {
       const clearOpts = this.sessions.clearCookieOptions?.();
       if (clearOpts) res.clearCookie(SESSION_COOKIE, clearOpts);
@@ -58,6 +94,18 @@ export class TenantGuard implements CanActivate {
       throw new ForbiddenException({
         error: { code: 'WORKSPACE_DISABLED', message: '该工作空间已停用，请联系运营' },
       });
+    }
+    const onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;
+    if (!onboardingCompleted && !isOnboardingAllowedPath(req)) {
+      throw new HttpException(
+        {
+          error: {
+            code: 'ONBOARDING_INCOMPLETE',
+            message: '请先完成注册引导（企业建档），再使用获客功能',
+          },
+        },
+        409,
+      );
     }
     const role = membership.role as 'admin' | 'member';
     let activeClaims = claims;
@@ -71,7 +119,7 @@ export class TenantGuard implements CanActivate {
     req.tenant = {
       ...activeClaims,
       role,
-      onboardingCompleted: membership.workspace.onboardingCompletedAt !== null,
+      onboardingCompleted,
       onboardingCompanyId: membership.workspace.onboardingCompanyId ?? null,
     };
     return true;

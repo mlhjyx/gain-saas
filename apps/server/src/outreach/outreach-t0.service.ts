@@ -103,14 +103,16 @@ export class OutreachT0Service {
       ? input.contactRef
       : input.leadId;
 
-    const latestConsent = await this.prisma.outreachConsent.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        contactRef: consentTarget,
-        channel: 'email',
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const latestConsent = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachConsent.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          contactRef: consentTarget,
+          channel: 'email',
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
     const consentStatus: T0ConsentState =
       (latestConsent?.status as T0ConsentState | undefined) ?? 'MISSING';
 

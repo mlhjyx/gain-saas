@@ -75,6 +75,14 @@ class FakePrisma {
   drafts: DraftRow[] = [];
   approvals: ApprovalRow[] = [];
   events: EventRow[] = [];
+  campaigns: Array<{ id: string; workspaceId: string }> = [];
+
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
+  readonly campaign = {
+    findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) =>
+      this.campaigns.find((c) => c.id === where.id && c.workspaceId === where.workspaceId) ?? null,
+  };
 
   private matchBatch(row: BatchRow, where: Record<string, unknown>): boolean {
     if (where.workspaceId && row.workspaceId !== where.workspaceId) return false;
@@ -521,5 +529,19 @@ describe('OutreachBatchService', () => {
         (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
         'OUTREACH_BATCH_SIZE_EXCEEDED',
     );
+  });
+
+  it('创建批次传入不存在或他空间 campaignId → 404 CAMPAIGN_NOT_FOUND 且不落库', async () => {
+    const prisma = new FakePrisma();
+    const foreignCampaignId = '99999999-9999-4999-8999-999999999999';
+    prisma.campaigns.push({ id: foreignCampaignId, workspaceId: WS_B });
+    const { service } = build(prisma);
+    await expect(
+      service.createBatch(tenantA, { name: '跨租户战役', campaignId: foreignCampaignId }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'CAMPAIGN_NOT_FOUND' } },
+    });
+    expect(prisma.batches).toHaveLength(0);
   });
 });

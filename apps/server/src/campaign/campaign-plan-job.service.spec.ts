@@ -62,10 +62,11 @@ function buildService() {
     },
     campaignDecisionTrace: { create: vi.fn() },
   };
-  const prisma = {
+  const prisma: Record<string, unknown> = {
     ...tx,
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
-  } as unknown as PrismaService;
+  };
+  prisma.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) => fn(prisma));
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
   const campaigns = {
     validateRevisionPlan: vi.fn(async (_ws: string, plan: unknown) => ({
@@ -86,7 +87,7 @@ function buildService() {
     CAMPAIGN_PLAN_JOB_ENABLED: true,
     CAMPAIGN_PLAN_ENGINE_SERVICE_TOKEN: 'token',
   } as AppConfig;
-  const service = new CampaignPlanJobService(prisma, audit, campaigns, engine, config);
+  const service = new CampaignPlanJobService(prisma as unknown as PrismaService, audit, campaigns, engine, config);
   return { service, tx, prisma, audit, campaigns, engine };
 }
 

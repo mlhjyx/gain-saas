@@ -26,71 +26,75 @@ export class OutreachSendJobsService {
 
   async claim(limit: number, now: Date): Promise<ClaimedSendJob[]> {
     const token = randomUUID();
-    return this.prisma.$transaction(async (tx) => {
-      const due = await tx.outreachSendJob.findMany({
-        where: { state: 'PENDING', nextAttemptAt: { lte: now } },
-        orderBy: { nextAttemptAt: 'asc' },
-        take: limit,
-        select: { id: true },
-      });
-      if (due.length === 0) return [];
-      await tx.outreachSendJob.updateMany({
-        where: { id: { in: due.map((row) => row.id) }, state: 'PENDING' },
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        workspace_id: string;
+        batch_id: string;
+        draft_id: string;
+        attempts: number;
+      }>
+    >`SELECT id, workspace_id, batch_id, draft_id, attempts FROM public.app_claim_outreach_send_jobs(${limit}::integer, ${now}, ${token}::uuid)`;
+    return rows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      batchId: row.batch_id,
+      draftId: row.draft_id,
+      attempts: row.attempts,
+    }));
+  }
+
+  async markDone(workspaceId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachSendJob.updateMany({
+        where: { id: { in: ids }, workspaceId, state: 'CLAIMED' },
+        data: { state: 'DONE', claimToken: null, lastError: null },
+      }),
+    );
+  }
+
+  async markFailed(workspaceId: string, ids: string[], error: string): Promise<void> {
+    if (ids.length === 0) return;
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachSendJob.updateMany({
+        where: { id: { in: ids }, workspaceId, state: 'CLAIMED' },
+        data: { state: 'FAILED', claimToken: null, lastError: error.slice(0, 1000) },
+      }),
+    );
+  }
+
+  async markCancelled(workspaceId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachSendJob.updateMany({
+        where: { id: { in: ids }, workspaceId, state: 'CLAIMED' },
+        data: { state: 'CANCELLED', claimToken: null },
+      }),
+    );
+  }
+
+  async reschedule(workspaceId: string, ids: string[], nextAttemptAt: Date, error?: string): Promise<void> {
+    if (ids.length === 0) return;
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachSendJob.updateMany({
+        where: { id: { in: ids }, workspaceId, state: 'CLAIMED' },
         data: {
-          state: 'CLAIMED',
-          claimToken: token,
-          claimedAt: now,
-          attempts: { increment: 1 },
+          state: 'PENDING',
+          claimToken: null,
+          nextAttemptAt,
+          ...(error ? { lastError: error.slice(0, 1000) } : {}),
         },
-      });
-      return tx.outreachSendJob.findMany({
-        where: { claimToken: token },
-        select: { id: true, workspaceId: true, batchId: true, draftId: true, attempts: true },
-      });
-    });
+      }),
+    );
   }
 
-  async markDone(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.outreachSendJob.updateMany({
-      where: { id: { in: ids }, state: 'CLAIMED' },
-      data: { state: 'DONE', claimToken: null, lastError: null },
-    });
-  }
-
-  async markFailed(ids: string[], error: string): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.outreachSendJob.updateMany({
-      where: { id: { in: ids }, state: 'CLAIMED' },
-      data: { state: 'FAILED', claimToken: null, lastError: error.slice(0, 1000) },
-    });
-  }
-
-  async markCancelled(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.outreachSendJob.updateMany({
-      where: { id: { in: ids }, state: 'CLAIMED' },
-      data: { state: 'CANCELLED', claimToken: null },
-    });
-  }
-
-  async reschedule(ids: string[], nextAttemptAt: Date, error?: string): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.outreachSendJob.updateMany({
-      where: { id: { in: ids }, state: 'CLAIMED' },
-      data: {
-        state: 'PENDING',
-        claimToken: null,
-        nextAttemptAt,
-        ...(error ? { lastError: error.slice(0, 1000) } : {}),
-      },
-    });
-  }
-
-  async listByBatch(batchId: string) {
-    return this.prisma.outreachSendJob.findMany({
-      where: { batchId },
-      orderBy: { createdAt: 'asc' },
-    });
+  async listByBatch(workspaceId: string, batchId: string) {
+    return this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachSendJob.findMany({
+        where: { workspaceId, batchId },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
   }
 }

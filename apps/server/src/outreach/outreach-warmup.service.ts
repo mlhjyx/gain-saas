@@ -18,73 +18,75 @@ export class OutreachWarmupService {
 
   async checklist(tenant: OutreachTenant, now: Date = new Date()) {
     const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
-    const domains = await this.prisma.outreachDomain.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { createdAt: 'asc' },
-    });
-    const items = [];
-    for (const domain of domains) {
-      const [mailboxRows, lastSeed] = await Promise.all([
-        this.prisma.outreachMailbox.findMany({
-          where: { workspaceId: tenant.workspaceId, domainId: domain.id },
-          orderBy: { createdAt: 'asc' },
-        }),
-        this.prisma.outreachSeedTest.findFirst({
-          where: { domainId: domain.id, testedAt: { gte: weekAgo } },
-          orderBy: { testedAt: 'desc' },
-        }),
-      ]);
-      const mailboxes = [];
-      for (const mailbox of mailboxRows) {
-        const usage = await this.mailboxes.usage(tenant.workspaceId, mailbox.id, now);
-        mailboxes.push({
-          address: mailbox.address,
-          state: mailbox.state,
-          warmupStage: mailbox.warmupStage,
-          dailyCap: mailbox.dailyCap,
-          weeklyCap: mailbox.weeklyCap,
-          dailySent: usage.dailySent,
-          weeklySent: usage.weeklySent,
-          dailyRemaining: Math.max(mailbox.dailyCap - usage.dailySent, 0),
-          weeklyRemaining: Math.max(mailbox.weeklyCap - usage.weeklySent, 0),
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const domains = await tx.outreachDomain.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { createdAt: 'asc' },
+      });
+      const items = [];
+      for (const domain of domains) {
+        const [mailboxRows, lastSeed] = await Promise.all([
+          tx.outreachMailbox.findMany({
+            where: { workspaceId: tenant.workspaceId, domainId: domain.id },
+            orderBy: { createdAt: 'asc' },
+          }),
+          tx.outreachSeedTest.findFirst({
+            where: { domainId: domain.id, testedAt: { gte: weekAgo } },
+            orderBy: { testedAt: 'desc' },
+          }),
+        ]);
+        const mailboxes = [];
+        for (const mailbox of mailboxRows) {
+          const usage = await this.mailboxes.usage(tenant.workspaceId, mailbox.id, now);
+          mailboxes.push({
+            address: mailbox.address,
+            state: mailbox.state,
+            warmupStage: mailbox.warmupStage,
+            dailyCap: mailbox.dailyCap,
+            weeklyCap: mailbox.weeklyCap,
+            dailySent: usage.dailySent,
+            weeklySent: usage.weeklySent,
+            dailyRemaining: Math.max(mailbox.dailyCap - usage.dailySent, 0),
+            weeklyRemaining: Math.max(mailbox.weeklyCap - usage.weeklySent, 0),
+          });
+        }
+        const seedFresh = Boolean(lastSeed);
+        const inboxOk = lastSeed?.inboxPct == null ? null : lastSeed.inboxPct >= 80;
+        const spamOk = lastSeed?.spamPct == null ? null : lastSeed.spamPct <= 10;
+        const mailboxesOk =
+          mailboxes.length > 0 && mailboxes.every((mailbox) => mailbox.state === 'ACTIVE');
+        items.push({
+          domain: domain.domain,
+          domainState: domain.state,
+          mailboxes,
+          lastSeedTest: lastSeed
+            ? {
+                testedAt: lastSeed.testedAt,
+                provider: lastSeed.provider,
+                inboxPct: lastSeed.inboxPct,
+                spamPct: lastSeed.spamPct,
+                reportRef: lastSeed.reportRef,
+              }
+            : null,
+          checks: {
+            seedFresh,
+            inboxOk,
+            spamOk,
+            mailboxesOk,
+            ok:
+              seedFresh &&
+              inboxOk !== false &&
+              spamOk !== false &&
+              mailboxesOk,
+          },
         });
       }
-      const seedFresh = Boolean(lastSeed);
-      const inboxOk = lastSeed?.inboxPct == null ? null : lastSeed.inboxPct >= 80;
-      const spamOk = lastSeed?.spamPct == null ? null : lastSeed.spamPct <= 10;
-      const mailboxesOk =
-        mailboxes.length > 0 && mailboxes.every((mailbox) => mailbox.state === 'ACTIVE');
-      items.push({
-        domain: domain.domain,
-        domainState: domain.state,
-        mailboxes,
-        lastSeedTest: lastSeed
-          ? {
-              testedAt: lastSeed.testedAt,
-              provider: lastSeed.provider,
-              inboxPct: lastSeed.inboxPct,
-              spamPct: lastSeed.spamPct,
-              reportRef: lastSeed.reportRef,
-            }
-          : null,
-        checks: {
-          seedFresh,
-          inboxOk,
-          spamOk,
-          mailboxesOk,
-          ok:
-            seedFresh &&
-            inboxOk !== false &&
-            spamOk !== false &&
-            mailboxesOk,
-        },
-      });
-    }
-    return {
-      generatedAt: now,
-      windowDays: 7,
-      thresholds: { inboxPctMin: 80, spamPctMax: 10 },
-      domains: items,
-    };
+      return {
+        generatedAt: now,
+        windowDays: 7,
+        thresholds: { inboxPctMin: 80, spamPctMax: 10 },
+        domains: items,
+      };
+    });
   }
 }

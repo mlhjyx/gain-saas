@@ -20,6 +20,11 @@ class FakePollerPrisma {
   readonly outreachMailbox = {
     findMany: async () => this.mailboxes.map((row) => ({ ...row })),
   };
+  readonly $queryRaw = async () =>
+    this.mailboxes.map((row) => ({
+      workspace_id: row.workspaceId,
+      address: row.address,
+    }));
 }
 
 function client(

@@ -35,15 +35,14 @@ export class OutreachReconciliationWorker implements OnModuleInit, OnModuleDestr
     if (this.running) return { workspaces: 0, failing: 0 };
     this.running = true;
     try {
-      const rows = await this.prisma.outreachMailbox.findMany({
-        distinct: ['workspaceId'],
-        select: { workspaceId: true },
-      });
+      const rows = await this.prisma.$queryRaw<Array<{ workspace_id: string }>>`
+        SELECT workspace_id FROM public.app_list_active_outreach_workspaces()
+      `;
       const yesterday = new Date(now.getTime() - 86_400_000);
       let failing = 0;
       for (const row of rows) {
         const result = await this.reconciliation.reconcile(
-          { userId: 'outreach-reconcile-worker', workspaceId: row.workspaceId, role: 'admin' },
+          { userId: 'outreach-reconcile-worker', workspaceId: row.workspace_id, role: 'admin' },
           yesterday,
         );
         if (!result.ok) failing += 1;

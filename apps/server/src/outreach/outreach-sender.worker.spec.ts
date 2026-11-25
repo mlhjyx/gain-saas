@@ -53,13 +53,14 @@ function build(options: {
       return { batchId: BATCH, status: 'QUEUED', sent: 0, failed: 0, skipped: 0, deferred: 0, shadowed: 0, results: [] };
     }),
   };
-  const prisma = {
+  const prisma: Record<string, unknown> = {
     outreachDraft: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         options.drafts.filter((draft) => where.id.in.includes(draft.id)),
       ),
     },
   };
+  prisma.withWorkspace = vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
   const worker = new OutreachSenderWorker(
     prisma as unknown as PrismaService,
     jobs as never,
@@ -85,8 +86,9 @@ describe('OutreachSenderWorker（P4-04 发送 job worker）', () => {
     expect(lock.withLock).toHaveBeenCalledTimes(1);
     expect(sends.sendBatch).toHaveBeenCalledTimes(1);
     expect(summary).toMatchObject({ claimed: 2, done: 1, deferred: 1 });
-    expect(jobs.markDone).toHaveBeenCalledWith(['j1']);
+    expect(jobs.markDone).toHaveBeenCalledWith(WS, ['j1']);
     expect(jobs.reschedule).toHaveBeenCalledWith(
+      WS,
       ['j2'],
       new Date(NOW.getTime() + 1800_000),
       'DEFERRED',
@@ -106,11 +108,12 @@ describe('OutreachSenderWorker（P4-04 发送 job worker）', () => {
 
     expect(summary).toMatchObject({ retried: 1, failed: 1 });
     expect(jobs.reschedule).toHaveBeenCalledWith(
+      WS,
       ['j1'],
       new Date(NOW.getTime() + 30_000),
       'SMTP_DELIVERY_FAILED',
     );
-    expect(jobs.markFailed).toHaveBeenCalledWith(['j2'], 'SMTP_DELIVERY_FAILED');
+    expect(jobs.markFailed).toHaveBeenCalledWith(WS, ['j2'], 'SMTP_DELIVERY_FAILED');
   });
 
   it('门拒绝（授权过期）：attempts 未满重试，attempts 已满失败', async () => {
@@ -123,6 +126,7 @@ describe('OutreachSenderWorker（P4-04 发送 job worker）', () => {
     const summary = await worker.runOnce(NOW);
     expect(summary.retried).toBe(1);
     expect(jobs.reschedule).toHaveBeenCalledWith(
+      WS,
       ['j1'],
       new Date(NOW.getTime() + 120_000),
       'CAMPAIGN_AUTHORIZATION_EXPIRED',
@@ -137,7 +141,7 @@ describe('OutreachSenderWorker（P4-04 发送 job worker）', () => {
     });
     const summary = await worker.runOnce(NOW);
     expect(summary.cancelled).toBe(1);
-    expect(jobs.markCancelled).toHaveBeenCalledWith(['j1']);
+    expect(jobs.markCancelled).toHaveBeenCalledWith(WS, ['j1']);
     expect(jobs.reschedule).not.toHaveBeenCalled();
   });
 
@@ -151,6 +155,7 @@ describe('OutreachSenderWorker（P4-04 发送 job worker）', () => {
     expect(summary.locked).toBe(1);
     expect(sends.sendBatch).not.toHaveBeenCalled();
     expect(jobs.reschedule).toHaveBeenCalledWith(
+      WS,
       ['j1'],
       new Date(NOW.getTime() + 60_000),
       'BATCH_LOCK_BUSY',

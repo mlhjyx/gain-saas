@@ -143,79 +143,94 @@ export class QgoService {
       input.campaignId === undefined || input.campaignId === null ? undefined : String(input.campaignId);
     if (campaignId !== undefined && !UUID.test(campaignId)) invalid('campaignId 必须是 UUID');
 
-    const existing = await this.prisma.qgo.findFirst({
-      where: { workspaceId: ctx.workspaceId, leadRef },
-    });
-    if (existing) {
-      // 幂等重放：返回同一 QGO（不覆盖证据/下一步——提升是「一次性」的人类动作）。
-      return { qgo: await this.detailRow(ctx, existing.id), created: false as const };
-    }
-
-    const qualified = await this.prisma.qualifiedLead.findFirst({
-      where: { workspaceId: ctx.workspaceId, leadId: leadRef },
-    });
-    if (!qualified) {
-      throw new ConflictException({
-        error: {
-          code: 'LEAD_NOT_QUALIFIED',
-          message: '只有已接受（LeadQualified）的线索才能提升为商机；请先在「买家线索」里接受该线索',
-        },
-      });
-    }
-    const snapshot = qualified.snapshot as {
-      company_ref?: { canonical_company_id?: unknown; name?: unknown };
-      icp_id?: unknown;
-      scores?: { total?: unknown };
-    } | null;
-    const canonicalCompanyRef = snapshot?.company_ref?.canonical_company_id;
-    if (typeof canonicalCompanyRef !== 'string' || !UUID.test(canonicalCompanyRef)) {
-      throw new ConflictException({
-        error: { code: 'LEAD_NOT_QUALIFIED', message: '线索快照缺少公司引用，无法提升' },
-      });
-    }
-    const title =
-      typeof snapshot?.company_ref?.name === 'string' && snapshot.company_ref.name.trim()
-        ? snapshot.company_ref.name.trim().slice(0, 200)
-        : '未命名商机';
-    const score = typeof snapshot?.scores?.total === 'number' ? snapshot.scores.total : null;
-    const icpRef = typeof snapshot?.icp_id === 'string' && UUID.test(snapshot.icp_id) ? snapshot.icp_id : null;
-
-    let created: QgoRow;
-    try {
-      created = await this.prisma.qgo.create({
-        data: {
-          workspaceId: ctx.workspaceId,
-          leadRef,
-          canonicalCompanyRef,
-          icpRef,
-          ...(campaignId === undefined ? {} : { campaignId }),
-          title,
-          score,
-          evidence: evidence as unknown as Prisma.InputJsonValue,
-          nextStep,
-          state: 'OPEN',
-          createdBy: ctx.userId,
-        },
-      });
-    } catch (err) {
-      // 并发双击：唯一键兜底 → 返回既有行（幂等语义）。
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        const replay = await this.prisma.qgo.findFirst({
-          where: { workspaceId: ctx.workspaceId, leadRef },
+    const outcome = await this.prisma.withWorkspace(ctx.workspaceId, async (tx) => {
+      if (campaignId !== undefined) {
+        const campaign = await tx.campaign.findFirst({
+          where: { id: campaignId, workspaceId: ctx.workspaceId },
+          select: { id: true },
         });
-        if (replay) return { qgo: await this.detailRow(ctx, replay.id), created: false as const };
+        if (!campaign) {
+          throw new NotFoundException({ error: { code: 'CAMPAIGN_NOT_FOUND', message: 'campaign 不存在' } });
+        }
       }
-      throw err;
+
+      const existing = await tx.qgo.findFirst({
+        where: { workspaceId: ctx.workspaceId, leadRef },
+      });
+      if (existing) {
+        // 幂等重放：返回同一 QGO（不覆盖证据/下一步——提升是「一次性」的人类动作）。
+        return { qgo: await this.detailRowTx(tx, ctx, existing.id), created: false as const };
+      }
+
+      const qualified = await tx.qualifiedLead.findFirst({
+        where: { workspaceId: ctx.workspaceId, leadId: leadRef },
+      });
+      if (!qualified) {
+        throw new ConflictException({
+          error: {
+            code: 'LEAD_NOT_QUALIFIED',
+            message: '只有已接受（LeadQualified）的线索才能提升为商机；请先在「买家线索」里接受该线索',
+          },
+        });
+      }
+      const snapshot = qualified.snapshot as {
+        company_ref?: { canonical_company_id?: unknown; name?: unknown };
+        icp_id?: unknown;
+        scores?: { total?: unknown };
+      } | null;
+      const canonicalCompanyRef = snapshot?.company_ref?.canonical_company_id;
+      if (typeof canonicalCompanyRef !== 'string' || !UUID.test(canonicalCompanyRef)) {
+        throw new ConflictException({
+          error: { code: 'LEAD_NOT_QUALIFIED', message: '线索快照缺少公司引用，无法提升' },
+        });
+      }
+      const title =
+        typeof snapshot?.company_ref?.name === 'string' && snapshot.company_ref.name.trim()
+          ? snapshot.company_ref.name.trim().slice(0, 200)
+          : '未命名商机';
+      const score = typeof snapshot?.scores?.total === 'number' ? snapshot.scores.total : null;
+      const icpRef = typeof snapshot?.icp_id === 'string' && UUID.test(snapshot.icp_id) ? snapshot.icp_id : null;
+
+      try {
+        const created = await tx.qgo.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            leadRef,
+            canonicalCompanyRef,
+            icpRef,
+            ...(campaignId === undefined ? {} : { campaignId }),
+            title,
+            score,
+            evidence: evidence as unknown as Prisma.InputJsonValue,
+            nextStep,
+            state: 'OPEN',
+            createdBy: ctx.userId,
+          },
+        });
+        return { qgo: serializeQgo(created), created: true as const, createdId: created.id };
+      } catch (err) {
+        // 并发双击：唯一键兜底 → 返回既有行（幂等语义）。
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          const replay = await tx.qgo.findFirst({
+            where: { workspaceId: ctx.workspaceId, leadRef },
+          });
+          if (replay) return { qgo: await this.detailRowTx(tx, ctx, replay.id), created: false as const };
+        }
+        throw err;
+      }
+    });
+    if (!outcome.created) {
+      return { qgo: outcome.qgo, created: false as const };
     }
     await this.audit.record({
       realm: 'tenant',
       actorId: ctx.userId,
       workspaceId: ctx.workspaceId,
       action: 'qgo.promote',
-      target: created.id,
+      target: outcome.createdId,
       detail: { leadRef, evidenceCount: evidence.length, campaignId: campaignId ?? null },
     });
-    return { qgo: serializeQgo(created), created: true as const };
+    return { qgo: outcome.qgo, created: true as const };
   }
 
   async list(
@@ -226,17 +241,19 @@ export class QgoService {
       invalid('state 只接受 OPEN | CONVERTED | DROPPED');
     }
     if (opts.campaignId !== undefined && !UUID.test(opts.campaignId)) invalid('campaignId 必须是 UUID');
-    const rows = await this.prisma.qgo.findMany({
-      where: {
-        workspaceId: ctx.workspaceId,
-        ...(opts.state ? { state: opts.state } : {}),
-        ...(opts.campaignId ? { campaignId: opts.campaignId } : {}),
-      },
-      take: opts.limit + 1,
-      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
-      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      include: { sao: { select: { id: true, state: true, decidedAt: true, reason: true } } },
-    });
+    const rows = await this.prisma.withWorkspace(ctx.workspaceId, (tx) =>
+      tx.qgo.findMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          ...(opts.state ? { state: opts.state } : {}),
+          ...(opts.campaignId ? { campaignId: opts.campaignId } : {}),
+        },
+        take: opts.limit + 1,
+        ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        include: { sao: { select: { id: true, state: true, decidedAt: true, reason: true } } },
+      }),
+    );
     const page = rows.slice(0, opts.limit);
     const hasMore = rows.length > opts.limit;
     return {
@@ -252,7 +269,11 @@ export class QgoService {
   }
 
   private async detailRow(ctx: TenantRequestContext, id: string) {
-    const row = await this.prisma.qgo.findFirst({
+    return this.prisma.withWorkspace(ctx.workspaceId, (tx) => this.detailRowTx(tx, ctx, id));
+  }
+
+  private async detailRowTx(tx: Prisma.TransactionClient, ctx: TenantRequestContext, id: string) {
+    const row = await tx.qgo.findFirst({
       where: { id, workspaceId: ctx.workspaceId },
       include: {
         sao: {
@@ -311,7 +332,7 @@ export class QgoService {
   ): Promise<{ saoId: string; decidedAt: Date }> {
     if (!UUID.test(id)) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'qgo not found' } });
     const decidedAt = new Date();
-    const saoId = await this.prisma.$transaction(async (tx) => {
+    const saoId = await this.prisma.withWorkspace(ctx.workspaceId, async (tx) => {
       const qgo = await tx.qgo.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
       if (!qgo) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'qgo not found' } });
       // CAS：只有 OPEN 能被裁决；否则 409（含并发双击）。
@@ -342,16 +363,6 @@ export class QgoService {
   /** Outcome 登记（append-only）：只有 ACCEPTED 的 SAO 可登记；枚举闭集。 */
   async addOutcome(ctx: TenantRequestContext, saoId: string, input: OutcomeInput) {
     if (!UUID.test(saoId)) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'sao not found' } });
-    const sao = await this.prisma.sao.findFirst({
-      where: { id: saoId, workspaceId: ctx.workspaceId },
-      select: { id: true, state: true },
-    });
-    if (!sao) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'sao not found' } });
-    if (sao.state !== 'ACCEPTED') {
-      throw new ConflictException({
-        error: { code: 'INVALID_STATE', message: '只有已接受（ACCEPTED）的商机可以登记结果' },
-      });
-    }
     const outcome = String(input.outcome ?? '');
     if (!(OUTCOME_VALUES as readonly string[]).includes(outcome)) {
       throw new BadRequestException({
@@ -372,17 +383,29 @@ export class QgoService {
     const evidenceRef = typeof input.evidenceRef === 'string' ? input.evidenceRef.trim() : undefined;
     if (evidenceRef !== undefined && evidenceRef.length > 2048) invalid('evidenceRef 最多 2048 字符');
 
-    const created = await this.prisma.opportunityOutcome.create({
-      data: {
-        workspaceId: ctx.workspaceId,
-        saoId,
-        outcome,
-        occurredAt,
-        source: 'MANUAL',
-        ...(evidenceRef === undefined || evidenceRef.length === 0 ? {} : { evidenceRef }),
-        ...(note === undefined || note.length === 0 ? {} : { note }),
-        createdBy: ctx.userId,
-      },
+    const created = await this.prisma.withWorkspace(ctx.workspaceId, async (tx) => {
+      const sao = await tx.sao.findFirst({
+        where: { id: saoId, workspaceId: ctx.workspaceId },
+        select: { id: true, state: true },
+      });
+      if (!sao) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'sao not found' } });
+      if (sao.state !== 'ACCEPTED') {
+        throw new ConflictException({
+          error: { code: 'INVALID_STATE', message: '只有已接受（ACCEPTED）的商机可以登记结果' },
+        });
+      }
+      return tx.opportunityOutcome.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          saoId,
+          outcome,
+          occurredAt,
+          source: 'MANUAL',
+          ...(evidenceRef === undefined || evidenceRef.length === 0 ? {} : { evidenceRef }),
+          ...(note === undefined || note.length === 0 ? {} : { note }),
+          createdBy: ctx.userId,
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',

@@ -55,18 +55,26 @@ export class OutreachAuthorizationIssuer {
 
   async issue(tenant: OutreachIssuerTenant, batchId: string) {
     if (!UUID_RE.test(batchId)) notFound();
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { id: batchId, workspaceId: tenant.workspaceId },
-      include: {
-        drafts: { orderBy: { createdAt: 'asc' } },
-        approvals: {
-          where: { state: 'APPROVED' },
-          orderBy: { decidedAt: 'desc' },
-          take: 1,
+    const { batch, existing } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const foundBatch = await tx.outreachBatch.findFirst({
+        where: { id: batchId, workspaceId: tenant.workspaceId },
+        include: {
+          drafts: { orderBy: { createdAt: 'asc' } },
+          approvals: {
+            where: { state: 'APPROVED' },
+            orderBy: { decidedAt: 'desc' },
+            take: 1,
+          },
         },
-      },
+      });
+      if (!foundBatch) notFound();
+      const existingAuth = foundBatch.authorizationId
+        ? await tx.campaignExecutionAuthorization.findFirst({
+            where: { id: foundBatch.authorizationId, workspaceId: tenant.workspaceId },
+          })
+        : null;
+      return { batch: foundBatch, existing: existingAuth };
     });
-    if (!batch) notFound();
     if (batch.status !== 'QUEUED') {
       conflict('OUTREACH_BATCH_NOT_QUEUED', '只有已批准进入待发队列的批次可以签发执行授权');
     }
@@ -85,13 +93,8 @@ export class OutreachAuthorizationIssuer {
     }
 
     const now = new Date();
-    if (batch.authorizationId) {
-      const existing = await this.prisma.campaignExecutionAuthorization.findFirst({
-        where: { id: batch.authorizationId, workspaceId: tenant.workspaceId },
-      });
-      if (existing && existing.state === 'ISSUED' && existing.expiresAt.getTime() > now.getTime()) {
-        return { authorization: existing, created: false };
-      }
+    if (existing && existing.state === 'ISSUED' && existing.expiresAt.getTime() > now.getTime()) {
+      return { authorization: existing, created: false };
     }
 
     const contactRefs = batch.drafts.map((draft) => draft.contactRef);
@@ -162,7 +165,7 @@ export class OutreachAuthorizationIssuer {
       Math.floor(ttlMs / 1000),
     );
 
-    const authorization = await this.prisma.$transaction(async (tx) => {
+    const authorization = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       const row = await tx.campaignExecutionAuthorization.create({
         data: {
           id: authorizationId,

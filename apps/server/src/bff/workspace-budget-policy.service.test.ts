@@ -41,6 +41,7 @@ function createService(
     costLedger: { aggregate },
   };
   const prisma = {
+    withWorkspace: vi.fn(async (_wid: string, fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
   } as unknown as PrismaService;
   const config = {

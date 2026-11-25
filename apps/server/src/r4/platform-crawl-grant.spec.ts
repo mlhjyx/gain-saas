@@ -6,6 +6,9 @@ import { createLocalJWKSet, decodeProtectedHeader, exportJWK, jwtVerify } from '
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import type { PrismaService } from '../shared/prisma.service.js';
+import { UnauthorizedException } from '@nestjs/common';
+import type { Request } from 'express';
+import { PlatformCrawlGrantController } from './platform-crawl-grant.controller.js';
 import {
   CHANNEL_CRAWL_DAILY_PAGE_CAP,
   ChannelCrawlGrantRejected,
@@ -256,5 +259,44 @@ describe('平台渠道抓取 Grant 签发（P4-P3）', () => {
     };
     const issuer = new PlatformCrawlGrantIssuer(config, prisma, policy as never);
     expect(await rejection(issuer.issue(request(), NOW))).toBe('PLATFORM_CHANNEL_CRAWL_POLICY_BLOCKED');
+  });
+});
+
+describe('PlatformCrawlGrantController mTLS 门控', () => {
+  function makeController() {
+    const grants = { issue: vi.fn(async () => ({ token: 'crawl.jws', expiresAt: 1_800_000_000 })) };
+    const controller = new PlatformCrawlGrantController(
+      { R4_PLATFORM_GRANT_CLIENT_SUBJECT: 'global-backend-platform-worker' } as AppConfig,
+      grants as unknown as PlatformCrawlGrantIssuer,
+    );
+    return { controller, grants };
+  }
+
+  it.each([
+    { name: 'encrypted=false', socket: { encrypted: false, authorized: true, getPeerCertificate: () => ({ subject: { CN: 'global-backend-platform-worker' } }) } },
+    { name: 'authorized=false', socket: { encrypted: true, authorized: false, getPeerCertificate: () => ({ subject: { CN: 'global-backend-platform-worker' } }) } },
+    { name: 'wrong CN', socket: { encrypted: true, authorized: true, getPeerCertificate: () => ({ subject: { CN: 'spoofed' } }) } },
+  ])('拒绝非法 mTLS 连接 ($name) → 401 PLATFORM_GRANT_MTLS_REQUIRED', async ({ socket }) => {
+    const { controller, grants } = makeController();
+    const err = await controller.issue(request(), { socket } as unknown as Request).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getResponse()).toMatchObject({
+      error: { code: 'PLATFORM_GRANT_MTLS_REQUIRED' },
+    });
+    expect(grants.issue).not.toHaveBeenCalled();
+  });
+
+  it('encrypted=true && authorized=true && CN 匹配时放行', async () => {
+    const { controller, grants } = makeController();
+    const payload = request();
+    const res = await controller.issue(payload, {
+      socket: {
+        encrypted: true,
+        authorized: true,
+        getPeerCertificate: () => ({ subject: { CN: 'global-backend-platform-worker' } }),
+      },
+    } as unknown as Request);
+    expect(res).toEqual({ token: 'crawl.jws', expiresAt: 1_800_000_000 });
+    expect(grants.issue).toHaveBeenCalledWith(payload);
   });
 });

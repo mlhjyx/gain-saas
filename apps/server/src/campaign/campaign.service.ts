@@ -79,16 +79,18 @@ export class CampaignService {
     if (objective.length > 500) {
       throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'objective 不超过 500 字' } });
     }
-    const campaign = await this.prisma.campaign.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        name,
-        objective,
-        status: 'DRAFT',
-        createdBy: tenant.userId,
-        updatedBy: tenant.userId,
-      },
-    });
+    const campaign = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.campaign.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          name,
+          objective,
+          status: 'DRAFT',
+          createdBy: tenant.userId,
+          updatedBy: tenant.userId,
+        },
+      }),
+    );
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -101,12 +103,14 @@ export class CampaignService {
   }
 
   async listCampaigns(tenant: CampaignTenant) {
-    const rows = await this.prisma.campaign.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { revisions: { orderBy: { revisionNo: 'desc' }, take: 1 } },
-    });
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.campaign.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: { revisions: { orderBy: { revisionNo: 'desc' }, take: 1 } },
+      }),
+    );
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -127,23 +131,29 @@ export class CampaignService {
 
   async getCampaignDetail(tenant: CampaignTenant, campaignId: string) {
     if (!UUID_RE.test(campaignId)) campaignNotFound();
-    const campaign = await this.prisma.campaign.findFirst({
-      where: { id: campaignId, workspaceId: tenant.workspaceId },
-      include: {
-        revisions: { orderBy: { revisionNo: 'desc' }, include: { approvals: true, audience: true } },
+    const { campaign, authorizations, traces } = await this.prisma.withWorkspace(
+      tenant.workspaceId,
+      async (tx) => {
+        const found = await tx.campaign.findFirst({
+          where: { id: campaignId, workspaceId: tenant.workspaceId },
+          include: {
+            revisions: { orderBy: { revisionNo: 'desc' }, include: { approvals: true, audience: true } },
+          },
+        });
+        if (!found) campaignNotFound();
+        const auths = await tx.campaignExecutionAuthorization.findMany({
+          where: { workspaceId: tenant.workspaceId, campaignId },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        });
+        const traceRows = await tx.campaignDecisionTrace.findMany({
+          where: { workspaceId: tenant.workspaceId, campaignId },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 20,
+        });
+        return { campaign: found, authorizations: auths, traces: traceRows };
       },
-    });
-    if (!campaign) campaignNotFound();
-    const authorizations = await this.prisma.campaignExecutionAuthorization.findMany({
-      where: { workspaceId: tenant.workspaceId, campaignId },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    });
-    const traces = await this.prisma.campaignDecisionTrace.findMany({
-      where: { workspaceId: tenant.workspaceId, campaignId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 20,
-    });
+    );
     const now = new Date();
     return {
       id: campaign.id,
@@ -218,9 +228,11 @@ export class CampaignService {
       });
     }
     if (plan.budget.capMicros != null) {
-      const policy = await this.prisma.workspaceBudgetPolicy.findUnique({
-        where: { workspaceId },
-      });
+      const policy = await this.prisma.withWorkspace(workspaceId, (tx) =>
+        tx.workspaceBudgetPolicy.findUnique({
+          where: { workspaceId },
+        }),
+      );
       if (policy?.enabled && BigInt(plan.budget.capMicros) > policy.maxSpendMicros) {
         throw new BadRequestException({
           error: {
@@ -310,7 +322,7 @@ export class CampaignService {
   async createRevision(tenant: CampaignTenant, campaignId: string, planInput: unknown) {
     if (!UUID_RE.test(campaignId)) campaignNotFound();
     const { plan, planHash } = await this.validateRevisionPlan(tenant.workspaceId, planInput);
-    const revision = await this.prisma.$transaction((tx) =>
+    const revision = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
       this.createRevisionRecord(tx, {
         workspaceId: tenant.workspaceId,
         campaignId,
@@ -332,7 +344,7 @@ export class CampaignService {
 
   async submitRevision(tenant: CampaignTenant, campaignId: string, revisionId: string) {
     if (!UUID_RE.test(campaignId) || !UUID_RE.test(revisionId)) campaignNotFound();
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       const revision = await tx.campaignRevision.findFirst({
         where: { id: revisionId, campaignId, workspaceId: tenant.workspaceId },
       });
@@ -404,7 +416,7 @@ export class CampaignService {
     }
     const reason = typeof input.reason === 'string' ? input.reason.slice(0, 500) : null;
     let declinedRevisionId: string | null = null;
-    const outcome = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       const approval = await tx.campaignApproval.findFirst({
         where: { id: approvalId, workspaceId: tenant.workspaceId },
         include: { revision: true },
@@ -573,7 +585,7 @@ export class CampaignService {
     if (!UUID_RE.test(campaignId) || !UUID_RE.test(authorizationId)) campaignNotFound();
     const revokeReason =
       typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 200) : 'MANUAL_REVOKE';
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       const authorization = await tx.campaignExecutionAuthorization.findFirst({
         where: { id: authorizationId, campaignId, workspaceId: tenant.workspaceId },
       });
@@ -611,12 +623,14 @@ export class CampaignService {
   async listTrace(tenant: CampaignTenant, campaignId: string, cursor?: string, limit?: number) {
     if (!UUID_RE.test(campaignId) || (cursor !== undefined && !UUID_RE.test(cursor))) campaignNotFound();
     const take = Math.min(Math.max(limit ?? 50, 1), 200);
-    const rows = await this.prisma.campaignDecisionTrace.findMany({
-      where: { workspaceId: tenant.workspaceId, campaignId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: take + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    });
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.campaignDecisionTrace.findMany({
+        where: { workspaceId: tenant.workspaceId, campaignId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+    );
     const hasMore = rows.length > take;
     const items = hasMore ? rows.slice(0, take) : rows;
     return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
@@ -643,8 +657,17 @@ export class CampaignService {
     }
     const claims = await this.signer.verify(token);
     if (!claims) return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
-    const authorization = await this.prisma.campaignExecutionAuthorization.findFirst({
-      where: { id: claims.authorizationId, workspaceId: claims.workspaceId },
+    const { authorization, workspace } = await this.prisma.withWorkspace(claims.workspaceId, async (tx) => {
+      const authRow = await tx.campaignExecutionAuthorization.findFirst({
+        where: { id: claims.authorizationId, workspaceId: claims.workspaceId },
+      });
+      const ws = authRow
+        ? await tx.workspace.findUnique({
+            where: { id: authRow.workspaceId },
+            select: { status: true },
+          })
+        : null;
+      return { authorization: authRow, workspace: ws };
     });
     if (!authorization) return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
     if (authorization.state === 'REVOKED') return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_REVOKED' };
@@ -654,10 +677,6 @@ export class CampaignService {
     if (authorization.planHash !== planHash || claims.planHash !== planHash) {
       return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_INVALID' };
     }
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: authorization.workspaceId },
-      select: { status: true },
-    });
     if (!workspace || workspace.status !== 'ACTIVE') {
       return { valid: false, reason: 'CAMPAIGN_AUTHORIZATION_REVOKED' };
     }
@@ -698,10 +717,12 @@ export class CampaignService {
 
   /** workspace 停用/归档联动：撤销该空间全部未过期授权（§8 安全与合规）。 */
   async revokeAllIssuedForWorkspace(workspaceId: string, reason: string): Promise<number> {
-    const result = await this.prisma.campaignExecutionAuthorization.updateMany({
-      where: { workspaceId, state: 'ISSUED' },
-      data: { state: 'REVOKED', revokedAt: new Date(), revokeReason: reason.slice(0, 200) },
-    });
+    const result = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.campaignExecutionAuthorization.updateMany({
+        where: { workspaceId, state: 'ISSUED' },
+        data: { state: 'REVOKED', revokedAt: new Date(), revokeReason: reason.slice(0, 200) },
+      }),
+    );
     return result.count;
   }
 

@@ -75,7 +75,7 @@ export class MachineTokenController {
       authorized?: boolean;
       getPeerCertificate?: () => { subject?: { CN?: string } };
     };
-    if (socket.authorized === false) return null;
+    if (socket.authorized !== true) return null;
     const cn = socket.getPeerCertificate?.()?.subject?.CN;
     return typeof cn === 'string' && cn.length > 0 ? cn : null;
   }

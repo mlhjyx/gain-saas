@@ -54,131 +54,133 @@ export class OutreachHealthService {
     const windowDays = this.config.OUTREACH_BOUNCE_WINDOW_DAYS;
     const windowMinutes = windowDays * 1440;
     const since = new Date(now.getTime() - windowDays * 86_400_000);
-    let opened = 0;
+    return this.prisma.withWorkspace(workspaceId, async () => {
+      let opened = 0;
 
-    const mailboxes = await this.prisma.outreachMailbox.findMany({
-      where: { workspaceId },
-      select: { address: true },
-    });
-    for (const mailbox of mailboxes) {
-      const [sends, hardRejects] = await Promise.all([
-        this.prisma.outreachSend.count({
-          where: {
-            workspaceId,
-            mailboxAddress: mailbox.address,
-            status: 'SENT',
-            sentAt: { gte: since },
-          },
-        }),
-        this.prisma.outreachSend.count({
-          where: {
-            workspaceId,
-            mailboxAddress: mailbox.address,
-            status: 'FAILED',
-            bounceType: 'HARD',
-            createdAt: { gte: since },
-          },
-        }),
-      ]);
-      const attempts = sends + hardRejects;
-      const rate = attempts > 0 ? hardRejects / attempts : 0;
-      const bounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
-      if (
-        attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
-        rate >= this.config.OUTREACH_BOUNCE_RATE_HALT
-      ) {
+      const mailboxes = await this.prisma.outreachMailbox.findMany({
+        where: { workspaceId },
+        select: { address: true },
+      });
+      for (const mailbox of mailboxes) {
+        const [sends, hardRejects] = await Promise.all([
+          this.prisma.outreachSend.count({
+            where: {
+              workspaceId,
+              mailboxAddress: mailbox.address,
+              status: 'SENT',
+              sentAt: { gte: since },
+            },
+          }),
+          this.prisma.outreachSend.count({
+            where: {
+              workspaceId,
+              mailboxAddress: mailbox.address,
+              status: 'FAILED',
+              bounceType: 'HARD',
+              createdAt: { gte: since },
+            },
+          }),
+        ]);
+        const attempts = sends + hardRejects;
+        const rate = attempts > 0 ? hardRejects / attempts : 0;
+        const bounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
         if (
-          await this.openBreaker(workspaceId, 'mailbox', mailbox.address, 'HARD_BOUNCE_RATE', rate, {
-            threshold: this.config.OUTREACH_BOUNCE_RATE_HALT,
+          attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
+          rate >= this.config.OUTREACH_BOUNCE_RATE_HALT
+        ) {
+          if (
+            await this.openBreaker(workspaceId, 'mailbox', mailbox.address, 'HARD_BOUNCE_RATE', rate, {
+              threshold: this.config.OUTREACH_BOUNCE_RATE_HALT,
+              windowMinutes,
+              detail: { sends, hardRejects },
+              now,
+            })
+          ) {
+            opened += 1;
+          }
+        } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && rate >= bounceWarn) {
+          await this.recordWarning(workspaceId, 'mailbox', mailbox.address, 'HARD_BOUNCE_RATE', rate, {
+            threshold: bounceWarn,
             windowMinutes,
             detail: { sends, hardRejects },
             now,
-          })
-        ) {
-          opened += 1;
+          });
         }
-      } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && rate >= bounceWarn) {
-        await this.recordWarning(workspaceId, 'mailbox', mailbox.address, 'HARD_BOUNCE_RATE', rate, {
-          threshold: bounceWarn,
-          windowMinutes,
-          detail: { sends, hardRejects },
-          now,
-        });
       }
-    }
 
-    const senderDomain = (this.config.OUTREACH_SMTP_FROM_ADDRESS ?? '').split('@')[1];
-    if (senderDomain) {
-      const [sends, dsnBounces, hardRejects, complaints] = await Promise.all([
-        this.prisma.outreachSend.count({
-          where: { workspaceId, status: 'SENT', sentAt: { gte: since } },
-        }),
-        this.prisma.outreachReply.count({
-          where: { workspaceId, kind: 'BOUNCE', receivedAt: { gte: since } },
-        }),
-        this.prisma.outreachSend.count({
-          where: {
-            workspaceId,
-            status: 'FAILED',
-            bounceType: 'HARD',
-            createdAt: { gte: since },
-          },
-        }),
-        this.prisma.outreachReply.count({
-          where: { workspaceId, kind: 'COMPLAINT', receivedAt: { gte: since } },
-        }),
-      ]);
-      const attempts = sends + hardRejects;
-      const bounceRate = attempts > 0 ? (dsnBounces + hardRejects) / attempts : 0;
-      const domainBounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
-      if (
-        attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
-        bounceRate >= this.config.OUTREACH_DOMAIN_BOUNCE_HALT_RATE
-      ) {
+      const senderDomain = (this.config.OUTREACH_SMTP_FROM_ADDRESS ?? '').split('@')[1];
+      if (senderDomain) {
+        const [sends, dsnBounces, hardRejects, complaints] = await Promise.all([
+          this.prisma.outreachSend.count({
+            where: { workspaceId, status: 'SENT', sentAt: { gte: since } },
+          }),
+          this.prisma.outreachReply.count({
+            where: { workspaceId, kind: 'BOUNCE', receivedAt: { gte: since } },
+          }),
+          this.prisma.outreachSend.count({
+            where: {
+              workspaceId,
+              status: 'FAILED',
+              bounceType: 'HARD',
+              createdAt: { gte: since },
+            },
+          }),
+          this.prisma.outreachReply.count({
+            where: { workspaceId, kind: 'COMPLAINT', receivedAt: { gte: since } },
+          }),
+        ]);
+        const attempts = sends + hardRejects;
+        const bounceRate = attempts > 0 ? (dsnBounces + hardRejects) / attempts : 0;
+        const domainBounceWarn = this.config.OUTREACH_BOUNCE_RATE_WARN ?? 0.02;
         if (
-          await this.openBreaker(workspaceId, 'domain', senderDomain, 'BOUNCE_RATE', bounceRate, {
-            threshold: this.config.OUTREACH_DOMAIN_BOUNCE_HALT_RATE,
+          attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE &&
+          bounceRate >= this.config.OUTREACH_DOMAIN_BOUNCE_HALT_RATE
+        ) {
+          if (
+            await this.openBreaker(workspaceId, 'domain', senderDomain, 'BOUNCE_RATE', bounceRate, {
+              threshold: this.config.OUTREACH_DOMAIN_BOUNCE_HALT_RATE,
+              windowMinutes,
+              detail: { sends, dsnBounces, hardRejects },
+              now,
+            })
+          ) {
+            opened += 1;
+          }
+        } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && bounceRate >= domainBounceWarn) {
+          await this.recordWarning(workspaceId, 'domain', senderDomain, 'BOUNCE_RATE', bounceRate, {
+            threshold: domainBounceWarn,
             windowMinutes,
             detail: { sends, dsnBounces, hardRejects },
             now,
-          })
-        ) {
-          opened += 1;
+          });
         }
-      } else if (attempts >= this.config.OUTREACH_BOUNCE_MIN_SAMPLE && bounceRate >= domainBounceWarn) {
-        await this.recordWarning(workspaceId, 'domain', senderDomain, 'BOUNCE_RATE', bounceRate, {
-          threshold: domainBounceWarn,
-          windowMinutes,
-          detail: { sends, dsnBounces, hardRejects },
-          now,
-        });
-      }
-      const complaintRate = sends > 0 ? complaints / sends : 0;
-      const complaintWarn = this.config.OUTREACH_COMPLAINT_RATE_WARN ?? 0.001;
-      if (
-        sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE &&
-        complaintRate >= this.config.OUTREACH_COMPLAINT_RATE_HALT
-      ) {
+        const complaintRate = sends > 0 ? complaints / sends : 0;
+        const complaintWarn = this.config.OUTREACH_COMPLAINT_RATE_WARN ?? 0.001;
         if (
-          await this.openBreaker(workspaceId, 'domain', senderDomain, 'COMPLAINT_RATE', complaintRate, {
-            threshold: this.config.OUTREACH_COMPLAINT_RATE_HALT,
+          sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE &&
+          complaintRate >= this.config.OUTREACH_COMPLAINT_RATE_HALT
+        ) {
+          if (
+            await this.openBreaker(workspaceId, 'domain', senderDomain, 'COMPLAINT_RATE', complaintRate, {
+              threshold: this.config.OUTREACH_COMPLAINT_RATE_HALT,
+              windowMinutes,
+              detail: { sends, complaints },
+              now,
+            })
+          ) {
+            opened += 1;
+          }
+        } else if (sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE && complaintRate >= complaintWarn) {
+          await this.recordWarning(workspaceId, 'domain', senderDomain, 'COMPLAINT_RATE', complaintRate, {
+            threshold: complaintWarn,
             windowMinutes,
             detail: { sends, complaints },
             now,
-          })
-        ) {
-          opened += 1;
+          });
         }
-      } else if (sends >= this.config.OUTREACH_COMPLAINT_MIN_SAMPLE && complaintRate >= complaintWarn) {
-        await this.recordWarning(workspaceId, 'domain', senderDomain, 'COMPLAINT_RATE', complaintRate, {
-          threshold: complaintWarn,
-          windowMinutes,
-          detail: { sends, complaints },
-          now,
-        });
       }
-    }
-    return { opened };
+      return { opened };
+    });
   }
 
   /** 批次级：OPEN → 整批停发；HALF_OPEN → 返回小批上限。 */
@@ -186,30 +188,32 @@ export class OutreachHealthService {
     tenant: OutreachTenant,
     input: { mailboxAddress?: string; domain?: string },
   ): Promise<BatchHealthVerdict> {
-    let maxSend: number | undefined;
-    const checks: Array<[BreakerScope, string | undefined]> = [
-      ['mailbox', input.mailboxAddress?.toLowerCase()],
-      ['domain', input.domain?.toLowerCase()],
-    ];
-    for (const [scope, scopeRef] of checks) {
-      if (!scopeRef) continue;
-      const breaker = await this.prisma.outreachBreaker.findUnique({
-        where: { workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope, scopeRef } },
-      });
-      if (!breaker || breaker.state === 'CLOSED') continue;
-      if (breaker.state === 'OPEN') {
-        throw new ConflictException({
-          error: {
-            code: scopeCode(scope),
-            message: `发送已熔断（${scope}:${scopeRef}，原因 ${breaker.reason ?? 'UNKNOWN'}），需运营复核后恢复`,
-          },
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      let maxSend: number | undefined;
+      const checks: Array<[BreakerScope, string | undefined]> = [
+        ['mailbox', input.mailboxAddress?.toLowerCase()],
+        ['domain', input.domain?.toLowerCase()],
+      ];
+      for (const [scope, scopeRef] of checks) {
+        if (!scopeRef) continue;
+        const breaker = await tx.outreachBreaker.findUnique({
+          where: { workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope, scopeRef } },
         });
+        if (!breaker || breaker.state === 'CLOSED') continue;
+        if (breaker.state === 'OPEN') {
+          throw new ConflictException({
+            error: {
+              code: scopeCode(scope),
+              message: `发送已熔断（${scope}:${scopeRef}，原因 ${breaker.reason ?? 'UNKNOWN'}），需运营复核后恢复`,
+            },
+          });
+        }
+        if (breaker.state === 'HALF_OPEN') {
+          maxSend = Math.min(maxSend ?? Number.MAX_SAFE_INTEGER, this.config.OUTREACH_HALF_OPEN_BATCH_LIMIT);
+        }
       }
-      if (breaker.state === 'HALF_OPEN') {
-        maxSend = Math.min(maxSend ?? Number.MAX_SAFE_INTEGER, this.config.OUTREACH_HALF_OPEN_BATCH_LIMIT);
-      }
-    }
-    return maxSend === undefined ? {} : { maxSend };
+      return maxSend === undefined ? {} : { maxSend };
+    });
   }
 
   /** 人工恢复第一步：OPEN → HALF_OPEN（必须给根因说明；下一批按 ≤N 封复核）。 */
@@ -218,20 +222,23 @@ export class OutreachHealthService {
     const ref = this.normalizeRef(scopeRef);
     const note = typeof reason === 'string' ? reason.trim().slice(0, 200) : '';
     if (!note) invalid('恢复必须填写根因说明');
-    const breaker = await this.getBreaker(tenant, normalizedScope, ref);
-    if (breaker.state !== 'OPEN') {
-      throw new ConflictException({
-        error: { code: 'OUTREACH_BREAKER_NOT_OPEN', message: `熔断器状态为 ${breaker.state}，不能执行恢复` },
-      });
-    }
     const now = new Date();
-    const updated = await this.prisma.outreachBreaker.update({
-      where: {
-        workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope: normalizedScope, scopeRef: ref },
-      },
-      data: { state: 'HALF_OPEN', halfOpenAt: now, resolvedBy: tenant.userId },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async () => {
+      const breaker = await this.getBreaker(tenant, normalizedScope, ref);
+      if (breaker.state !== 'OPEN') {
+        throw new ConflictException({
+          error: { code: 'OUTREACH_BREAKER_NOT_OPEN', message: `熔断器状态为 ${breaker.state}，不能执行恢复` },
+        });
+      }
+      const next = await this.prisma.outreachBreaker.update({
+        where: {
+          workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope: normalizedScope, scopeRef: ref },
+        },
+        data: { state: 'HALF_OPEN', halfOpenAt: now, resolvedBy: tenant.userId },
+      });
+      await this.recordEvent(tenant, normalizedScope, ref, 'RECOVER', note, now);
+      return next;
     });
-    await this.recordEvent(tenant, normalizedScope, ref, 'RECOVER', note, now);
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -249,20 +256,23 @@ export class OutreachHealthService {
     const ref = this.normalizeRef(scopeRef);
     const note = typeof reason === 'string' ? reason.trim().slice(0, 200) : '';
     if (!note) invalid('关闭必须填写复核说明');
-    const breaker = await this.getBreaker(tenant, normalizedScope, ref);
-    if (breaker.state !== 'HALF_OPEN') {
-      throw new ConflictException({
-        error: { code: 'OUTREACH_BREAKER_NOT_HALF_OPEN', message: `熔断器状态为 ${breaker.state}，不能执行关闭` },
-      });
-    }
     const now = new Date();
-    const updated = await this.prisma.outreachBreaker.update({
-      where: {
-        workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope: normalizedScope, scopeRef: ref },
-      },
-      data: { state: 'CLOSED', resolvedAt: now, resolvedBy: tenant.userId, reason: null },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async () => {
+      const breaker = await this.getBreaker(tenant, normalizedScope, ref);
+      if (breaker.state !== 'HALF_OPEN') {
+        throw new ConflictException({
+          error: { code: 'OUTREACH_BREAKER_NOT_HALF_OPEN', message: `熔断器状态为 ${breaker.state}，不能执行关闭` },
+        });
+      }
+      const next = await this.prisma.outreachBreaker.update({
+        where: {
+          workspaceId_scope_scopeRef: { workspaceId: tenant.workspaceId, scope: normalizedScope, scopeRef: ref },
+        },
+        data: { state: 'CLOSED', resolvedAt: now, resolvedBy: tenant.userId, reason: null },
+      });
+      await this.recordEvent(tenant, normalizedScope, ref, 'CLOSE', note, now);
+      return next;
     });
-    await this.recordEvent(tenant, normalizedScope, ref, 'CLOSE', note, now);
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
@@ -275,18 +285,20 @@ export class OutreachHealthService {
   }
 
   async panel(tenant: OutreachTenant) {
-    const [breakers, events] = await Promise.all([
-      this.prisma.outreachBreaker.findMany({
-        where: { workspaceId: tenant.workspaceId },
-        orderBy: { updatedAt: 'desc' },
-      }),
-      this.prisma.outreachHealthEvent.findMany({
-        where: { workspaceId: tenant.workspaceId },
-        orderBy: { detectedAt: 'desc' },
-        take: 50,
-      }),
-    ]);
-    return { breakers, events };
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const [breakers, events] = await Promise.all([
+        tx.outreachBreaker.findMany({
+          where: { workspaceId: tenant.workspaceId },
+          orderBy: { updatedAt: 'desc' },
+        }),
+        tx.outreachHealthEvent.findMany({
+          where: { workspaceId: tenant.workspaceId },
+          orderBy: { detectedAt: 'desc' },
+          take: 50,
+        }),
+      ]);
+      return { breakers, events };
+    });
   }
 
   private async recordWarning(

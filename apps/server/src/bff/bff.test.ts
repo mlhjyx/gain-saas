@@ -133,16 +133,18 @@ describe('BFF 路由表(SD7)', () => {
         jti: 'jti-1',
         exp: Math.floor(Date.now() / 1000) + 3600,
       };
+      const tenantPrisma: Record<string, unknown> = {
+        membership: {
+          findFirst: async () => ({
+            role,
+            workspace: { status: 'ACTIVE', onboardingCompletedAt: new Date(), onboardingCompanyId: 'c1' },
+          }),
+        },
+        withWorkspace: async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(tenantPrisma),
+      };
       const tenantGuard = new TenantGuard(
         { verify: async (token: string) => (token === 'tok' ? claims : null), needsRefresh: () => false } as never,
-        {
-          membership: {
-            findFirst: async () => ({
-              role,
-              workspace: { status: 'ACTIVE', onboardingCompletedAt: new Date(), onboardingCompanyId: 'c1' },
-            }),
-          },
-        } as never,
+        tenantPrisma as never,
       );
       const guard = new BffGuard(tenantGuard, new AdminGuard());
       let middleware!: (req: unknown, res: unknown, next: () => void) => Promise<void>;

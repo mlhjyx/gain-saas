@@ -118,20 +118,91 @@ export class OpsCampaignMetricsService {
   async campaignMetrics(query: CampaignMetricsQuery): Promise<CampaignMetricsResult> {
     const now = query.now ?? new Date();
     const { from, to } = query;
-    const workspaceFilter = query.workspaceId ? { workspaceId: query.workspaceId } : {};
 
-    const approvals = (await this.prisma.campaignApproval.findMany({
-      where: { ...workspaceFilter, createdAt: { gte: from, lt: to } },
-      select: {
-        id: true,
-        revisionId: true,
-        state: true,
-        decidedAt: true,
-        expiresAt: true,
-        createdAt: true,
-        revision: { select: { campaignId: true } },
-      },
-    })) as ApprovalRow[];
+    let approvals: ApprovalRow[];
+    let traces: TraceRow[];
+    let modification: CampaignMetricsResult['modification'];
+
+    if (query.workspaceId) {
+      const scoped = await this.prisma.withWorkspace(query.workspaceId, async (tx) => {
+        const approvalRows = (await tx.campaignApproval.findMany({
+          where: { workspaceId: query.workspaceId, createdAt: { gte: from, lt: to } },
+          select: {
+            id: true,
+            revisionId: true,
+            state: true,
+            decidedAt: true,
+            expiresAt: true,
+            createdAt: true,
+            revision: { select: { campaignId: true } },
+          },
+        })) as ApprovalRow[];
+        const approvedRevs = approvalRows.filter((row) => effectiveState(row, now) === 'APPROVED');
+        const mod = await this.modificationDistance(approvedRevs, {
+          loadByIds: (revisionIds) =>
+            tx.campaignRevision.findMany({
+              where: { id: { in: revisionIds } },
+              select: { id: true, campaignId: true, revisionNo: true, plan: true },
+            }) as Promise<RevisionRow[]>,
+          loadByCampaigns: (campaignIds) =>
+            tx.campaignRevision.findMany({
+              where: { campaignId: { in: campaignIds } },
+              select: { id: true, campaignId: true, revisionNo: true, plan: true },
+            }) as Promise<RevisionRow[]>,
+        });
+        const traceRows = (await tx.campaignDecisionTrace.findMany({
+          where: { decisionType: 'campaign.replan', workspaceId: query.workspaceId, createdAt: { gte: from, lt: to } },
+          select: { campaignId: true, costActualMicros: true },
+        })) as TraceRow[];
+        return { approvalRows, mod, traceRows };
+      });
+      approvals = scoped.approvalRows;
+      modification = scoped.mod;
+      traces = scoped.traceRows;
+    } else {
+      const rawApprovals = await this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          revision_id: string;
+          state: string;
+          decided_at: Date | null;
+          expires_at: Date;
+          created_at: Date;
+          campaign_id: string;
+        }>
+      >`SELECT id, revision_id, state, decided_at, expires_at, created_at, campaign_id FROM public.app_ops_campaign_approvals(NULL::uuid, ${from}, ${to})`;
+      approvals = rawApprovals.map((row) => ({
+        id: row.id,
+        revisionId: row.revision_id,
+        state: row.state,
+        decidedAt: row.decided_at,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        revision: { campaignId: row.campaign_id },
+      }));
+      const approvedRevs = approvals.filter((row) => effectiveState(row, now) === 'APPROVED');
+      modification = await this.modificationDistance(approvedRevs, {
+        loadByIds: async (revisionIds) => {
+          const rows = await this.prisma.$queryRaw<
+            Array<{ id: string; campaign_id: string; revision_no: number; plan: unknown }>
+          >`SELECT id, campaign_id, revision_no, plan FROM public.app_ops_campaign_revisions_by_ids(${revisionIds}::uuid[])`;
+          return rows.map((r) => ({ id: r.id, campaignId: r.campaign_id, revisionNo: r.revision_no, plan: r.plan }));
+        },
+        loadByCampaigns: async (campaignIds) => {
+          const rows = await this.prisma.$queryRaw<
+            Array<{ id: string; campaign_id: string; revision_no: number; plan: unknown }>
+          >`SELECT id, campaign_id, revision_no, plan FROM public.app_ops_campaign_revisions_by_campaigns(${campaignIds}::uuid[])`;
+          return rows.map((r) => ({ id: r.id, campaignId: r.campaign_id, revisionNo: r.revision_no, plan: r.plan }));
+        },
+      });
+      const rawTraces = await this.prisma.$queryRaw<
+        Array<{ campaign_id: string | null; cost_actual_micros: bigint | null }>
+      >`SELECT campaign_id, cost_actual_micros FROM public.app_ops_campaign_replan_traces(NULL::uuid, ${from}, ${to})`;
+      traces = rawTraces.map((row) => ({
+        campaignId: row.campaign_id,
+        costActualMicros: row.cost_actual_micros,
+      }));
+    }
 
     const buckets = new Map<string, { approved: number; declined: number; expired: number; pending: number }>();
     const totals = { approved: 0, declined: 0, expired: 0, pending: 0 };
@@ -166,15 +237,7 @@ export class OpsCampaignMetricsService {
         approvalRate: rate(b.approved, b.approved + b.declined + b.expired),
       }));
 
-    // 修改距离：批准 revision 与同 campaign 首稿（最小 revision_no）的结构 diff。
-    const approvedRevisions = approvals.filter((row) => effectiveState(row, now) === 'APPROVED');
-    const modification = await this.modificationDistance(approvedRevisions);
-
     // 重规划轮次：campaign.replan 轨迹行按 campaign 计数。
-    const traces = (await this.prisma.campaignDecisionTrace.findMany({
-      where: { decisionType: 'campaign.replan', ...workspaceFilter, createdAt: { gte: from, lt: to } },
-      select: { campaignId: true, costActualMicros: true },
-    })) as TraceRow[];
     const roundsByCampaign = new Map<string, number>();
     for (const trace of traces) {
       if (typeof trace.campaignId !== 'string') continue;
@@ -211,20 +274,18 @@ export class OpsCampaignMetricsService {
 
   private async modificationDistance(
     approvedRevisions: ApprovalRow[],
+    loader: {
+      loadByIds: (revisionIds: string[]) => Promise<RevisionRow[]>;
+      loadByCampaigns: (campaignIds: string[]) => Promise<RevisionRow[]>;
+    },
   ): Promise<CampaignMetricsResult['modification']> {
     if (approvedRevisions.length === 0) {
       return { approvedPlans: 0, meanDistance: null, zeroDistanceCount: 0, perCampaign: [] };
     }
     const revisionIds = [...new Set(approvedRevisions.map((row) => row.revisionId))];
-    const revisions = (await this.prisma.campaignRevision.findMany({
-      where: { id: { in: revisionIds } },
-      select: { id: true, campaignId: true, revisionNo: true, plan: true },
-    })) as RevisionRow[];
+    const revisions = await loader.loadByIds(revisionIds);
     const campaignIds = [...new Set(revisions.map((row) => row.campaignId))];
-    const allRevisions = (await this.prisma.campaignRevision.findMany({
-      where: { campaignId: { in: campaignIds } },
-      select: { id: true, campaignId: true, revisionNo: true, plan: true },
-    })) as RevisionRow[];
+    const allRevisions = await loader.loadByCampaigns(campaignIds);
     const firstByCampaign = new Map<string, RevisionRow>();
     for (const revision of allRevisions) {
       const current = firstByCampaign.get(revision.campaignId);

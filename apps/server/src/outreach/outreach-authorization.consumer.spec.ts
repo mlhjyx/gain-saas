@@ -31,6 +31,8 @@ class FakeAuthzPrisma {
   authorizations: Row[] = [];
   sends: Row[] = [];
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   readonly campaignExecutionAuthorization = {
     findFirst: async ({ where }: { where: Row }) =>
       this.authorizations.find(

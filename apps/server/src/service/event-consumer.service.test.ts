@@ -18,7 +18,8 @@ function createService(cursor: string | null) {
     taskRun: { updateMany: vi.fn(async () => ({ count: 0 })) },
     campaignPlanJob: { updateMany: vi.fn(async () => ({ count: 1 })) },
   };
-  const prisma = {
+  const prismaObj: Record<string, unknown> = {
+    $queryRaw: vi.fn(async () => [{ workspace_id: WORKSPACE, cursor }]),
     workspaceRegistry: {
       findMany: vi.fn(async () => [{ workspaceId: WORKSPACE, cursor }]),
       update,
@@ -30,7 +31,18 @@ function createService(cursor: string | null) {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
-  } as unknown as PrismaService;
+  };
+  prismaObj.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) =>
+    fn({
+      ...prismaObj,
+      ...tx,
+      eventInbox: {
+        ...(prismaObj.eventInbox as Record<string, unknown>),
+        ...tx.eventInbox,
+      },
+    }),
+  );
+  const prisma = prismaObj as unknown as PrismaService;
   const config = {
     EVENT_CONSUMER_ENABLED: true,
     EVENT_CONSUMER_PAGE_LIMIT: 100,
@@ -288,7 +300,8 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
   }) {
     const notificationCreate = vi.fn(async () => ({}));
     const notificationFindFirst = vi.fn(async () => (options.existing ? { id: 'n1' } : null));
-    const prisma = {
+    const prismaObj: Record<string, unknown> = {
+      $queryRaw: vi.fn(async () => [{ workspace_id: WORKSPACE, cursor: null }]),
       workspaceRegistry: {
         findMany: vi.fn(async () => [{ workspaceId: WORKSPACE, cursor: null }]),
         update: vi.fn(async () => ({})),
@@ -302,7 +315,11 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
       costLedger: { aggregate: vi.fn(async () => ({ _sum: { amountMicros: options.spentMicros ?? 0 } })) },
       discoveryRunLink: { count: vi.fn(async () => options.usedRuns ?? 0) },
       notification: { findFirst: notificationFindFirst, create: notificationCreate },
-    } as unknown as PrismaService;
+    };
+    prismaObj.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) =>
+      fn(prismaObj),
+    );
+    const prisma = prismaObj as unknown as PrismaService;
     const config = {
       EVENT_CONSUMER_ENABLED: true,
       EVENT_CONSUMER_PAGE_LIMIT: 100,

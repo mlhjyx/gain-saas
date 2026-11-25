@@ -94,26 +94,39 @@ export class OutreachExperimentsService {
       }
       campaignId = input.campaignId;
     }
-    const experiment = await this.prisma.outreachExperiment.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        campaignId,
-        name,
-        hypothesis,
-        primaryMetric,
-        design,
-        holdoutRatio,
-        assignmentSalt: randomBytes(32).toString('hex'),
-        strata:
-          input.strata === undefined
-            ? undefined
-            : (input.strata as Prisma.InputJsonValue),
-        analysisPlan:
-          input.analysisPlan === undefined
-            ? undefined
-            : (input.analysisPlan as Prisma.InputJsonValue),
-        createdBy: tenant.userId,
-      },
+    const experiment = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      if (campaignId !== null) {
+        const campaign = await tx.campaign.findFirst({
+          where: { id: campaignId, workspaceId: tenant.workspaceId },
+          select: { id: true },
+        });
+        if (!campaign) {
+          throw new NotFoundException({
+            error: { code: 'CAMPAIGN_NOT_FOUND', message: 'campaign 不存在' },
+          });
+        }
+      }
+      return tx.outreachExperiment.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          campaignId,
+          name,
+          hypothesis,
+          primaryMetric,
+          design,
+          holdoutRatio,
+          assignmentSalt: randomBytes(32).toString('hex'),
+          strata:
+            input.strata === undefined
+              ? undefined
+              : (input.strata as Prisma.InputJsonValue),
+          analysisPlan:
+            input.analysisPlan === undefined
+              ? undefined
+              : (input.analysisPlan as Prisma.InputJsonValue),
+          createdBy: tenant.userId,
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -127,11 +140,13 @@ export class OutreachExperimentsService {
   }
 
   async list(tenant: OutreachTenant) {
-    const rows = await this.prisma.outreachExperiment.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: { createdAt: 'desc' },
-      include: { assignments: { select: { arm: true } } },
-    });
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachExperiment.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: { createdAt: 'desc' },
+        include: { assignments: { select: { arm: true } } },
+      }),
+    );
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -153,27 +168,31 @@ export class OutreachExperimentsService {
 
   async get(tenant: OutreachTenant, experimentId: string) {
     if (!UUID_RE.test(experimentId)) notFound();
-    const row = await this.prisma.outreachExperiment.findFirst({
-      where: { id: experimentId, workspaceId: tenant.workspaceId },
-      include: { assignments: { orderBy: { assignedAt: 'asc' }, take: 500 } },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachExperiment.findFirst({
+        where: { id: experimentId, workspaceId: tenant.workspaceId },
+        include: { assignments: { orderBy: { assignedAt: 'asc' }, take: 500 } },
+      }),
+    );
     if (!row) notFound();
     return row;
   }
 
   async start(tenant: OutreachTenant, experimentId: string) {
-    const experiment = await this.requireExperiment(tenant, experimentId);
-    if (experiment.state !== 'DRAFT') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_EXPERIMENT_NOT_DRAFT',
-          message: `实验状态为 ${experiment.state}，只有 DRAFT 可以启动`,
-        },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const experiment = await this.requireExperimentTx(tx, tenant, experimentId);
+      if (experiment.state !== 'DRAFT') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_EXPERIMENT_NOT_DRAFT',
+            message: `实验状态为 ${experiment.state}，只有 DRAFT 可以启动`,
+          },
+        });
+      }
+      return tx.outreachExperiment.update({
+        where: { id: experimentId },
+        data: { state: 'RUNNING', startedAt: new Date() },
       });
-    }
-    const updated = await this.prisma.outreachExperiment.update({
-      where: { id: experimentId },
-      data: { state: 'RUNNING', startedAt: new Date() },
     });
     await this.audit.record({
       realm: 'tenant',
@@ -186,15 +205,17 @@ export class OutreachExperimentsService {
   }
 
   async archive(tenant: OutreachTenant, experimentId: string) {
-    const experiment = await this.requireExperiment(tenant, experimentId);
-    if (experiment.state === 'ARCHIVED') {
-      throw new ConflictException({
-        error: { code: 'OUTREACH_EXPERIMENT_ARCHIVED', message: '实验已归档' },
+    const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const experiment = await this.requireExperimentTx(tx, tenant, experimentId);
+      if (experiment.state === 'ARCHIVED') {
+        throw new ConflictException({
+          error: { code: 'OUTREACH_EXPERIMENT_ARCHIVED', message: '实验已归档' },
+        });
+      }
+      return tx.outreachExperiment.update({
+        where: { id: experimentId },
+        data: { state: 'ARCHIVED', endedAt: new Date() },
       });
-    }
-    const updated = await this.prisma.outreachExperiment.update({
-      where: { id: experimentId },
-      data: { state: 'ARCHIVED', endedAt: new Date() },
     });
     await this.audit.record({
       realm: 'tenant',
@@ -208,15 +229,6 @@ export class OutreachExperimentsService {
 
   /** 分配（仅 RUNNING）：确定性哈希 + createMany skipDuplicates，重复分配幂等。 */
   async assign(tenant: OutreachTenant, experimentId: string, input: AssignSubjectsInput) {
-    const experiment = await this.requireExperiment(tenant, experimentId);
-    if (experiment.state !== 'RUNNING') {
-      throw new ConflictException({
-        error: {
-          code: 'OUTREACH_EXPERIMENT_NOT_RUNNING',
-          message: '实验未处于 RUNNING，不能分配对象',
-        },
-      });
-    }
     const subjectType = input.subjectType === undefined ? 'account' : input.subjectType;
     if (
       typeof subjectType !== 'string' ||
@@ -232,35 +244,46 @@ export class OutreachExperimentsService {
     for (const ref of subjects) {
       if (typeof ref !== 'string' || !UUID_RE.test(ref)) invalid('subjectRefs 含非法 UUID');
     }
-    const data = subjects.map((subjectRef) => {
-      const bucket = assignmentBucket(
-        experiment.assignmentSalt,
-        experiment.id,
-        subjectRef as string,
-      );
-      return {
-        workspaceId: tenant.workspaceId,
-        experimentId: experiment.id,
-        subjectType,
-        subjectRef: subjectRef as string,
-        arm: decideArm(bucket, experiment.holdoutRatio),
-        bucket,
-      };
-    });
-    await this.prisma.outreachExperimentAssignment.createMany({ data, skipDuplicates: true });
-    const assignments = await this.prisma.outreachExperimentAssignment.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        experimentId: experiment.id,
-        subjectRef: { in: subjects as string[] },
-      },
+    const assignments = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const experiment = await this.requireExperimentTx(tx, tenant, experimentId);
+      if (experiment.state !== 'RUNNING') {
+        throw new ConflictException({
+          error: {
+            code: 'OUTREACH_EXPERIMENT_NOT_RUNNING',
+            message: '实验未处于 RUNNING，不能分配对象',
+          },
+        });
+      }
+      const data = subjects.map((subjectRef) => {
+        const bucket = assignmentBucket(
+          experiment.assignmentSalt,
+          experiment.id,
+          subjectRef as string,
+        );
+        return {
+          workspaceId: tenant.workspaceId,
+          experimentId: experiment.id,
+          subjectType,
+          subjectRef: subjectRef as string,
+          arm: decideArm(bucket, experiment.holdoutRatio),
+          bucket,
+        };
+      });
+      await tx.outreachExperimentAssignment.createMany({ data, skipDuplicates: true });
+      return tx.outreachExperimentAssignment.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          experimentId: experiment.id,
+          subjectRef: { in: subjects as string[] },
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
       workspaceId: tenant.workspaceId,
       action: 'outreach.experiment.assigned',
-      target: experiment.id,
+      target: experimentId,
       detail: {
         subjectType,
         count: assignments.length,
@@ -277,27 +300,33 @@ export class OutreachExperimentsService {
     contactRefs: readonly string[],
   ): Promise<Set<string>> {
     if (contactRefs.length === 0) return new Set();
-    const experiments = await this.prisma.outreachExperiment.findMany({
-      where: { workspaceId: tenant.workspaceId, campaignId, state: 'RUNNING' },
-      select: { id: true },
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const experiments = await tx.outreachExperiment.findMany({
+        where: { workspaceId: tenant.workspaceId, campaignId, state: 'RUNNING' },
+        select: { id: true },
+      });
+      if (experiments.length === 0) return new Set();
+      const assignments = await tx.outreachExperimentAssignment.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          experimentId: { in: experiments.map((experiment) => experiment.id) },
+          subjectType: 'contact',
+          arm: 'holdout',
+          subjectRef: { in: [...contactRefs] },
+        },
+        select: { subjectRef: true },
+      });
+      return new Set(assignments.map((assignment) => assignment.subjectRef));
     });
-    if (experiments.length === 0) return new Set();
-    const assignments = await this.prisma.outreachExperimentAssignment.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        experimentId: { in: experiments.map((experiment) => experiment.id) },
-        subjectType: 'contact',
-        arm: 'holdout',
-        subjectRef: { in: [...contactRefs] },
-      },
-      select: { subjectRef: true },
-    });
-    return new Set(assignments.map((assignment) => assignment.subjectRef));
   }
 
-  private async requireExperiment(tenant: OutreachTenant, experimentId: string) {
+  private async requireExperimentTx(
+    tx: Prisma.TransactionClient,
+    tenant: OutreachTenant,
+    experimentId: string,
+  ) {
     if (!UUID_RE.test(experimentId)) notFound();
-    const experiment = await this.prisma.outreachExperiment.findFirst({
+    const experiment = await tx.outreachExperiment.findFirst({
       where: { id: experimentId, workspaceId: tenant.workspaceId },
     });
     if (!experiment) notFound();

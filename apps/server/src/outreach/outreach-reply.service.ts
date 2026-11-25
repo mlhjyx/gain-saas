@@ -103,7 +103,7 @@ export class OutreachReplyService {
         ? input.suppress
         : shouldSuppressByDefault(kind, classification);
 
-    const row = await this.prisma.$transaction(async (tx) => {
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       if (saoId) {
         const sao = await tx.sao.findFirst({
           where: { id: saoId, workspaceId: tenant.workspaceId },
@@ -194,10 +194,12 @@ export class OutreachReplyService {
   }
 
   async list(tenant: OutreachTenant, limit = 100) {
-    return this.prisma.outreachReply.findMany({
-      where: { workspaceId: tenant.workspaceId },
-      orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
-      take: Math.min(Math.max(limit, 1), 200),
-    });
+    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachReply.findMany({
+        where: { workspaceId: tenant.workspaceId },
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+        take: Math.min(Math.max(limit, 1), 200),
+      }),
+    );
   }
 }

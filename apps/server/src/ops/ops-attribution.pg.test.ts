@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PrismaService } from '../shared/prisma.service.js';
 import type { OpsDatabase } from './ops-database.service.js';
 import { OpsAttributionService } from './ops-attribution.service.js';
 import {
@@ -28,6 +29,7 @@ if (!available) {
 describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL）', () => {
   let pg: DisposablePostgres;
   let prisma: PrismaClient;
+  let appPrisma: PrismaService;
   let service: OpsAttributionService;
 
   const ids = {
@@ -55,6 +57,8 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
   beforeAll(async () => {
     pg = startDisposablePostgres();
     prisma = new PrismaClient({ datasourceUrl: pg.databaseUrl });
+    appPrisma = new PrismaService({ datasourceUrl: pg.appDatabaseUrl, enforcePrincipal: true });
+    await appPrisma.verifyPrincipal();
     await seed();
 
     // 引擎侧真实形状：在本一次性库里建同名 usage_ledger 表，让对账 SQL 真被执行
@@ -85,10 +89,11 @@ describe.skipIf(!available)('归因视图与台账对账（disposable PostgreSQL
           }),
       },
     } as unknown as OpsDatabase;
-    service = new OpsAttributionService(database, prisma as never);
+    service = new OpsAttributionService(database, appPrisma);
   }, 900_000);
 
   afterAll(async () => {
+    await appPrisma?.onModuleDestroy().catch(() => undefined);
     await prisma?.$disconnect().catch(() => undefined);
     pg?.stop();
   }, 120_000);

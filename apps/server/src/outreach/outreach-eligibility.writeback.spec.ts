@@ -106,13 +106,26 @@ describe('OutreachBounceWritebackService', () => {
   function serviceWith(opts: { token?: string; status?: number; rows?: Array<Record<string, unknown>> } = {}) {
     const { engine, call } = engineWith([], opts.status ?? 200);
     const rows = (opts.rows ?? []) as Array<{ id: string; workspaceId: string; contactPointId: string; event: string; messageId: string; smtpCode: string | null; receivedAt: Date; attempts: number }>;
-    const prisma = {
+    const prisma: Record<string, unknown> = {
+      $queryRaw: vi.fn(async () =>
+        rows.map((r) => ({
+          id: r.id,
+          workspace_id: r.workspaceId,
+          contact_point_id: r.contactPointId,
+          event: r.event,
+          message_id: r.messageId,
+          smtp_code: r.smtpCode,
+          received_at: r.receivedAt,
+          attempts: r.attempts,
+        })),
+      ),
       outreachBounceWriteback: {
         create: vi.fn(async (args: { data: Record<string, unknown> }) => ({ ...args.data, id: 'w-1' })),
         findMany: vi.fn(async () => rows),
         update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => args.data),
       },
     };
+    prisma.withWorkspace = vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
     const service = new OutreachBounceWritebackService(
       prisma as never,
       engine,

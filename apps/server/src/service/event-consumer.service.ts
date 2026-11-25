@@ -117,24 +117,25 @@ export class EventConsumerService implements OnModuleInit {
     if (!this.config.EVENT_CONSUMER_ENABLED) {
       return { workspaces: 0, pulled: 0, acked: 0, skipped: 'EVENT_CONSUMER_ENABLED=false' };
     }
-    const registry = await this.prisma.workspaceRegistry.findMany({
-      where: { enabled: true, workspace: { status: 'ACTIVE' } },
-    });
+    const registry = await this.prisma.$queryRaw<Array<{ workspace_id: string; cursor: string | null }>>`
+      SELECT workspace_id, cursor FROM public.app_list_enabled_workspaces()
+    `;
     let pulled = 0;
     let acked = 0;
-    for (const ws of registry) {
+    for (const row of registry) {
+      const workspaceId = row.workspace_id;
       try {
-        await this.retryPendingProjections(ws.workspaceId);
-        const result = await this.consumeWorkspace(ws.workspaceId, ws.cursor);
+        await this.retryPendingProjections(workspaceId);
+        const result = await this.consumeWorkspace(workspaceId, row.cursor);
         pulled += result.pulled;
         acked += result.acked;
       } catch (err) {
-        this.logger.warn(`workspace ${ws.workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.name : 'UNKNOWN_ERROR'}`);
+        this.logger.warn(`workspace ${workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.name : 'UNKNOWN_ERROR'}`);
       }
       try {
-        await this.evaluateQuotaAlerts(ws.workspaceId);
+        await this.evaluateQuotaAlerts(workspaceId);
       } catch (err) {
-        this.logger.warn(`workspace ${ws.workspaceId} 配额告警评估失败(不影响事件消费): ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`workspace ${workspaceId} 配额告警评估失败(不影响事件消费): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     return { workspaces: registry.length, pulled, acked };
@@ -173,17 +174,22 @@ export class EventConsumerService implements OnModuleInit {
         }
         if (seenIds.has(event.eventId)) continue;
 
-        const inserted = await this.prisma.eventInbox.createMany({ data: event, skipDuplicates: true });
-        if (inserted.count === 0) {
-          const known = await this.prisma.eventInbox.findUnique({
-            where: { eventId: event.eventId },
-            select: { workspaceId: true },
-          });
-          if (known?.workspaceId !== workspaceId) {
-            this.logger.warn(`workspace ${workspaceId} event ${event.eventId} 收件箱归属无法确认，未 ACK`);
-            continue;
+        const inboxOutcome = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+          const inserted = await tx.eventInbox.createMany({ data: event, skipDuplicates: true });
+          if (inserted.count === 0) {
+            const known = await tx.eventInbox.findUnique({
+              where: { eventId: event.eventId },
+              select: { workspaceId: true },
+            });
+            return known?.workspaceId === workspaceId ? ('duplicate' as const) : ('foreign' as const);
           }
-        } else {
+          return 'inserted' as const;
+        });
+        if (inboxOutcome === 'foreign') {
+          this.logger.warn(`workspace ${workspaceId} event ${event.eventId} 收件箱归属无法确认，未 ACK`);
+          continue;
+        }
+        if (inboxOutcome === 'inserted') {
           pulled += 1;
           if (event.projectionStatus === 'PENDING') {
             await this.projectEvent(event);
@@ -211,10 +217,12 @@ export class EventConsumerService implements OnModuleInit {
         }
         const body = (await ackRes.json().catch(() => ({}))) as { data?: { acked?: number } };
         acked += body.data?.acked ?? ackIds.length;
-        await this.prisma.eventInbox.updateMany({
-          where: { workspaceId, eventId: { in: ackIds }, ackedAt: null },
-          data: { ackedAt: new Date() },
-        });
+        await this.prisma.withWorkspace(workspaceId, (tx) =>
+          tx.eventInbox.updateMany({
+            where: { workspaceId, eventId: { in: ackIds }, ackedAt: null },
+            data: { ackedAt: new Date() },
+          }),
+        );
       }
 
       const nextCursor = page.page?.next_cursor ?? null;
@@ -232,20 +240,22 @@ export class EventConsumerService implements OnModuleInit {
   }
 
   private async retryPendingProjections(workspaceId: string): Promise<void> {
-    const pending = await this.prisma.eventInbox.findMany({
-      where: { workspaceId, projectionStatus: 'PENDING', projectionNextAttemptAt: { lte: new Date() } },
-      orderBy: [{ projectionNextAttemptAt: 'asc' }, { eventId: 'asc' }],
-      take: this.config.EVENT_CONSUMER_PAGE_LIMIT,
-      select: {
-        eventId: true,
-        workspaceId: true,
-        type: true,
-        payload: true,
-        occurredAt: true,
-        aggregateId: true,
-        projectionAttempts: true,
-      },
-    });
+    const pending = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.eventInbox.findMany({
+        where: { workspaceId, projectionStatus: 'PENDING', projectionNextAttemptAt: { lte: new Date() } },
+        orderBy: [{ projectionNextAttemptAt: 'asc' }, { eventId: 'asc' }],
+        take: this.config.EVENT_CONSUMER_PAGE_LIMIT,
+        select: {
+          eventId: true,
+          workspaceId: true,
+          type: true,
+          payload: true,
+          occurredAt: true,
+          aggregateId: true,
+          projectionAttempts: true,
+        },
+      }),
+    );
     for (const event of pending) await this.projectEvent(event);
   }
 
@@ -257,7 +267,7 @@ export class EventConsumerService implements OnModuleInit {
       projectionAttempts: event.projectionAttempts,
     };
     try {
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.withWorkspace(event.workspaceId, async (tx) => {
         // The conditional update locks the pending row. This state and every effect commit together.
         const claimed = await tx.eventInbox.updateMany({
           where,
@@ -269,15 +279,17 @@ export class EventConsumerService implements OnModuleInit {
     } catch {
       const attempts = event.projectionAttempts + 1;
       const exhausted = attempts >= MAX_PROJECTION_ATTEMPTS;
-      const failure = await this.prisma.eventInbox.updateMany({
-        where,
-        data: {
-          projectionStatus: exhausted ? 'QUARANTINED' : 'PENDING',
-          projectionAttempts: attempts,
-          projectionNextAttemptAt: exhausted ? null : new Date(Date.now() + RETRY_DELAY_MS * 2 ** (attempts - 1)),
-          projectionError: 'PROJECTION_FAILED',
-        },
-      });
+      const failure = await this.prisma.withWorkspace(event.workspaceId, (tx) =>
+        tx.eventInbox.updateMany({
+          where,
+          data: {
+            projectionStatus: exhausted ? 'QUARANTINED' : 'PENDING',
+            projectionAttempts: attempts,
+            projectionNextAttemptAt: exhausted ? null : new Date(Date.now() + RETRY_DELAY_MS * 2 ** (attempts - 1)),
+            projectionError: 'PROJECTION_FAILED',
+          },
+        }),
+      );
       if (failure.count > 0) {
         this.logger.warn(
           `workspace ${event.workspaceId} event ${event.eventId} 派生失败，${exhausted ? '已隔离' : '等待重试'} (attempt=${attempts})`,
@@ -287,10 +299,12 @@ export class EventConsumerService implements OnModuleInit {
   }
 
   private async touchRegistry(workspaceId: string, cursor: string | null): Promise<void> {
-    await this.prisma.workspaceRegistry.update({
-      where: { workspaceId },
-      data: { cursor, lastPulledAt: new Date() },
-    });
+    await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.workspaceRegistry.update({
+        where: { workspaceId },
+        data: { cursor, lastPulledAt: new Date() },
+      }),
+    );
   }
 
   /**
@@ -300,41 +314,43 @@ export class EventConsumerService implements OnModuleInit {
    */
   private async evaluateQuotaAlerts(workspaceId: string): Promise<void> {
     if (!this.config.WORKSPACE_QUOTA_ENFORCE) return;
-    const policy = await this.prisma.workspaceBudgetPolicy.findUnique({ where: { workspaceId } });
-    if (!policy || !policy.enabled) return;
-    const since = new Date(Date.now() - policy.windowDays * 86_400_000);
-    const [spend, usedRuns] = await Promise.all([
-      this.prisma.costLedger.aggregate({
-        _sum: { amountMicros: true },
-        where: { workspaceId, occurredAt: { gte: since } },
-      }),
-      this.prisma.discoveryRunLink.count({
-        where: { workspaceId, createdAt: { gte: since } },
-      }),
-    ]);
-    const usedSpendMicros = BigInt(spend._sum.amountMicros ?? 0);
-    const maxSpendMicros = BigInt(policy.maxSpendMicros);
-    const spendRatio =
-      maxSpendMicros === 0n ? 1 : Number(usedSpendMicros) / Number(maxSpendMicros);
-    const runsRatio = policy.maxRuns <= 0 ? 1 : usedRuns / policy.maxRuns;
-    const ratio = Math.max(spendRatio, runsRatio);
-    const type =
-      ratio >= 1 ? 'WorkspaceQuotaExceeded' : ratio >= 0.8 ? 'WorkspaceQuotaWarning' : null;
-    if (!type) return;
-    const existing = await this.prisma.notification.findFirst({
-      where: { workspaceId, type, createdAt: { gte: since } },
-      select: { id: true },
-    });
-    if (existing) return;
-    const detail =
-      `花费 $${(Number(usedSpendMicros) / 1_000_000).toFixed(2)} / $${(Number(maxSpendMicros) / 1_000_000).toFixed(2)}，` +
-      `运行 ${usedRuns}/${policy.maxRuns} 次`;
-    const title =
-      type === 'WorkspaceQuotaExceeded'
-        ? `本期额度已用完（${detail}），新的寻源任务将被暂停`
-        : `额度提醒：已使用本期额度的 ${Math.min(999, Math.round(ratio * 100))}%（${detail}），接近上限`;
-    await this.prisma.notification.create({
-      data: { workspaceId, type, refId: null, title },
+    await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const policy = await tx.workspaceBudgetPolicy.findUnique({ where: { workspaceId } });
+      if (!policy || !policy.enabled) return;
+      const since = new Date(Date.now() - policy.windowDays * 86_400_000);
+      const [spend, usedRuns] = await Promise.all([
+        tx.costLedger.aggregate({
+          _sum: { amountMicros: true },
+          where: { workspaceId, occurredAt: { gte: since } },
+        }),
+        tx.discoveryRunLink.count({
+          where: { workspaceId, createdAt: { gte: since } },
+        }),
+      ]);
+      const usedSpendMicros = BigInt(spend._sum.amountMicros ?? 0);
+      const maxSpendMicros = BigInt(policy.maxSpendMicros);
+      const spendRatio =
+        maxSpendMicros === 0n ? 1 : Number(usedSpendMicros) / Number(maxSpendMicros);
+      const runsRatio = policy.maxRuns <= 0 ? 1 : usedRuns / policy.maxRuns;
+      const ratio = Math.max(spendRatio, runsRatio);
+      const type =
+        ratio >= 1 ? 'WorkspaceQuotaExceeded' : ratio >= 0.8 ? 'WorkspaceQuotaWarning' : null;
+      if (!type) return;
+      const existing = await tx.notification.findFirst({
+        where: { workspaceId, type, createdAt: { gte: since } },
+        select: { id: true },
+      });
+      if (existing) return;
+      const detail =
+        `花费 $${(Number(usedSpendMicros) / 1_000_000).toFixed(2)} / $${(Number(maxSpendMicros) / 1_000_000).toFixed(2)}，` +
+        `运行 ${usedRuns}/${policy.maxRuns} 次`;
+      const title =
+        type === 'WorkspaceQuotaExceeded'
+          ? `本期额度已用完（${detail}），新的寻源任务将被暂停`
+          : `额度提醒：已使用本期额度的 ${Math.min(999, Math.round(ratio * 100))}%（${detail}），接近上限`;
+      await tx.notification.create({
+        data: { workspaceId, type, refId: null, title },
+      });
     });
   }
 

@@ -69,10 +69,12 @@ describe('MembersController', () => {
     });
 
     it('changeRole: missing membership -> 404 NotFoundException NOT_FOUND + userCopy', async () => {
-      const prisma = {
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
           findFirst: vi.fn(async () => null),
         },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const err = await controller.changeRole(TARGET_MEMBERSHIP_ID, { role: 'member' }, makeReq()).catch((e: unknown) => e);
@@ -86,11 +88,13 @@ describe('MembersController', () => {
     });
 
     it('changeRole: demoting last admin -> 409 ConflictException LAST_ADMIN + userCopy', async () => {
-      const prisma = {
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
           findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'admin', status: 'active' })),
           count: vi.fn(async () => 1),
         },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const err = await controller.changeRole(TARGET_MEMBERSHIP_ID, { role: 'member' }, makeReq()).catch((e: unknown) => e);
@@ -104,10 +108,12 @@ describe('MembersController', () => {
     });
 
     it('remove: missing membership -> 404 NotFoundException NOT_FOUND + userCopy', async () => {
-      const prisma = {
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
           findFirst: vi.fn(async () => null),
         },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const err = await controller.remove(TARGET_MEMBERSHIP_ID, makeReq()).catch((e: unknown) => e);
@@ -121,10 +127,12 @@ describe('MembersController', () => {
     });
 
     it('remove: removing self -> 400 BadRequestException SELF_REMOVAL + userCopy', async () => {
-      const prisma = {
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
           findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: ADMIN_USER_ID, workspaceId: WS_ID, role: 'admin', status: 'active' })),
         },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const err = await controller.remove(TARGET_MEMBERSHIP_ID, makeReq(ADMIN_USER_ID)).catch((e: unknown) => e);
@@ -138,11 +146,13 @@ describe('MembersController', () => {
     });
 
     it('remove: removing last admin -> 409 ConflictException LAST_ADMIN + userCopy', async () => {
-      const prisma = {
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
           findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'admin', status: 'active' })),
           count: vi.fn(async () => 1),
         },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const err = await controller.remove(TARGET_MEMBERSHIP_ID, makeReq(ADMIN_USER_ID)).catch((e: unknown) => e);
@@ -158,24 +168,28 @@ describe('MembersController', () => {
 
   describe('happy paths & transactional session revocation', () => {
     it('changeRole updates role and records audit log', async () => {
-      const prisma = {
-        membership: {
-          findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'member', status: 'active' })),
-          update: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, role: 'admin' })),
-        },
-        auditLog: {
-          create: vi.fn(async () => ({ id: 'audit-1' })),
-        },
+      const membership = {
+        findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'member', status: 'active' })),
+        update: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, role: 'admin' })),
+      };
+      const auditLog = {
+        create: vi.fn(async () => ({ id: 'audit-1' })),
+      };
+      const prisma: Record<string, unknown> = {
+        $executeRaw: vi.fn(async () => 0),
+        membership,
+        auditLog,
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => unknown) => fn(prisma)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const result = await controller.changeRole(TARGET_MEMBERSHIP_ID, { role: 'admin' }, makeReq());
 
       expect(result).toEqual({ data: { id: TARGET_MEMBERSHIP_ID, role: 'admin' } });
-      expect(prisma.membership.update).toHaveBeenCalledWith({
+      expect(membership.update).toHaveBeenCalledWith({
         where: { id: TARGET_MEMBERSHIP_ID },
         data: { role: 'admin' },
       });
-      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      expect(auditLog.create).toHaveBeenCalledWith({
         data: { realm: 'tenant', actorId: ADMIN_USER_ID, workspaceId: WS_ID, action: 'members.change_role', target: TARGET_MEMBERSHIP_ID, detail: { role: 'admin' } },
       });
     });
@@ -188,7 +202,9 @@ describe('MembersController', () => {
         { jti: 's-other-user', realm: 'tenant', subjectType: 'user', subjectId: ADMIN_USER_ID, workspaceId: WS_ID, revokedAt: null as Date | null },
       ];
       const tx = {
+        $executeRaw: vi.fn(async () => 0),
         membership: {
+          findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'member', status: 'active' })),
           update: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, status: 'removed' })),
         },
         session: {
@@ -209,16 +225,13 @@ describe('MembersController', () => {
         },
       };
       const prisma = {
-        membership: {
-          findFirst: vi.fn(async () => ({ id: TARGET_MEMBERSHIP_ID, userId: TARGET_USER_ID, workspaceId: WS_ID, role: 'member', status: 'active' })),
-        },
-        $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
+        withWorkspace: vi.fn(async (_wid: string, fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
       };
       const controller = new MembersController(prisma as never, {} as never);
       const result = await controller.remove(TARGET_MEMBERSHIP_ID, makeReq());
 
       expect(result).toEqual({ data: { ok: true } });
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.withWorkspace).toHaveBeenCalledWith(WS_ID, expect.any(Function));
       expect(tx.membership.update).toHaveBeenCalledWith({
         where: { id: TARGET_MEMBERSHIP_ID },
         data: { status: 'removed' },

@@ -36,7 +36,7 @@ function buildService(options: {
   createJobError?: Error;
   triggerError?: Error;
 }) {
-  const prisma = {
+  const prismaObj: Record<string, unknown> = {
     campaignRevision: {
       findFirst: vi.fn(async () => (options.revision === undefined ? { id: REVISION, plan: plan(1) } : options.revision)),
     },
@@ -52,7 +52,9 @@ function buildService(options: {
       findFirst: vi.fn(async () => (options.campaign === undefined ? { id: CAMPAIGN, objective: '德国找分销商' } : options.campaign)),
     },
     campaignDecisionTrace: { create: vi.fn(async () => ({})) },
-  } as unknown as PrismaService;
+  };
+  prismaObj.withWorkspace = vi.fn(async (_wid: string, fn: (client: unknown) => Promise<unknown>) => fn(prismaObj));
+  const prisma = prismaObj as unknown as PrismaService;
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
   const engine = {
     trigger: vi.fn(async () => {

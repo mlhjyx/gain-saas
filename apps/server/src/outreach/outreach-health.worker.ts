@@ -36,13 +36,12 @@ export class OutreachHealthWorker implements OnModuleInit, OnModuleDestroy {
     if (this.running) return { workspaces: 0, opened: 0 };
     this.running = true;
     try {
-      const rows = await this.prisma.outreachMailbox.findMany({
-        distinct: ['workspaceId'],
-        select: { workspaceId: true },
-      });
+      const rows = await this.prisma.$queryRaw<Array<{ workspace_id: string }>>`
+        SELECT workspace_id FROM public.app_list_active_outreach_workspaces()
+      `;
       let opened = 0;
       for (const row of rows) {
-        const result = await this.health.evaluateWorkspace(row.workspaceId, now);
+        const result = await this.health.evaluateWorkspace(row.workspace_id, now);
         opened += result.opened;
       }
       return { workspaces: rows.length, opened };

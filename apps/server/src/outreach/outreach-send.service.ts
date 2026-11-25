@@ -155,18 +155,20 @@ export class OutreachSendService {
     tenant: OutreachTenant,
     batchId: string,
   ): Promise<OutreachSendSummary> {
-    const batch = await this.prisma.outreachBatch.findFirst({
-      where: { workspaceId: tenant.workspaceId, id: batchId },
-      include: {
-        drafts: { orderBy: { createdAt: 'asc' } },
-        approvals: {
-          where: { state: 'APPROVED' },
-          orderBy: { decidedAt: 'desc' },
-          take: 1,
+    const batch = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+        include: {
+          drafts: { orderBy: { createdAt: 'asc' } },
+          approvals: {
+            where: { state: 'APPROVED' },
+            orderBy: { decidedAt: 'desc' },
+            take: 1,
+          },
+          sends: true,
         },
-        sends: true,
-      },
-    });
+      }),
+    );
     if (!batch) notFound();
 
     try {
@@ -395,43 +397,45 @@ export class OutreachSendService {
           results.push({ draftId: draft.id, status: 'SHADOWED', error: plan.skip.code });
           continue;
         }
-        await this.prisma.$transaction([
-          this.prisma.outreachSend.create({
-            data: {
-              workspaceId: tenant.workspaceId,
-              batchId,
-              draftId: draft.id,
-              attempt,
-              recipientEmail: draft.recipientEmail,
-              subjectHash: hashDraftField(draft.subject),
-              bodyHash: hashDraftField(draft.body),
-              mailboxAddress: this.controls.mailboxAddress(),
-              authorizationId: grant.authorizationId,
-              status: 'SKIPPED',
-              error: plan.skip.code.slice(0, 1000),
-            },
-          }),
-          this.prisma.outreachDraft.update({
-            where: { id: draft.id },
-            data: { status: 'SKIPPED' },
-          }),
-          this.prisma.outreachBatchEvent.create({
-            data: {
-              workspaceId: tenant.workspaceId,
-              batchId,
-              type: 'DRAFT_SKIPPED',
-              actor: tenant.userId,
-              detail: {
+        await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+          Promise.all([
+            tx.outreachSend.create({
+              data: {
+                workspaceId: tenant.workspaceId,
+                batchId,
                 draftId: draft.id,
-                contactRef: draft.contactRef,
-                countryCode: plan.skip.countryCode,
-                jurisdictionPolicy: plan.skip.jurisdictionPolicy,
-                code: plan.skip.code,
-                reason: plan.skip.message,
-              } as Prisma.InputJsonValue,
-            },
-          }),
-        ]);
+                attempt,
+                recipientEmail: draft.recipientEmail,
+                subjectHash: hashDraftField(draft.subject),
+                bodyHash: hashDraftField(draft.body),
+                mailboxAddress: this.controls.mailboxAddress(),
+                authorizationId: grant.authorizationId,
+                status: 'SKIPPED',
+                error: plan.skip!.code.slice(0, 1000),
+              },
+            }),
+            tx.outreachDraft.update({
+              where: { id: draft.id },
+              data: { status: 'SKIPPED' },
+            }),
+            tx.outreachBatchEvent.create({
+              data: {
+                workspaceId: tenant.workspaceId,
+                batchId,
+                type: 'DRAFT_SKIPPED',
+                actor: tenant.userId,
+                detail: {
+                  draftId: draft.id,
+                  contactRef: draft.contactRef,
+                  countryCode: plan.skip!.countryCode,
+                  jurisdictionPolicy: plan.skip!.jurisdictionPolicy,
+                  code: plan.skip!.code,
+                  reason: plan.skip!.message,
+                } as Prisma.InputJsonValue,
+              },
+            }),
+          ]),
+        );
         skippedDraftIds.add(draft.id);
         results.push({ draftId: draft.id, status: 'SKIPPED', error: plan.skip.code });
         continue;
@@ -511,32 +515,34 @@ export class OutreachSendService {
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
           },
         });
-        await this.prisma.$transaction([
-          this.prisma.outreachSend.create({
-            data: {
-              workspaceId: tenant.workspaceId,
-              batchId,
-              draftId: draft.id,
-              attempt,
-              recipientEmail: draft.recipientEmail,
-              subjectHash: hashDraftField(draft.subject),
-              bodyHash: hashDraftField(draft.body),
-              mailboxAddress: this.controls.mailboxAddress(),
-              authorizationId: grant.authorizationId,
-              authorizationUse,
-              messageId,
-              status: 'SENT',
-              // SMTP DATA 被 250 接受即为成功（P4-04 遥测）。
-              smtpStatusCode: 250,
-              sentAt: new Date(),
-              latencyMs: Date.now() - attemptStartedAt,
-            },
-          }),
-          this.prisma.outreachDraft.update({
-            where: { id: draft.id },
-            data: { status: 'SENT' },
-          }),
-        ]);
+        await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+          Promise.all([
+            tx.outreachSend.create({
+              data: {
+                workspaceId: tenant.workspaceId,
+                batchId,
+                draftId: draft.id,
+                attempt,
+                recipientEmail: draft.recipientEmail,
+                subjectHash: hashDraftField(draft.subject),
+                bodyHash: hashDraftField(draft.body),
+                mailboxAddress: this.controls.mailboxAddress(),
+                authorizationId: grant.authorizationId,
+                authorizationUse,
+                messageId,
+                status: 'SENT',
+                // SMTP DATA 被 250 接受即为成功（P4-04 遥测）。
+                smtpStatusCode: 250,
+                sentAt: new Date(),
+                latencyMs: Date.now() - attemptStartedAt,
+              },
+            }),
+            tx.outreachDraft.update({
+              where: { id: draft.id },
+              data: { status: 'SENT' },
+            }),
+          ]),
+        );
         this.controls.recordSent(controlState, draft.recipientEmail);
         if (mailboxAsset) {
           await this.mailboxes.recordSend(mailboxAsset, draft.recipientEmail, now).catch(async () => {
@@ -550,32 +556,34 @@ export class OutreachSendService {
       } catch (error) {
         const telemetry = smtpFailureTelemetry(error);
         const message = telemetry.smtpResponse ?? (error instanceof Error ? error.message : '发送失败');
-        await this.prisma.$transaction([
-          this.prisma.outreachSend.create({
-            data: {
-              workspaceId: tenant.workspaceId,
-              batchId,
-              draftId: draft.id,
-              attempt,
-              recipientEmail: draft.recipientEmail,
-              subjectHash: hashDraftField(draft.subject),
-              bodyHash: hashDraftField(draft.body),
-              mailboxAddress: this.controls.mailboxAddress(),
-              authorizationId: grant.authorizationId,
-              authorizationUse,
-              status: 'FAILED',
-              error: message.slice(0, 1000),
-              smtpStatusCode: telemetry.smtpStatusCode,
-              smtpResponse: telemetry.smtpResponse,
-              bounceType: telemetry.bounceType,
-              latencyMs: Date.now() - attemptStartedAt,
-            },
-          }),
-          this.prisma.outreachDraft.update({
-            where: { id: draft.id },
-            data: { status: 'FAILED' },
-          }),
-        ]);
+        await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+          Promise.all([
+            tx.outreachSend.create({
+              data: {
+                workspaceId: tenant.workspaceId,
+                batchId,
+                draftId: draft.id,
+                attempt,
+                recipientEmail: draft.recipientEmail,
+                subjectHash: hashDraftField(draft.subject),
+                bodyHash: hashDraftField(draft.body),
+                mailboxAddress: this.controls.mailboxAddress(),
+                authorizationId: grant.authorizationId,
+                authorizationUse,
+                status: 'FAILED',
+                error: message.slice(0, 1000),
+                smtpStatusCode: telemetry.smtpStatusCode,
+                smtpResponse: telemetry.smtpResponse,
+                bounceType: telemetry.bounceType,
+                latencyMs: Date.now() - attemptStartedAt,
+              },
+            }),
+            tx.outreachDraft.update({
+              where: { id: draft.id },
+              data: { status: 'FAILED' },
+            }),
+          ]),
+        );
         if (telemetry.bounceType === 'HARD') {
           if (mailboxAsset) {
             await this.mailboxes.recordHardBounce(mailboxAsset.workspaceId, mailboxAsset.id, now).catch(() => undefined);
@@ -623,47 +631,53 @@ export class OutreachSendService {
     ).length;
 
     if (allSent) {
-      await this.prisma.$transaction([
-        this.prisma.outreachBatch.update({
-          where: { id: batchId },
-          data: { status: 'SENT' },
-        }),
-        this.prisma.outreachBatchEvent.create({
-          data: {
-            workspaceId: tenant.workspaceId,
-            batchId,
-            type: 'BATCH_SENT',
-            actor: tenant.userId,
-            detail: { sent, failed },
-          },
-        }),
-      ]);
+      await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        Promise.all([
+          tx.outreachBatch.update({
+            where: { id: batchId },
+            data: { status: 'SENT' },
+          }),
+          tx.outreachBatchEvent.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              batchId,
+              type: 'BATCH_SENT',
+              actor: tenant.userId,
+              detail: { sent, failed },
+            },
+          }),
+        ]),
+      );
     } else if (allTerminal) {
-      await this.prisma.$transaction([
-        this.prisma.outreachBatch.update({
-          where: { id: batchId },
-          data: { status: 'COMPLETED' },
-        }),
-        this.prisma.outreachBatchEvent.create({
+      await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        Promise.all([
+          tx.outreachBatch.update({
+            where: { id: batchId },
+            data: { status: 'COMPLETED' },
+          }),
+          tx.outreachBatchEvent.create({
+            data: {
+              workspaceId: tenant.workspaceId,
+              batchId,
+              type: 'BATCH_COMPLETED',
+              actor: tenant.userId,
+              detail: { sent, failed, skipped },
+            },
+          }),
+        ]),
+      );
+    } else if (results.length > 0) {
+      await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+        tx.outreachBatchEvent.create({
           data: {
             workspaceId: tenant.workspaceId,
             batchId,
-            type: 'BATCH_COMPLETED',
+            type: 'BATCH_SEND_PARTIAL',
             actor: tenant.userId,
-            detail: { sent, failed, skipped },
+            detail: { sent, failed, skipped, deferred: deferredCount, shadowed: shadowedCount, remaining },
           },
         }),
-      ]);
-    } else if (results.length > 0) {
-      await this.prisma.outreachBatchEvent.create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          type: 'BATCH_SEND_PARTIAL',
-          actor: tenant.userId,
-          detail: { sent, failed, skipped, deferred: deferredCount, shadowed: shadowedCount, remaining },
-        },
-      });
+      );
     }
 
     await this.audit.record({
@@ -708,23 +722,25 @@ export class OutreachSendService {
     detail: Record<string, unknown>,
   ): Promise<void> {
     // 不顺延吞错：影子/顺延事件是这两种运行状态的唯一证据，写失败必须暴露。
-    await this.prisma.outreachBatchEvent.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        batchId,
-        type,
-        actor: tenant.userId,
-        detail: {
-          draftId: draft.id,
-          contactRef: draft.contactRef,
-          countryCode: normalizeCountry(draft.countryCode),
-          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
-            companyName: draft.companyName,
-          }),
-          ...detail,
-        } as Prisma.InputJsonValue,
-      },
-    });
+    await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatchEvent.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          type,
+          actor: tenant.userId,
+          detail: {
+            draftId: draft.id,
+            contactRef: draft.contactRef,
+            countryCode: normalizeCountry(draft.countryCode),
+            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+              companyName: draft.companyName,
+            }),
+            ...detail,
+          } as Prisma.InputJsonValue,
+        },
+      }),
+    );
   }
 
   /**
@@ -738,16 +754,18 @@ export class OutreachSendService {
     message: string,
     status: 'conflict' | 'unavailable' = 'conflict',
   ): Promise<never> {
-    await this.prisma.outreachBatchEvent
-      .create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          type: 'BATCH_REJECTED',
-          actor: tenant.userId,
-          detail: { code, message } as Prisma.InputJsonValue,
-        },
-      })
+    await this.prisma
+      .withWorkspace(tenant.workspaceId, (tx) =>
+        tx.outreachBatchEvent.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            batchId,
+            type: 'BATCH_REJECTED',
+            actor: tenant.userId,
+            detail: { code, message } as Prisma.InputJsonValue,
+          },
+        }),
+      )
       .catch(() => undefined);
     await this.persistAuditPackage(tenant, batchId, tenant.userId).catch(() => undefined);
     await this.audit
@@ -786,14 +804,16 @@ export class OutreachSendService {
     if (drafts.length === 0) return result;
 
     const contactRefs = [...new Set(drafts.map((draft) => draft.contactRef))];
-    const consents = await this.prisma.outreachConsent.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        channel: 'email',
-        contactRef: { in: contactRefs },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const consents = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachConsent.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          channel: 'email',
+          contactRef: { in: contactRefs },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
     const latest = new Map<string, (typeof consents)[number]>();
     for (const consent of consents) {
       if (!latest.has(consent.contactRef)) latest.set(consent.contactRef, consent);
@@ -916,20 +936,22 @@ export class OutreachSendService {
    */
   async getAuditPackage(tenant: OutreachTenant, batchId: string) {
     if (!UUID_RE.test(batchId)) notFound();
-    const assembled = await this.assembleAuditPackage(tenant, batchId);
-    if (!assembled) notFound();
-    const persisted = await this.prisma.outreachAuditPackage.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        batchId,
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const assembled = await this.assembleAuditPackageTx(tx, tenant, batchId);
+      if (!assembled) notFound();
+      const persisted = await tx.outreachAuditPackage.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          packageHash: assembled.packageHash,
+        },
+      });
+      return {
+        package: assembled.package,
         packageHash: assembled.packageHash,
-      },
+        persistedAt: persisted?.createdAt ?? null,
+      };
     });
-    return {
-      package: assembled.package,
-      packageHash: assembled.packageHash,
-      persistedAt: persisted?.createdAt ?? null,
-    };
   }
 
   private async persistAuditPackage(
@@ -937,29 +959,35 @@ export class OutreachSendService {
     batchId: string,
     actor: string,
   ) {
-    const assembled = await this.assembleAuditPackage(tenant, batchId);
-    if (!assembled) return;
-    const exists = await this.prisma.outreachAuditPackage.findFirst({
-      where: { batchId, packageHash: assembled.packageHash },
-      select: { id: true },
+    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const assembled = await this.assembleAuditPackageTx(tx, tenant, batchId);
+      if (!assembled) return;
+      const exists = await tx.outreachAuditPackage.findFirst({
+        where: { batchId, packageHash: assembled.packageHash },
+        select: { id: true },
+      });
+      if (exists) return;
+      await tx.outreachAuditPackage
+        .create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            batchId,
+            contentHash: assembled.contentHash,
+            package: assembled.package as Prisma.InputJsonValue,
+            packageHash: assembled.packageHash,
+            createdBy: actor,
+          },
+        })
+        .catch(() => undefined);
     });
-    if (exists) return;
-    await this.prisma.outreachAuditPackage
-      .create({
-        data: {
-          workspaceId: tenant.workspaceId,
-          batchId,
-          contentHash: assembled.contentHash,
-          package: assembled.package as Prisma.InputJsonValue,
-          packageHash: assembled.packageHash,
-          createdBy: actor,
-        },
-      })
-      .catch(() => undefined);
   }
 
-  private async assembleAuditPackage(tenant: OutreachTenant, batchId: string) {
-    const batch = await this.prisma.outreachBatch.findFirst({
+  private async assembleAuditPackageTx(
+    tx: Prisma.TransactionClient,
+    tenant: OutreachTenant,
+    batchId: string,
+  ) {
+    const batch = await tx.outreachBatch.findFirst({
       where: { workspaceId: tenant.workspaceId, id: batchId },
       include: {
         drafts: { orderBy: { createdAt: 'asc' } },
@@ -973,7 +1001,7 @@ export class OutreachSendService {
     const contactRefs = [...new Set(batch.drafts.map((draft) => draft.contactRef))];
     const consents =
       contactRefs.length > 0
-        ? await this.prisma.outreachConsent.findMany({
+        ? await tx.outreachConsent.findMany({
             where: {
               workspaceId: tenant.workspaceId,
               channel: 'email',
@@ -997,21 +1025,21 @@ export class OutreachSendService {
     const senderDomain = senderAddress?.split('@')[1];
     const [mailboxAsset, domainRow, breakers] = await Promise.all([
       senderAddress
-        ? this.prisma.outreachMailbox.findFirst({
+        ? tx.outreachMailbox.findFirst({
             where: { workspaceId: tenant.workspaceId, address: senderAddress },
           })
         : Promise.resolve(null),
       senderDomain
-        ? this.prisma.outreachDomain.findFirst({
+        ? tx.outreachDomain.findFirst({
             where: { workspaceId: tenant.workspaceId, domain: senderDomain },
           })
         : Promise.resolve(null),
-      this.prisma.outreachBreaker.findMany({
+      tx.outreachBreaker.findMany({
         where: { workspaceId: tenant.workspaceId },
       }),
     ]);
     const latestSeed = domainRow
-      ? await this.prisma.outreachSeedTest.findFirst({
+      ? await tx.outreachSeedTest.findFirst({
           where: { domainId: domainRow.id },
           orderBy: { testedAt: 'desc' },
         })

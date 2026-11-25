@@ -8,7 +8,11 @@ describe('租户声明只读历史（2026-11-04 取消租户声明）', () => {
       { id: 'd1', workspaceId: 'w1', version: 1, basis: 'consent', declaredAt: new Date('2026-11-02T10:00:00Z') },
     ];
     const findMany = vi.fn(async () => rows);
-    const service = new ComplianceDeclarationService({ workspaceComplianceDeclaration: { findMany } } as never);
+    const prisma: Record<string, unknown> = {
+      workspaceComplianceDeclaration: { findMany },
+      withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+    };
+    const service = new ComplianceDeclarationService(prisma as never);
     await expect(service.history('w1')).resolves.toEqual(rows);
     expect(findMany).toHaveBeenCalledWith({
       where: { workspaceId: 'w1' },
@@ -18,9 +22,11 @@ describe('租户声明只读历史（2026-11-04 取消租户声明）', () => {
   });
 
   it('returns an empty history for a workspace that never declared', async () => {
-    const service = new ComplianceDeclarationService({
+    const prisma: Record<string, unknown> = {
       workspaceComplianceDeclaration: { findMany: vi.fn(async () => []) },
-    } as never);
+      withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+    };
+    const service = new ComplianceDeclarationService(prisma as never);
     await expect(service.history('w2')).resolves.toEqual([]);
   });
 });

@@ -9,6 +9,11 @@ const schema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().default(4020),
   DATABASE_URL: z.string().min(1, 'SaaS 自有库连接串必填(postgresql://...)'),
+  // 运行时低权限非 owner 连接串(gain_saas_app):生产必填,fail-closed;非生产缺省回退 DATABASE_URL
+  APP_DATABASE_URL: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1, 'APP_DATABASE_URL 不能为空').optional(),
+  ),
   ENGINE_ORIGIN: z.string().default('http://127.0.0.1:3000'),
   ENGINE_OPENAPI_URL: z.string().default('http://127.0.0.1:3000/api/docs-json'),
   TEMPORAL_ADDRESS: z.string().default('127.0.0.1:7233'),
@@ -356,6 +361,13 @@ const schema = z.object({
   // 撤销 target 的候选上限：只在该 schedule 最近 N 张未过期的 Grant 里找 locator。
   R4_REVOCATION_MAX_TARGET_CANDIDATES: z.coerce.number().int().min(1).max(32).default(8),
 }).superRefine((data, ctx) => {
+  if (data.NODE_ENV === 'production' && !data.APP_DATABASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['APP_DATABASE_URL'],
+      message: '生产环境必须配置低权限非 owner 连接串 APP_DATABASE_URL (gain_saas_app)',
+    });
+  }
   if (data.NODE_ENV === 'production' && !data.OPS_SESSION_SECRET) {
     ctx.addIssue({
       code: 'custom',

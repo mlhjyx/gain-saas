@@ -123,12 +123,12 @@ export class OutreachSenderWorker implements OnModuleInit, OnModuleDestroy {
 
     if (!outcome.acquired) {
       // 另一个 worker 正在推进该批次：整组推迟，避免与对方竞争台账。
-      await this.jobs.reschedule(ids, new Date(now.getTime() + 60_000), 'BATCH_LOCK_BUSY');
+      await this.jobs.reschedule(workspaceId, ids, new Date(now.getTime() + 60_000), 'BATCH_LOCK_BUSY');
       summary.locked += ids.length;
       return;
     }
     if (sendErrorCode === 'OUTREACH_BATCH_NOT_FOUND') {
-      await this.jobs.markCancelled(ids);
+      await this.jobs.markCancelled(workspaceId, ids);
       summary.cancelled += ids.length;
       return;
     }
@@ -137,22 +137,25 @@ export class OutreachSenderWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const drafts = await this.prisma.outreachDraft.findMany({
-      where: { id: { in: jobs.map((job) => job.draftId) } },
-      select: { id: true, status: true },
-    });
+    const drafts = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.outreachDraft.findMany({
+        where: { id: { in: jobs.map((job) => job.draftId) } },
+        select: { id: true, status: true },
+      }),
+    );
     const statusById = new Map(drafts.map((draft) => [draft.id, draft.status]));
     for (const job of jobs) {
       const status = statusById.get(job.draftId);
       if (status === 'SENT' || status === 'SKIPPED') {
-        await this.jobs.markDone([job.id]);
+        await this.jobs.markDone(workspaceId, [job.id]);
         summary.done += 1;
       } else if (status === 'FAILED') {
         if (job.attempts >= this.maxAttempts) {
-          await this.jobs.markFailed([job.id], 'SMTP_DELIVERY_FAILED');
+          await this.jobs.markFailed(workspaceId, [job.id], 'SMTP_DELIVERY_FAILED');
           summary.failed += 1;
         } else {
           await this.jobs.reschedule(
+            workspaceId,
             [job.id],
             new Date(now.getTime() + this.backoffSeconds(job.attempts) * 1000),
             'SMTP_DELIVERY_FAILED',
@@ -162,6 +165,7 @@ export class OutreachSenderWorker implements OnModuleInit, OnModuleDestroy {
       } else {
         // 顺延（窗口/限速/额度/半开小批）：草稿保持待发，稍后重试。
         await this.jobs.reschedule(
+          workspaceId,
           [job.id],
           new Date(now.getTime() + this.deferSeconds * 1000),
           'DEFERRED',
@@ -179,10 +183,11 @@ export class OutreachSenderWorker implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     for (const job of jobs) {
       if (job.attempts >= this.maxAttempts) {
-        await this.jobs.markFailed([job.id], code);
+        await this.jobs.markFailed(job.workspaceId, [job.id], code);
         summary.failed += 1;
       } else {
         await this.jobs.reschedule(
+          job.workspaceId,
           [job.id],
           new Date(now.getTime() + this.backoffSeconds(job.attempts) * 1000),
           code,

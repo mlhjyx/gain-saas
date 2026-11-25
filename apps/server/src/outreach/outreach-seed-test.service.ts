@@ -73,26 +73,28 @@ export class OutreachSeedTestService {
     const gmailInboxPct = percent(input.gmailInboxPct, 'gmailInboxPct');
     const outlookInboxPct = percent(input.outlookInboxPct, 'outlookInboxPct');
 
-    const domainRow = await this.prisma.outreachDomain.upsert({
-      where: { workspaceId_domain: { workspaceId: tenant.workspaceId, domain } },
-      create: { workspaceId: tenant.workspaceId, domain, kind: 'cold_outbound', state: 'ACTIVE' },
-      update: {},
-    });
-    const row = await this.prisma.outreachSeedTest.create({
-      data: {
-        workspaceId: tenant.workspaceId,
-        domainId: domainRow.id,
-        provider: input.provider,
-        testedAt,
-        inboxPct,
-        spamPct,
-        missingPct,
-        gmailInboxPct,
-        outlookInboxPct,
-        reportRef,
-        contentHash,
-        ...(input.raw !== undefined ? { raw: input.raw as Prisma.InputJsonValue } : {}),
-      },
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const domainRow = await tx.outreachDomain.upsert({
+        where: { workspaceId_domain: { workspaceId: tenant.workspaceId, domain } },
+        create: { workspaceId: tenant.workspaceId, domain, kind: 'cold_outbound', state: 'ACTIVE' },
+        update: {},
+      });
+      return tx.outreachSeedTest.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          domainId: domainRow.id,
+          provider: input.provider as string,
+          testedAt,
+          inboxPct,
+          spamPct,
+          missingPct,
+          gmailInboxPct,
+          outlookInboxPct,
+          reportRef,
+          contentHash,
+          ...(input.raw !== undefined ? { raw: input.raw as Prisma.InputJsonValue } : {}),
+        },
+      });
     });
     await this.audit.record({
       realm: 'tenant',
@@ -106,29 +108,31 @@ export class OutreachSeedTestService {
   }
 
   async list(tenant: OutreachTenant, domain?: string) {
-    const where: Prisma.OutreachSeedTestWhereInput = {
-      workspaceId: tenant.workspaceId,
-    };
-    if (domain) {
-      const domainRow = await this.prisma.outreachDomain.findUnique({
-        where: {
-          workspaceId_domain: {
-            workspaceId: tenant.workspaceId,
-            domain: domain.trim().toLowerCase(),
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const where: Prisma.OutreachSeedTestWhereInput = {
+        workspaceId: tenant.workspaceId,
+      };
+      if (domain) {
+        const domainRow = await tx.outreachDomain.findUnique({
+          where: {
+            workspaceId_domain: {
+              workspaceId: tenant.workspaceId,
+              domain: domain.trim().toLowerCase(),
+            },
           },
-        },
-      });
-      if (!domainRow) {
-        throw new NotFoundException({
-          error: { code: 'OUTREACH_DOMAIN_NOT_FOUND', message: '发件域不存在' },
         });
+        if (!domainRow) {
+          throw new NotFoundException({
+            error: { code: 'OUTREACH_DOMAIN_NOT_FOUND', message: '发件域不存在' },
+          });
+        }
+        where.domainId = domainRow.id;
       }
-      where.domainId = domainRow.id;
-    }
-    return this.prisma.outreachSeedTest.findMany({
-      where,
-      orderBy: { testedAt: 'desc' },
-      take: 100,
+      return tx.outreachSeedTest.findMany({
+        where,
+        orderBy: { testedAt: 'desc' },
+        take: 100,
+      });
     });
   }
 }

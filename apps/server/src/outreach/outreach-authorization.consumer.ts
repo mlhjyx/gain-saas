@@ -134,9 +134,11 @@ export class OutreachAuthorizationConsumer {
         '批次未绑定执行授权（ExecutionAuthorization），拒绝发送',
       );
     }
-    const row = await this.prisma.campaignExecutionAuthorization.findFirst({
-      where: { id: batch.authorizationId, workspaceId: tenant.workspaceId },
-    });
+    const row = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.campaignExecutionAuthorization.findFirst({
+        where: { id: batch.authorizationId!, workspaceId: tenant.workspaceId },
+      }),
+    );
     if (!row) {
       reject('CAMPAIGN_AUTHORIZATION_INVALID', '执行授权不存在或不属于当前工作空间');
     }
@@ -247,16 +249,18 @@ export class OutreachAuthorizationConsumer {
     }
 
     // 只统计「本张授权」已消费的草稿：批次改绑新授权后，旧授权的消费不抵扣新授权。
-    const consumedRows = await this.prisma.outreachSend.findMany({
-      where: {
-        workspaceId: tenant.workspaceId,
-        batchId: batch.id,
-        authorizationId: row.id,
-        draftId: { in: drafts.map((draft) => draft.id) },
-        authorizationUse: { not: null },
-      },
-      select: { draftId: true },
-    });
+    const consumedRows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachSend.findMany({
+        where: {
+          workspaceId: tenant.workspaceId,
+          batchId: batch.id,
+          authorizationId: row.id,
+          draftId: { in: drafts.map((draft) => draft.id) },
+          authorizationUse: { not: null },
+        },
+        select: { draftId: true },
+      }),
+    );
     const consumedDraftIds = new Set(consumedRows.map((row) => row.draftId as string));
     // 只为本切片里「尚未消费过」的草稿要 uses（重试沿用旧序号，不重复计数）。
     const neededUses = pendingDraftIds.filter((id) => !consumedDraftIds.has(id)).length;
@@ -295,38 +299,40 @@ export class OutreachAuthorizationConsumer {
     if (grant.expiresAt.getTime() <= Date.now()) {
       reject('CAMPAIGN_AUTHORIZATION_EXPIRED', '执行授权在发送过程中过期，拒绝继续发送');
     }
-    const existing = await this.prisma.outreachSend.findFirst({
-      where: {
-        workspaceId: tenant.workspaceId,
-        batchId: grant.batchId,
-        draftId,
-        authorizationId: grant.authorizationId,
-        authorizationUse: { not: null },
-      },
-      select: { authorizationUse: true },
+    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const existing = await tx.outreachSend.findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          batchId: grant.batchId,
+          draftId,
+          authorizationId: grant.authorizationId,
+          authorizationUse: { not: null },
+        },
+        select: { authorizationUse: true },
+      });
+      if (existing?.authorizationUse !== null && existing?.authorizationUse !== undefined) {
+        return existing.authorizationUse as number;
+      }
+      const updated = await tx.campaignExecutionAuthorization.updateMany({
+        where: {
+          id: grant.authorizationId,
+          workspaceId: tenant.workspaceId,
+          state: 'ISSUED',
+          uses: { lt: grant.maxUses },
+        },
+        data: { uses: { increment: 1 } },
+      });
+      if (updated.count === 0) {
+        reject('CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED', '执行授权次数已耗尽，拒绝发送');
+      }
+      const row = await tx.campaignExecutionAuthorization.findUnique({
+        where: { id: grant.authorizationId },
+        select: { uses: true },
+      });
+      const use = row?.uses ?? grant.usedUses + 1;
+      grant.usedUses = use;
+      grant.remainingUses = Math.max(grant.maxUses - use, 0);
+      return use;
     });
-    if (existing?.authorizationUse !== null && existing?.authorizationUse !== undefined) {
-      return existing.authorizationUse as number;
-    }
-    const updated = await this.prisma.campaignExecutionAuthorization.updateMany({
-      where: {
-        id: grant.authorizationId,
-        workspaceId: tenant.workspaceId,
-        state: 'ISSUED',
-        uses: { lt: grant.maxUses },
-      },
-      data: { uses: { increment: 1 } },
-    });
-    if (updated.count === 0) {
-      reject('CAMPAIGN_AUTHORIZATION_USES_EXHAUSTED', '执行授权次数已耗尽，拒绝发送');
-    }
-    const row = await this.prisma.campaignExecutionAuthorization.findUnique({
-      where: { id: grant.authorizationId },
-      select: { uses: true },
-    });
-    const use = row?.uses ?? grant.usedUses + 1;
-    grant.usedUses = use;
-    grant.remainingUses = Math.max(grant.maxUses - use, 0);
-    return use;
   }
 }

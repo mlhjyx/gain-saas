@@ -79,6 +79,8 @@ class FakeSendPrisma {
     return `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`;
   }
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   private view(row: Row, include?: Row): Row {
     if (!include) return { ...row };
     const view: Row = { ...row };

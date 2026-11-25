@@ -18,6 +18,8 @@ class FakeT0Prisma {
   consents: Row[] = [];
   audits: Row[] = [];
 
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
+
   readonly outreachConsent = {
     findFirst: async ({ where }: { where: Row }) =>
       [...this.consents]

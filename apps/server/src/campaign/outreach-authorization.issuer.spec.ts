@@ -113,6 +113,7 @@ class FakePrisma {
     if (typeof operations === 'function') return operations(this);
     return Promise.all(operations);
   };
+  readonly withWorkspace = async (_workspaceId: string, fn: (tx: this) => Promise<unknown>) => fn(this);
 }
 
 function fixture(prisma: FakePrisma, options: { campaignId?: string | null; expired?: boolean } = {}) {

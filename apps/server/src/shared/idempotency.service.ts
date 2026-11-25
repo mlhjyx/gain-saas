@@ -37,16 +37,17 @@ export class IdempotencyService {
     scope: string,
     key: string,
   ): Promise<IdempotencyRecordShape | null> {
-    const row = await this.prisma.idempotencyRecord.findUnique({
-      where: { workspaceId_scope_key: { workspaceId, scope, key } },
-      select: {
-        requestHash: true,
-        responseStatus: true,
-        responseBody: true,
-        expiresAt: true,
-      },
-    });
-    return row;
+    return this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.idempotencyRecord.findUnique({
+        where: { workspaceId_scope_key: { workspaceId, scope, key } },
+        select: {
+          requestHash: true,
+          responseStatus: true,
+          responseBody: true,
+          expiresAt: true,
+        },
+      }),
+    );
   }
 
   /**
@@ -62,24 +63,25 @@ export class IdempotencyService {
   }): Promise<IdempotencyRecordShape> {
     const expiresAt = new Date(Date.now() + IDEMPOTENCY_TTL_MS);
     try {
-      const row = await this.prisma.idempotencyRecord.create({
-        data: {
-          workspaceId: input.workspaceId,
-          scope: input.scope,
-          key: input.key,
-          requestHash: input.requestHash,
-          responseStatus: input.responseStatus,
-          responseBody: (input.body ?? null) as Prisma.InputJsonValue,
-          expiresAt,
-        },
-        select: {
-          requestHash: true,
-          responseStatus: true,
-          responseBody: true,
-          expiresAt: true,
-        },
-      });
-      return row;
+      return await this.prisma.withWorkspace(input.workspaceId, (tx) =>
+        tx.idempotencyRecord.create({
+          data: {
+            workspaceId: input.workspaceId,
+            scope: input.scope,
+            key: input.key,
+            requestHash: input.requestHash,
+            responseStatus: input.responseStatus,
+            responseBody: (input.body ?? null) as Prisma.InputJsonValue,
+            expiresAt,
+          },
+          select: {
+            requestHash: true,
+            responseStatus: true,
+            responseBody: true,
+            expiresAt: true,
+          },
+        }),
+      );
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
