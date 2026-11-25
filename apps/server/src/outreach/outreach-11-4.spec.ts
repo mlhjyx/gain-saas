@@ -122,7 +122,7 @@ describe('OutreachReplyService（M2 步 11-4）', () => {
     });
   });
 
-  it('REPLY + saoId 回写 REPLIED outcome（12-3 接缝），重放幂等', async () => {
+  it('REPLY + saoId 回写 REPLIED outcome（12-3 接缝），正向/中性回复绝不误写 OPT_OUT', async () => {
     const prisma = new FakeReplyPrisma();
     prisma.saos.push({ id: SAO, workspaceId: WS_A });
     const row = await service(prisma).record(tenantA, {
@@ -130,7 +130,10 @@ describe('OutreachReplyService（M2 步 11-4）', () => {
       kind: 'REPLY',
       classification: 'POSITIVE',
       saoId: SAO,
+      referredEmails: ['buyer2@example.it'],
     });
+    expect(prisma.consents).toHaveLength(0);
+    expect(row.snippet).toContain('buyer2@example.it');
     expect(prisma.outcomes).toHaveLength(1);
     expect(prisma.outcomes[0]).toMatchObject({
       workspaceId: WS_A,
@@ -144,8 +147,10 @@ describe('OutreachReplyService（M2 步 11-4）', () => {
     await service(prisma).record(tenantA, {
       contactRef: CONTACT,
       kind: 'REPLY',
+      classification: 'NEUTRAL',
       saoId: SAO,
     });
+    expect(prisma.consents).toHaveLength(0);
     expect(prisma.outcomes).toHaveLength(2);
   });
 

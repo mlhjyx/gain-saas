@@ -1063,6 +1063,54 @@ describe('OutreachSendService · 法域同意门（P4-01）', () => {
     expect(result).toMatchObject({ sent: 0, skipped: 2 });
     expect(transport.send).not.toHaveBeenCalled();
   });
+
+  it('D3：UK 法人公司（Ltd）传入 companyName 后按 PECR OPT_OUT 放行，个体户跳过 CONSENT_REQUIRED', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma, { countries: ['GB', 'GB'] });
+    prisma.drafts[0].companyName = 'SunGrid Solar Ltd';
+    prisma.drafts[1].companyName = 'John Smith Solar';
+    const hash = hashOutreachDrafts(prisma.drafts as never);
+    for (const d of prisma.drafts) d.contentHash = hash;
+    prisma.batches[0].contentHash = hash;
+    prisma.approvals[0].contentHash = hash;
+    prisma.authorizations = [
+      authorizationFor(prisma, prisma.drafts.length, hash, {
+        scope: {
+          ...(authorizationFor(prisma, prisma.drafts.length, hash).scope as Row),
+          actions: [
+            {
+              ...((authorizationFor(prisma, prisma.drafts.length, hash).scope as { actions: Row[] }).actions[0]),
+              jurisdiction: { allowedCountries: ['GB'], deniedCountries: [] },
+            },
+          ],
+        },
+      }),
+    ];
+    prisma.consents = [];
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
+
+    expect(result).toMatchObject({ status: 'COMPLETED', sent: 1, skipped: 1 });
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    expect(prisma.sends.find((s) => s.status === 'SKIPPED')!.error).toBe(
+      'JURISDICTION_CONSENT_REQUIRED',
+    );
+  });
+
+  it('D3：IT 收件人无需 OPT_IN 按 OPT_OUT 放行', async () => {
+    const prisma = new FakeSendPrisma();
+    approvedBatch(prisma, { countries: ['IT', 'IT'] });
+    const baseAuth = authorizationFor(prisma, prisma.drafts.length, prisma.batches[0].contentHash as string);
+    (baseAuth.scope as { actions: Array<{ jurisdiction: { allowedCountries: string[] } }> }).actions[0].jurisdiction.allowedCountries = ['IT'];
+    prisma.authorizations = [baseAuth];
+    prisma.consents = [];
+    const transport = fakeTransport();
+
+    const result = await service(prisma, transport).send.sendBatch(tenantA, BATCH);
+    expect(result).toMatchObject({ status: 'SENT', sent: 2, skipped: 0 });
+    expect(transport.send).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('OutreachSendService · ExecutionAuthorization v2（P4-03）', () => {

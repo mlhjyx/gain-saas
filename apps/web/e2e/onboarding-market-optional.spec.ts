@@ -1006,9 +1006,9 @@ async function runFamily(
       await page.waitForTimeout(200);
       expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(0);
       await expect(page.getByRole('button', { name: t.start })).toBeVisible();
-      // 有名称但无效官网：开始仍禁用，不虚构国家。
+      // 有名称但无效官网（非合法域名/协议）：开始仍禁用，不虚构国家。裸域名 example.org 现已自动补齐 https://。
       await nameInput.fill('E2E 测试公司');
-      await page.locator('input[placeholder*="https://"]').fill('example.org');
+      await page.locator('input[placeholder*="https://"]').fill('not-a-valid-url');
       await expect(start).toBeDisabled();
       await expect(marketSelect(page, cell).locator('.ant-select-selection-item')).toHaveCount(0);
       await capture(page, cell, backend, consoleLog, testInfo, '-invalid-site');

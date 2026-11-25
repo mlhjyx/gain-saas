@@ -24,6 +24,7 @@ const createBatchBody = z.object({
 
 const draftBody = z.object({
   contactRef: z.string().uuid(),
+  contactPointId: z.string().uuid().nullish(),
   recipientEmail: z.string().trim().email().max(320),
   companyName: z.string().trim().max(200).optional(),
   subject: z.string().trim().min(1).max(300),

@@ -27,17 +27,30 @@ export interface OutreachReplyInput {
   receivedAt?: string;
   /** 可选：把 REPLY 回写为该 SAO 的 REPLIED outcome（12-3 归因接缝）。 */
   saoId?: string | null;
+  /** 可选：从转交回信正文抽取到的新联系人候选邮箱。 */
+  referredEmails?: readonly string[];
   /**
-   * 是否写 OPT_OUT 同意（默认 true=回复即停）。软退信（4.x.x）传 false：
-   * 只计数不永久压制，重试仍可能送达（ch05 §5.3.5.8）。
+   * 是否写 OPT_OUT 同意。未显式传入时按意图判定：
+   * UNSUBSCRIBE / COMPLAINT / BOUNCE / NEGATIVE 回复写 OPT_OUT；
+   * POSITIVE / NEUTRAL / OUT_OF_OFFICE / UNKNOWN 正常回复绝不误写 OPT_OUT。
    */
   suppress?: boolean;
 }
 
+function shouldSuppressByDefault(
+  kind: OutreachReplyKind,
+  classification: OutreachReplyClassification,
+): boolean {
+  if (kind === 'UNSUBSCRIBE' || kind === 'COMPLAINT' || kind === 'BOUNCE') {
+    return true;
+  }
+  return classification === 'NEGATIVE';
+}
+
 /**
- * 入站回复/退信/退订回写（M2 步 11-4）。
- * 「回复即停」：任何 REPLY/BOUNCE/UNSUBSCRIBE 都写一条 OPT_OUT 同意，
- * 后续批次在发送前按最新同意跳过，而不是依赖操作者记得取消。
+ * 入站回复/退信/退订回写（M2 步 11-4 + Phase 1 意图分级止血）。
+ * 仅在明确退订、投诉、硬退信或 NEGATIVE 拒联回信时写 OPT_OUT；
+ * 正向/中性/休假回信保留联系资格，避免把高意向买家拉黑。
  */
 @Injectable()
 export class OutreachReplyService {
@@ -63,7 +76,19 @@ export class OutreachReplyService {
       invalid('VALIDATION_ERROR', '收件邮箱不合法');
     }
     const subject = input.subject?.trim().slice(0, 300) || null;
-    const snippet = input.snippet?.trim().slice(0, 500) || null;
+    const referredEmails = [
+      ...new Set(
+        (input.referredEmails ?? [])
+          .map((addr) => addr.trim().toLowerCase())
+          .filter((addr) => EMAIL_RE.test(addr) && addr.length <= 320),
+      ),
+    ].slice(0, 5);
+    const rawSnippet = input.snippet?.trim() || '';
+    const missingRefs = referredEmails.filter(
+      (addr) => !rawSnippet.toLowerCase().includes(addr),
+    );
+    const referralTag = missingRefs.length > 0 ? `[referred: ${missingRefs.join(', ')}]` : '';
+    const mergedSnippet = [rawSnippet, referralTag].filter(Boolean).join(' ').slice(0, 500) || null;
     const externalId = input.externalId?.trim().slice(0, 256) || null;
     const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
     if (Number.isNaN(receivedAt.getTime())) {
@@ -73,6 +98,10 @@ export class OutreachReplyService {
     if (saoId !== null && !UUID_RE.test(saoId)) {
       invalid('VALIDATION_ERROR', 'saoId must be a UUID');
     }
+    const shouldSuppress =
+      input.suppress !== undefined
+        ? input.suppress
+        : shouldSuppressByDefault(kind, classification);
 
     const row = await this.prisma.$transaction(async (tx) => {
       if (saoId) {
@@ -90,12 +119,12 @@ export class OutreachReplyService {
           kind,
           classification,
           subject,
-          snippet,
+          snippet: mergedSnippet,
           externalId,
           receivedAt,
         },
       });
-      if (input.suppress !== false) {
+      if (shouldSuppress) {
         await tx.outreachConsent.create({
           data: {
             workspaceId: tenant.workspaceId,
@@ -109,6 +138,17 @@ export class OutreachReplyService {
               kind,
               classification,
             } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      if (referredEmails.length > 0 && tx.notification?.create) {
+        await tx.notification.create({
+          data: {
+            workspaceId: tenant.workspaceId,
+            type: 'outreach.reply.referral',
+            refId: reply.id,
+            title: `买家回信转交了 ${referredEmails.length} 个新联系人邮箱，请及时跟进`,
+            titleEn: `Buyer reply referred ${referredEmails.length} new contact email(s) for follow-up`,
           },
         });
       }
@@ -141,7 +181,13 @@ export class OutreachReplyService {
       actorId: tenant.userId,
       action: 'outreach.reply.recorded',
       target: input.contactRef,
-      detail: { replyId: row.id, kind, classification },
+      detail: {
+        replyId: row.id,
+        kind,
+        classification,
+        suppressed: shouldSuppress,
+        ...(referredEmails.length > 0 ? { referredCount: referredEmails.length } : {}),
+      },
     });
     return row;
   }

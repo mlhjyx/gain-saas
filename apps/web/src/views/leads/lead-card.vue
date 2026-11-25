@@ -12,6 +12,7 @@ import type { Lead } from '#/api/gainos';
 
 import { computed } from 'vue';
 
+import { evaluateT0Channels } from '@gain-saas/shared';
 import { Ellipsis } from '@vben/icons';
 
 import { Button, Dropdown, Menu, Tag } from 'ant-design-vue';
@@ -156,6 +157,18 @@ const channelSocials = computed(() =>
     .slice(0, 5),
 );
 const channelPrimaryForm = computed(() => safeHttpUrl(channelSummary.value?.forms?.[0] ?? ''));
+const t0CardVerdict = computed(() =>
+  evaluateT0Channels({
+    countryCode: props.lead.company?.country,
+    companyName: props.lead.company?.name,
+    email: channelSummary.value?.emails?.[0],
+    phone: channelSummary.value?.phones?.[0],
+    formUrl: channelPrimaryForm.value,
+    suppressed:
+      props.lead.status === 'SUPPRESSED' || props.lead.queue === 'suppressed',
+    sanctionsHold: props.lead.queue === 'sanctions_hold',
+  }),
+);
 const hasChannelSummary = computed(() => {
   const s = channelSummary.value;
   if (!s) return false;
@@ -356,58 +369,79 @@ function onMenu(info: MenuClickInfo): void {
       </div>
     </div>
 
-    <!-- 触达通道速览条（公司级公开邮箱/电话/社媒/表单 + 决策人数与已验真邮箱数） -->
+    <!-- 触达通道速览条（公司级公开邮箱/电话/社媒/表单 + 联系人数与合规门禁） -->
     <div v-if="hasChannelSummary && channelSummary" class="lead-channels" data-gs="lead-channels">
       <span class="lead-channels__label">{{ $t('gainos.leads.channelsLabel') }}</span>
-      <GsTag v-if="channelSummary.verifiedEmailCount > 0" tone="success">
-        {{ $t('gainos.leads.channelVerifiedEmails', { count: channelSummary.verifiedEmailCount }) }}
-      </GsTag>
-      <Tag v-if="channelSummary.decisionMakerCount > 0" :bordered="false" class="lead-channel-chip">
-        {{ $t('gainos.leads.channelDecisionMakers', { count: channelSummary.decisionMakerCount }) }}
-      </Tag>
-      <a
-        v-if="channelSummary.emails.length > 0"
-        class="lead-channel-link"
-        :href="`mailto:${channelSummary.emails[0]}`"
-        :title="channelSummary.emails.join(', ')"
-      >
-        {{ channelSummary.emails[0] }}
-        <span v-if="channelSummary.emails.length > 1" class="lead-channel-more">
-          +{{ channelSummary.emails.length - 1 }}
+      <template v-if="t0CardVerdict.blockedAll">
+        <GsTag data-gs="lead-channel-blocked" tone="danger">
+          {{ $t('gainos.leads.t0.cardBlocked') }}
+        </GsTag>
+      </template>
+      <template v-else>
+        <GsTag v-if="channelSummary.verifiedEmailCount > 0" tone="success">
+          {{ $t('gainos.leads.channelVerifiedEmails', { count: channelSummary.verifiedEmailCount }) }}
+        </GsTag>
+        <Tag v-if="channelSummary.decisionMakerCount > 0" :bordered="false" class="lead-channel-chip">
+          {{ $t('gainos.leads.channelDecisionMakers', { count: channelSummary.decisionMakerCount }) }}
+        </Tag>
+        <a
+          v-if="channelSummary.emails.length > 0 && t0CardVerdict.channels.mailto.allowed"
+          class="lead-channel-link"
+          :href="`mailto:${channelSummary.emails[0]}`"
+          :title="channelSummary.emails.join(', ')"
+        >
+          {{ channelSummary.emails[0] }}
+          <span v-if="channelSummary.emails.length > 1" class="lead-channel-more">
+            +{{ channelSummary.emails.length - 1 }}
+          </span>
+        </a>
+        <span
+          v-else-if="channelSummary.emails.length > 0"
+          class="lead-channel-muted"
+          :title="$t('gainos.leads.t0.cardMailtoRestricted')"
+        >
+          {{ channelSummary.emails[0] }}
         </span>
-      </a>
-      <a
-        v-if="channelSummary.phones.length > 0"
-        class="lead-channel-link"
-        :href="`tel:${channelSummary.phones[0]}`"
-        :title="channelSummary.phones.join(', ')"
-      >
-        {{ channelSummary.phones[0] }}
-        <span v-if="channelSummary.phones.length > 1" class="lead-channel-more">
-          +{{ channelSummary.phones.length - 1 }}
-        </span>
-      </a>
-      <a
-        v-for="social in channelSocials"
-        :key="`${social.platform}-${social.url}`"
-        class="lead-channel-social"
-        :href="social.url"
-        rel="noreferrer"
-        target="_blank"
-        :title="social.url"
-      >
-        {{ social.label }}
-      </a>
-      <a
-        v-if="channelSummary.forms.length > 0 && channelPrimaryForm"
-        class="lead-channel-link"
-        :href="channelPrimaryForm"
-        rel="noreferrer"
-        target="_blank"
-        :title="channelSummary.forms.join(', ')"
-      >
-        {{ $t('gainos.leads.channelFormCount', { count: channelSummary.forms.length }) }}
-      </a>
+        <a
+          v-if="channelSummary.phones.length > 0"
+          class="lead-channel-link"
+          :href="`tel:${channelSummary.phones[0]}`"
+          :title="channelSummary.phones.join(', ')"
+        >
+          {{ channelSummary.phones[0] }}
+          <span v-if="channelSummary.phones.length > 1" class="lead-channel-more">
+            +{{ channelSummary.phones.length - 1 }}
+          </span>
+        </a>
+        <a
+          v-for="social in channelSocials"
+          :key="`${social.platform}-${social.url}`"
+          class="lead-channel-social"
+          :href="social.url"
+          rel="noreferrer"
+          target="_blank"
+          :title="social.url"
+        >
+          {{ social.label }}
+        </a>
+        <a
+          v-if="channelSummary.forms.length > 0 && channelPrimaryForm"
+          class="lead-channel-link"
+          :href="channelPrimaryForm"
+          rel="noreferrer"
+          target="_blank"
+          :title="channelSummary.forms.join(', ')"
+        >
+          {{ $t('gainos.leads.channelFormCount', { count: channelSummary.forms.length }) }}
+        </a>
+        <RouterLink
+          class="lead-channel-t0"
+          data-gs="lead-quick-outreach"
+          :to="{ name: 'LeadDetail', params: { leadId: lead.id }, hash: '#t0-outreach' }"
+        >
+          {{ $t('gainos.leads.t0.quickEntry') }}
+        </RouterLink>
+      </template>
     </div>
 
     <!-- 展开：完整五维理由 + 技术详情（机器码只进折叠区） -->
@@ -798,6 +832,28 @@ function onMenu(info: MenuClickInfo): void {
 }
 .lead-channel-social:hover {
   text-decoration: underline;
+}
+.lead-channel-muted {
+  color: var(--gs-fg-subtle);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lead-channel-t0 {
+  margin-left: auto;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--gs-accent-soft-border);
+  background: var(--gs-surface);
+  color: var(--gs-accent-fg);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+}
+.lead-channel-t0:hover {
+  background: var(--gs-accent-soft);
 }
 .lead-tech {
   color: var(--gs-fg-subtle);

@@ -1025,7 +1025,37 @@ export const gainosApi = {
   icps: (companyId?: string) =>
     requestClient.get<Icp[]>('/icps', { params: companyId ? { companyId } : {} }),
   icp: (icpId: string) => requestClient.get<Icp>(`/icps/${icpId}`),
-  createIcp: (companyId: string) => requestClient.post<Icp>(`/companies/${companyId}/icps`, {}),
+  createIcp: (
+    companyId: string,
+    input?: { attemptId?: string; confirmedTargetMarkets?: string[] },
+  ) => requestClient.post<Icp>(`/companies/${companyId}/icps`, input ?? {}),
+  exportBattleCsv: async (params: {
+    icpId: string;
+    week?: string;
+    maskEmails?: boolean;
+    scope?: 'delivered' | 'reviewable';
+  }): Promise<{ blob: Blob; filename: string; rows: number | null }> => {
+    const response = await baseRequestClient.get<Blob>('/reports/battle-csv', {
+      params,
+      responseType: 'blob',
+    });
+    const headers = ((response as { headers?: Record<string, string> })?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    const disposition =
+      headers['content-disposition'] ?? headers['Content-Disposition'] ?? '';
+    const match = /filename="?([^";]+)"?/i.exec(disposition);
+    const filename = match?.[1] || `battle-card-${params.icpId.slice(0, 8)}.csv`;
+    const rowsRaw = headers['x-report-rows'] ?? headers['X-Report-Rows'];
+    const rows = rowsRaw !== undefined && Number.isFinite(Number(rowsRaw)) ? Number(rowsRaw) : null;
+    const raw = (response as { data?: Blob | string }).data;
+    const blob =
+      raw instanceof Blob
+        ? raw
+        : new Blob([typeof raw === 'string' ? raw : ''], { type: 'text/csv;charset=utf-8' });
+    return { blob, filename, rows };
+  },
   updateIcp: (icpId: string, input: IcpUpdateInput) =>
     requestClient.request<Icp>(`/icps/${icpId}`, { data: input, method: 'PATCH' }),
   activateIcp: (icpId: string) => requestClient.post<Icp>(`/icps/${icpId}/activate`, {}),
@@ -1223,6 +1253,13 @@ export const gainosApi = {
     ),
   reopenOutreachBatch: (batchId: string) =>
     requestClient.post<OutreachBatchDetail>(`/outreach/batches/${batchId}/reopen`, {}),
+  // ── Phase 1 T0 四通道轻外联门禁与留痕 ──────────────────────────────────────
+  checkT0Outreach: (input: T0CheckPayload) =>
+    requestClient.post<T0CheckResult>('/outreach/t0/check', input),
+  recordT0Touch: (input: T0TouchPayload) =>
+    requestClient.post<T0TouchRecord>('/outreach/t0/touches', input),
+  listT0Touches: (leadId: string) =>
+    requestClient.get<T0TouchRecord[]>('/outreach/t0/touches', { params: { leadId } }),
   // ── 判定复核队列（引擎 P3 J17；requestClient 已解一层 {data}，列表值是 {items,nextCursor}）──
   judgmentReviews: (
     params: { cursor?: string; limit?: number; priority?: number; status?: string } = {},
@@ -1253,12 +1290,64 @@ export const gainosApi = {
   ) => pagedGet<MetricRollup>('/metrics/rollups', params),
 };
 
+export interface T0CheckPayload {
+  leadId: string;
+  contactRef?: string | null;
+  countryCode?: string | null;
+  companyName?: string | null;
+  contactName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  whatsappUrl?: string | null;
+  linkedinUrl?: string | null;
+  formUrl?: string | null;
+  leadStatus?: string | null;
+  sanctionsHold?: boolean;
+}
+
+export interface T0CheckResult {
+  countryCode: string;
+  jurisdictionPolicy: 'CONSENT_REQUIRED' | 'OPT_OUT' | 'REVIEW_REQUIRED';
+  blockedAll: boolean;
+  blockCode: 'SUPPRESSED' | 'SANCTIONS_HOLD' | 'DNC_UNAVAILABLE' | null;
+  complianceTag: string;
+  recommendedSequence: Array<'mailto' | 'linkedin' | 'whatsapp' | 'form'>;
+  consentStatus: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'MISSING';
+  suppressionReasons: string[];
+  channels: {
+    mailto: { allowed: boolean; reasonCode: string | null };
+    linkedin: { allowed: boolean; reasonCode: string | null; mode: 'direct' | 'search'; url: string | null };
+    whatsapp: { allowed: boolean; reasonCode: string | null; normalizedPhone: string | null };
+    form: { allowed: boolean; reasonCode: string | null; url: string | null };
+  };
+}
+
+export interface T0TouchPayload {
+  leadId: string;
+  channel: 'mailto' | 'linkedin' | 'whatsapp' | 'form';
+  target?: string | null;
+  note?: string | null;
+  outcome?: 'OPENED' | 'COPIED' | 'SENT' | 'REPLIED';
+}
+
+export interface T0TouchRecord {
+  id: string;
+  leadId: string;
+  channel: 'mailto' | 'linkedin' | 'whatsapp' | 'form';
+  targetMasked: string | null;
+  note: string | null;
+  outcome: 'OPENED' | 'COPIED' | 'SENT' | 'REPLIED';
+  actorId: string;
+  createdAt: string;
+}
+
 export interface OutreachDraftInput {
   contactRef: string;
   /** 引擎 contact_point id（email 通讯点）；退信回写寻址用。 */
   contactPointId?: string;
   recipientEmail: string;
   companyName?: string;
+  countryCode?: string;
   subject: string;
   body: string;
 }
@@ -1267,8 +1356,10 @@ export interface OutreachDraftView {
   id: string;
   batchId: string;
   contactRef: string;
+  contactPointId?: string | null;
   recipientEmail: string;
   companyName?: string | null;
+  countryCode?: string | null;
   subject: string;
   body: string;
   status: string;

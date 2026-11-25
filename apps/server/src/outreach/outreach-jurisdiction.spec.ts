@@ -16,13 +16,20 @@ function evaluate(
   return evaluateEmailJurisdiction({ countryCode, consentStatus, ...config });
 }
 
-describe('outreachJurisdictionPolicy（v0 常量矩阵的向后兼容导出）', () => {
-  it('DE/AT 要求同意，US/FR 走反对制，其它法域默认人工复核', () => {
+describe('outreachJurisdictionPolicy（D3 全球法域矩阵）', () => {
+  it('DE/AT/CH/CA/AE/SA 要求同意，US/FR/IT/ES/NL/BR 等合法 ISO 法域走反对制，缺失/未知/禁运法域人工复核', () => {
     expect(outreachJurisdictionPolicy('DE')).toBe('CONSENT_REQUIRED');
     expect(outreachJurisdictionPolicy('at')).toBe('CONSENT_REQUIRED');
+    expect(outreachJurisdictionPolicy('CH')).toBe('CONSENT_REQUIRED');
     expect(outreachJurisdictionPolicy('US')).toBe('OPT_OUT');
     expect(outreachJurisdictionPolicy('FR')).toBe('OPT_OUT');
-    expect(outreachJurisdictionPolicy('IT')).toBe('REVIEW_REQUIRED');
+    expect(outreachJurisdictionPolicy('IT')).toBe('OPT_OUT');
+    expect(outreachJurisdictionPolicy('ES')).toBe('OPT_OUT');
+    expect(outreachJurisdictionPolicy('NL')).toBe('OPT_OUT');
+    expect(outreachJurisdictionPolicy('BR')).toBe('OPT_OUT');
+    expect(outreachJurisdictionPolicy('ZZ')).toBe('REVIEW_REQUIRED');
+    expect(outreachJurisdictionPolicy('KP')).toBe('REVIEW_REQUIRED');
+    expect(outreachJurisdictionPolicy('IR')).toBe('REVIEW_REQUIRED');
     expect(outreachJurisdictionPolicy(undefined)).toBe('REVIEW_REQUIRED');
   });
 });
@@ -88,10 +95,16 @@ describe('evaluateEmailJurisdiction（发送路径上的法域同意门）', () 
     );
   });
 
-  it('负向：未知国家（缺失/非法值）默认 REVIEW_REQUIRED，不发', () => {
+  it('负向：未知国家（缺失/非法值/禁运国）默认 REVIEW_REQUIRED，不发；IT/ES/NL 按 D3 OPT_OUT 放行', () => {
     expect(evaluate(undefined, 'OPT_IN').code).toBe('JURISDICTION_REVIEW_REQUIRED');
-    expect(evaluate('IT', 'OPT_IN').code).toBe('JURISDICTION_REVIEW_REQUIRED');
+    expect(evaluate('ZZ', 'OPT_IN').code).toBe('JURISDICTION_REVIEW_REQUIRED');
+    expect(evaluate('KP', 'OPT_IN').code).toBe('JURISDICTION_REVIEW_REQUIRED');
     expect(evaluate('FRANCE', 'OPT_IN').code).toBe('JURISDICTION_REVIEW_REQUIRED');
+    const itDecision = evaluate('IT', 'MISSING');
+    expect(itDecision.allowed).toBe(true);
+    expect(itDecision.policy).toBe('OPT_OUT');
+    expect(evaluate('ES', 'UNKNOWN').allowed).toBe(true);
+    expect(evaluate('NL', 'UNKNOWN').allowed).toBe(true);
   });
 
   it('国家代码大小写与空白归一化', () => {
