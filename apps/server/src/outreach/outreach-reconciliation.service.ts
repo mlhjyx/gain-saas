@@ -182,6 +182,7 @@ export class OutreachReconciliationService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.reconciliation.checked',
       target: result.day,
       detail: { ok: result.ok, discrepancies: discrepancies.length },

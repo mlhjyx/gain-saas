@@ -68,6 +68,7 @@ function makeController(
       const row = sessions.find((s) => s.jti === jti);
       if (row) row.revokedAt = new Date();
     }),
+    clearCookieOptions: vi.fn(() => ({ httpOnly: true, sameSite: 'lax' as const, path: '/', secure: true })),
   };
   const controller = new WorkspacesController(prisma as never, audit as never, sessionService as never);
   return { controller, prisma, audit, sessionService, sessionUpdateMany };
@@ -128,7 +129,12 @@ describe('WorkspacesController.leave', () => {
       data: { revokedAt: expect.any(Date) },
     });
     expect(sessionService.revoke).toHaveBeenCalledWith('jti-curr-legacy');
-    expect(res.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE);
+    expect(res.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: true,
+    });
     expect(sessions.find((s) => s.jti === 'jti-curr-legacy')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-curr-tab2')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-other-ws')?.revokedAt).toBeNull();

@@ -12,8 +12,9 @@ import {
 import { SESSION_COOKIE, type SessionService } from '../tenant/session.service.js';
 
 function mockResponse() {
-  const state: { status?: number; body?: unknown; clearedCookies: string[] } = {
+  const state: { status?: number; body?: unknown; clearedCookies: string[]; clearedCookieOptions: unknown[] } = {
     clearedCookies: [],
+    clearedCookieOptions: [],
   };
   const res = {
     status(code: number) {
@@ -24,8 +25,9 @@ function mockResponse() {
       state.body = payload;
       return res;
     },
-    clearCookie(name: string) {
+    clearCookie(name: string, options?: unknown) {
       state.clearedCookies.push(name);
+      state.clearedCookieOptions.push(options);
       return res;
     },
     state,
@@ -134,12 +136,14 @@ describe('seller-document upload middleware (unit)', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('rejects PUT with invalid or revoked saas_session cookie, clears cookie, and skips raw parser', async () => {
+  it('rejects PUT with invalid or revoked saas_session cookie, clears cookie with clearCookieOptions, and skips raw parser', async () => {
     const verify = vi.fn(async () => null);
+    const clearOpts = { httpOnly: true, sameSite: 'lax' as const, path: '/', secure: true };
+    const clearCookieOptions = vi.fn(() => clearOpts);
     const rawParser = vi.fn();
     const next = vi.fn();
     const res = mockResponse();
-    const handler = createSellerDocumentUploadMiddleware({ verify }, rawParser);
+    const handler = createSellerDocumentUploadMiddleware({ verify, clearCookieOptions }, rawParser);
 
     await handler(
       {
@@ -154,6 +158,7 @@ describe('seller-document upload middleware (unit)', () => {
 
     expect(verify).toHaveBeenCalledWith('revoked-or-forged-jwt');
     expect(res.state.clearedCookies).toEqual([SESSION_COOKIE]);
+    expect(res.state.clearedCookieOptions).toEqual([clearOpts]);
     expect(res.state.status).toBe(401);
     expect(res.state.body).toMatchObject({
       error: { code: 'AUTH_REQUIRED', userCopy: { title: expect.any(String) } },

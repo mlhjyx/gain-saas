@@ -73,6 +73,7 @@ export class DiscoveryRunsController {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'discovery.run_link.record',
       target: runId,
       detail: { planId, icpId },

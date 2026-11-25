@@ -17,6 +17,7 @@ function makeContext() {
 }
 
 function makeGuard(workspaceStatus: string | null, onboardingCompletedAt: Date | null = new Date()) {
+  const clearOpts = { httpOnly: true, sameSite: 'lax' as const, path: '/', secure: true };
   const sessions = {
     verify: vi.fn(async () => ({
       userId: '11111111-1111-4111-8111-111111111111',
@@ -29,6 +30,7 @@ function makeGuard(workspaceStatus: string | null, onboardingCompletedAt: Date |
     revoke: vi.fn(),
     issue: vi.fn(),
     cookieOptions: vi.fn(),
+    clearCookieOptions: vi.fn(() => clearOpts),
     ttl: 60,
   } as unknown as SessionService;
   const prisma = {
@@ -78,11 +80,17 @@ describe('TenantGuard workspace status', () => {
     expect((req as { tenant?: { onboardingCompleted?: boolean } }).tenant?.onboardingCompleted).toBe(true);
   });
 
-  it('成员资格缺失仍是 NOT_A_MEMBER（回归）', async () => {
+  it('成员资格缺失仍是 NOT_A_MEMBER（回归），且 clearCookie 携带 clearCookieOptions', async () => {
     const { guard } = makeGuard(null);
-    const { ctx } = makeContext();
+    const { ctx, res } = makeContext();
     const error = await guard.canActivate(ctx).catch((err: unknown) => err);
     expect(error).toBeTruthy();
+    expect(res.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: true,
+    });
   });
 
   it('停用空间或失效成员即使命中滑动续期窗口也绝不签发新会话 cookie', async () => {

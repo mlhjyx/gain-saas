@@ -179,6 +179,7 @@ export class OutreachReplyService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.reply.recorded',
       target: input.contactRef,
       detail: {

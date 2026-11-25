@@ -110,7 +110,7 @@ export class AuthService {
       });
       return { user: createdUser, workspace: createdWorkspace };
     });
-    await this.audit.record({ realm: 'tenant', actorId: user.id, action: 'auth.register', target: workspace.id, detail: { email } });
+    await this.audit.record({ realm: 'tenant', actorId: user.id, workspaceId: workspace.id, action: 'auth.register', target: workspace.id, detail: { email } });
     const membership = workspace.memberships[0];
     const session = await this.sessions.issue(user.id, workspace.id, 'admin');
     return { user, workspace, membership, session };
@@ -135,12 +135,12 @@ export class AuthService {
       throw new UnauthorizedException({ error: { code: 'AUTH_DISABLED', message: '账号已停用,请联系管理员' } });
     }
     const membership = user.memberships[0];
-    await this.audit.record({ realm: 'tenant', actorId: user.id, action: 'auth.login', target: membership.workspaceId });
+    await this.audit.record({ realm: 'tenant', actorId: user.id, workspaceId: membership.workspaceId, action: 'auth.login', target: membership.workspaceId });
     const session = await this.sessions.issue(user.id, membership.workspaceId, membership.role as 'admin' | 'member');
     return { user, membership, session };
   }
 
-  async changePassword(userId: string, currentJti: string, input: Record<string, unknown>): Promise<void> {
+  async changePassword(userId: string, currentJti: string, input: Record<string, unknown>, workspaceId?: string): Promise<void> {
     const currentPassword = typeof input.currentPassword === 'string' ? input.currentPassword : '';
     const newPassword = validatePassword(input.newPassword);
     if (!currentPassword || !newPassword) {
@@ -161,12 +161,22 @@ export class AuthService {
       where: { realm: 'tenant', subjectType: 'user', subjectId: userId, jti: { not: currentJti }, revokedAt: null },
       data: { revokedAt: new Date() },
     });
-    await this.audit.record({ realm: 'tenant', actorId: userId, action: 'auth.change_password' });
+    await this.audit.record({
+      realm: 'tenant',
+      actorId: userId,
+      ...(workspaceId ? { workspaceId } : {}),
+      action: 'auth.change_password',
+    });
   }
 
-  async logout(jti: string, userId: string): Promise<void> {
+  async logout(jti: string, userId: string, workspaceId?: string): Promise<void> {
     await this.sessions.revoke(jti);
-    await this.audit.record({ realm: 'tenant', actorId: userId, action: 'auth.logout' });
+    await this.audit.record({
+      realm: 'tenant',
+      actorId: userId,
+      ...(workspaceId ? { workspaceId } : {}),
+      action: 'auth.logout',
+    });
   }
 
   /** SD2:切换当前工作空间 —— 必须是本人有效成员资格,重发会话 cookie。 */
@@ -178,7 +188,7 @@ export class AuthService {
       throw new UnauthorizedException({ error: { code: 'NOT_A_MEMBER', message: '你不属于该工作空间' } });
     }
     await this.sessions.revoke(jti);
-    await this.audit.record({ realm: 'tenant', actorId: userId, action: 'auth.switch_workspace', target: workspaceId });
+    await this.audit.record({ realm: 'tenant', actorId: userId, workspaceId, action: 'auth.switch_workspace', target: workspaceId });
     return this.sessions.issue(userId, workspaceId, membership.role as 'admin' | 'member');
   }
 
@@ -198,7 +208,7 @@ export class AuthService {
     const invitation = await this.prisma.invitation.create({
       data: { workspaceId, email, role, token: randomBytes(24).toString('hex'), expiresAt: invitationExpiry() },
     });
-    await this.audit.record({ realm: 'tenant', actorId, action: 'members.invite', target: invitation.id, detail: { email, role } });
+    await this.audit.record({ realm: 'tenant', actorId, workspaceId, action: 'members.invite', target: invitation.id, detail: { email, role } });
     return invitation;
   }
 
@@ -228,6 +238,7 @@ export class AuthService {
     await this.audit.record({
       realm: 'tenant',
       actorId: user.id,
+      workspaceId: invitation.workspaceId,
       action: 'members.accept_invite',
       target: invitation.workspaceId,
       detail: { role: invitation.role },

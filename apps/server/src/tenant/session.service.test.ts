@@ -40,6 +40,7 @@ function makeService(rows: Map<string, {
     },
   };
   const config = {
+    NODE_ENV: 'test',
     SESSION_SECRET: 'test-tenant-session-secret-0123456789abcdef',
     SESSION_TTL_MINUTES: 60,
   } as AppConfig;
@@ -103,5 +104,44 @@ describe('SessionService', () => {
     rows.get(claims.jti)!.revokedAt = null;
     rows.get(claims.jti)!.expiresAt = new Date(Date.now() - 1000);
     await expect(service.verify(token)).resolves.toBeNull();
+  });
+
+  it('cookieOptions() & clearCookieOptions() set secure=true in production and secure=false otherwise', () => {
+    const dev = makeService().service;
+    expect(dev.clearCookieOptions()).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: false,
+    });
+    expect(dev.cookieOptions(60)).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: false,
+      maxAge: 60_000,
+    });
+
+    const prod = new SessionService(
+      {
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'test-tenant-session-secret-0123456789abcdef',
+        SESSION_TTL_MINUTES: 60,
+      } as AppConfig,
+      {} as never,
+    );
+    expect(prod.clearCookieOptions()).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: true,
+    });
+    expect(prod.cookieOptions(120)).toEqual({
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: true,
+      maxAge: 120_000,
+    });
   });
 });

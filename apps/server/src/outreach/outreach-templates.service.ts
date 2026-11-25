@@ -123,6 +123,7 @@ export class OutreachTemplatesService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.template.created',
       target: row.id,
       detail: { kind: templateKind, jurisdiction: jurisdictionRaw, language, version: row.version },
@@ -156,6 +157,7 @@ export class OutreachTemplatesService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.template.submitted',
       target: templateId,
     });
@@ -216,6 +218,7 @@ export class OutreachTemplatesService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.template.approved',
       target: templateId,
       detail: { legalReviewId },
@@ -247,6 +250,7 @@ export class OutreachTemplatesService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.template.activated',
       target: templateId,
     });
@@ -265,6 +269,7 @@ export class OutreachTemplatesService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.template.retired',
       target: templateId,
     });

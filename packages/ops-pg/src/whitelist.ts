@@ -39,9 +39,9 @@ export class WriteWhitelist {
 }
 
 /**
- * 运营域白名单(SD9 §13.1)。与中台一致:
- * - app 池:monitored_source 的 INSERT/UPDATE(含"立即抓取"= next_fetch_at 置到期)
- * - owner 池:data_provider 启停(Kill Switch)、monitored_source 删除(仅无数据源)
+ * 运营域白名单(SD9 §13.1)。与 M4 最小权限收敛一致:
+ * - app 池(app_user):只读与 withWorkspace RLS 查询(无平台表写权限)
+ * - owner 池:data_provider 启停(Kill Switch)、monitored_source 增删改(含"立即抓取")
  */
 export const OPS_WRITES = new WriteWhitelist();
 

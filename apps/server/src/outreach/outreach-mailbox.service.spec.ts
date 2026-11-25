@@ -113,26 +113,25 @@ class FakeMailboxPrisma {
       this.counters.push(row);
       return { ...row };
     },
-    findUnique: async ({
-      where,
-    }: {
-      where: { mailboxId_day: { mailboxId: string; day: Date } };
-    }) => {
-      const { mailboxId, day } = where.mailboxId_day;
+    findFirst: async ({ where }: { where: Row }) => {
       return (
         this.counters.find(
-          (row) => row.mailboxId === mailboxId && (row.day as Date).getTime() === day.getTime(),
+          (row) =>
+            (!where.workspaceId || row.workspaceId === where.workspaceId) &&
+            row.mailboxId === where.mailboxId &&
+            (row.day as Date).getTime() === (where.day as Date).getTime(),
         ) ?? null
       );
     },
     aggregate: async ({
       where,
     }: {
-      where: { mailboxId: string; day: { gte: Date } };
+      where: { workspaceId?: string; mailboxId: string; day: { gte: Date } };
       _sum: { sent: boolean };
     }) => {
       const rows = this.counters.filter(
         (row) =>
+          (!where.workspaceId || row.workspaceId === where.workspaceId) &&
           row.mailboxId === where.mailboxId &&
           (row.day as Date).getTime() >= where.day.gte.getTime(),
       );
@@ -230,38 +229,40 @@ describe('OutreachMailboxService（P4-02 发件资产与配额）', () => {
     expect(prisma.mailboxes).toHaveLength(0);
   });
 
-  it('usage 汇总今日与滚动 7 天计数', async () => {
+  it('usage 汇总今日与滚动 7 天计数，且按 workspaceId 隔离', async () => {
     const prisma = new FakeMailboxPrisma();
     const instance = service(prisma);
     const mailbox = (await instance.ensureDefaultMailbox(WS, 'outreach@example.test'))!;
+    const OTHER_WS = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     prisma.counters.push(
-      { mailboxId: mailbox.id, day: new Date('2026-11-11T00:00:00Z'), sent: 5 },
-      { mailboxId: mailbox.id, day: new Date('2026-11-10T00:00:00Z'), sent: 7 },
-      { mailboxId: mailbox.id, day: new Date('2026-11-04T00:00:00Z'), sent: 100 },
+      { workspaceId: WS, mailboxId: mailbox.id, day: new Date('2026-11-11T00:00:00Z'), sent: 5 },
+      { workspaceId: WS, mailboxId: mailbox.id, day: new Date('2026-11-10T00:00:00Z'), sent: 7 },
+      { workspaceId: WS, mailboxId: mailbox.id, day: new Date('2026-11-04T00:00:00Z'), sent: 100 },
+      { workspaceId: OTHER_WS, mailboxId: mailbox.id, day: new Date('2026-11-11T00:00:00Z'), sent: 99 },
     );
-    const usage = await instance.usage(mailbox.id, NOW);
+    const usage = await instance.usage(WS, mailbox.id, NOW);
     expect(usage.dailySent).toBe(5);
-    expect(usage.weeklySent).toBe(12); // 11-10、11-11；11-04 在 7 天窗口外
+    expect(usage.weeklySent).toBe(12); // 11-10、11-11；11-04 在 7 天窗口外，OTHER_WS 被隔离
   });
 
-  it('recordSend 原子递增日计数与收件域小时计数，并更新 lastSendAt', async () => {
+  it('recordSend 原子递增日计数与收件域小时计数并写入 workspaceId，且更新 lastSendAt', async () => {
     const prisma = new FakeMailboxPrisma();
     const instance = service(prisma);
     const mailbox = (await instance.ensureDefaultMailbox(WS, 'outreach@example.test'))!;
     await instance.recordSend(mailbox, 'Buyer@Ziel.DE', NOW);
     await instance.recordSend(mailbox, 'other@ziel.de', NOW);
-    expect(prisma.counters[0].sent).toBe(2);
+    expect(prisma.counters[0]).toMatchObject({ workspaceId: WS, sent: 2 });
     expect(prisma.domainCounters).toHaveLength(1);
-    expect(prisma.domainCounters[0]).toMatchObject({ recipientDomain: 'ziel.de', sent: 2 });
+    expect(prisma.domainCounters[0]).toMatchObject({ workspaceId: WS, recipientDomain: 'ziel.de', sent: 2 });
     expect(prisma.mailboxes[0].lastSendAt).toEqual(NOW);
   });
 
-  it('recordHardBounce 计入当日 hardBounces', async () => {
+  it('recordHardBounce 计入当日 hardBounces 并写入 workspaceId', async () => {
     const prisma = new FakeMailboxPrisma();
     const instance = service(prisma);
     const mailbox = (await instance.ensureDefaultMailbox(WS, 'outreach@example.test'))!;
-    await instance.recordHardBounce(mailbox.id, NOW);
-    expect(prisma.counters[0].hardBounces).toBe(1);
+    await instance.recordHardBounce(WS, mailbox.id, NOW);
+    expect(prisma.counters[0]).toMatchObject({ workspaceId: WS, hardBounces: 1 });
   });
 
   it('createMailbox：warmupStage=W2 采用该阶梯默认上限；重复地址拒绝', async () => {

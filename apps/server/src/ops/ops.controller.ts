@@ -20,6 +20,7 @@ import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsService } from './ops.service.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AUDIT_REALMS = new Set(['ops', 'tenant', 'service']);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Controller('api/ops')
@@ -276,8 +277,23 @@ export class OpsController {
   }
 
   @Get('audit')
-  async audit(@Query('limit') limit?: string) {
-    return { entries: await this.ops.auditLog(Number(limit) || 100) };
+  async audit(
+    @Query('limit') limit?: string,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('realm') realm?: string,
+  ) {
+    if (workspaceId !== undefined && !UUID_RE.test(workspaceId)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION', message: 'workspaceId 必须是 UUID' } });
+    }
+    if (realm !== undefined && !AUDIT_REALMS.has(realm)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION', message: 'realm 必须是 ops | tenant | service' } });
+    }
+    return {
+      entries: await this.ops.auditLog(Number(limit) || 100, {
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(realm !== undefined ? { realm: realm as 'ops' | 'tenant' | 'service' } : {}),
+      }),
+    };
   }
 
   @Get('schedules')

@@ -118,6 +118,7 @@ export class OutreachExperimentsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.experiment.created',
       target: experiment.id,
       detail: { name, design, holdoutRatio, campaignId },
@@ -177,6 +178,7 @@ export class OutreachExperimentsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.experiment.started',
       target: experimentId,
     });
@@ -197,6 +199,7 @@ export class OutreachExperimentsService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.experiment.archived',
       target: experimentId,
     });
@@ -236,6 +239,7 @@ export class OutreachExperimentsService {
         subjectRef as string,
       );
       return {
+        workspaceId: tenant.workspaceId,
         experimentId: experiment.id,
         subjectType,
         subjectRef: subjectRef as string,
@@ -245,11 +249,16 @@ export class OutreachExperimentsService {
     });
     await this.prisma.outreachExperimentAssignment.createMany({ data, skipDuplicates: true });
     const assignments = await this.prisma.outreachExperimentAssignment.findMany({
-      where: { experimentId: experiment.id, subjectRef: { in: subjects as string[] } },
+      where: {
+        workspaceId: tenant.workspaceId,
+        experimentId: experiment.id,
+        subjectRef: { in: subjects as string[] },
+      },
     });
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.experiment.assigned',
       target: experiment.id,
       detail: {
@@ -275,6 +284,7 @@ export class OutreachExperimentsService {
     if (experiments.length === 0) return new Set();
     const assignments = await this.prisma.outreachExperimentAssignment.findMany({
       where: {
+        workspaceId: tenant.workspaceId,
         experimentId: { in: experiments.map((experiment) => experiment.id) },
         subjectType: 'contact',
         arm: 'holdout',

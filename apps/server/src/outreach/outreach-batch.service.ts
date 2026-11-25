@@ -318,6 +318,7 @@ export class OutreachBatchService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.batch.submitted',
       target: batchId,
       detail: { approvalId: result.id, contentHash },
@@ -400,6 +401,7 @@ export class OutreachBatchService {
       await this.audit.record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'outreach.batch.approved',
         target: batchId,
         detail: { approvalId, selfApproval: approval.requestedBy === tenant.userId },
@@ -445,6 +447,7 @@ export class OutreachBatchService {
       await this.audit.record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'outreach.batch.declined',
         target: batchId,
         detail: { approvalId, reason },

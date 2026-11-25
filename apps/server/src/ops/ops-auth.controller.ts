@@ -51,7 +51,7 @@ export class OpsAuthController {
   async logout(@Req() req: OpsRequest, @Res({ passthrough: true }) res: Response) {
     const claims = await this.sessions.verify(req.cookies?.[OPS_SESSION_COOKIE]);
     if (claims) await this.sessions.revoke(claims.jti);
-    res.clearCookie(OPS_SESSION_COOKIE, { path: '/' });
+    res.clearCookie(OPS_SESSION_COOKIE, this.sessions.clearCookieOptions());
     if (req.opsUser) await this.audit.record({ realm: 'ops', actorId: req.opsUser.id, action: 'ops.logout', target: req.opsUser.email });
     return { data: { ok: true } };
   }

@@ -200,6 +200,7 @@ export class OutreachAuthorizationIssuer {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.authorization.issued',
       target: batch.id,
       detail: { authorizationId, maxUses: batch.drafts.length },

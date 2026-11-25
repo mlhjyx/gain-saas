@@ -92,6 +92,7 @@ export class OutreachConsentService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'outreach.consent.recorded',
       target: input.contactRef,
       detail: { status: input.status, source },

@@ -335,7 +335,7 @@ export class OutreachSendService {
       );
     }
     const mailboxUsage = mailboxAsset
-      ? await this.mailboxes.usage(mailboxAsset.id, now).catch(() => undefined)
+      ? await this.mailboxes.usage(mailboxAsset.workspaceId, mailboxAsset.id, now).catch(() => undefined)
       : undefined;
     const controlState = await this.controls.beginBatch(tenant, now, {
       capsOverride: grant.action.caps,
@@ -578,7 +578,7 @@ export class OutreachSendService {
         ]);
         if (telemetry.bounceType === 'HARD') {
           if (mailboxAsset) {
-            await this.mailboxes.recordHardBounce(mailboxAsset.id, now).catch(() => undefined);
+            await this.mailboxes.recordHardBounce(mailboxAsset.workspaceId, mailboxAsset.id, now).catch(() => undefined);
           }
           await this.recordDraftEvent(tenant, batchId, draft, 'SEND_HARD_REJECTED', {
             code: 'OUTREACH_SMTP_HARD_REJECT',
@@ -669,6 +669,7 @@ export class OutreachSendService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: allSent
         ? 'outreach.batch.sent'
         : allTerminal
@@ -753,6 +754,7 @@ export class OutreachSendService {
       .record({
         realm: 'tenant',
         actorId: tenant.userId,
+        workspaceId: tenant.workspaceId,
         action: 'outreach.batch.rejected',
         target: batchId,
         detail: { code, message },

@@ -79,8 +79,8 @@ export class AuthController {
   @UseGuards(TenantGuard)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const tenant = req.tenant!;
-    await this.auth.logout(tenant.jti, tenant.userId);
-    res.clearCookie(SESSION_COOKIE);
+    await this.auth.logout(tenant.jti, tenant.userId, tenant.workspaceId);
+    res.clearCookie(SESSION_COOKIE, this.sessions.clearCookieOptions());
     return { data: { ok: true } };
   }
 
@@ -89,7 +89,7 @@ export class AuthController {
   @UseGuards(TenantGuard)
   async changePassword(@Req() req: Request, @Body() body: Record<string, unknown>) {
     const tenant = req.tenant!;
-    await this.auth.changePassword(tenant.userId, tenant.jti, body);
+    await this.auth.changePassword(tenant.userId, tenant.jti, body, tenant.workspaceId);
     return { data: { ok: true } };
   }
 

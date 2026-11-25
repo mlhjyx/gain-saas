@@ -135,6 +135,7 @@ export class AcquisitionTasksController {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'acquisition.task.create',
       target: task.id,
       detail: { icpId: task.icpId },
@@ -303,6 +304,7 @@ export class AcquisitionTasksController {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'acquisition.task_run.start',
       target: run.id,
       detail: { taskId: task.id, planId, runId: data.runId },

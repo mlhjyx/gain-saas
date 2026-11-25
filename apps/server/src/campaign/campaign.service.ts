@@ -92,6 +92,7 @@ export class CampaignService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.created',
       target: `campaign/${campaign.id}`,
       detail: { workspaceId: tenant.workspaceId },
@@ -321,6 +322,7 @@ export class CampaignService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.revision.created',
       target: `campaign/${campaignId}`,
       detail: { revisionId: revision.id, planHash, revisionNo: revision.revisionNo },
@@ -381,6 +383,7 @@ export class CampaignService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.revision.submitted',
       target: `campaign/${campaignId}`,
       detail: { revisionId, approvalId: result.approval.id },
@@ -538,6 +541,7 @@ export class CampaignService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.approval.decided',
       target: `campaign/${campaignId}`,
       detail: {
@@ -596,6 +600,7 @@ export class CampaignService {
     await this.audit.record({
       realm: 'tenant',
       actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
       action: 'campaign.authorization.revoked',
       target: `campaign/${campaignId}`,
       detail: { authorizationId, reason: revokeReason },
