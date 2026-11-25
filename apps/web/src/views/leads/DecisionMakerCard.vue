@@ -37,7 +37,7 @@ defineOptions({ name: 'DecisionMakerCard' });
 
 const props = defineProps<{ companyId: string }>();
 
-type DialogKind = 'discover' | 'guess' | 'verify';
+type DialogKind = 'discover' | 'enrich' | 'guess' | 'verify';
 type GsTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
 type NoticeTone = 'error' | 'info' | 'success' | 'warning';
 
@@ -62,7 +62,116 @@ const form = reactive({
 const platformBasis = ref<ComplianceInfoView['platform'] | null>(null);
 let platformBasisLoaded = false;
 
-const contacts = computed<CanonicalContact[]>(() => detail.value?.company.contacts ?? []);
+function isSwitchboardPlaceholder(contact: CanonicalContact): boolean {
+  const name = contact.fullName?.trim().toLowerCase() ?? '';
+  const title = contact.title?.trim().toLowerCase() ?? '';
+  const dept = contact.department?.trim().toLowerCase() ?? '';
+  return (
+    dept === 'switchboard' ||
+    title === 'switchboard' ||
+    name === 'company switchboard' ||
+    name.startsWith('company switchboard') ||
+    name === 'switchboard'
+  );
+}
+
+const allContacts = computed<CanonicalContact[]>(() => detail.value?.company.contacts ?? []);
+const switchboardContacts = computed<CanonicalContact[]>(() =>
+  allContacts.value.filter((contact) => isSwitchboardPlaceholder(contact)),
+);
+const contacts = computed<CanonicalContact[]>(() =>
+  allContacts.value.filter((contact) => !isSwitchboardPlaceholder(contact)),
+);
+
+function socialPlatformLabel(platform: string): string {
+  const key = `gainos.leads.socialPlatform.${platform.toLowerCase()}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? platform : translated;
+}
+
+const officialChannels = computed(() => {
+  const emails: Array<{ tag?: string; value: string }> = [];
+  const phones: string[] = [];
+  const forms: string[] = [];
+  const socials: Array<{ label: string; platform: string; url: string }> = [];
+  const seenEmails = new Set<string>();
+  const seenPhones = new Set<string>();
+  const seenForms = new Set<string>();
+  const seenSocials = new Set<string>();
+
+  for (const ch of detail.value?.contactChannels ?? []) {
+    const val = ch.value?.trim();
+    if (!val) continue;
+    if (ch.channel === 'email') {
+      const key = val.toLowerCase();
+      if (!seenEmails.has(key)) {
+        seenEmails.add(key);
+        emails.push({ value: val, tag: ch.email_type ?? undefined });
+      }
+    } else if (ch.channel === 'phone') {
+      const key = val.replace(/\s+/g, '');
+      if (!seenPhones.has(key)) {
+        seenPhones.add(key);
+        phones.push(val);
+      }
+    } else if (ch.channel === 'form_url' && safeUrl(val)) {
+      if (!seenForms.has(val)) {
+        seenForms.add(val);
+        forms.push(val);
+      }
+    }
+  }
+
+  for (const pt of detail.value?.contactPoints ?? []) {
+    const val = pt.value?.trim();
+    if (!val) continue;
+    if (safeUrl(val) && !seenForms.has(val)) {
+      seenForms.add(val);
+      forms.push(val);
+    }
+  }
+
+  for (const sb of switchboardContacts.value) {
+    for (const pt of sb.contactPoints ?? []) {
+      const val = pt.value?.trim();
+      if (!val || pt.status === 'INVALID') continue;
+      if (pt.type === 'email') {
+        const key = val.toLowerCase();
+        if (!seenEmails.has(key)) {
+          seenEmails.add(key);
+          emails.push({ value: val });
+        }
+      } else if (pt.type === 'phone') {
+        const key = val.replace(/\s+/g, '');
+        if (!seenPhones.has(key)) {
+          seenPhones.add(key);
+          phones.push(val);
+        }
+      }
+    }
+  }
+
+  for (const s of detail.value?.socialProfiles ?? []) {
+    const url = safeUrl(s.url);
+    if (!url || seenSocials.has(url)) continue;
+    seenSocials.add(url);
+    socials.push({
+      platform: s.platform,
+      label: socialPlatformLabel(s.platform),
+      url,
+    });
+  }
+
+  return { emails, phones, forms, socials };
+});
+
+const hasOfficialChannels = computed(
+  () =>
+    officialChannels.value.emails.length > 0 ||
+    officialChannels.value.phones.length > 0 ||
+    officialChannels.value.forms.length > 0 ||
+    officialChannels.value.socials.length > 0,
+);
 
 function formatDate(value?: string | null): string {
   return formatDateValue(value);
@@ -201,8 +310,17 @@ function contactSources(contact: CanonicalContact): ContactSource[] {
 function missingEmailCount(): number {
   return contacts.value.filter(
     (contact) =>
-      !(contact.contactPoints ?? []).some((point) => point.type === 'email' && point.status !== 'INVALID'),
+      !(contact.contactPoints ?? []).some((point) => point.type === 'email' && point.status === 'VALID'),
   ).length;
+}
+
+function enrichStatusLabel(status?: string): string {
+  const normalized = (status ?? '').toUpperCase();
+  if (normalized === 'COMMITTED') return $t('gainos.contacts.enrichStatus.committed');
+  if (normalized === 'PARTIAL') return $t('gainos.contacts.enrichStatus.partial');
+  if (normalized === 'NOT_ADMITTED') return $t('gainos.contacts.enrichStatus.notAdmitted');
+  if (normalized === 'NO_HIT') return $t('gainos.contacts.enrichStatus.noHit');
+  return $t('gainos.contacts.enrichStatus.failed');
 }
 
 function roleLine(contact: CanonicalContact): string {
@@ -284,6 +402,7 @@ const dialogOpen = computed({
 const dialogTitle = computed(() => {
   if (!dialog.value) return '';
   if (dialog.value.kind === 'discover') return $t('gainos.contacts.discoverTitle');
+  if (dialog.value.kind === 'enrich') return $t('gainos.contacts.enrichTitle');
   if (dialog.value.kind === 'guess') return $t('gainos.contacts.guessTitle');
   return $t('gainos.contacts.verifyTitle');
 });
@@ -291,6 +410,7 @@ const dialogTitle = computed(() => {
 const dialogDesc = computed(() => {
   if (!dialog.value) return '';
   if (dialog.value.kind === 'discover') return $t('gainos.contacts.discoverDesc');
+  if (dialog.value.kind === 'enrich') return $t('gainos.contacts.enrichDesc');
   if (dialog.value.kind === 'guess') return $t('gainos.contacts.guessDesc');
   return $t('gainos.contacts.verifyDesc', { email: dialog.value.point?.value ?? '' });
 });
@@ -322,6 +442,23 @@ async function submit(): Promise<void> {
         attemptId: newAttemptId(),
       });
       setNotice($t('gainos.contacts.discoverDone', { count: result.contacts?.length ?? 0 }));
+    } else if (current.kind === 'enrich') {
+      const result = await gainosApi.enrichContacts(props.companyId, {
+        attemptId: newAttemptId(),
+      });
+      if (result.reasonCode === 'NO_CONTACTS') {
+        setNotice($t('gainos.contacts.enrichNoContacts'), 'info');
+      } else {
+        const tone: NoticeTone =
+          result.status === 'COMMITTED' ? 'success' : result.status === 'NOT_ADMITTED' ? 'warning' : 'info';
+        setNotice(
+          $t('gainos.contacts.enrichDone', {
+            status: enrichStatusLabel(result.status),
+            attempted: result.attempted ?? result.results?.length ?? 0,
+          }),
+          tone,
+        );
+      }
     } else if (current.kind === 'guess') {
       const result = await gainosApi.guessEmails(props.companyId, {});
       setNotice(
@@ -391,17 +528,18 @@ onMounted(() => {
         <Button
           v-if="contacts.length"
           :disabled="!!busy"
-          :loading="busy === 'guess'"
-          data-gs="contacts-guess"
-          @click="openDialog('guess')"
+          :loading="busy === 'enrich'"
+          data-gs="contacts-enrich"
+          type="primary"
+          @click="openDialog('enrich')"
         >
-          {{ $t('gainos.contacts.guess') }}
+          {{ $t('gainos.contacts.enrich') }}
         </Button>
         <Button
           :disabled="!!busy"
           :loading="busy === 'discover'"
           data-gs="contacts-discover"
-          type="primary"
+          :type="contacts.length ? 'default' : 'primary'"
           @click="openDialog('discover')"
         >
           {{ $t('gainos.contacts.discover') }}
@@ -432,6 +570,59 @@ onMounted(() => {
         @close="notice = null"
       />
 
+      <!-- 公司官方公开渠道与社媒（独立于具名决策人，避免把总机/职能邮箱误展为决策人） -->
+      <GsCard v-if="hasOfficialChannels" data-gs="official-channels" padding="18px 24px">
+        <div class="dm-official">
+          <div>
+            <h3 class="dm-official__title">{{ $t('gainos.contacts.officialChannelsTitle') }}</h3>
+            <p class="dm-official__subtitle">{{ $t('gainos.contacts.officialChannelsSubtitle') }}</p>
+          </div>
+          <div class="dm-official__grid">
+            <div v-if="officialChannels.emails.length > 0" class="dm-official__group">
+              <p class="dm-label">{{ $t('gainos.leads.channelEmailsTitle') }}</p>
+              <ul class="dm-official__list">
+                <li v-for="item in officialChannels.emails" :key="item.value" class="dm-official__item">
+                  <a :href="`mailto:${item.value}`">{{ item.value }}</a>
+                  <Tag v-if="item.tag" :bordered="false" class="dm-chip">{{ item.tag }}</Tag>
+                </li>
+              </ul>
+            </div>
+            <div v-if="officialChannels.phones.length > 0" class="dm-official__group">
+              <p class="dm-label">{{ $t('gainos.leads.channelPhonesTitle') }}</p>
+              <ul class="dm-official__list">
+                <li v-for="phone in officialChannels.phones" :key="phone" class="dm-official__item">
+                  <a :href="`tel:${phone}`">{{ phone }}</a>
+                </li>
+              </ul>
+            </div>
+            <div v-if="officialChannels.socials.length > 0" class="dm-official__group">
+              <p class="dm-label">{{ $t('gainos.leads.channelSocialsTitle') }}</p>
+              <div class="dm-official__socials">
+                <a
+                  v-for="social in officialChannels.socials"
+                  :key="social.url"
+                  class="dm-official__social-pill"
+                  :href="social.url"
+                  rel="noreferrer"
+                  target="_blank"
+                  :title="social.url"
+                >
+                  {{ social.label }}
+                </a>
+              </div>
+            </div>
+            <div v-if="officialChannels.forms.length > 0" class="dm-official__group">
+              <p class="dm-label">{{ $t('gainos.leads.channelFormsTitle') }}</p>
+              <ul class="dm-official__list">
+                <li v-for="formUrl in officialChannels.forms" :key="formUrl" class="dm-official__item">
+                  <a :href="formUrl" rel="noreferrer" target="_blank">{{ formUrl }}</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </GsCard>
+
       <GsCard v-if="rows.length === 0" data-gs="decision-makers-empty" padding="32px 24px">
         <GsEmpty :description="$t('gainos.contacts.emptyDesc')" :title="$t('gainos.contacts.emptyTitle')">
           <template #actions>
@@ -451,8 +642,8 @@ onMounted(() => {
           type="info"
         >
           <template #action>
-            <Button :disabled="!!busy" size="small" type="link" @click="openDialog('guess')">
-              {{ $t('gainos.contacts.guess') }}
+            <Button :disabled="!!busy" size="small" type="link" @click="openDialog('enrich')">
+              {{ $t('gainos.contacts.enrich') }}
             </Button>
           </template>
         </Alert>
@@ -626,6 +817,73 @@ onMounted(() => {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.dm-official {
+  display: grid;
+  gap: 14px;
+}
+.dm-official__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 14.5px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.dm-official__subtitle {
+  margin: 2px 0 0;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.dm-official__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 20px;
+}
+.dm-official__group {
+  min-width: 0;
+}
+.dm-official__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dm-official__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.dm-official__item a {
+  color: var(--gs-accent-fg);
+  text-decoration: none;
+}
+.dm-official__item a:hover {
+  text-decoration: underline;
+}
+.dm-official__socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dm-official__social-pill {
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.dm-official__social-pill:hover {
+  text-decoration: underline;
 }
 
 /* ── 一位决策人 ──────────────────────────────────────────────────────────

@@ -196,3 +196,34 @@ describe('battle-csv BFF route (Batch 1.4-C)', () => {
     });
   });
 });
+
+describe('contact enrichment BFF route (Batch 1.6)', () => {
+  it('registers POST canonical-companies/:id/enrich-contacts with admin grant and compliance injection', () => {
+    const route = BFF_ROUTES.find(
+      (candidate) =>
+        candidate.method === 'POST' &&
+        candidate.saasPath === 'canonical-companies/:id/enrich-contacts',
+    );
+    expect(route).toEqual({
+      method: 'POST',
+      saasPath: 'canonical-companies/:id/enrich-contacts',
+      enginePath: '/canonical-companies/:id/enrich-contacts',
+      access: 'admin',
+      grant: true,
+      timeoutMs: 240_000,
+      complianceInject: true,
+    });
+
+    expect(
+      budgetQuoteRequest(
+        route!,
+        { id: '11111111-1111-4111-8111-111111111111' },
+        { attemptId: 'att-1', contactIds: ['c-1'], lawfulBasis: 'legitimate_interest' },
+      ),
+    ).toEqual({
+      operation: 'POST /canonical-companies/:id/enrich-contacts',
+      companyId: '11111111-1111-4111-8111-111111111111',
+      body: { attemptId: 'att-1' },
+    });
+  });
+});

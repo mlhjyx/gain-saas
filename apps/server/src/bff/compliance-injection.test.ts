@@ -39,10 +39,11 @@ describe('平台级合法依据自动注入（2026-11-04 取消租户声明）',
     });
   });
 
-  it('flags exactly the three contact-compliance routes for injection', () => {
+  it('flags exactly the four contact-compliance routes for injection', () => {
     const flagged = BFF_ROUTES.filter((r) => r.complianceInject).map((r) => r.enginePath).sort();
     expect(flagged).toEqual([
       '/canonical-companies/:id/discover-contacts',
+      '/canonical-companies/:id/enrich-contacts',
       '/canonical-companies/:id/guess-emails',
       '/contact-points/:pointId/verify',
     ]);
