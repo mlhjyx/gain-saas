@@ -2348,7 +2348,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * 分页列出数据主体删除请求（仅 contact/company，不含内部清理单）
+         * @description 游标分页列出本 workspace 的数据主体删除请求（仅 contact/company，严格排除内部 seller_document 清理单）：支持 ?limit=（默认 20，最大 100）、?cursor=（UUID）与 ?status= 过滤，返回 { data, page: { next_cursor, has_more } }；非法 cursor/status 返回 400 VALIDATION_ERROR。需要 compliance:manage。
+         */
+        get: operations["DeletionController_list_v1"];
         put?: never;
         /**
          * 受理数据主体删除请求（GDPR Art.17）——异步编排，返回 202 + 请求 id
@@ -2801,6 +2805,26 @@ export interface paths {
          * @description 返回 10 分钟有效的 presigned GET；尚未上传完成（pending_upload/committing）或已被拒绝时返回 409。
          */
         get: operations["SellerDocumentsController_downloadUrl_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 流式下载资料原文件（经服务端鉴权代理，不暴露内网对象存储签名）
+         * @description 流式代理下载资料原文件：校验 workspace 隔离与状态（ready/queued/processing；未完成返回 409 SELLER_DOCUMENT_NOT_READY，缺失或跨租户 404，对象存储不可用 503），不暴露内网 MinIO 地址。需要 acquisition:read。
+         */
+        get: operations["SellerDocumentsController_downloadContent_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9933,6 +9957,20 @@ export interface operations {
                                 url: string;
                                 status: string;
                             }[];
+                            company_channels?: {
+                                /** @enum {string} */
+                                channel: "email" | "phone" | "form_url";
+                                value: string;
+                                email_type?: string | null;
+                                status: string;
+                                source_type: string;
+                                source_url?: string | null;
+                            }[];
+                            social_profiles?: {
+                                platform: string;
+                                url: string;
+                                source: string;
+                            }[];
                             suggested_contact_path: {
                                 kind: string;
                                 url: string;
@@ -10590,6 +10628,8 @@ export interface operations {
     ReportController_battleCsv_v1: {
         parameters: {
             query: {
+                /** @description 导出范围：delivered（默认，仅已核准交付线索）或 reviewable（含待复核的 match 线索） */
+                scope?: "delivered" | "reviewable";
                 /** @description 是否脱敏触达邮箱前缀（true 适用于对外汇报/审计，默认 false 供内部外贸团队作战导入） */
                 maskEmails?: boolean;
                 /** @description 可选 ISO 周（如 2026-W48）；缺省导出该 ICP 全部已交付线索（上限 1000 条） */
@@ -11514,6 +11554,66 @@ export interface operations {
                     "application/json": {
                         data: {
                             acked: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DeletionController_list_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description 游标（上一页 page.next_cursor，UUID） */
+                cursor?: string;
+                /** @description 按删除状态过滤 */
+                status?: "RECEIVED" | "FROZEN" | "ERASING" | "COMPLETED" | "FAILED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            status: "RECEIVED" | "FROZEN" | "ERASING" | "COMPLETED" | "FAILED";
+                            /** @enum {string} */
+                            subjectType: "contact" | "company";
+                            /** Format: uuid */
+                            subjectId: string;
+                            reason?: string | null;
+                            requestRef?: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            completedAt?: string | null;
+                            /** @description 擦除回执（COMPLETED 后有值）——🔴 只计数，无 PII */
+                            receipt?: {
+                                contactsErased?: number;
+                                contactPointsErased?: number;
+                                fieldEvidenceErased?: number;
+                                signalsRevoked?: number;
+                                companiesSuppressed?: number;
+                                leadsRescoreRequested?: number;
+                                patentCacheErased?: number;
+                                ruleVersion?: string;
+                                /** Format: date-time */
+                                createdAt?: string;
+                            } | null;
+                        }[];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
                         };
                     };
                 };
@@ -13378,6 +13478,55 @@ export interface operations {
                         };
                     };
                 };
+            };
+        };
+    };
+    SellerDocumentsController_downloadContent_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 资料原文件二进制字节流 */
+            200: {
+                headers: {
+                    /** @description 文件 MIME 类型 */
+                    "Content-Type"?: string;
+                    /** @description 安全转义的附件文件名 */
+                    "Content-Disposition"?: string;
+                    /** @description 文件字节数 */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description 资料不存在、已软删、属其他 workspace 或对象缺失 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 资料尚未上传完成或已被拒绝（SELLER_DOCUMENT_NOT_READY） */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 对象存储暂时不可用（SELLER_DOCUMENTS_STORAGE_UNAVAILABLE） */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
