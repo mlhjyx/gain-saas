@@ -25,9 +25,11 @@ export type OutreachIngestOutcome =
       contactRef: string;
       /** 仅 BOUNCE：SMTP 状态 5.x.x=true（硬退，永久压制）；4.x.x=false（软退，只计数）。 */
       hardBounce?: boolean;
-      /** 仅 REPLY：细粒度回复意图（转交新联系人 / 要规格书报价 / 延后联系 / 休假）。 */
+      /** 归因到的已接受商机 SAO id（若命中）。 */
+      saoId?: string;
+      /** 仅 REPLY：细粒度回复意图（转交新联系人 / 要规格书报价 / 正向兴趣 / 延后联系 / 拒联 / 休假）。 */
       replyIntent?: OutreachReplyIntent;
-      /** 仅 REPLY 且命中转交时提取到的新联系人候选邮箱。 */
+      /** 仅 REPLY 且命中转交/提及新联系人时提取到的新联系人候选邮箱。 */
       referredEmails?: readonly string[];
     }
   | { outcome: 'DUPLICATE'; externalId: string }
@@ -60,7 +62,11 @@ export class OutreachIngestService {
     private readonly writeback: OutreachBounceWritebackService,
   ) {}
 
-  async ingest(tenant: OutreachTenant, raw: string): Promise<OutreachIngestOutcome> {
+  async ingest(
+    tenant: OutreachTenant,
+    raw: string,
+    opts?: { saoId?: string | null },
+  ): Promise<OutreachIngestOutcome> {
     if (typeof raw !== 'string' || !raw.trim()) invalid('邮件原文不能为空');
     if (Buffer.byteLength(raw, 'utf8') > MAX_RAW_BYTES) {
       invalid('邮件原文超过 256KB 上限');
@@ -135,6 +141,16 @@ export class OutreachIngestService {
       kind === 'REPLY'
         ? (intentAnalysis?.classification ?? (autoReply ? 'OUT_OF_OFFICE' : 'UNKNOWN'))
         : 'UNKNOWN';
+    const resolvedSaoId =
+      kind === 'REPLY'
+        ? (opts?.saoId ?? (await this.resolveAcceptedSaoId(tenant, draft.contactRef)))
+        : null;
+    const shouldSuppress =
+      kind === 'UNSUBSCRIBE' ||
+      kind === 'COMPLAINT' ||
+      (kind === 'BOUNCE' && Boolean(hardBounce)) ||
+      (kind === 'REPLY' && derivedClassification === 'NEGATIVE');
+    const referredEmails = intentAnalysis?.referredEmails ?? [];
     let reply: { id: string };
     try {
       reply = await this.replies.record(tenant, {
@@ -145,8 +161,10 @@ export class OutreachIngestService {
         subject: email.subject,
         snippet: email.textBody.slice(0, 500) || null,
         externalId,
-        // 软退信与自动休假回复只计数：不写 OPT_OUT，避免休假自动回复误拉黑买家。
-        suppress: (kind === 'BOUNCE' && !hardBounce) || autoReply ? false : true,
+        saoId: resolvedSaoId,
+        referredEmails,
+        // 仅明确退订/投诉/硬退/NEGATIVE 拒联写 OPT_OUT；正向/中性/休假/软退不误拉黑买家。
+        suppress: shouldSuppress,
       });
     } catch (error) {
       // 并发 ingest（HTTP 端点 + IMAP 轮询/双 poller）在查重与插入之间竞态：
@@ -158,7 +176,7 @@ export class OutreachIngestService {
     }
     // 退信回写（缺口 3）：DSN 退信 → 引擎账本（hard→INVALID；soft ×3→UNKNOWN+24h 重验）。
     // legacy 草稿无 contactPointId 时跳过（无法寻址）。
-    if (kind === 'BOUNCE' && draft.contactPointId) {
+    if (kind === 'BOUNCE' && draft.contactPointId && this.writeback) {
       await this.writeback
         .enqueue(tenant, {
           contactPointId: draft.contactPointId,
@@ -177,12 +195,15 @@ export class OutreachIngestService {
         kind,
         hardBounce: hardBounce ?? null,
         externalId,
+        ...(resolvedSaoId ? { saoId: resolvedSaoId } : {}),
         ...(intentAnalysis && intentAnalysis.intent !== 'NONE'
           ? {
               replyIntent: intentAnalysis.intent,
-              referredEmails: intentAnalysis.referredEmails,
+              referredEmails,
             }
-          : {}),
+          : referredEmails.length > 0
+            ? { referredEmails }
+            : {}),
         matchedMessageId:
           candidates.find((candidate) => candidate === email.inReplyTo) ?? candidates[0],
       },
@@ -192,15 +213,35 @@ export class OutreachIngestService {
       replyId: reply.id,
       contactRef: draft.contactRef,
       ...(kind === 'BOUNCE' ? { hardBounce } : {}),
+      ...(resolvedSaoId ? { saoId: resolvedSaoId } : {}),
       ...(intentAnalysis && intentAnalysis.intent !== 'NONE'
         ? {
             replyIntent: intentAnalysis.intent,
-            ...(intentAnalysis.referredEmails.length > 0
-              ? { referredEmails: intentAnalysis.referredEmails }
-              : {}),
           }
         : {}),
+      ...(referredEmails.length > 0 ? { referredEmails } : {}),
     };
+  }
+
+  private async resolveAcceptedSaoId(
+    tenant: OutreachTenant,
+    contactRef: string,
+  ): Promise<string | null> {
+    if (!this.prisma.sao?.findFirst) return null;
+    const matched = await this.prisma.sao
+      .findFirst({
+        where: {
+          workspaceId: tenant.workspaceId,
+          state: 'ACCEPTED',
+          qgo: {
+            OR: [{ leadRef: contactRef }, { canonicalCompanyRef: contactRef }],
+          },
+        },
+        orderBy: { decidedAt: 'desc' },
+        select: { id: true },
+      })
+      .catch(() => null);
+    return matched?.id ?? null;
   }
 
   private async recordUnmatched(

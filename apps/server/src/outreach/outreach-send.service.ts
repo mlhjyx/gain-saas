@@ -101,6 +101,7 @@ interface PreflightDraft {
   contactRef: string;
   recipientEmail: string;
   countryCode: string | null;
+  companyName: string | null;
 }
 
 /**
@@ -454,7 +455,9 @@ export class OutreachSendService {
       if (shadow) {
         await this.recordDraftEvent(tenant, batchId, draft, 'SEND_SHADOWED', {
           authorizationId: grant.authorizationId,
-          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+            companyName: draft.companyName,
+          }),
           footerLines: plan.footerLines.length,
         });
         shadowedCount += 1;
@@ -714,7 +717,9 @@ export class OutreachSendService {
           draftId: draft.id,
           contactRef: draft.contactRef,
           countryCode: normalizeCountry(draft.countryCode),
-          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+            companyName: draft.companyName,
+          }),
           ...detail,
         } as Prisma.InputJsonValue,
       },
@@ -798,7 +803,9 @@ export class OutreachSendService {
             code: 'OUTREACH_HOLDOUT',
             message: '该联系人属于运行中实验的 holdout 组，实验窗口内不得触达',
             countryCode: normalizeCountry(draft.countryCode),
-            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+              companyName: draft.companyName,
+            }),
           },
           footerLines: [],
         });
@@ -806,6 +813,7 @@ export class OutreachSendService {
       }
       const decision = evaluateEmailJurisdiction({
         countryCode: draft.countryCode,
+        companyName: draft.companyName,
         consentStatus: latest.get(draft.contactRef)?.status ?? 'MISSING',
         usPostalAddress: this.config.OUTREACH_US_POSTAL_ADDRESS,
         frSourceNotice: this.config.OUTREACH_FR_SOURCE_NOTICE,
@@ -849,7 +857,9 @@ export class OutreachSendService {
             code: `OUTREACH_DNC_BLOCKED: ${hit.join(',')}`,
             message: '收件邮箱在禁联名单或全局抑制中',
             countryCode: normalizeCountry(draft.countryCode),
-            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+            jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+              companyName: draft.companyName,
+            }),
           };
         }
       }
@@ -886,7 +896,9 @@ export class OutreachSendService {
                   ? '该联系人属于 Catch-All 全收域或严格法域，建议改走领英人工首触达（不发冷邮）'
                   : '引擎联系人核验未通过（仅核验有效 VALID 的邮箱可发送）',
               countryCode: normalizeCountry(draft.countryCode),
-              jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+              jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+                companyName: draft.companyName,
+              }),
             };
           }
         }
@@ -1073,7 +1085,9 @@ export class OutreachSendService {
           contactRef: draft.contactRef,
           recipientEmail: draft.recipientEmail,
           countryCode: draft.countryCode,
-          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
+          jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
+            companyName: draft.companyName,
+          }),
           companyName: draft.companyName,
           subject: draft.subject,
           body: draft.body,

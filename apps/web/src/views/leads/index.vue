@@ -103,8 +103,39 @@ const loadError = ref<{ title: string; next?: string } | null>(null);
 const icps = ref<Icp[]>([]);
 const activeIcpId = ref('');
 const queueCounts = ref<LeadQueueCounts | null>(null);
+const exportingCsv = ref(false);
 // 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
 const pageLimit = ref(50);
+
+async function exportBattleCsv(): Promise<void> {
+  if (!activeIcpId.value || !isAdmin.value || exportingCsv.value) return;
+  exportingCsv.value = true;
+  const scope: 'delivered' | 'reviewable' =
+    activeQueue.value === 'needs_review' ? 'reviewable' : 'delivered';
+  try {
+    const { blob, filename, rows } = await gainosApi.exportBattleCsv({
+      icpId: activeIcpId.value,
+      scope,
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    feedback.message.success(
+      rows !== null
+        ? $t('gainos.leads.exportBattleCsvDoneCount', { count: rows })
+        : $t('gainos.leads.exportBattleCsvDone'),
+    );
+  } catch (error) {
+    feedback.message.error(failureText(error).title);
+  } finally {
+    exportingCsv.value = false;
+  }
+}
 
 // 判定明细展开状态（卡片自己解析 C1–C5，页面只记住哪些卡是展开的）
 const expandedIds = ref<Set<string>>(new Set());
@@ -469,6 +500,16 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
               </template>
             </Input>
           </div>
+          <Button
+            v-if="isAdmin"
+            class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
+            :loading="exportingCsv"
+            :title="$t('gainos.leads.exportBattleCsvHint')"
+            data-gs="export-battle-csv"
+            @click="exportBattleCsv"
+          >
+            {{ exportingCsv ? $t('gainos.leads.exportingBattleCsv') : $t('gainos.leads.exportBattleCsv') }}
+          </Button>
           <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="qgo-entry" @click="$router.push('/qgos')">
             {{ $t('gainos.leads.qgoEntry') }}
           </Button>

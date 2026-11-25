@@ -20,6 +20,9 @@ class FakeIngestPrisma {
   consents: Row[] = [];
   sends: Row[] = [];
   drafts: Row[] = [{ id: DRAFT, workspaceId: WS, contactRef: CONTACT }];
+  saos: Row[] = [];
+  outcomes: Row[] = [];
+  notifications: Row[] = [];
   seq = 0;
 
   private id(): string {
@@ -74,6 +77,56 @@ class FakeIngestPrisma {
   readonly outreachDraft = {
     findFirst: async ({ where }: { where: Row }) =>
       this.drafts.find((row) => row.id === where.id) ?? null,
+  };
+
+  readonly sao = {
+    findFirst: async ({ where }: { where: Row }) => {
+      if (typeof where.id === 'string') {
+        return (
+          this.saos.find(
+            (row) => row.id === where.id && row.workspaceId === where.workspaceId,
+          ) ?? null
+        );
+      }
+      const qgoFilter = where.qgo as { OR?: Array<Record<string, unknown>> } | undefined;
+      return (
+        this.saos.find((row) => {
+          if (row.workspaceId !== where.workspaceId) return false;
+          if (where.state && row.state !== where.state) return false;
+          if (!qgoFilter?.OR) return true;
+          return qgoFilter.OR.some(
+            (cond) =>
+              (cond.leadRef && row.leadRef === cond.leadRef) ||
+              (cond.canonicalCompanyRef && row.canonicalCompanyRef === cond.canonicalCompanyRef),
+          );
+        }) ?? null
+      );
+    },
+  };
+
+  readonly opportunityOutcome = {
+    findUnique: async ({ where }: { where: Row }) => {
+      const key = (where as { saoId_sourceEventId: { saoId: string; sourceEventId: string } })
+        .saoId_sourceEventId;
+      return (
+        this.outcomes.find(
+          (row) => row.saoId === key.saoId && row.sourceEventId === key.sourceEventId,
+        ) ?? null
+      );
+    },
+    create: async ({ data }: { data: Row }) => {
+      const row = { id: this.id(), createdAt: new Date(), ...data };
+      this.outcomes.push(row);
+      return { ...row };
+    },
+  };
+
+  readonly notification = {
+    create: async ({ data }: { data: Row }) => {
+      const row = { id: this.id(), createdAt: new Date(), ...data };
+      this.notifications.push(row);
+      return { ...row };
+    },
   };
 
   readonly $transaction = async (
@@ -148,15 +201,45 @@ function dsnRaw(status: string): string {
 }
 
 describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
-  it('普通回复：归因到发送台账、写 REPLY 行并 OPT_OUT（回复即停）', async () => {
+  it('正向回复：归因到发送台账、自动关联已接受 SAO 写 REPLIED outcome，绝不误写 OPT_OUT', async () => {
     const { prisma, ingest } = build();
+    const saoId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    prisma.saos.push({
+      id: saoId,
+      workspaceId: WS,
+      state: 'ACCEPTED',
+      leadRef: CONTACT,
+      decidedAt: new Date(),
+    });
     const result = await ingest.ingest(tenant, replyRaw());
-    expect(result).toMatchObject({ outcome: 'REPLY', contactRef: CONTACT });
+    expect(result).toMatchObject({ outcome: 'REPLY', contactRef: CONTACT, saoId });
     expect(prisma.replies[0]).toMatchObject({
       kind: 'REPLY',
+      classification: 'POSITIVE',
       contactRef: CONTACT,
       externalId: 'reply-1@ziel.de',
     });
+    expect(prisma.consents).toHaveLength(0);
+    expect(prisma.outcomes).toHaveLength(1);
+    expect(prisma.outcomes[0]).toMatchObject({
+      workspaceId: WS,
+      saoId,
+      outcome: 'REPLIED',
+    });
+  });
+
+  it('明确拒联回复（NEGATIVE）：写 REPLY 行并写 OPT_OUT 压制后续触达', async () => {
+    const { prisma, ingest } = build();
+    const result = await ingest.ingest(
+      tenant,
+      replyRaw({
+        messageId: 'reply-neg@ziel.de',
+        body: 'Thanks, we are not interested. Please do not contact us again.',
+      }),
+    );
+    expect(result).toMatchObject({ outcome: 'REPLY', contactRef: CONTACT });
+    expect(prisma.replies[0]).toMatchObject({ kind: 'REPLY', classification: 'NEGATIVE' });
+    expect(prisma.consents).toHaveLength(1);
     expect(prisma.consents[0]).toMatchObject({ status: 'OPT_OUT', source: 'reply:reply' });
   });
 
@@ -166,7 +249,7 @@ describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
     const second = await ingest.ingest(tenant, replyRaw());
     expect(second.outcome).toBe('DUPLICATE');
     expect(prisma.replies).toHaveLength(1);
-    expect(prisma.consents).toHaveLength(1);
+    expect(prisma.consents).toHaveLength(0);
   });
 
   it('并发竞态：查重未命中但插入撞唯一索引（P2002）同样按 DUPLICATE 处理', async () => {
@@ -178,7 +261,7 @@ describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
     spy.mockRestore();
     expect(second.outcome).toBe('DUPLICATE');
     expect(prisma.replies).toHaveLength(1);
-    expect(prisma.consents).toHaveLength(1);
+    expect(prisma.consents).toHaveLength(0);
   });
 
   it('硬退信（5.x.x）：写 BOUNCE 行并 OPT_OUT（永久压制）', async () => {
@@ -255,6 +338,13 @@ describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
     expect(prisma.replies[0]).toMatchObject({
       kind: 'REPLY',
       classification: 'POSITIVE',
+    });
+    expect(prisma.consents).toHaveLength(0);
+    expect(String(prisma.replies[0].snippet ?? '')).toContain('m.rossi@ziel.de');
+    expect(prisma.notifications).toHaveLength(1);
+    expect(prisma.notifications[0]).toMatchObject({
+      workspaceId: WS,
+      type: 'outreach.reply.referral',
     });
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({

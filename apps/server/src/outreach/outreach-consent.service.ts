@@ -125,7 +125,7 @@ export class OutreachConsentService {
 
   async eligibility(
     tenant: OutreachTenant,
-    input: { contactRef: string; countryCode: string; email: string },
+    input: { contactRef: string; countryCode: string; email: string; companyName?: string | null },
   ): Promise<OutreachEligibility> {
     const consent = await this.latest(tenant, input.contactRef);
     const consentStatus = consent?.status ?? ('MISSING' as const);
@@ -133,6 +133,7 @@ export class OutreachConsentService {
     const policyDecision = evaluateConsentPolicy({
       countryCode: input.countryCode,
       consentStatus,
+      ...(input.companyName !== undefined ? { companyName: input.companyName } : {}),
     });
     const jurisdictionPolicy = policyDecision.policy;
     if (!policyDecision.allowed) {

@@ -29,7 +29,7 @@ import {
 
 import { $t } from '#/locales';
 
-import { formatDate, formatDateTime } from '@gain-saas/shared';
+import { evaluateT0Channels, formatDate, formatDateTime } from '@gain-saas/shared';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import AsyncSection from '#/components/gainos/async-section.vue';
@@ -45,6 +45,7 @@ import { feedback } from '#/feedback';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
 import JudgeDimensions from './judge-dimensions.vue';
+import T0OutreachPanel from './T0OutreachPanel.vue';
 import {
   isMachineAggregate,
   judgeCounts,
@@ -361,6 +362,16 @@ const hasAnyContactPath = computed(
     companySocials.value.length > 0 ||
     contactPaths.value.length > 0,
 );
+const contactEmailMailtoAllowed = computed(() => {
+  if (!pkg.value) return false;
+  return evaluateT0Channels({
+    countryCode: pkg.value.company.country,
+    companyName: pkg.value.company.name,
+    email: companyEmails.value[0]?.value,
+    suppressed: status.value === 'SUPPRESSED',
+    sanctionsHold: sanctionBlocked.value,
+  }).channels.mailto.allowed;
+});
 
 function sanctionLabel(value?: null | string): string {
   // 引擎状态未回填时按「未筛查」呈现；文案节是单数 sanction（勿写成 sanctions）。
@@ -702,11 +713,15 @@ watch(tab, (next) => {
                       class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
                     >
                       <a
+                        v-if="contactEmailMailtoAllowed"
                         class="break-all text-[var(--gs-accent-fg)]"
                         :href="`mailto:${item.value}`"
                       >
                         {{ item.value }}
                       </a>
+                      <span v-else class="break-all text-[var(--gs-fg-muted)]">
+                        {{ item.value }}
+                      </span>
                       <Tag v-if="item.email_type" :bordered="false" class="m-0 text-xs">
                         {{ item.email_type }}
                       </Tag>
@@ -781,6 +796,14 @@ watch(tab, (next) => {
                 </p>
               </GsCard>
             </div>
+
+            <!-- T0 四通道轻外联工作台（无需企业邮箱即可直达并留痕） -->
+            <T0OutreachPanel
+              v-if="tab === 'package'"
+              :draft="draft"
+              :is-admin="isAdmin"
+              :pkg="pkg"
+            />
 
             <GsCard :title="$t('gainos.leads.evidenceTitle')" data-gs="evidence">
               <ul v-if="evidenceItems.length > 0" class="m-0 grid list-none gap-2 p-0">
@@ -959,8 +982,15 @@ watch(tab, (next) => {
         </TabPane>
 
         <TabPane key="draft" :tab="$t('gainos.leads.tab.draft')">
-          <GsCard>
-            <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
+          <div class="grid gap-4">
+            <T0OutreachPanel
+              v-if="tab === 'draft'"
+              :draft="draft"
+              :is-admin="isAdmin"
+              :pkg="pkg"
+            />
+            <GsCard>
+              <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
             <template #extra>
               <Button
                 v-if="status === 'QUALIFIED'"
@@ -996,6 +1026,7 @@ watch(tab, (next) => {
               {{ $t('gainos.leads.outreachEmpty') }}
             </p>
           </GsCard>
+          </div>
         </TabPane>
 
         <TabPane key="outcomes" :tab="$t('gainos.leads.tab.outcomes')">

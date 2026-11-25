@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { normalizeWebsiteUrl } from '@gain-saas/shared';
 import { preferences, usePreferences } from '@vben/preferences';
 
 import { Button, Input, Select } from 'ant-design-vue';
@@ -39,10 +40,18 @@ const website = ref('');
 const businessEmail = ref('');
 const industryCode = ref<string | undefined>(undefined);
 const industryText = ref('');
+const customIndustryMode = ref(false);
 const products = ref<string[]>([]);
 const productDraft = ref('');
 const targetMarkets = ref<string[]>([]);
 const preview = ref<OnboardingPreview | null>(null);
+
+// 防异步写覆盖竞态：单调请求序列 + 用户编辑脏标记。
+const EMAIL_CACHE_KEY = 'gainos.onboarding.businessEmail.v1';
+let previewRequestSeq = 0;
+const industryTouched = ref(false);
+const productsTouched = ref(false);
+const manualChosen = ref(false);
 
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -145,8 +154,31 @@ const emailHint = computed(() => {
   return '';
 });
 
+function isValidNormalizedWebsite(raw: string): boolean {
+  const normalized = normalizeWebsiteUrl(raw);
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    return parsed.hostname === 'localhost' || parsed.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+function normalizeWebsiteField() {
+  const trimmed = website.value.trim();
+  if (!trimmed) return;
+  website.value = normalizeWebsiteUrl(trimmed);
+}
+
 const websiteValid = computed(
-  () => !website.value.trim() || /^https?:\/\/.+/i.test(website.value.trim()),
+  () => !website.value.trim() || isValidNormalizedWebsite(website.value),
+);
+const websiteError = computed(() =>
+  website.value.trim() && !websiteValid.value
+    ? $t('gainos.onboarding.websiteInvalidHint')
+    : '',
 );
 const startValid = computed(
   () => name.value.trim().length > 0 && website.value.trim().length > 0 && websiteValid.value,
@@ -166,6 +198,24 @@ const steps = computed(() => [
   $t('gainos.onboarding.stepConfirm'),
 ]);
 
+function toggleCustomIndustryMode() {
+  industryTouched.value = true;
+  customIndustryMode.value = !customIndustryMode.value;
+  if (customIndustryMode.value) {
+    industryCode.value = undefined;
+  } else {
+    industryText.value = '';
+  }
+}
+
+function adoptSuggestedMarkets() {
+  const suggestedCodes = (preview.value?.markets ?? [])
+    .map((item) => item.code?.trim().toUpperCase())
+    .filter((code): code is string => Boolean(code && /^[A-Z]{2}$/.test(code)));
+  if (suggestedCodes.length === 0) return;
+  targetMarkets.value = Array.from(new Set([...targetMarkets.value, ...suggestedCodes]));
+}
+
 function addProduct(value?: string) {
   const next = (value ?? productDraft.value).trim().slice(0, 120);
   if (!next) return;
@@ -173,15 +223,18 @@ function addProduct(value?: string) {
     feedback.message.warning($t('gainos.onboarding.productsLimit'));
     return;
   }
+  productsTouched.value = true;
   if (!products.value.includes(next)) products.value.push(next);
   productDraft.value = '';
 }
 
 function removeProduct(value: string) {
+  productsTouched.value = true;
   products.value = products.value.filter((item) => item !== value);
 }
 
 function toggleProduct(value: string) {
+  productsTouched.value = true;
   if (products.value.includes(value)) {
     removeProduct(value);
     return;
@@ -193,11 +246,18 @@ function applyPreview(next: OnboardingPreview) {
   preview.value = next;
   if (!name.value && next.name) name.value = next.name;
   if (next.website && !website.value) website.value = next.website;
+  if (manualChosen.value) {
+    stopPolling();
+    view.value = 'manual';
+    return;
+  }
   if (next.state === 'ready') {
     const suggested = next.industry.suggested;
-    industryCode.value = suggested.code ?? undefined;
+    if (!industryTouched.value && !customIndustryMode.value) {
+      industryCode.value = suggested.code ?? undefined;
+    }
     const suggestedProducts = next.products.map((item) => item.name);
-    if (products.value.length === 0) {
+    if (!productsTouched.value && products.value.length === 0) {
       products.value = suggestedProducts.slice(0, 5);
     }
     view.value = 'preview';
@@ -232,8 +292,10 @@ function stopPolling() {
 }
 
 async function pollPreview() {
+  const reqSeq = ++previewRequestSeq;
   try {
     const state = await gainosApi.onboardingPreview();
+    if (reqSeq !== previewRequestSeq || manualChosen.value) return;
     if (!state.started) {
       stopPolling();
       view.value = 'start';
@@ -250,6 +312,13 @@ async function pollPreview() {
 
 async function loadContext() {
   try {
+    const cachedEmail = sessionStorage.getItem(EMAIL_CACHE_KEY);
+    if (cachedEmail && !businessEmail.value) businessEmail.value = cachedEmail;
+  } catch {
+    // 隐私模式忽略
+  }
+  const reqSeq = ++previewRequestSeq;
+  try {
     const context = await gainosApi.workspaceContext();
     if (context?.onboarding?.complete) {
       await router.replace(preferences.app.defaultHomePath);
@@ -259,7 +328,7 @@ async function loadContext() {
     if (context?.onboarding?.companyId) {
       try {
         const state = await gainosApi.onboardingPreview();
-        if (state.started) applyPreview(state.preview);
+        if (reqSeq === previewRequestSeq && state.started) applyPreview(state.preview);
       } catch {
         // 恢复失败时留在官网页，用户可以重新开始。
       }
@@ -272,15 +341,18 @@ async function loadContext() {
 }
 
 async function startUnderstanding() {
+  normalizeWebsiteField();
   if (!startValid.value || starting.value) return;
   starting.value = true;
   errorText.value = '';
+  manualChosen.value = false;
+  const reqSeq = ++previewRequestSeq;
   try {
     const state = await gainosApi.startOnboardingPreview({
-      website: website.value.trim(),
+      website: normalizeWebsiteUrl(website.value),
       name: name.value.trim(),
     });
-    applyPreview(state.preview);
+    if (reqSeq === previewRequestSeq) applyPreview(state.preview);
   } catch (error) {
     handleError(error);
   } finally {
@@ -292,11 +364,16 @@ async function enterManual() {
   if (!name.value.trim() || starting.value) return;
   starting.value = true;
   errorText.value = '';
+  manualChosen.value = true;
+  stopPolling();
+  const reqSeq = ++previewRequestSeq;
   try {
     // 手动模式不带官网：建名称草稿（不触发理解），受控词表随预览响应下发。
     const state = await gainosApi.startOnboardingPreview({ name: name.value.trim() });
-    applyPreview(state.preview);
-    view.value = 'manual';
+    if (reqSeq === previewRequestSeq) {
+      applyPreview(state.preview);
+      view.value = 'manual';
+    }
   } catch (error) {
     handleError(error);
   } finally {
@@ -305,14 +382,18 @@ async function enterManual() {
 }
 
 async function retryUnderstanding() {
-  if (starting.value) return;
+  normalizeWebsiteField();
+  if (starting.value || !websiteValid.value) return;
   starting.value = true;
   errorText.value = '';
+  manualChosen.value = false;
+  const reqSeq = ++previewRequestSeq;
   try {
     const state = await gainosApi.startOnboardingPreview({
-      website: website.value.trim(),
+      website: normalizeWebsiteUrl(website.value),
       name: name.value.trim(),
     });
+    if (reqSeq !== previewRequestSeq) return;
     if (state.preview.state === 'failed') {
       // 重试已被接受，但工作流要异步置 ENRICHING；本次响应可能仍是旧失败态。
       // 先进入等待并轮询，避免停在失败页、连点重复消费预算。
@@ -331,9 +412,10 @@ async function retryUnderstanding() {
 
 function buildPayload(): OnboardingCompanyInput {
   const option = preview.value?.industry.options.find((row) => row.code === industryCode.value);
+  const useCustom = customIndustryMode.value || industryOptions.value.length === 0;
   return {
     name: name.value.trim(),
-    ...(industryCode.value
+    ...(!useCustom && industryCode.value
       ? {
           industryCode: industryCode.value,
           industry: option ? labelFor(option) : industryText.value.trim(),
@@ -354,6 +436,11 @@ async function submit() {
   errorText.value = '';
   try {
     await gainosApi.completeOnboarding(buildPayload());
+    try {
+      sessionStorage.removeItem(EMAIL_CACHE_KEY);
+    } catch {
+      // ignore
+    }
     authStore.markOnboardingCompleted();
     feedback.message.success($t('gainos.onboarding.success'));
     await router.replace(preferences.app.defaultHomePath);
@@ -378,8 +465,19 @@ function failureCopy(): string {
 }
 
 function switchManualFromFailure() {
+  manualChosen.value = true;
+  stopPolling();
   view.value = 'manual';
 }
+
+watch(businessEmail, (val) => {
+  try {
+    if (val.trim()) sessionStorage.setItem(EMAIL_CACHE_KEY, val.trim());
+    else sessionStorage.removeItem(EMAIL_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+});
 
 async function logout() {
   await authStore.logout();
@@ -427,8 +525,10 @@ onBeforeUnmount(stopPolling);
             <Input
               v-model:value="website"
               :placeholder="$t('gainos.onboarding.websitePlaceholder')"
+              @blur="normalizeWebsiteField"
               @press-enter="startUnderstanding"
             />
+            <span v-if="websiteError" class="onboarding-error">{{ websiteError }}</span>
             <span class="field-hint">{{ $t('gainos.onboarding.websiteHint') }}</span>
           </label>
           <label class="field">
@@ -473,7 +573,12 @@ onBeforeUnmount(stopPolling);
           <p class="section-desc">{{ failureCopy() }}</p>
           <label class="field">
             <span class="field-label">{{ $t('gainos.onboarding.website') }}</span>
-            <Input v-model:value="website" :placeholder="$t('gainos.onboarding.websitePlaceholder')" />
+            <Input
+              v-model:value="website"
+              :placeholder="$t('gainos.onboarding.websitePlaceholder')"
+              @blur="normalizeWebsiteField"
+            />
+            <span v-if="websiteError" class="onboarding-error">{{ websiteError }}</span>
             <span class="field-hint">{{ $t('gainos.onboarding.failureWebsiteHint') }}</span>
           </label>
           <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
@@ -499,21 +604,39 @@ onBeforeUnmount(stopPolling);
           </label>
 
           <div class="field">
-            <span class="field-label">{{ $t('gainos.onboarding.industry') }}</span>
+            <div class="field-head">
+              <span class="field-label">{{ $t('gainos.onboarding.industry') }}</span>
+              <button
+                v-if="industryOptions.length > 0"
+                class="text-link field-toggle"
+                data-gs="toggle-custom-industry"
+                type="button"
+                @click="toggleCustomIndustryMode"
+              >
+                {{
+                  customIndustryMode
+                    ? $t('gainos.onboarding.industryUseSelect')
+                    : $t('gainos.onboarding.industryUseCustom')
+                }}
+              </button>
+            </div>
             <Select
-              v-if="industryOptions.length > 0"
+              v-if="industryOptions.length > 0 && !customIndustryMode"
               v-model:value="industryCode"
               :options="industryOptions"
               allow-clear
               :placeholder="$t('gainos.onboarding.industryPlaceholder')"
               show-search
               style="width: 100%"
+              @change="industryTouched = true"
             />
             <Input
               v-else
               v-model:value="industryText"
               :maxlength="120"
-              :placeholder="$t('gainos.onboarding.industryPlaceholder')"
+              :placeholder="$t('gainos.onboarding.industryCustomPlaceholder')"
+              data-gs="custom-industry-input"
+              @change="industryTouched = true"
             />
             <span
               v-if="view === 'preview' && industrySuggested?.matched && industrySuggestedLabel"
@@ -582,12 +705,22 @@ onBeforeUnmount(stopPolling);
               :placeholder="$t('gainos.onboarding.marketsPlaceholder')"
               style="width: 100%"
             />
-            <span
+            <div
               v-if="view === 'preview' && suggestedMarketNames"
-              class="field-hint hint-accent"
+              class="field-hint-row"
             >
-              {{ $t('gainos.onboarding.marketsSuggested', { names: suggestedMarketNames }) }}
-            </span>
+              <span class="field-hint hint-accent">
+                {{ $t('gainos.onboarding.marketsSuggested', { names: suggestedMarketNames }) }}
+              </span>
+              <button
+                class="text-link field-toggle"
+                data-gs="adopt-suggested-markets"
+                type="button"
+                @click="adoptSuggestedMarkets"
+              >
+                {{ $t('gainos.onboarding.adoptSuggestedMarkets') }}
+              </button>
+            </div>
             <span class="field-hint">{{ $t('gainos.onboarding.marketsOptionalHint') }}</span>
           </div>
 
@@ -731,6 +864,20 @@ onBeforeUnmount(stopPolling);
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.field-head,
+.field-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.field-toggle {
+  font-size: 12px;
+  padding: 0;
 }
 
 .field-label {

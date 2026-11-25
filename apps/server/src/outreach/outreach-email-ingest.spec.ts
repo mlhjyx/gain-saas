@@ -278,5 +278,33 @@ describe('looksLikeUnsubscribe（保守关键词识别）', () => {
       classification: 'NEUTRAL',
       referredEmails: [],
     });
+
+    const decline = parseEmail(
+      [
+        'From: Buyer <buyer@epc.de>',
+        'Subject: Re: HJT 720W',
+        '',
+        'Danke, aber wir haben kein Interesse. Please do not contact us again.',
+      ].join('\r\n'),
+    );
+    expect(classifyReplyIntent(decline, ['buyer@epc.de'])).toEqual({
+      intent: 'NEGATIVE_DECLINE',
+      classification: 'NEGATIVE',
+      referredEmails: [],
+    });
+
+    const positive = parseEmail(
+      [
+        'From: Buyer <buyer@ziel.de>',
+        'Subject: Re: Pumpen',
+        '',
+        'Klingt interessant, rufen Sie an.',
+      ].join('\r\n'),
+    );
+    expect(classifyReplyIntent(positive, ['buyer@ziel.de'])).toEqual({
+      intent: 'POSITIVE_INTEREST',
+      classification: 'POSITIVE',
+      referredEmails: [],
+    });
   });
 });

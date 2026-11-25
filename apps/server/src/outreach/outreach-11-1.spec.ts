@@ -168,8 +168,34 @@ describe('outreach 11-1 compliance base', () => {
       countryCode: 'IT',
       email: EMAIL,
     });
-    expect(it_.allowed).toBe(false);
-    if (!it_.allowed) expect(it_.code).toBe('JURISDICTION_REVIEW_REQUIRED');
+    expect(it_.allowed).toBe(true);
+    expect(it_.jurisdictionPolicy).toBe('OPT_OUT');
+
+    const unknown = await service.eligibility(tenantA, {
+      contactRef: CONTACT,
+      countryCode: 'ZZ',
+      email: EMAIL,
+    });
+    expect(unknown.allowed).toBe(false);
+    if (!unknown.allowed) expect(unknown.code).toBe('JURISDICTION_REVIEW_REQUIRED');
+
+    const unconsented = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const ukCorp = await service.eligibility(tenantA, {
+      contactRef: unconsented,
+      countryCode: 'GB',
+      companyName: 'SunGrid Solar Ltd',
+      email: EMAIL,
+    });
+    expect(ukCorp.allowed).toBe(true);
+
+    const ukSole = await service.eligibility(tenantA, {
+      contactRef: unconsented,
+      countryCode: 'GB',
+      companyName: 'John Smith Solar',
+      email: EMAIL,
+    });
+    expect(ukSole.allowed).toBe(false);
+    if (!ukSole.allowed) expect(ukSole.code).toBe('JURISDICTION_CONSENT_REQUIRED');
   });
 
   it('negative 2: OPT_OUT blocks every later send regardless of jurisdiction', async () => {

@@ -77,11 +77,13 @@ const loadError = ref<{ title: string; next?: string } | null>(null);
 
 const createOpen = ref(false);
 const selectedCompanyId = ref('');
+const createTargetMarkets = ref('');
 const creating = ref(false);
 const createError = ref<ReturnType<typeof failureText> | null>(null);
 const approvedClaimCount = ref<number | null>(null);
 const claimsChecking = ref(false);
 const claimsCheckError = ref<string | null>(null);
+const quickApprovingFacts = ref(false);
 let claimsCheckToken = 0;
 
 const selected = ref<Icp | null>(null);
@@ -93,8 +95,8 @@ const plansError = ref<{ title: string; next?: string } | null>(null);
 const planBusy = ref<string | null>(null);
 /** 本次打开详情后改过画像：已有方案是按改动前的内容生成的，要提示重新生成。 */
 const profileEdited = ref(false);
-/** 运行终态；不在这个列表里的（如 RUNNING）算还在跑。 */
-const TERMINAL_RUN_STATUSES = ['DONE', 'PARTIAL', 'FAILED', 'CANCELLED'];
+/** 运行终态；不在这个集合里的（如 RUNNING）算还在跑。 */
+const TERMINAL_RUN_STATUSES = new Set(['DONE', 'COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED']);
 // Run 2.0（M0②）：挖掘任务（每个 ICP 复用一个活动任务）与最近运行。
 const taskRuns = ref<TaskRunView[]>([]);
 let taskCache: AcquisitionTaskView | null = null;
@@ -203,20 +205,26 @@ const backtest = ref<Backtest | null>(null);
 
 const currentStep = computed(() => (icps.value.some((icp) => icp.status === 'ACTIVE') ? 3 : 2));
 const activeIcp = computed(() => icps.value.find((icp) => icp.status === 'ACTIVE') ?? null);
-// 引擎的 ICP 预算作用域按 company 固定，同一档案目前只能生成一次；已有初稿时直接编辑/激活。
-const companiesWithoutIcp = computed(() =>
-  companies.value.filter((company) =>
-    company.id && !icps.value.some((icp) => icp.companyId === company.id)));
 
-// 注册时填写的公司是主档案（workspace.onboardingCompanyId）：设定画像时排在第一位并标注，
-// 避免用户在多份公司档案里选错，导致寻源基于一家不相干的公司。
+// 注册时填写的公司是主档案（workspace.onboardingCompanyId）：设定画像时排在第一位并标注。
+// Phase 1：解除单公司仅能建一组画像的前端锁，允许按不同市场/产品线为同一公司创建多组画像。
 const primaryCompanyId = ref<string | null>(null);
-const orderedCompaniesWithoutIcp = computed(() =>
-  [...companiesWithoutIcp.value].sort((a, b) => {
-    const pa = a.id === primaryCompanyId.value ? 0 : 1;
-    const pb = b.id === primaryCompanyId.value ? 0 : 1;
-    return pa - pb;
-  }),
+const isAdmin = ref(false);
+const icpCountByCompany = computed(() => {
+  const counts = new Map<string, number>();
+  for (const icp of icps.value) {
+    counts.set(icp.companyId, (counts.get(icp.companyId) ?? 0) + 1);
+  }
+  return counts;
+});
+const orderedCompanies = computed(() =>
+  companies.value
+    .filter((company): company is CompanyProfile & { id: string } => Boolean(company.id))
+    .sort((a, b) => {
+      const pa = a.id === primaryCompanyId.value ? 0 : 1;
+      const pb = b.id === primaryCompanyId.value ? 0 : 1;
+      return pa - pb;
+    }),
 );
 
 /** 词表 tone → 药丸 tone（GsTag 没有 processing，用品牌蓝 info 表示）。 */
@@ -405,7 +413,9 @@ async function loadTaskRuns(icpId: string): Promise<void> {
 
 /** 这个任务的上一轮寻源是否还在跑。引擎没有并发锁，同时起两条会各算一次费用，界面先挡住。 */
 const taskRunning = computed(() =>
-  taskRuns.value.some((run) => !TERMINAL_RUN_STATUSES.includes(run.status)));
+  taskRuns.value.some(
+    (run) => !TERMINAL_RUN_STATUSES.has(String(run.status ?? '').trim().toUpperCase()),
+  ));
 
 /** 任务对象前移（M0②）：每个 ICP 复用一个活动任务；没有则懒创建「默认挖掘任务」。 */
 async function ensureTask(icpId: string): Promise<AcquisitionTaskView> {
@@ -502,21 +512,59 @@ const canCreateIcp = computed(() =>
   approvedClaimCount.value > 0);
 
 function openCreate(): void {
-  if (companies.value.length > 0 && companiesWithoutIcp.value.length === 0) {
-    uiFeedback.message.success($t('gainos.findBuyers.allCompaniesHaveIcp'));
-    return;
-  }
-  selectedCompanyId.value = orderedCompaniesWithoutIcp.value[0]?.id ?? '';
+  selectedCompanyId.value = orderedCompanies.value[0]?.id ?? '';
+  const selectedCompany = orderedCompanies.value.find((c) => c.id === selectedCompanyId.value);
+  createTargetMarkets.value = (selectedCompany?.targetMarkets ?? []).join(', ');
   createError.value = null;
   createOpen.value = true;
   void checkApprovedClaims(selectedCompanyId.value);
 }
+
+async function quickApproveOnboardingFacts(): Promise<void> {
+  if (!isAdmin.value || !selectedCompanyId.value || quickApprovingFacts.value) return;
+  quickApprovingFacts.value = true;
+  createError.value = null;
+  try {
+    await gainosApi.synthesizeClaimDrafts(selectedCompanyId.value).catch(() => undefined);
+    const pending = await gainosApi.claims(selectedCompanyId.value, 'NEEDS_REVIEW');
+    const rows = Array.isArray(pending) ? pending : [];
+    let approved = 0;
+    let lastApproveError: unknown = null;
+    for (const claim of rows.slice(0, 12)) {
+      try {
+        await gainosApi.approveClaim(claim.id);
+        approved += 1;
+      } catch (err) {
+        lastApproveError = err;
+      }
+    }
+    await checkApprovedClaims(selectedCompanyId.value);
+    if (approved > 0) {
+      uiFeedback.message.success($t('gainos.findBuyers.quickApproveDone', { count: approved }));
+    } else if (lastApproveError) {
+      createError.value = failureText(lastApproveError);
+    } else if ((approvedClaimCount.value ?? 0) === 0) {
+      uiFeedback.message.warning($t('gainos.findBuyers.quickApproveEmpty'));
+    }
+  } catch (error) {
+    createError.value = failureText(error);
+  } finally {
+    quickApprovingFacts.value = false;
+  }
+}
+
 async function createIcp(): Promise<void> {
   if (!canCreateIcp.value || !selectedCompanyId.value) return;
   creating.value = true;
   createError.value = null;
   try {
-    const icp = await gainosApi.createIcp(selectedCompanyId.value);
+    const markets = commas(createTargetMarkets.value)
+      .map((item) => item.toUpperCase())
+      .filter((code) => /^[A-Z]{2}$/.test(code));
+    const icp = await gainosApi.createIcp(selectedCompanyId.value, {
+      attemptId: mintAttemptId(),
+      ...(markets.length > 0 ? { confirmedTargetMarkets: markets } : {}),
+    });
     createOpen.value = false;
     uiFeedback.message.success($t('gainos.findBuyers.created'));
     await load();
@@ -734,7 +782,6 @@ async function executePlan(plan: QueryPlan): Promise<void> {
     if (!result.runId) {
       // 重放命中一条引擎 run 尚未回填的执行（极少数竞态）：刷新任务视图，稍后从任务里进入。
       await Promise.all([loadPlans(plan.icpId), loadTaskRuns(plan.icpId)]);
-    void prefetchSummary(plan.icpId);
       void prefetchSummary(plan.icpId);
       uiFeedback.message.success($t('gainos.findBuyers.runStarting'));
       return;
@@ -863,14 +910,16 @@ const overviewSections = computed(() => [
 ]);
 
 const companyOptions = computed(() =>
-  orderedCompaniesWithoutIcp.value.map((company) => {
+  orderedCompanies.value.map((company) => {
     const name = company.name || company.website || '';
+    const existingCount = icpCountByCompany.value.get(company.id) ?? 0;
+    const badges = [
+      company.id === primaryCompanyId.value ? $t('gainos.companies.primaryBadge') : '',
+      existingCount > 0 ? $t('gainos.findBuyers.companyIcpCount', { count: existingCount }) : '',
+    ].filter(Boolean);
     return {
-      label:
-        company.id === primaryCompanyId.value
-          ? `${name}（${$t('gainos.companies.primaryBadge')}）`
-          : name,
-      value: company.id ?? '',
+      label: badges.length > 0 ? `${name}（${badges.join(' · ')}）` : name,
+      value: company.id,
     };
   }),
 );
@@ -895,8 +944,10 @@ async function loadPrimaryCompany(): Promise<void> {
   try {
     const context = await gainosApi.workspaceContext();
     primaryCompanyId.value = context.onboarding?.companyId ?? null;
+    isAdmin.value = context.workspace?.role === 'admin';
   } catch {
     primaryCompanyId.value = null;
+    isAdmin.value = false;
   }
 }
 onMounted(() => {
@@ -1174,28 +1225,26 @@ onMounted(() => {
                 <Button v-if="runRefs[plan.id]" @click="openPlanRun(plan)">
                   {{ $t('gainos.findBuyers.viewRun') }}
                 </Button>
-                <template v-else>
-                  <Button
-                    v-if="plan.status === 'DRAFT'"
-                    :disabled="planBusy === plan.id"
-                    @click="confirmPlan(plan)"
-                  >
-                    {{ $t('gainos.findBuyers.confirmPlan') }}
-                  </Button>
-                  <Button
-                    v-if="plan.status === 'READY'"
-                    :disabled="planBusy === plan.id || taskRunning"
-                    :loading="planBusy === plan.id"
-                    :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
-                    type="primary"
-                    @click="executePlan(plan)"
-                  >
-                    {{ $t('gainos.findBuyers.executePlan') }}
-                  </Button>
-                </template>
-                <!-- 已执行的方案可以按原样再跑一次：引擎凭新的尝试标识放行，每次都是一条新的运行。 -->
                 <Button
-                  v-if="plan.status === 'EXECUTED'"
+                  v-if="plan.status === 'DRAFT'"
+                  :disabled="planBusy === plan.id"
+                  @click="confirmPlan(plan)"
+                >
+                  {{ $t('gainos.findBuyers.confirmPlan') }}
+                </Button>
+                <Button
+                  v-if="plan.status === 'READY' && !runRefs[plan.id]"
+                  :disabled="planBusy === plan.id || taskRunning"
+                  :loading="planBusy === plan.id"
+                  :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
+                  type="primary"
+                  @click="executePlan(plan)"
+                >
+                  {{ $t('gainos.findBuyers.executePlan') }}
+                </Button>
+                <!-- 已执行或已有历史运行的方案可按原样再跑一次：引擎凭新的尝试标识放行，每次都是一条新的运行。 -->
+                <Button
+                  v-if="plan.status === 'EXECUTED' || (plan.status === 'READY' && Boolean(runRefs[plan.id]))"
                   :disabled="planBusy === plan.id || taskRunning"
                   :loading="planBusy === plan.id"
                   :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
@@ -1347,17 +1396,19 @@ onMounted(() => {
             :ariaLabel="$t('gainos.findBuyers.company')"
             class="w-full"
             data-gs="icp-company-select"
-            :disabled="companiesWithoutIcp.length === 0"
+            :disabled="orderedCompanies.length === 0"
             :options="companyOptions"
           />
         </label>
+        <label v-if="orderedCompanies.length > 0" class="fb-field">
+          <span>{{ $t('gainos.findBuyers.createTargetMarkets') }}</span>
+          <Input
+            v-model:value="createTargetMarkets"
+            :placeholder="$t('gainos.findBuyers.createTargetMarketsHint')"
+            data-gs="icp-create-markets"
+          />
+        </label>
         <p v-if="companies.length === 0" class="fb-muted">{{ $t('gainos.findBuyers.noCompanies') }}</p>
-        <Alert
-          v-else-if="companiesWithoutIcp.length === 0"
-          :message="$t('gainos.findBuyers.allCompaniesHaveIcp')"
-          show-icon
-          type="warning"
-        />
         <p v-else-if="claimsChecking" class="fb-muted">{{ $t('gainos.findBuyers.checkingFacts') }}</p>
         <Alert
           v-else-if="claimsCheckError"
@@ -1374,10 +1425,31 @@ onMounted(() => {
         </Alert>
         <Alert
           v-else-if="approvedClaimCount === 0"
-          :message="$t('gainos.findBuyers.noApprovedFacts')"
+          :message="
+            isAdmin
+              ? $t('gainos.findBuyers.noApprovedFacts')
+              : $t('gainos.findBuyers.noApprovedFactsMember')
+          "
+          data-gs="no-approved-facts-alert"
           show-icon
           type="warning"
-        />
+        >
+          <template v-if="isAdmin" #action>
+            <Button
+              :loading="quickApprovingFacts"
+              data-gs="quick-approve-facts"
+              size="small"
+              type="primary"
+              @click="quickApproveOnboardingFacts"
+            >
+              {{
+                quickApprovingFacts
+                  ? $t('gainos.findBuyers.quickApprovingFacts')
+                  : $t('gainos.findBuyers.quickApproveFacts')
+              }}
+            </Button>
+          </template>
+        </Alert>
         <Alert
           v-else-if="approvedClaimCount !== null"
           :message="$t('gainos.findBuyers.approvedFactsCount', { count: approvedClaimCount })"

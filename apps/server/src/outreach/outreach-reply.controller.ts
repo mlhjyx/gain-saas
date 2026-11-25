@@ -32,6 +32,8 @@ const replyBody = z.object({
 const ingestBody = z.object({
   /** 入站邮件原文（RFC822；≤256KB，由服务端再校验）。 */
   raw: z.string().min(1),
+  /** 可选：显式关联已接受商机 SAO（缺省时自动按联系人归因）。 */
+  saoId: z.string().uuid().optional(),
 });
 
 function invalid(message: string): never {
@@ -69,6 +71,10 @@ export class OutreachReplyController {
   async ingest(@Req() req: Request, @Body() body: unknown) {
     const parsed = ingestBody.safeParse(body);
     if (!parsed.success) invalid('raw 必填（邮件原文）');
-    return { data: await this.ingestService.ingest(req.tenant!, parsed.data.raw) };
+    return {
+      data: await this.ingestService.ingest(req.tenant!, parsed.data.raw, {
+        saoId: parsed.data.saoId,
+      }),
+    };
   }
 }

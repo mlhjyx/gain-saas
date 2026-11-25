@@ -68,6 +68,7 @@ import {
   OUTREACH_DNC_CHECKER,
   OutreachConsentService,
 } from './outreach-consent.service.js';
+import { OutreachT0Service } from './outreach-t0.service.js';
 import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
 
 /**
@@ -95,6 +96,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
   ],
   providers: [
     OutreachConsentService,
+    OutreachT0Service,
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,
