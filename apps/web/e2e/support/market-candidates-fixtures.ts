@@ -579,11 +579,13 @@ export async function setup(page: Page, cell: Cell) {
         exact: true,
       })
       .click();
+    // 先开过的「更多」菜单会留在 DOM 里但不可见；只点当前可见的那一项。
     await page
       .getByRole("menuitem", {
         name: cell.lang === "zh-CN" ? "市场候选" : "Market candidates",
         exact: true,
       })
+      .filter({ visible: true })
       .click();
     await expect(page.getByTestId("mc-panel")).toBeVisible();
     await expect(

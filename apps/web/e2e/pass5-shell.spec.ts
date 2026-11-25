@@ -129,7 +129,7 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   await middleTab.click({ button: 'middle' });
   await settle(page, 400);
   await expect(page.locator('[data-tab-item]')).toHaveCount(2);
-  await expect(page.locator('.cp')).toBeVisible();
+  await expect(page.locator('[data-gs="companies-page"]')).toBeVisible();
 });
 
 test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }) => {
