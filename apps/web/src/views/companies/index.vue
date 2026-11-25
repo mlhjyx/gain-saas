@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, type Ref } from 'vue';
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { feedback } from '#/feedback';
@@ -17,12 +17,14 @@ import {
   Skeleton,
   Space,
   Tag,
+  Textarea,
 } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
@@ -63,18 +65,6 @@ function recoverMarketView(payload: { companyId: string; destination: 'facts' | 
   if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
   if (payload.destination === 'facts') void openClaims(marketCompany.value, { readOnly: true });
   else if (payload.destination === 'documents') void openDocuments(marketCompany.value, { readOnly: true });
-}
-const docsReturnFocus = ref<HTMLElement | null>(null);
-const claimsReturnFocus = ref<HTMLElement | null>(null);
-function rememberReturnFocus(target: Ref<HTMLElement | null>) {
-  target.value = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-}
-function restoreReturnFocus(target: HTMLElement | null, fallbackTestId: string) {
-  const preferred =
-    target?.isConnected === true
-      ? target
-      : document.querySelector<HTMLElement>(`[data-testid="${fallbackTestId}"]`);
-  preferred?.focus();
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -143,6 +133,123 @@ const relatedCompanies = computed(() =>
 const filteredRelated = computed(() =>
   filteredCompanies.value.filter((company) => company.id !== primaryCompany.value?.id),
 );
+
+// ── 档案工作台（页内，不用弹窗）───────────────────────────────────────────
+// 企业事实与资料库是每天都要看、要批的东西；放在页内可以同时看到公司身份、
+// KPI 和明细，切换公司/视图也不会丢掉页面上下文。
+type PanelTab = 'facts' | 'docs';
+const panelTab = ref<PanelTab>('facts');
+const panelCompanyId = ref<string | null>(null);
+const panelInitialized = ref(false);
+const workspaceRef = ref<HTMLElement | null>(null);
+
+const panelCompany = computed(
+  () =>
+    companies.value.find((company) => company.id === panelCompanyId.value) ??
+    primaryCompany.value,
+);
+const panelCompanyOptions = computed(() =>
+  companies.value.map((company) => {
+    const name = companyTitle(company);
+    return {
+      label:
+        company.id === primaryCompany.value?.id
+          ? `${name} · ${primaryBadgeLabel.value}`
+          : name,
+      value: company.id ?? '',
+    };
+  }),
+);
+const panelTabs = computed(() => [
+  {
+    label: $t('gainos.companies.workspaceFacts'),
+    value: 'facts',
+    // 计数只对当前选中的公司有效；切到关联公司时不能沿用上一家的数字。
+    count:
+      claimsCompany.value?.id === panelCompany.value?.id
+        ? pendingClaims.value.length
+        : undefined,
+  },
+  {
+    label: $t('gainos.companies.workspaceDocs'),
+    value: 'docs',
+    count:
+      docsCompany.value?.id === panelCompany.value?.id ? docs.value.length : undefined,
+  },
+]);
+const panelLoading = computed(() =>
+  panelTab.value === 'facts'
+    ? claimsLoading.value || overviewLoading.value
+    : docsLoading.value,
+);
+
+async function scrollToWorkspace(): Promise<void> {
+  await nextTick();
+  workspaceRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+/** 页面上所有「看事实/看资料」的入口：切到对应视图并滚到工作台。 */
+function showFacts(company: CompanyProfile): void {
+  void openClaims(company);
+  void scrollToWorkspace();
+}
+function showDocs(company: CompanyProfile): void {
+  void openDocuments(company);
+  void scrollToWorkspace();
+}
+function refreshPanel(): void {
+  const company = panelCompany.value;
+  if (!company) return;
+  if (panelTab.value === 'facts') void openClaims(company);
+  else void openDocuments(company);
+}
+function onPanelCompanyChange(value: unknown): void {
+  const id = typeof value === 'string' ? value : String(value ?? '');
+  const company = companies.value.find((row) => row.id === id);
+  if (!company) return;
+  panelCompanyId.value = id;
+  if (panelTab.value === 'facts') void openClaims(company);
+  else void openDocuments(company);
+}
+function onPanelTabChange(value: string): void {
+  if (value !== 'facts' && value !== 'docs') return;
+  panelTab.value = value;
+  const company = panelCompany.value;
+  if (!company) return;
+  if (value === 'facts') {
+    docsOpen.value = false;
+    docsEpoch += 1;
+    if (docsTimer) {
+      clearInterval(docsTimer);
+      docsTimer = null;
+    }
+    claimsOpen.value = true;
+    if (claimsCompany.value?.id !== company.id) {
+      void openClaims(company);
+      return;
+    }
+    factsPanel.value?.focus({ preventScroll: true });
+    return;
+  }
+  // 资料库切回来时总是重取一次：解析状态可能刚变化，顺便恢复轮询。
+  void openDocuments(company);
+}
+/** 首次拿到公司列表时把工作台落到主档案，并自动拉一次事实。 */
+function syncPanelState(): void {
+  const primary = primaryCompany.value;
+  if (!primary) {
+    panelCompanyId.value = null;
+    panelInitialized.value = false;
+    return;
+  }
+  if (panelCompanyId.value && !companies.value.some((row) => row.id === panelCompanyId.value)) {
+    panelCompanyId.value = primary.id ?? null;
+    panelInitialized.value = false;
+  }
+  if (panelInitialized.value) return;
+  panelInitialized.value = true;
+  panelCompanyId.value = primary.id ?? null;
+  if (primary.id) void openClaims(primary);
+}
 
 const hasOnboardingCompany = computed(() =>
   companies.value.some((company) => company.id === primaryCompanyId.value),
@@ -314,7 +421,7 @@ function runNextStep(): void {
       break;
     }
     case 'facts': {
-      void openClaims(company);
+      showFacts(company);
       break;
     }
     case 'go': {
@@ -372,7 +479,7 @@ function onRelatedMenu(info: { key: number | string }, company: CompanyProfile):
 
 /** 关联公司卡片的主操作：有待审/已通过事实就去看档案，否则先补全资料。 */
 function relatedPrimaryAction(company: CompanyProfile): void {
-  if (company.status === 'REVIEW' || company.status === 'ACTIVE') void openClaims(company);
+  if (company.status === 'REVIEW' || company.status === 'ACTIVE') showFacts(company);
   else openEdit(company);
 }
 function relatedPrimaryLabel(company: CompanyProfile): string {
@@ -498,7 +605,14 @@ function claimTypeLabel(type: string): string {
 
 async function openClaims(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
   if (!company.id) return;
-  rememberReturnFocus(claimsReturnFocus);
+  panelTab.value = 'facts';
+  panelCompanyId.value = company.id;
+  docsOpen.value = false;
+  docsEpoch += 1;
+  if (docsTimer) {
+    clearInterval(docsTimer);
+    docsTimer = null;
+  }
   claimsCompany.value = company;
   claimsOpen.value = true;
   claimsRecoveryReadOnly.value = options.readOnly === true;
@@ -520,29 +634,10 @@ async function openClaims(company: CompanyProfile, options: { readOnly?: boolean
   manualEvidence.value = '';
   manualError.value = null;
   await nextTick();
-  factsPanel.value?.focus();
+  factsPanel.value?.focus({ preventScroll: true });
   await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
 }
 
-function closeClaims(): void {
-  if (claimBusy.value) return;
-  const returnFocus = claimsReturnFocus.value;
-  claimsReturnFocus.value = null;
-  claimsOpen.value = false;
-  claimsRecoveryReadOnly.value = false;
-  claimsCompany.value = null;
-  claimsEpoch += 1;
-  claims.value = [];
-  companyOverview.value = null;
-  completeness.value = null;
-  offerings.value = [];
-  overviewError.value = null;
-  conflicts.value = [];
-  conflictsError.value = null;
-  selectedClaimIds.value = [];
-  manualOpen.value = false;
-  void nextTick().then(() => restoreReturnFocus(returnFocus, 'mc-recover-facts'));
-}
 
 function unwrap<T>(value: T | { data?: T }): T {
   const wrapped = value as { data?: T };
@@ -810,6 +905,7 @@ async function load(silent = false): Promise<void> {
   try {
     const data = await gainosApi.companies();
     companies.value = Array.isArray(data) ? data : (data?.data ?? []);
+    syncPanelState();
     void loadSummaries();
   } catch (err) {
     error.value = failureText(err).title;
@@ -986,6 +1082,7 @@ function removeCompany(company: CompanyProfile): void {
 
 // ── 资料库（Phase 2c）：上传（引擎中转）→ 解析 → 检索 ─────────────────────────
 const docsOpen = ref(false);
+const docsFileInput = ref<HTMLInputElement | null>(null);
 const docsRecoveryReadOnly = ref(false);
 let docsEpoch = 0;
 let docsSearchSeq = 0;
@@ -1038,7 +1135,10 @@ function docStatusLabel(status: string): string {
 }
 
 async function openDocuments(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
-  rememberReturnFocus(docsReturnFocus);
+  panelTab.value = 'docs';
+  panelCompanyId.value = company.id ?? null;
+  claimsOpen.value = false;
+  claimsEpoch += 1;
   docsCompany.value = company;
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
@@ -1049,7 +1149,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docs.value = [];
   await nextTick();
   if (!docsOpen.value || docsEpoch !== epoch || docsCompany.value?.id !== company.id) return;
-  docsPanel.value?.focus();
+  docsPanel.value?.focus({ preventScroll: true });
   docsError.value = null;
   docsNotice.value = null;
   docsQuery.value = '';
@@ -1077,20 +1177,6 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsTimer = timer;
 }
 
-function closeDocuments(): void {
-  const returnFocus = docsReturnFocus.value;
-  docsReturnFocus.value = null;
-  docsOpen.value = false;
-  docsRecoveryReadOnly.value = false;
-  docsEpoch += 1;
-  docsSearchSeq += 1;
-  docsSearching.value = false;
-  if (docsTimer) {
-    clearInterval(docsTimer);
-    docsTimer = null;
-  }
-  void nextTick().then(() => restoreReturnFocus(returnFocus, 'mc-recover-documents'));
-}
 
 async function loadDocuments(silent = false, reset = true): Promise<void> {
   const companyId = docsCompany.value?.id;
@@ -1276,11 +1362,7 @@ async function create(): Promise<void> {
 
 function onEscape(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return;
-  if (claimsOpen.value) {
-    closeClaims();
-  } else if (wizardOpen.value) {
-    wizardOpen.value = false;
-  }
+  if (wizardOpen.value) wizardOpen.value = false;
 }
 onMounted(async () => {
   window.addEventListener('keydown', onEscape);
@@ -1316,18 +1398,11 @@ onUnmounted(() => {
     class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 pt-6 @container"
     data-gs="companies-page"
   >
-    <GsPage :subtitle="$t('gainos.companies.subtitle')" :title="$t('gainos.companies.title')">
-      <template #actions>
-        <Button :loading="loading" data-gs="refresh" @click="load()">
-          <template v-if="!loading" #icon><RotateCw :size="14" /></template>
-          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-        </Button>
-        <Button v-if="companies.length" data-gs="add-related" @click="addRelatedCompany">
-          <template #icon><Plus :size="14" /></template>
-          {{ $t('gainos.companies.addRelated') }}
-        </Button>
-      </template>
-    </GsPage>
+    <GsPage
+      art="company"
+      :subtitle="$t('gainos.companies.subtitle')"
+      :title="$t('gainos.companies.title')"
+    />
 
     <!-- 内容压在页头渐变上（与买家线索/找买家同一层次处理） -->
     <div class="relative z-[1] -mt-12 grid gap-3">
@@ -1407,22 +1482,22 @@ onUnmounted(() => {
             </div>
 
             <div class="co-primary__kpis">
-              <div class="co-kpi">
+              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
                 <strong>{{ summaryOf(primaryCompany)?.approvedClaims ?? '—' }}</strong>
                 <span>{{ $t('gainos.companies.statApproved') }}</span>
-              </div>
-              <div class="co-kpi">
+              </button>
+              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
                 <strong>{{ summaryOf(primaryCompany)?.pendingClaims ?? '—' }}</strong>
                 <span>{{ $t('gainos.companies.statPending') }}</span>
-              </div>
-              <div class="co-kpi">
+              </button>
+              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
                 <strong>{{ summaryOf(primaryCompany)?.offerings ?? '—' }}</strong>
                 <span>{{ $t('gainos.companies.statOfferings') }}</span>
-              </div>
-              <div class="co-kpi">
+              </button>
+              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
                 <strong>{{ summaryOf(primaryCompany)?.conflictsOpen ?? '—' }}</strong>
                 <span>{{ $t('gainos.companies.statConflicts') }}</span>
-              </div>
+              </button>
             </div>
 
             <div class="co-next">
@@ -1437,10 +1512,14 @@ onUnmounted(() => {
 
           <div class="co-primary__foot">
             <Space :size="8" wrap>
-              <Button data-gs="primary-facts" @click="openClaims(primaryCompany)">
+              <Button :loading="loading" data-gs="refresh" @click="load()">
+                <template v-if="!loading" #icon><RotateCw :size="14" /></template>
+                {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+              </Button>
+              <Button data-gs="primary-facts" @click="showFacts(primaryCompany)">
                 {{ $t('gainos.companies.openFacts') }}
               </Button>
-              <Button data-gs="primary-docs" @click="openDocuments(primaryCompany)">
+              <Button data-gs="primary-docs" @click="showDocs(primaryCompany)">
                 {{ $t('gainos.companies.documents') }}
               </Button>
               <Button
@@ -1449,6 +1528,10 @@ onUnmounted(() => {
                 @click="openEdit(primaryCompany)"
               >
                 {{ $t('gainos.companies.edit') }}
+              </Button>
+              <Button data-gs="add-related" @click="addRelatedCompany">
+                <template #icon><Plus :size="14" /></template>
+                {{ $t('gainos.companies.addRelated') }}
               </Button>
               <Dropdown
                 v-if="primaryMenuItems.length > 0"
@@ -1476,6 +1559,503 @@ onUnmounted(() => {
           </div>
         </div>
       </GsCard>
+
+      <!-- 档案工作台：企业事实与资料库都在页内完成，不再用弹窗打断阅读 -->
+      <div ref="workspaceRef" class="co-workspace__anchor scroll-mt-24">
+      <GsCard class="co-workspace" data-gs="company-workspace" padding="0">
+        <header class="co-workspace__head">
+          <div class="min-w-0">
+            <p class="co-workspace__eyebrow">{{ $t('gainos.companies.workspaceEyebrow') }}</p>
+            <h2 class="co-workspace__title">{{ $t('gainos.companies.workspaceTitle') }}</h2>
+            <p class="co-workspace__hint">{{ $t('gainos.companies.workspaceHint') }}</p>
+          </div>
+          <div class="co-workspace__tools">
+            <label class="co-workspace__field">
+              <span>{{ $t('gainos.companies.workspaceCompany') }}</span>
+              <GsSelect
+                :ariaLabel="$t('gainos.companies.workspaceCompany')"
+                class="co-workspace__select"
+                :options="panelCompanyOptions"
+                :value="panelCompanyId ?? undefined"
+                @change="onPanelCompanyChange"
+              />
+            </label>
+            <Button :loading="panelLoading" data-gs="workspace-refresh" @click="refreshPanel">
+              <template v-if="!panelLoading" #icon><RotateCw :size="14" /></template>
+              {{ $t('gainos.companies.workspaceRefresh') }}
+            </Button>
+          </div>
+        </header>
+
+        <div class="co-workspace__bar">
+          <GsSegmented
+            :ariaLabel="$t('gainos.companies.workspaceViewLabel')"
+            :model-value="panelTab"
+            :options="panelTabs"
+            @update:model-value="onPanelTabChange"
+          />
+          <div class="co-workspace__context">
+            <GsTag v-if="panelCompany" :tone="companyTone(panelCompany)">
+              {{ companyStatus(panelCompany) }}
+            </GsTag>
+            <span class="co-muted">
+              {{ panelCompany?.website || panelCompany?.domain || $t('gainos.companies.noWebsite') }}
+            </span>
+            <Button
+              v-if="panelCompany && primaryCompany && panelCompany.id !== primaryCompany.id"
+              size="small"
+              type="link"
+              @click="showFacts(primaryCompany)"
+            >
+              {{ $t('gainos.companies.workspaceBackPrimary') }}
+            </Button>
+          </div>
+        </div>
+
+        <!-- 企业事实：左侧概览与冲突，右侧审批清单，一屏内完成判断与操作 -->
+        <div
+          v-if="panelTab === 'facts'"
+          ref="factsPanel"
+          class="co-workspace__body co-facts"
+          data-gs="company-facts"
+          tabindex="-1"
+        >
+          <div class="co-facts__aside">
+            <h3 class="co-pane__title">{{ $t('gainos.companies.overviewTitle') }}</h3>
+
+            <div v-if="overviewLoading" class="co-panel__state">
+              {{ $t('gainos.companies.overviewLoading') }}
+            </div>
+            <div v-else-if="overviewError" class="co-panel__state co-panel__state--error">
+              <span>{{ overviewError }}</span>
+              <Button size="small" @click="loadCompanyOverview">
+                {{ $t('gainos.common.retry') }}
+              </Button>
+            </div>
+            <div v-else class="cp__overview">
+              <p v-if="companyOverview?.summary" class="cp__overview-summary">
+                {{ companyOverview.summary }}
+              </p>
+              <div class="cp__overview-meta">
+                <span v-if="companyOverview?.industry">
+                  {{ $t('gainos.companies.overviewIndustry') }}：{{ companyOverview.industry }}
+                </span>
+                <span v-if="companyOverview?.targetMarkets?.length">
+                  {{ $t('gainos.companies.overviewMarkets') }}：{{ companyOverview.targetMarkets.join(' / ') }}
+                </span>
+                <span v-if="companyOverview?.businessEmail">
+                  {{ $t('gainos.companies.overviewEmail') }}：{{ companyOverview.businessEmail }}
+                </span>
+                <a
+                  v-if="companyOverview?.website"
+                  :href="companyOverview.website"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >{{ companyOverview.website }}</a>
+              </div>
+              <div v-if="completeness" class="cp__stats">
+                <div>
+                  <strong>{{ completeness.approvedClaims }}</strong>
+                  <span>{{ $t('gainos.companies.statApproved') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.pendingClaims }}</strong>
+                  <span>{{ $t('gainos.companies.statPending') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.offerings }}</strong>
+                  <span>{{ $t('gainos.companies.statOfferings') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.conflictsOpen }}</strong>
+                  <span>{{ $t('gainos.companies.statConflicts') }}</span>
+                </div>
+              </div>
+              <details v-if="offerings.length" class="cp__offerings">
+                <summary>{{ $t('gainos.companies.offeringsTitle', { count: offerings.length }) }}</summary>
+                <ul>
+                  <li v-for="offering in offerings" :key="offering.id">
+                    <strong>{{ offering.name }}</strong>
+                    <span v-if="offering.description"> · {{ offering.description }}</span>
+                    <a
+                      v-if="offering.sourceUrl"
+                      :href="offering.sourceUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    > ↗</a>
+                  </li>
+                </ul>
+              </details>
+              <p v-else class="cp__muted">{{ $t('gainos.companies.offeringsEmpty') }}</p>
+            </div>
+
+            <div
+              v-if="conflictsLoading || conflictsError || conflicts.length"
+              class="cp__conflicts"
+            >
+              <div class="cp__conflicts-head">
+                <h3>{{ $t('gainos.companies.conflictsTitle', { count: conflicts.length }) }}</h3>
+                <p class="cp__muted">{{ $t('gainos.companies.conflictsHint') }}</p>
+              </div>
+              <p v-if="conflictsLoading" class="cp__muted">
+                {{ $t('gainos.companies.claimsLoading') }}
+              </p>
+              <p v-else-if="conflictsError" class="cp__form-err">{{ conflictsError }}</p>
+              <div v-for="conflict in conflicts" :key="conflict.id" class="cp__conflict">
+                <div class="cp__conflict-head">
+                  <span class="cp__claim-type">
+                    {{ claimTypeLabel(conflict.claimType || conflict.claimA?.type || '') }}
+                  </span>
+                  <span v-if="!isAdmin" class="cp__muted">
+                    {{ $t('gainos.companies.conflictsAdminOnly') }}
+                  </span>
+                </div>
+                <div class="cp__conflict-grid">
+                  <div class="cp__conflict-side">
+                    <p>{{ conflict.claimA?.statement || '—' }}</p>
+                    <Button
+                      v-if="isAdmin && !claimsRecoveryReadOnly"
+                      :disabled="conflictBusy === conflict.id"
+                      size="small"
+                      @click="resolveConflict(conflict, 'a')"
+                    >
+                      {{ $t('gainos.companies.keepThis') }}
+                    </Button>
+                  </div>
+                  <div class="cp__conflict-side">
+                    <p>{{ conflict.claimB?.statement || '—' }}</p>
+                    <Button
+                      v-if="isAdmin && !claimsRecoveryReadOnly"
+                      :disabled="conflictBusy === conflict.id"
+                      size="small"
+                      @click="resolveConflict(conflict, 'b')"
+                    >
+                      {{ $t('gainos.companies.keepThis') }}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="co-facts__main">
+            <div class="cp__tabs" role="tablist">
+              <button
+                type="button"
+                class="cp__tab"
+                :class="{ 'cp__tab--active': claimTab === 'NEEDS_REVIEW' }"
+                role="tab"
+                :aria-selected="claimTab === 'NEEDS_REVIEW'"
+                @click="switchClaimTab('NEEDS_REVIEW')"
+              >
+                {{ $t('gainos.companies.tabPending') }}
+                <span class="cp__tab-count">{{ pendingClaims.length }}</span>
+              </button>
+              <button
+                type="button"
+                class="cp__tab"
+                :class="{ 'cp__tab--active': claimTab === 'APPROVED' }"
+                role="tab"
+                :aria-selected="claimTab === 'APPROVED'"
+                @click="switchClaimTab('APPROVED')"
+              >
+                {{ $t('gainos.companies.tabApproved') }}
+                <span class="cp__tab-count">{{ approvedClaims.length }}</span>
+              </button>
+              <button
+                type="button"
+                class="cp__tab"
+                :class="{ 'cp__tab--active': claimTab === 'REVOKED' }"
+                role="tab"
+                :aria-selected="claimTab === 'REVOKED'"
+                @click="switchClaimTab('REVOKED')"
+              >
+                {{ $t('gainos.companies.tabIgnored') }}
+                <span class="cp__tab-count">{{ ignoredClaims.length }}</span>
+              </button>
+            </div>
+
+            <Input
+              v-model:value="claimQuery"
+              allow-clear
+              class="co-facts__search"
+              :placeholder="$t('gainos.companies.claimsSearch')"
+            />
+
+            <div v-if="isAdmin && !claimsRecoveryReadOnly" class="cp__manual-bar">
+              <Button size="small" @click="manualOpen = !manualOpen">
+                {{ manualOpen ? $t('gainos.companies.manualCancel') : $t('gainos.companies.manualAdd') }}
+              </Button>
+              <Button :loading="synthBusy" size="small" @click="synthesizeDrafts">
+                {{ synthBusy ? $t('gainos.common.loading') : $t('gainos.companies.synthesizeDrafts') }}
+              </Button>
+              <span class="cp__muted">{{ $t('gainos.companies.synthesizeDraftsHint') }}</span>
+            </div>
+
+            <div v-if="manualOpen && !claimsRecoveryReadOnly" class="cp__manual-form">
+              <label class="cp__field">
+                <span>{{ $t('gainos.companies.manualStatement') }}</span>
+                <Textarea
+                  v-model:value="manualStatement"
+                  :maxlength="2000"
+                  :placeholder="$t('gainos.companies.manualStatementHint')"
+                  :rows="3"
+                />
+              </label>
+              <label class="cp__field">
+                <span>{{ $t('gainos.companies.manualEvidence') }}</span>
+                <Input
+                  v-model:value="manualEvidence"
+                  :maxlength="2000"
+                  :placeholder="$t('gainos.companies.manualEvidenceHint')"
+                />
+              </label>
+              <p v-if="manualError" class="cp__form-err" role="alert">{{ manualError }}</p>
+              <div class="cp__manual-actions">
+                <Button @click="manualOpen = false">{{ $t('gainos.common.cancel') }}</Button>
+                <Button :loading="manualBusy" type="primary" @click="saveManualClaim">
+                  {{ manualBusy ? $t('gainos.common.loading') : $t('gainos.companies.manualSubmit') }}
+                </Button>
+              </div>
+            </div>
+
+            <div v-if="claimsLoading" class="cp__claims-state">
+              {{ $t('gainos.companies.claimsLoading') }}
+            </div>
+
+            <div v-else-if="claimsError" class="cp__claims-state cp__claims-state--error">
+              <ErrorNotice
+                :code="claimsError.code"
+                :next="claimsError.next"
+                :title="claimsError.title"
+                :why="claimsError.why"
+              />
+              <Button size="small" @click="loadClaims">{{ $t('gainos.common.retry') }}</Button>
+            </div>
+
+            <div v-else-if="visibleClaims.length === 0" class="cp__claims-state">
+              <p>
+                {{ claimQuery
+                  ? $t('gainos.companies.claimsNoMatch')
+                  : claimTab === 'NEEDS_REVIEW'
+                    ? $t('gainos.companies.claimsEmptyPending')
+                    : claimTab === 'APPROVED'
+                      ? $t('gainos.companies.claimsEmptyApproved')
+                      : $t('gainos.companies.claimsEmptyIgnored') }}
+              </p>
+            </div>
+
+            <ul v-else class="cp__claims">
+              <li v-for="claim in visibleClaims" :key="claim.id" class="cp__claim">
+                <label
+                  v-if="isAdmin && claim.status === 'NEEDS_REVIEW' && !claimsRecoveryReadOnly"
+                  class="cp__claim-check"
+                >
+                  <input
+                    type="checkbox"
+                    :aria-label="$t('gainos.companies.selectClaim')"
+                    :checked="selectedClaimIds.includes(claim.id)"
+                    @change="toggleClaim(claim.id)"
+                  />
+                </label>
+                <div class="cp__claim-main">
+                  <div class="cp__claim-head">
+                    <span class="cp__claim-type">{{ claimTypeLabel(claim.type) }}</span>
+                    <span v-if="typeof claim.confidence === 'number'" class="cp__claim-conf">
+                      {{ Math.round(claim.confidence * 100) }}%
+                    </span>
+                    <button
+                      v-if="isAdmin && claim.status === 'APPROVED' && !claimsRecoveryReadOnly"
+                      type="button"
+                      class="cp__claim-revoke"
+                      :disabled="revokingId === claim.id"
+                      @click="revokeClaim(claim)"
+                    >
+                      {{ $t('gainos.companies.revoke') }}
+                    </button>
+                  </div>
+                  <p class="cp__claim-text">{{ claim.statement }}</p>
+                  <p v-if="claim.evidence?.[0]?.snippet" class="cp__claim-evidence">
+                    {{ claim.evidence[0].snippet }}
+                  </p>
+                  <a
+                    v-if="claim.evidence?.[0]?.sourceUrl"
+                    class="cp__claim-source"
+                    :href="claim.evidence[0].sourceUrl ?? undefined"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ $t('gainos.companies.claimSource') }}</a>
+                </div>
+              </li>
+            </ul>
+
+            <p v-if="claimActionError" class="cp__form-err" role="alert">{{ claimActionError }}</p>
+            <p v-if="claimNotice" class="cp__claim-notice" role="status">{{ claimNotice }}</p>
+
+            <div
+              v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0 && !claimsRecoveryReadOnly"
+              class="cp__claim-bar"
+            >
+              <label class="cp__claim-selectall">
+                <input
+                  type="checkbox"
+                  :checked="allVisibleSelected"
+                  @change="toggleAllVisible"
+                />
+                {{ $t('gainos.companies.selectAll') }}
+                <span v-if="selectedCount > 0">
+                  · {{ $t('gainos.companies.selectedCount', { count: selectedCount }) }}
+                </span>
+              </label>
+              <div class="cp__claim-actions">
+                <Button
+                  danger
+                  :disabled="claimBusy !== null || selectedCount === 0"
+                  :loading="claimBusy === 'reject'"
+                  @click="reviewSelected('reject')"
+                >
+                  {{ claimBusy === 'reject'
+                    ? claimProgress
+                    : rejectArmed
+                      ? $t('gainos.companies.confirmReject', { count: selectedCount })
+                      : $t('gainos.companies.rejectSelected') }}
+                </Button>
+                <Button
+                  :disabled="claimBusy !== null || selectedCount === 0"
+                  :loading="claimBusy === 'approve'"
+                  type="primary"
+                  @click="reviewSelected('approve')"
+                >
+                  {{ claimBusy === 'approve' ? claimProgress : $t('gainos.companies.approveSelected') }}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <footer class="co-facts__foot">
+            <span class="cp__facts-ready">
+              {{ approvedCount > 0
+                ? $t('gainos.companies.approvedReady', { count: approvedCount })
+                : $t('gainos.companies.approvedNeed') }}
+            </span>
+            <Button :disabled="approvedCount === 0" type="primary" @click="goFindBuyers">
+              {{ $t('gainos.companies.goFindBuyers') }}
+            </Button>
+          </footer>
+        </div>
+
+        <!-- 资料库：左侧上传与文件清单，右侧检索，适合边看边查 -->
+        <div
+          v-else
+          ref="docsPanel"
+          class="co-workspace__body co-docs"
+          data-gs="company-docs"
+          tabindex="-1"
+        >
+          <div class="co-docs__main">
+            <header class="co-docs__head">
+              <div class="min-w-0">
+                <h3 class="co-pane__title">{{ $t('gainos.companies.documentsTitle') }}</h3>
+                <p class="co-muted">{{ $t('gainos.companies.documentsHint') }}</p>
+              </div>
+              <div v-if="!docsRecoveryReadOnly" class="co-docs__upload">
+                <Button
+                  :disabled="docsUploading"
+                  type="primary"
+                  @click="docsFileInput?.click()"
+                >
+                  {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
+                </Button>
+                <input
+                  ref="docsFileInput"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md"
+                  class="co-docs__file"
+                  type="file"
+                  @change="uploadDocument"
+                />
+                <span class="cp__docs-formats">{{ $t('gainos.companies.uploadFormats') }}</span>
+              </div>
+            </header>
+
+            <p v-if="docsNotice" class="cp__claim-notice" role="status">{{ docsNotice }}</p>
+            <p v-if="docsError" class="cp__form-err" role="alert">{{ docsError }}</p>
+
+            <div v-if="docsLoading && docs.length === 0" class="co-panel__state">
+              {{ $t('gainos.companies.loading') }}
+            </div>
+            <ul v-else-if="docs.length > 0" class="cp__docs-list co-docs__list">
+              <li v-for="row in docs" :key="row.id" class="cp__docs-item">
+                <div class="cp__docs-main">
+                  <strong>{{ row.filename }}</strong>
+                  <span>
+                    {{ docSizeLabel(row) }} · {{ docStatusLabel(row.status) }}
+                    <template v-if="row.status === 'ready'">
+                      · {{ $t('gainos.companies.documentChunks', { count: row.chunkCount ?? 0 }) }}
+                    </template>
+                  </span>
+                  <span v-if="row.processingErrorCode" class="cp__item-error">
+                    {{ row.processingErrorCode }}
+                  </span>
+                </div>
+                <div class="cp__docs-side">
+                  <Button v-if="row.status === 'ready'" size="small" @click="downloadDocument(row)">
+                    {{ $t('gainos.companies.download') }}
+                  </Button>
+                  <Button
+                    v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')"
+                    size="small"
+                    @click="retryDocument(row)"
+                  >
+                    {{ $t('gainos.companies.retryUnderstanding') }}
+                  </Button>
+                  <Button v-if="!docsRecoveryReadOnly" size="small" @click="removeDocument(row)">
+                    {{ $t('gainos.companies.delete') }}
+                  </Button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="co-panel__state">{{ $t('gainos.companies.documentsEmpty') }}</p>
+
+            <Button
+              v-if="docsHasMore"
+              :loading="docsLoading"
+              block
+              @click="loadDocuments(true, false)"
+            >
+              {{ $t('gainos.companies.loadMoreDocuments') }}
+            </Button>
+          </div>
+
+          <aside class="co-docs__search-pane">
+            <h3 class="co-pane__title">{{ $t('gainos.companies.documentSearch') }}</h3>
+            <p class="co-muted">{{ $t('gainos.companies.documentSearchHint') }}</p>
+            <form class="co-docs__search-form" @submit.prevent="searchDocuments">
+              <Input
+                v-model:value="docsQuery"
+                :placeholder="$t('gainos.companies.documentSearchPlaceholder')"
+                type="search"
+              />
+              <Button :disabled="docsSearching" html-type="submit">
+                {{ docsSearching ? $t('gainos.companies.loading') : $t('gainos.companies.documentSearch') }}
+              </Button>
+            </form>
+            <ul v-if="docsQuery.trim().length >= 2" class="cp__docs-hits co-docs__hits">
+              <li
+                v-for="hit in docsHits"
+                :key="`${hit.documentId}-${hit.seq}`"
+                class="cp__docs-hit"
+              >
+                <strong>{{ hit.filename }} · #{{ hit.seq }}</strong>
+                <p>{{ hit.text.slice(0, 200) }}</p>
+              </li>
+              <li v-if="docsHits.length === 0" class="co-muted">
+                {{ $t('gainos.companies.documentSearchEmpty') }}
+              </li>
+            </ul>
+          </aside>
+        </div>
+      </GsCard>
+      </div>
 
       <!-- 关联公司：集团/多品牌才需要，默认收起在次级区域。 -->
       <section v-if="relatedCompanies.length > 0" class="co-related" data-gs="related-companies">
@@ -1546,7 +2126,7 @@ onUnmounted(() => {
               <Button size="small" type="primary" @click="relatedPrimaryAction(company)">
                 {{ relatedPrimaryLabel(company) }}
               </Button>
-              <Button size="small" @click="openDocuments(company)">
+              <Button size="small" @click="showDocs(company)">
                 {{ $t('gainos.companies.documents') }}
               </Button>
               <Dropdown
@@ -1572,7 +2152,7 @@ onUnmounted(() => {
     </template>
     </div>
 
-    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen || docsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @recover="recoverMarketView" />
+    <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="wizardOpen || editOpen || addRelatedOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @recover="recoverMarketView" />
 
     <!-- 添加关联公司：先说明「日常只需维护注册公司」，再进入建档界面 -->
     <Modal
@@ -1690,335 +2270,6 @@ onUnmounted(() => {
       </div>
     </Modal>
 
-    <!-- 资料库（Phase 2c）：上传经引擎中转 → 解析状态 → 检索 -->
-    <Modal
-      :open="docsOpen"
-      :body-style="{ padding: '0' }"
-      :closable="false"
-      :footer="null"
-      :mask-closable="true"
-      :width="800"
-      data-gs="company-docs"
-      style="top: 32px"
-      @cancel="closeDocuments"
-    >
-        <div ref="docsPanel" class="cp__docs-panel" :data-readonly="docsRecoveryReadOnly" data-gs="company-docs" tabindex="-1">
-          <header>
-            <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
-            <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
-          </header>
-          <p class="cp__modal-hint">{{ $t('gainos.companies.documentsHint') }}</p>
-          <div v-if="!docsRecoveryReadOnly" class="cp__docs-actions">
-            <label class="cp__btn cp__btn--primary cp__docs-upload" :class="{ 'cp__btn--busy': docsUploading }">
-              {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
-              <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md" :disabled="docsUploading" @change="uploadDocument" />
-            </label>
-            <span class="cp__docs-formats">{{ $t('gainos.companies.uploadFormats') }}</span>
-          </div>
-          <p v-if="docsNotice" class="cp__claim-notice" role="status">{{ docsNotice }}</p>
-          <p v-if="docsError" class="cp__form-err" role="alert">{{ docsError }}</p>
-          <div v-if="docsLoading && docs.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.loading') }}</div>
-          <ul v-else-if="docs.length > 0" class="cp__docs-list">
-            <li v-for="row in docs" :key="row.id" class="cp__docs-item">
-              <div class="cp__docs-main">
-                <strong>{{ row.filename }}</strong>
-                <span>{{ docSizeLabel(row) }} · {{ docStatusLabel(row.status) }}<template v-if="row.status === 'ready'"> · {{ $t('gainos.companies.documentChunks', { count: row.chunkCount ?? 0 }) }}</template></span>
-                <span v-if="row.processingErrorCode" class="cp__item-error">{{ row.processingErrorCode }}</span>
-              </div>
-              <div class="cp__docs-side">
-                <Button v-if="row.status === 'ready'" size="small" @click="downloadDocument(row)">
-                  {{ $t('gainos.companies.download') }}
-                </Button>
-                <Button v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')" size="small" @click="retryDocument(row)">
-                  {{ $t('gainos.companies.retryUnderstanding') }}
-                </Button>
-                <Button v-if="!docsRecoveryReadOnly" size="small" @click="removeDocument(row)">
-                  {{ $t('gainos.companies.delete') }}
-                </Button>
-              </div>
-            </li>
-          </ul>
-          <p v-if="docsHasMore" class="cp__docs-more">
-            <button type="button" class="cp__confirm" :disabled="docsLoading" @click="loadDocuments(true, false)">
-              {{ $t('gainos.companies.loadMoreDocuments') }}
-            </button>
-          </p>
-          <p v-else-if="!docsLoading && docs.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentsEmpty') }}</p>
-          <form class="cp__docs-search" @submit.prevent="searchDocuments">
-            <input v-model="docsQuery" type="search" minlength="2" maxlength="200" :placeholder="$t('gainos.companies.documentSearchPlaceholder')" />
-            <Button :disabled="docsSearching" html-type="submit">
-              {{ docsSearching ? $t('gainos.companies.loading') : $t('gainos.companies.documentSearch') }}
-            </Button>
-          </form>
-          <ul v-if="docsQuery.trim().length >= 2" class="cp__docs-hits">
-            <li v-for="hit in docsHits" :key="`${hit.documentId}-${hit.seq}`" class="cp__docs-hit">
-              <strong>{{ hit.filename }} · #{{ hit.seq }}</strong>
-              <p>{{ hit.text.slice(0, 200) }}</p>
-            </li>
-            <li v-if="docsHits.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentSearchEmpty') }}</li>
-          </ul>
-          <div class="cp__modal-actions">
-            <Button @click="closeDocuments">{{ $t('gainos.companies.close') }}</Button>
-          </div>
-        </div>
-    </Modal>
-
-    <!-- 企业事实审批（KNW-003 人工门）：只有「已通过」的事实进入目标客户画像设计 -->
-    <Modal
-      :open="claimsOpen"
-      :body-style="{ padding: '0' }"
-      :closable="false"
-      :footer="null"
-      :mask-closable="true"
-      :width="840"
-      data-gs="company-facts"
-      style="top: 24px"
-      @cancel="closeClaims"
-    >
-        <div ref="factsPanel" class="cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" data-gs="company-facts" tabindex="-1">
-          <header class="cp__facts-head">
-            <div>
-              <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>
-              <p class="cp__facts-hint">{{ $t('gainos.companies.factsHint') }}</p>
-            </div>
-            <button type="button" class="cp__modal-x" :aria-label="$t('gainos.companies.close')" @click="closeClaims">✕</button>
-          </header>
-
-          <div class="cp__facts-body">
-          <div v-if="overviewLoading" class="cp__overview-state">{{ $t('gainos.companies.overviewLoading') }}</div>
-          <div v-else-if="overviewError" class="cp__overview-state cp__overview-state--error">
-            <span>{{ overviewError }}</span>
-            <button type="button" class="cp__state-retry" @click="loadCompanyOverview">{{ $t('gainos.common.retry') }}</button>
-          </div>
-          <div v-else class="cp__overview">
-            <p v-if="companyOverview?.summary" class="cp__overview-summary">{{ companyOverview.summary }}</p>
-            <div class="cp__overview-meta">
-              <span v-if="companyOverview?.industry">{{ $t('gainos.companies.overviewIndustry') }}：{{ companyOverview.industry }}</span>
-              <span v-if="companyOverview?.targetMarkets?.length">{{ $t('gainos.companies.overviewMarkets') }}：{{ companyOverview.targetMarkets.join(' / ') }}</span>
-              <span v-if="companyOverview?.businessEmail">{{ $t('gainos.companies.overviewEmail') }}：{{ companyOverview.businessEmail }}</span>
-              <a v-if="companyOverview?.website" :href="companyOverview.website" target="_blank" rel="noopener noreferrer">{{ companyOverview.website }}</a>
-            </div>
-            <div v-if="completeness" class="cp__stats">
-              <div><strong>{{ completeness.approvedClaims }}</strong><span>{{ $t('gainos.companies.statApproved') }}</span></div>
-              <div><strong>{{ completeness.pendingClaims }}</strong><span>{{ $t('gainos.companies.statPending') }}</span></div>
-              <div><strong>{{ completeness.offerings }}</strong><span>{{ $t('gainos.companies.statOfferings') }}</span></div>
-              <div><strong>{{ completeness.conflictsOpen }}</strong><span>{{ $t('gainos.companies.statConflicts') }}</span></div>
-            </div>
-            <details v-if="offerings.length" class="cp__offerings">
-              <summary>{{ $t('gainos.companies.offeringsTitle', { count: offerings.length }) }}</summary>
-              <ul>
-                <li v-for="offering in offerings" :key="offering.id">
-                  <strong>{{ offering.name }}</strong>
-                  <span v-if="offering.description"> · {{ offering.description }}</span>
-                  <a v-if="offering.sourceUrl" :href="offering.sourceUrl" target="_blank" rel="noopener noreferrer"> ↗</a>
-                </li>
-              </ul>
-            </details>
-            <p v-else class="cp__muted">{{ $t('gainos.companies.offeringsEmpty') }}</p>
-          </div>
-
-          <div v-if="conflictsLoading || conflictsError || conflicts.length" class="cp__conflicts">
-            <div class="cp__conflicts-head">
-              <h3>{{ $t('gainos.companies.conflictsTitle', { count: conflicts.length }) }}</h3>
-              <p class="cp__muted">{{ $t('gainos.companies.conflictsHint') }}</p>
-            </div>
-            <p v-if="conflictsLoading" class="cp__muted">{{ $t('gainos.companies.claimsLoading') }}</p>
-            <p v-else-if="conflictsError" class="cp__form-err">{{ conflictsError }}</p>
-            <div v-for="conflict in conflicts" :key="conflict.id" class="cp__conflict">
-              <div class="cp__conflict-head">
-                <span class="cp__claim-type">{{ claimTypeLabel(conflict.claimType || conflict.claimA?.type || '') }}</span>
-                <span v-if="!isAdmin" class="cp__muted">{{ $t('gainos.companies.conflictsAdminOnly') }}</span>
-              </div>
-              <div class="cp__conflict-grid">
-                <div class="cp__conflict-side">
-                  <p>{{ conflict.claimA?.statement || '—' }}</p>
-                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'a')">
-                    {{ $t('gainos.companies.keepThis') }}
-                  </button>
-                </div>
-                <div class="cp__conflict-side">
-                  <p>{{ conflict.claimB?.statement || '—' }}</p>
-                  <button v-if="isAdmin && !claimsRecoveryReadOnly" type="button" class="cp__conflict-keep" :disabled="conflictBusy === conflict.id" @click="resolveConflict(conflict, 'b')">
-                    {{ $t('gainos.companies.keepThis') }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="cp__tabs" role="tablist">
-            <button
-              type="button"
-              class="cp__tab"
-              :class="{ 'cp__tab--active': claimTab === 'NEEDS_REVIEW' }"
-              role="tab"
-              :aria-selected="claimTab === 'NEEDS_REVIEW'"
-              @click="switchClaimTab('NEEDS_REVIEW')"
-            >
-              {{ $t('gainos.companies.tabPending') }}<span class="cp__tab-count">{{ pendingClaims.length }}</span>
-            </button>
-            <button
-              type="button"
-              class="cp__tab"
-              :class="{ 'cp__tab--active': claimTab === 'APPROVED' }"
-              role="tab"
-              :aria-selected="claimTab === 'APPROVED'"
-              @click="switchClaimTab('APPROVED')"
-            >
-              {{ $t('gainos.companies.tabApproved') }}<span class="cp__tab-count">{{ approvedClaims.length }}</span>
-            </button>
-            <button
-              type="button"
-              class="cp__tab"
-              :class="{ 'cp__tab--active': claimTab === 'REVOKED' }"
-              role="tab"
-              :aria-selected="claimTab === 'REVOKED'"
-              @click="switchClaimTab('REVOKED')"
-            >
-              {{ $t('gainos.companies.tabIgnored') }}<span class="cp__tab-count">{{ ignoredClaims.length }}</span>
-            </button>
-          </div>
-
-          <div v-if="isAdmin && !claimsRecoveryReadOnly" class="cp__manual-bar">
-            <button type="button" class="cp__manual-toggle" @click="manualOpen = !manualOpen">
-              {{ manualOpen ? $t('gainos.companies.manualCancel') : $t('gainos.companies.manualAdd') }}
-            </button>
-            <button type="button" class="cp__manual-toggle" :disabled="synthBusy" @click="synthesizeDrafts">
-              {{ synthBusy ? $t('gainos.common.loading') : $t('gainos.companies.synthesizeDrafts') }}
-            </button>
-            <span class="cp__muted">{{ $t('gainos.companies.synthesizeDraftsHint') }}</span>
-          </div>
-          <div v-if="manualOpen && !claimsRecoveryReadOnly" class="cp__manual-form">
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.manualStatement') }}</span>
-              <textarea v-model="manualStatement" rows="3" maxlength="2000" :placeholder="$t('gainos.companies.manualStatementHint')"></textarea>
-            </label>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.manualEvidence') }}</span>
-              <input v-model="manualEvidence" type="text" maxlength="2000" :placeholder="$t('gainos.companies.manualEvidenceHint')" />
-            </label>
-            <p v-if="manualError" class="cp__form-err" role="alert">{{ manualError }}</p>
-            <div class="cp__manual-actions">
-              <button type="button" class="cp__btn cp__btn--ghost" @click="manualOpen = false">{{ $t('gainos.common.cancel') }}</button>
-              <button type="button" class="cp__btn cp__btn--primary" :disabled="manualBusy" @click="saveManualClaim">
-                {{ manualBusy ? $t('gainos.common.loading') : $t('gainos.companies.manualSubmit') }}
-              </button>
-            </div>
-          </div>
-
-          <input
-            v-model="claimQuery"
-            type="search"
-            class="cp__claim-search"
-            :placeholder="$t('gainos.companies.claimsSearch')"
-            :aria-label="$t('gainos.companies.claimsSearch')"
-          />
-
-          <div v-if="claimsLoading" class="cp__claims-state">{{ $t('gainos.companies.claimsLoading') }}</div>
-
-          <div v-else-if="claimsError" class="cp__claims-state cp__claims-state--error">
-            <ErrorNotice
-              :title="claimsError.title"
-              :why="claimsError.why"
-              :next="claimsError.next"
-              :code="claimsError.code"
-            />
-            <button type="button" class="cp__state-retry" @click="loadClaims">{{ $t('gainos.common.retry') }}</button>
-          </div>
-
-          <div v-else-if="visibleClaims.length === 0" class="cp__claims-state">
-            <p>{{ claimQuery
-              ? $t('gainos.companies.claimsNoMatch')
-              : claimTab === 'NEEDS_REVIEW'
-                ? $t('gainos.companies.claimsEmptyPending')
-                : claimTab === 'APPROVED'
-                  ? $t('gainos.companies.claimsEmptyApproved')
-                  : $t('gainos.companies.claimsEmptyIgnored') }}</p>
-          </div>
-
-          <ul v-else class="cp__claims">
-            <li v-for="claim in visibleClaims" :key="claim.id" class="cp__claim">
-              <label v-if="isAdmin && claim.status === 'NEEDS_REVIEW' && !claimsRecoveryReadOnly" class="cp__claim-check">
-                <input
-                  type="checkbox"
-                  :checked="selectedClaimIds.includes(claim.id)"
-                  :aria-label="$t('gainos.companies.selectClaim')"
-                  @change="toggleClaim(claim.id)"
-                />
-              </label>
-              <div class="cp__claim-main">
-                <div class="cp__claim-head">
-                  <span class="cp__claim-type">{{ claimTypeLabel(claim.type) }}</span>
-                  <span v-if="typeof claim.confidence === 'number'" class="cp__claim-conf">
-                    {{ Math.round(claim.confidence * 100) }}%
-                  </span>
-                  <button
-                    v-if="isAdmin && claim.status === 'APPROVED' && !claimsRecoveryReadOnly"
-                    type="button"
-                    class="cp__claim-revoke"
-                    :disabled="revokingId === claim.id"
-                    @click="revokeClaim(claim)"
-                  >{{ $t('gainos.companies.revoke') }}</button>
-                </div>
-                <p class="cp__claim-text">{{ claim.statement }}</p>
-                <p v-if="claim.evidence?.[0]?.snippet" class="cp__claim-evidence">{{ claim.evidence[0].snippet }}</p>
-                <a
-                  v-if="claim.evidence?.[0]?.sourceUrl"
-                  class="cp__claim-source"
-                  :href="claim.evidence[0].sourceUrl ?? undefined"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >{{ $t('gainos.companies.claimSource') }}</a>
-              </div>
-            </li>
-          </ul>
-
-          <p v-if="claimActionError" class="cp__form-err" role="alert">{{ claimActionError }}</p>
-          <p v-if="claimNotice" class="cp__claim-notice" role="status">{{ claimNotice }}</p>
-          </div>
-
-          <div v-if="isAdmin && claimTab === 'NEEDS_REVIEW' && visibleClaims.length > 0 && !claimsRecoveryReadOnly" class="cp__claim-bar">
-            <label class="cp__claim-selectall">
-              <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
-              {{ $t('gainos.companies.selectAll') }}
-              <span v-if="selectedCount > 0">· {{ $t('gainos.companies.selectedCount', { count: selectedCount }) }}</span>
-            </label>
-            <div class="cp__claim-actions">
-              <Button
-                danger
-                :disabled="claimBusy !== null || selectedCount === 0"
-                :loading="claimBusy === 'reject'"
-                @click="reviewSelected('reject')"
-              >
-                {{ claimBusy === 'reject'
-                  ? claimProgress
-                  : rejectArmed
-                    ? $t('gainos.companies.confirmReject', { count: selectedCount })
-                    : $t('gainos.companies.rejectSelected') }}
-              </Button>
-              <Button
-                :disabled="claimBusy !== null || selectedCount === 0"
-                :loading="claimBusy === 'approve'"
-                type="primary"
-                @click="reviewSelected('approve')"
-              >
-                {{ claimBusy === 'approve' ? claimProgress : $t('gainos.companies.approveSelected') }}
-              </Button>
-            </div>
-          </div>
-
-          <footer class="cp__facts-foot">
-            <span class="cp__facts-ready">
-              {{ approvedCount > 0
-                ? $t('gainos.companies.approvedReady', { count: approvedCount })
-                : $t('gainos.companies.approvedNeed') }}
-            </span>
-            <Button :disabled="approvedCount === 0" type="primary" @click="goFindBuyers">
-              {{ $t('gainos.companies.goFindBuyers') }}
-            </Button>
-          </footer>
-        </div>
-    </Modal>
   </div>
 </template>
 
@@ -2481,9 +2732,25 @@ onUnmounted(() => {
 .co-kpi {
   display: grid;
   gap: 2px;
+  width: 100%;
   padding: 10px 12px;
+  border: 0;
   border-radius: 10px;
   background: var(--gs-surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.co-kpi:hover {
+  background: var(--gs-accent-soft);
+}
+.co-kpi:focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: 1px;
 }
 .co-kpi strong {
   color: var(--gs-fg);
@@ -2665,6 +2932,257 @@ onUnmounted(() => {
   }
   .co-related__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── 2026-11-25：页内档案工作台（企业事实 + 资料库，不再用弹窗） ────────── */
+.co-workspace {
+  overflow: hidden;
+}
+.co-workspace__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px 0;
+}
+.co-workspace__eyebrow {
+  margin: 0 0 2px;
+  color: var(--gs-accent-strong);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+}
+.co-workspace__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 17px;
+  line-height: 26px;
+  font-weight: 600;
+}
+.co-workspace__hint {
+  margin: 4px 0 0;
+  max-width: 640px;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+.co-workspace__tools {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.co-workspace__field {
+  display: grid;
+  gap: 4px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.co-workspace__select {
+  width: 280px;
+}
+.co-workspace__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 24px 12px;
+  border-bottom: 1px solid var(--gs-divider);
+}
+.co-workspace__context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.co-workspace__body {
+  padding: 16px 24px 20px;
+  outline: none;
+}
+.co-workspace__body:focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: -2px;
+}
+
+.co-pane__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.co-panel__state {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 20px 14px;
+  border: 1px dashed var(--gs-border);
+  border-radius: 10px;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+.co-panel__state--error {
+  color: var(--gs-warn);
+}
+
+/* 事实：左概览/冲突，右审批清单 */
+.co-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.co-facts__aside,
+.co-facts__main {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+}
+.co-facts__aside .cp__overview,
+.co-facts__aside .cp__conflicts {
+  margin-top: 0;
+}
+.co-facts__main .cp__tabs {
+  margin: 0;
+  border-bottom: 0;
+}
+.co-facts__main .cp__tab {
+  border-bottom: 0;
+  border-radius: 8px;
+}
+.co-facts__main .cp__tab--active {
+  background: var(--gs-accent-soft);
+}
+.co-facts__main .cp__tab--active .cp__tab-count {
+  background: var(--gs-surface);
+}
+.co-facts__main .cp__claims {
+  max-height: 540px;
+  overflow-y: auto;
+}
+.co-facts__main .cp__claim-bar {
+  padding: 10px 12px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  box-shadow: none;
+}
+.co-facts__search {
+  width: 100%;
+}
+.co-facts__foot {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--gs-divider);
+}
+
+/* 资料库：左文件清单，右检索 */
+.co-docs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.co-docs__main,
+.co-docs__search-pane {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+.co-docs__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.co-docs__upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.co-docs__file {
+  display: none;
+}
+.co-docs__list {
+  max-height: 540px;
+  margin: 0;
+}
+.co-docs__search-pane {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--gs-surface-2);
+}
+.co-docs__search-form {
+  display: flex;
+  gap: 8px;
+}
+.co-docs__search-form :deep(.ant-input) {
+  flex: 1;
+  min-width: 0;
+}
+.co-docs__hits {
+  max-height: 460px;
+  margin-top: 0;
+}
+
+@container (min-width: 900px) {
+  .co-facts {
+    grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
+    align-items: start;
+  }
+  .co-docs {
+    grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+    align-items: start;
+  }
+}
+
+@container (max-width: 719px) {
+  .co-workspace__head,
+  .co-workspace__bar,
+  .co-workspace__body {
+    padding-inline: 16px;
+  }
+  .co-workspace__tools {
+    width: 100%;
+  }
+  .co-workspace__field {
+    flex: 1 1 200px;
+  }
+  .co-workspace__select {
+    width: 100%;
+  }
+  .co-facts__foot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .co-facts__foot :deep(.ant-btn) {
+    width: 100%;
+  }
+  .co-docs__upload {
+    width: 100%;
+  }
+}
+
+@container (max-width: 559px) {
+  .co-workspace .cp__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .co-workspace .cp__conflict-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

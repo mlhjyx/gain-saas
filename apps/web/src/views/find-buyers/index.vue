@@ -895,7 +895,7 @@ onMounted(() => {
 
 <template>
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
-    <GsPage :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
+    <GsPage art="find-buyers" :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
 
     <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
     <div class="relative z-[1] -mt-12">
