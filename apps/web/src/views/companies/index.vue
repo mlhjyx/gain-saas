@@ -1,12 +1,31 @@
 <script lang="ts" setup>
-import { computed, nextTick, onDeactivated, onMounted, onUnmounted, reactive, ref, type Ref } from 'vue';
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, type Ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
-import { formatDate } from '@gain-saas/shared';
 import { newAttemptId } from '#/utils/attempt-id';
+import { Plus, RotateCw } from '@vben/icons';
+
+import {
+  Alert,
+  Button,
+  Dropdown,
+  Input,
+  Menu,
+  Modal,
+  Skeleton,
+  Space,
+  Tag,
+} from 'ant-design-vue';
+
 import ErrorNotice from '#/components/error-notice.vue';
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import MarketCandidatesPanel from './market-candidates/market-candidates-panel.vue';
 
 import {
@@ -17,6 +36,7 @@ import {
   type CompanyConflict,
   type CompanyOffering,
   type CompanyProfile,
+  type Icp,
   type SellerDocument,
   type UpdateCompanyInput,
   type WebsiteCandidate,
@@ -30,10 +50,11 @@ const factsPanel = ref<HTMLElement | null>(null);
 const docsPanel = ref<HTMLElement | null>(null);
 const marketContext = ref('');
 let marketFocus: HTMLElement | null = null;
-function openMarketCandidates(company: CompanyProfile, event: MouseEvent) {
+function openMarketCandidates(company: CompanyProfile, event?: MouseEvent) {
   if (!marketContext.value || !company.id) return;
-  const details = (event.currentTarget as HTMLElement).closest('details');
-  marketFocus = details?.querySelector('summary') ?? event.currentTarget as HTMLElement;
+  const target = (event?.currentTarget as HTMLElement | undefined) ?? null;
+  const details = target?.closest('details') ?? null;
+  marketFocus = details?.querySelector('summary') ?? target;
   if (details) details.open = false;
   marketCompany.value = company;
 }
@@ -54,37 +75,6 @@ function restoreReturnFocus(target: HTMLElement | null, fallbackTestId: string) 
       ? target
       : document.querySelector<HTMLElement>(`[data-testid="${fallbackTestId}"]`);
   preferred?.focus();
-}
-function trapDialogTab(event: KeyboardEvent, panel: HTMLElement | null) {
-  if (event.key !== 'Tab' || !panel) return;
-  const items = Array.from(
-    panel.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), summary, input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter(
-    (element) =>
-      element.getClientRects().length > 0 &&
-      !element.closest('[inert], [aria-hidden="true"]'),
-  );
-  if (items.length === 0) {
-    event.preventDefault();
-    panel.focus();
-    return;
-  }
-  const first = items[0]!;
-  const last = items[items.length - 1]!;
-  const active = document.activeElement;
-  if (event.shiftKey) {
-    if (active === first || active === panel || !panel.contains(active)) {
-      event.preventDefault();
-      last.focus();
-    }
-    return;
-  }
-  if (active === last || !panel.contains(active)) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -129,6 +119,313 @@ const filteredCompanies = computed(() =>
     return matchQuery && matchStatus;
   }),
 );
+// ── 主档案（注册公司）与关联公司 ─────────────────────────────────────────
+// 一个工作空间可以有多份卖家档案（集团/多品牌，PRD 01-04 §2），但用户注册时填写的
+// 那一份（workspace.onboardingCompanyId）是主档案：所有日常操作与寻源都以它为准，
+// 其余档案收在「关联公司」里，避免用户把系统当成「随便建几个公司」。
+const primaryCompanyId = ref<string | null>(null);
+const icps = ref<Icp[]>([]);
+const summaries = ref<Record<string, CompanyCompleteness>>({});
+const addRelatedOpen = ref(false);
+
+const sortedCompanies = computed(() =>
+  [...companies.value].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')),
+);
+const primaryCompany = computed(
+  () =>
+    companies.value.find((company) => company.id === primaryCompanyId.value) ??
+    sortedCompanies.value[0] ??
+    null,
+);
+const relatedCompanies = computed(() =>
+  companies.value.filter((company) => company.id !== primaryCompany.value?.id),
+);
+const filteredRelated = computed(() =>
+  filteredCompanies.value.filter((company) => company.id !== primaryCompany.value?.id),
+);
+
+const hasOnboardingCompany = computed(() =>
+  companies.value.some((company) => company.id === primaryCompanyId.value),
+);
+const primaryBadgeLabel = computed(() =>
+  hasOnboardingCompany.value
+    ? $t('gainos.companies.primaryBadge')
+    : $t('gainos.companies.primaryBadgeFallback'),
+);
+
+const statusOptions = computed(() =>
+  STATUS_FILTERS.map((status) => ({
+    label:
+      status === 'ALL'
+        ? $t('gainos.companies.filterAll')
+        : status === 'FAILED'
+          ? $t('gainos.companies.statusFailed')
+          : statusLabel(status),
+    value: status,
+  })),
+);
+
+function companyTitle(company: CompanyProfile): string {
+  return (
+    company.name ??
+    company.domain ??
+    company.website ??
+    $t('gainos.companies.unnamed')
+  );
+}
+function companyInitial(company: CompanyProfile): string {
+  return Array.from(companyTitle(company))[0]?.toUpperCase() ?? '?';
+}
+function companyStatus(company: CompanyProfile): string {
+  return understandingFailed(company)
+    ? $t('gainos.companies.statusFailed')
+    : statusLabel(company.status);
+}
+function companyTone(
+  company: CompanyProfile,
+): 'danger' | 'info' | 'neutral' | 'success' | 'warning' {
+  if (understandingFailed(company)) return 'danger';
+  switch (company.status) {
+    case 'ACTIVE': {
+      return 'success';
+    }
+    case 'ENRICHING': {
+      return 'info';
+    }
+    case 'DRAFT':
+    case 'REVIEW': {
+      return 'warning';
+    }
+    default: {
+      return 'neutral';
+    }
+  }
+}
+function companyTags(company: CompanyProfile): string[] {
+  return [
+    company.industry ?? '',
+    ...(company.targetMarkets ?? []).slice(0, 4),
+  ].filter(Boolean);
+}
+function summaryOf(company: CompanyProfile): CompanyCompleteness | null {
+  return summaries.value[company.id ?? ''] ?? null;
+}
+function icpsOf(company: CompanyProfile): Icp[] {
+  return icps.value.filter((icp) => icp.companyId === company.id);
+}
+const primaryIcps = computed(() =>
+  primaryCompany.value ? icpsOf(primaryCompany.value) : [],
+);
+const activePrimaryIcp = computed(
+  () => primaryIcps.value.find((icp) => icp.status === 'ACTIVE') ?? null,
+);
+function icpSummary(company: CompanyProfile): string {
+  const list = icpsOf(company);
+  const active = list.find((icp) => icp.status === 'ACTIVE');
+  if (active) return $t('gainos.companies.icpActive', { name: active.name });
+  if (list.length > 0) return $t('gainos.companies.icpCount', { count: list.length });
+  return $t('gainos.companies.icpNone');
+}
+
+/** 主档案的「下一步」：按状态与事实进度给唯一明确的动作，而不是让用户自己找。 */
+type NextAction = 'edit' | 'facts' | 'go' | 'refresh';
+const nextStep = computed<{
+  action: NextAction;
+  desc: string;
+  label: string;
+  title: string;
+}>(() => {
+  const company = primaryCompany.value;
+  const summary = company ? summaryOf(company) : null;
+  const pending = summary?.pendingClaims ?? 0;
+  const approved = summary?.approvedClaims ?? 0;
+  const conflicts = summary?.conflictsOpen ?? 0;
+  if (company && understandingFailed(company)) {
+    return {
+      action: 'edit',
+      desc: $t('gainos.companies.stepEditDesc'),
+      label: $t('gainos.companies.edit'),
+      title: $t('gainos.companies.stepEdit'),
+    };
+  }
+  if (!company || company.status === 'DRAFT') {
+    return {
+      action: 'edit',
+      desc: $t('gainos.companies.stepEditDesc'),
+      label: $t('gainos.companies.edit'),
+      title: $t('gainos.companies.stepEdit'),
+    };
+  }
+  if (company.status === 'ENRICHING') {
+    return {
+      action: 'refresh',
+      desc: $t('gainos.companies.stepEnrichingDesc'),
+      label: $t('gainos.common.refresh'),
+      title: $t('gainos.companies.stepEnriching'),
+    };
+  }
+  if (conflicts > 0) {
+    return {
+      action: 'facts',
+      desc: $t('gainos.companies.stepConflictsDesc', { count: conflicts }),
+      label: $t('gainos.companies.openFacts'),
+      title: $t('gainos.companies.stepConflicts'),
+    };
+  }
+  if (pending > 0) {
+    return {
+      action: 'facts',
+      desc: $t('gainos.companies.stepFactsDesc', { count: pending }),
+      label: $t('gainos.companies.openFacts'),
+      title: $t('gainos.companies.stepFacts'),
+    };
+  }
+  if (approved === 0) {
+    return {
+      action: 'facts',
+      desc: $t('gainos.companies.stepFactsNone'),
+      label: $t('gainos.companies.openFacts'),
+      title: $t('gainos.companies.stepFacts'),
+    };
+  }
+  if (primaryIcps.value.length === 0) {
+    return {
+      action: 'go',
+      desc: $t('gainos.companies.stepReady', { count: approved }),
+      label: $t('gainos.companies.goIcp'),
+      title: $t('gainos.companies.stepProfileReady'),
+    };
+  }
+  return {
+    action: 'go',
+    desc: activePrimaryIcp.value
+      ? $t('gainos.companies.icpActive', { name: activePrimaryIcp.value.name })
+      : $t('gainos.companies.icpCount', { count: primaryIcps.value.length }),
+    label: $t('gainos.companies.viewIcp'),
+    title: $t('gainos.companies.stepProfileReady'),
+  };
+});
+function runNextStep(): void {
+  const company = primaryCompany.value;
+  if (!company) return;
+  switch (nextStep.value.action) {
+    case 'edit': {
+      openEdit(company);
+      break;
+    }
+    case 'facts': {
+      void openClaims(company);
+      break;
+    }
+    case 'go': {
+      goFindBuyers();
+      break;
+    }
+    case 'refresh': {
+      void load();
+      break;
+    }
+  }
+}
+
+const primaryMenuItems = computed(() => {
+  const items: Array<{ key: string; label: string }> = [];
+  const company = primaryCompany.value;
+  if (!company) return items;
+  if (marketContext.value) {
+    items.push({ key: 'market', label: $t('gainos.companies.marketCandidates') });
+  }
+  if (understandingFailed(company)) {
+    items.push({ key: 'retry', label: $t('gainos.companies.retryUnderstanding') });
+  }
+  if (company.status === 'REVIEW') {
+    items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
+  }
+  return items;
+});
+function onPrimaryMenu(info: { key: number | string }): void {
+  const company = primaryCompany.value;
+  if (!company) return;
+  const key = String(info.key);
+  if (key === 'market') openMarketCandidates(company);
+  if (key === 'retry') void retryUnderstanding(company);
+  if (key === 'confirm') void confirmCompany(company);
+}
+
+function relatedMenuItems(company: CompanyProfile): Array<{ key: string; label: string }> {
+  const items: Array<{ key: string; label: string }> = [];
+  if (company.status === 'DRAFT') items.push({ key: 'edit', label: $t('gainos.companies.edit') });
+  if (marketContext.value) items.push({ key: 'market', label: $t('gainos.companies.marketCandidates') });
+  if (understandingFailed(company)) items.push({ key: 'retry', label: $t('gainos.companies.retryUnderstanding') });
+  if (company.status === 'REVIEW') items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
+  if (company.status === 'DRAFT') items.push({ key: 'delete', label: $t('gainos.companies.delete') });
+  return items;
+}
+function onRelatedMenu(info: { key: number | string }, company: CompanyProfile): void {
+  const key = String(info.key);
+  if (key === 'edit') openEdit(company);
+  if (key === 'market') openMarketCandidates(company);
+  if (key === 'retry') void retryUnderstanding(company);
+  if (key === 'confirm') void confirmCompany(company);
+  if (key === 'delete') removeCompany(company);
+}
+
+/** 关联公司卡片的主操作：有待审/已通过事实就去看档案，否则先补全资料。 */
+function relatedPrimaryAction(company: CompanyProfile): void {
+  if (company.status === 'REVIEW' || company.status === 'ACTIVE') void openClaims(company);
+  else openEdit(company);
+}
+function relatedPrimaryLabel(company: CompanyProfile): string {
+  return company.status === 'REVIEW' || company.status === 'ACTIVE'
+    ? $t('gainos.companies.openFacts')
+    : $t('gainos.companies.complete');
+}
+
+function addRelatedCompany(): void {
+  addRelatedOpen.value = true;
+}
+function continueAddRelated(): void {
+  addRelatedOpen.value = false;
+  openWizard();
+}
+
+async function loadContext(): Promise<void> {
+  try {
+    const context = await gainosApi.workspaceContext();
+    primaryCompanyId.value = context.onboarding?.companyId ?? null;
+  } catch {
+    primaryCompanyId.value = null;
+  }
+}
+async function loadIcps(): Promise<void> {
+  try {
+    const data = await gainosApi.icps();
+    icps.value = Array.isArray(data) ? data : [];
+  } catch {
+    icps.value = [];
+  }
+}
+async function loadSummaries(): Promise<void> {
+  const ids = companies.value
+    .map((company) => company.id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return;
+  const rows = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        return [id, await gainosApi.companyCompleteness(id)] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const next = { ...summaries.value };
+  for (const row of rows) {
+    if (row) next[row[0]] = row[1];
+  }
+  summaries.value = next;
+}
+
 const wizardOpen = ref(false);
 const creating = ref(false);
 const confirmingId = ref<string | null>(null);
@@ -513,6 +810,7 @@ async function load(silent = false): Promise<void> {
   try {
     const data = await gainosApi.companies();
     companies.value = Array.isArray(data) ? data : (data?.data ?? []);
+    void loadSummaries();
   } catch (err) {
     error.value = failureText(err).title;
   } finally {
@@ -993,7 +1291,15 @@ onMounted(async () => {
   } catch {
     isAdmin.value = false;
   }
+  await Promise.allSettled([loadContext(), loadIcps()]);
   await load();
+});
+onActivated(() => {
+  // 从「找买家」回来时，目标客户画像可能刚变化：刷新画像与事实计数。
+  if (!loading.value) {
+    void loadIcps();
+    void loadSummaries();
+  }
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscape);
@@ -1006,237 +1312,397 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="cp">
-    <header class="cp__head">
-      <div>
-        <h1>{{ $t('gainos.companies.title') }}</h1>
-        <p>{{ $t('gainos.companies.subtitle') }}</p>
-      </div>
-      <button class="cp__cta" type="button" @click="openWizard">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4v12M4 10h12"/></svg>
-        {{ $t('gainos.companies.cta') }}
-      </button>
-    </header>
+  <div
+    class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 pt-6 @container"
+    data-gs="companies-page"
+  >
+    <GsPage :subtitle="$t('gainos.companies.subtitle')" :title="$t('gainos.companies.title')">
+      <template #actions>
+        <Button :loading="loading" data-gs="refresh" @click="load()">
+          <template v-if="!loading" #icon><RotateCw :size="14" /></template>
+          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+        </Button>
+        <Button v-if="companies.length" data-gs="add-related" @click="addRelatedCompany">
+          <template #icon><Plus :size="14" /></template>
+          {{ $t('gainos.companies.addRelated') }}
+        </Button>
+      </template>
+    </GsPage>
 
-    <!-- 状态：加载 / 引擎未授权 / 空 / 列表 -->
-    <p v-if="createdNotice" class="cp__claim-notice" role="status">{{ createdNotice }}</p>
+    <!-- 内容压在页头渐变上（与买家线索/找买家同一层次处理） -->
+    <div class="relative z-[1] -mt-12 grid gap-3">
+    <Alert
+      v-if="createdNotice"
+      :message="createdNotice"
+      closable
+      data-gs="companies-notice"
+      role="status"
+      show-icon
+      type="success"
+      @close="createdNotice = null"
+    />
 
-    <div v-if="loading" class="cp__state cp__state--loading">{{ $t('gainos.companies.loading') }}</div>
+    <GsCard v-if="loading" data-gs="companies-loading">
+      <Skeleton active :paragraph="{ rows: 4 }" />
+      <span class="co-sr-only">{{ $t('gainos.companies.loading') }}</span>
+    </GsCard>
 
-    <div v-else-if="error" class="cp__state cp__state--error">
-      <p class="cp__state-title">{{ error }}</p>
-      <p class="cp__state-desc">{{ $t('gainos.companies.errorWhy') }}</p>
-      <button type="button" class="cp__state-retry" @click="load()">{{ $t('gainos.common.retry') }}</button>
+    <div v-else-if="error" class="grid gap-3" data-gs="companies-error">
+      <ErrorNotice :next="$t('gainos.companies.errorWhy')" :title="error" />
+      <Button class="justify-self-start" @click="load()">
+        {{ $t('gainos.common.retry') }}
+      </Button>
     </div>
 
-    <div v-else-if="companies.length === 0" class="cp__state cp__state--empty">
-      <div class="cp__empty-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 21V8l8-4.5L20 8v13"/><path d="M9.5 21v-6h5v6"/></svg>
-      </div>
-      <p class="cp__state-title">{{ $t('gainos.companies.emptyTitle') }}</p>
-      <p class="cp__state-desc">{{ $t('gainos.companies.emptyDesc') }}</p>
-      <div class="cp__state-actions">
-        <button type="button" class="cp__cta" @click="openWizard">{{ $t('gainos.companies.emptyCta') }}</button>
-        <RouterLink class="cp__cta-secondary" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
-        <RouterLink v-if="isAdmin" class="cp__cta-secondary" to="/settings/sources">{{ $t('gainos.sources.title') }}</RouterLink>
-        <RouterLink v-else class="cp__cta-secondary" to="/tasks">{{ $t('gainos.tasks.title') }}</RouterLink>
-      </div>
-    </div>
+    <GsCard v-else-if="!primaryCompany" data-gs="companies-empty">
+      <GsEmpty
+        :description="$t('gainos.companies.emptyDesc')"
+        :title="$t('gainos.companies.emptyTitle')"
+      >
+        <template #actions>
+          <Button type="primary" @click="openWizard">
+            {{ $t('gainos.companies.emptyCta') }}
+          </Button>
+          <Button @click="router.push('/leads')">{{ $t('gainos.leads.title') }}</Button>
+          <Button @click="router.push(isAdmin ? '/settings/sources' : '/tasks')">
+            {{ isAdmin ? $t('gainos.sources.title') : $t('gainos.tasks.title') }}
+          </Button>
+        </template>
+      </GsEmpty>
+    </GsCard>
 
     <template v-else>
-      <div class="cp__filters">
-        <input
-          v-model="searchQuery"
-          class="cp__search"
-          type="search"
-          :placeholder="$t('gainos.companies.searchPlaceholder')"
-        />
-        <select v-model="statusFilter" class="cp__status-filter">
-          <option v-for="status in STATUS_FILTERS" :key="status" :value="status">
-            {{ status === 'ALL' ? $t('gainos.companies.filterAll') : status === 'FAILED' ? $t('gainos.companies.statusFailed') : statusLabel(status) }}
-          </option>
-        </select>
-        <span class="cp__muted">
-          {{ $t('gainos.companies.showing', { shown: filteredCompanies.length, total: companies.length }) }}
-        </span>
-      </div>
-      <div class="cp__table-wrap">
-        <table class="cp__table">
-          <thead>
-            <tr>
-              <th>{{ $t('gainos.companies.colCompany') }}</th>
-              <th>{{ $t('gainos.companies.colStatus') }}</th>
-              <th>{{ $t('gainos.companies.colDomain') }}</th>
-              <th>{{ $t('gainos.companies.colIndustry') }}</th>
-              <th>{{ $t('gainos.companies.colCreated') }}</th>
-              <th>{{ $t('gainos.companies.colActions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in filteredCompanies" :key="c.id">
-              <td>
-                <strong>{{ c.name ?? c.domain ?? c.website ?? $t('gainos.companies.unnamed') }}</strong>
-                <span v-if="understandingFailed(c)" class="cp__item-error">
-                  {{ c.understandingLastError ?? $t('gainos.companies.statusFailed') }}
-                </span>
-              </td>
-              <td>
-                <span
-                  class="cp__badge"
-                  :class="understandingFailed(c) ? 'cp__badge--failed' : `cp__badge--${(c.status ?? 'DRAFT').toLowerCase()}`"
-                >
-                  {{ understandingFailed(c) ? $t('gainos.companies.statusFailed') : statusLabel(c.status) }}
-                </span>
-              </td>
-              <td class="cp__mono">{{ c.website ?? c.domain ?? '—' }}</td>
-              <td>{{ c.industry ?? '—' }}</td>
-              <td>{{ formatDate(c.created_at) || '—' }}</td>
-              <td class="cp__actions-cell">
-                <button
-                  v-if="c.status === 'REVIEW' || c.status === 'ACTIVE'"
-                  type="button"
-                  class="cp__primary-sm"
-                  @click="openClaims(c)"
-                >
-                  {{ $t('gainos.companies.facts') }}
-                </button>
-                <button
-                  v-else-if="c.status === 'DRAFT'"
-                  type="button"
-                  class="cp__primary-sm"
-                  @click="openEdit(c)"
-                >
-                  {{ $t('gainos.companies.complete') }}
-                </button>
-                <span v-else class="cp__muted">—</span>
-                <details class="cp__more">
-                  <summary>{{ $t('gainos.companies.more') }}</summary>
-                  <div class="cp__menu">
-                    <button type="button" @click="openDocuments(c)">{{ $t('gainos.companies.documents') }}</button>
-                    <button type="button" :disabled="!marketContext" @click="openMarketCandidates(c, $event)">{{ $t('gainos.companies.marketCandidates') }}</button>
-                    <button v-if="understandingFailed(c)" type="button" :disabled="retryingId === c.id" @click="retryUnderstanding(c)">
-                      {{ $t('gainos.companies.retryUnderstanding') }}
-                    </button>
-                    <button v-if="c.status === 'REVIEW'" type="button" :disabled="confirmingId === c.id" @click="confirmCompany(c)">
-                      {{ $t('gainos.companies.confirm') }}
-                    </button>
-                    <button v-if="c.status === 'DRAFT'" type="button" @click="openEdit(c)">{{ $t('gainos.companies.edit') }}</button>
-                    <button v-if="c.status === 'DRAFT'" type="button" class="is-danger" :disabled="deletingId === c.id" @click="removeCompany(c)">
-                      {{ $t('gainos.companies.delete') }}
-                    </button>
-                  </div>
-                </details>
-              </td>
-            </tr>
-            <tr v-if="filteredCompanies.length === 0">
-              <td colspan="6" class="cp__muted">{{ $t('gainos.companies.noMatch') }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- 主档案：注册时填写的公司。所有寻源都基于这份档案。 -->
+      <GsCard class="co-primary" data-gs="primary-company" padding="0">
+        <div class="co-primary__body">
+          <div class="co-primary__grid">
+            <div class="co-primary__identity">
+              <span aria-hidden="true" class="co-logo">
+                {{ companyInitial(primaryCompany) }}
+              </span>
+              <div class="min-w-0">
+                <div class="co-primary__title">
+                  <h2>{{ companyTitle(primaryCompany) }}</h2>
+                  <Tag :bordered="false" class="co-badge">
+                    {{ primaryBadgeLabel }}
+                  </Tag>
+                  <GsTag :tone="companyTone(primaryCompany)">
+                    {{ companyStatus(primaryCompany) }}
+                  </GsTag>
+                </div>
+                <p class="co-muted">
+                  {{ primaryCompany.website || primaryCompany.domain || $t('gainos.companies.noWebsite') }}
+                </p>
+                <div v-if="companyTags(primaryCompany).length" class="co-tags">
+                  <Tag
+                    v-for="tag in companyTags(primaryCompany)"
+                    :key="tag"
+                    :bordered="false"
+                    class="co-chip"
+                  >
+                    {{ tag }}
+                  </Tag>
+                </div>
+              </div>
+            </div>
+
+            <div class="co-primary__kpis">
+              <div class="co-kpi">
+                <strong>{{ summaryOf(primaryCompany)?.approvedClaims ?? '—' }}</strong>
+                <span>{{ $t('gainos.companies.statApproved') }}</span>
+              </div>
+              <div class="co-kpi">
+                <strong>{{ summaryOf(primaryCompany)?.pendingClaims ?? '—' }}</strong>
+                <span>{{ $t('gainos.companies.statPending') }}</span>
+              </div>
+              <div class="co-kpi">
+                <strong>{{ summaryOf(primaryCompany)?.offerings ?? '—' }}</strong>
+                <span>{{ $t('gainos.companies.statOfferings') }}</span>
+              </div>
+              <div class="co-kpi">
+                <strong>{{ summaryOf(primaryCompany)?.conflictsOpen ?? '—' }}</strong>
+                <span>{{ $t('gainos.companies.statConflicts') }}</span>
+              </div>
+            </div>
+
+            <div class="co-next">
+              <p class="co-label">{{ $t('gainos.companies.nextStep') }}</p>
+              <p class="co-next__title">{{ nextStep.title }}</p>
+              <p class="co-next__desc">{{ nextStep.desc }}</p>
+              <Button data-gs="primary-next" type="primary" @click="runNextStep">
+                {{ nextStep.label }}
+              </Button>
+            </div>
+          </div>
+
+          <div class="co-primary__foot">
+            <Space :size="8" wrap>
+              <Button data-gs="primary-facts" @click="openClaims(primaryCompany)">
+                {{ $t('gainos.companies.openFacts') }}
+              </Button>
+              <Button data-gs="primary-docs" @click="openDocuments(primaryCompany)">
+                {{ $t('gainos.companies.documents') }}
+              </Button>
+              <Button
+                v-if="primaryCompany.status === 'DRAFT'"
+                data-gs="primary-edit"
+                @click="openEdit(primaryCompany)"
+              >
+                {{ $t('gainos.companies.edit') }}
+              </Button>
+              <Dropdown
+                v-if="primaryMenuItems.length > 0"
+                :trigger="['click']"
+                placement="bottomRight"
+              >
+                <Button>{{ $t('gainos.companies.more') }}</Button>
+                <template #overlay>
+                  <Menu :items="primaryMenuItems" @click="onPrimaryMenu" />
+                </template>
+              </Dropdown>
+            </Space>
+            <div class="co-icp">
+              <p class="co-label">{{ $t('gainos.companies.icpTitle') }}</p>
+              <p class="co-icp__value">
+                <template v-if="primaryIcps.length > 0">
+                  <strong>{{ $t('gainos.companies.icpCount', { count: primaryIcps.length }) }}</strong>
+                  <span v-if="activePrimaryIcp" class="co-muted">
+                    · {{ $t('gainos.companies.icpActive', { name: activePrimaryIcp.name }) }}
+                  </span>
+                </template>
+                <span v-else class="co-muted">{{ $t('gainos.companies.icpNone') }}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </GsCard>
+
+      <!-- 关联公司：集团/多品牌才需要，默认收起在次级区域。 -->
+      <section v-if="relatedCompanies.length > 0" class="co-related" data-gs="related-companies">
+        <header class="co-related__head">
+          <div class="min-w-0">
+            <h2 class="co-related__title">{{ $t('gainos.companies.relatedTitle') }}</h2>
+            <p class="co-muted">{{ $t('gainos.companies.relatedHint') }}</p>
+          </div>
+          <Button @click="addRelatedCompany">
+            <template #icon><Plus :size="14" /></template>
+            {{ $t('gainos.companies.addRelated') }}
+          </Button>
+        </header>
+
+        <GsToolbar v-if="relatedCompanies.length > 3">
+          <Input
+            v-model:value="searchQuery"
+            allow-clear
+            class="w-[240px]"
+            :placeholder="$t('gainos.companies.searchPlaceholder')"
+            type="search"
+          />
+          <GsSelect
+            v-model="statusFilter"
+            :ariaLabel="$t('gainos.companies.filterAll')"
+            class="w-[160px]"
+            :options="statusOptions"
+          />
+          <span class="co-muted">
+            {{ $t('gainos.companies.showing', { shown: filteredRelated.length, total: relatedCompanies.length }) }}
+          </span>
+        </GsToolbar>
+
+        <div class="co-related__grid">
+          <GsCard
+            v-for="company in filteredRelated"
+            :key="company.id"
+            class="co-rel-card"
+            data-gs="related-company"
+            padding="18px 20px"
+          >
+            <div class="co-rel-card__top">
+              <span aria-hidden="true" class="co-logo co-logo--sm">
+                {{ companyInitial(company) }}
+              </span>
+              <div class="min-w-0">
+                <h3 class="co-rel-card__name">{{ companyTitle(company) }}</h3>
+                <p class="co-muted">
+                  {{ company.website || company.domain || $t('gainos.companies.noWebsite') }}
+                </p>
+              </div>
+              <GsTag :tone="companyTone(company)">{{ companyStatus(company) }}</GsTag>
+            </div>
+            <div v-if="companyTags(company).length" class="co-tags">
+              <Tag
+                v-for="tag in companyTags(company)"
+                :key="tag"
+                :bordered="false"
+                class="co-chip"
+              >
+                {{ tag }}
+              </Tag>
+            </div>
+            <p class="co-muted">
+              {{ $t('gainos.companies.icpTitle') }}：{{ icpSummary(company) }}
+            </p>
+            <div class="co-rel-card__actions">
+              <Button size="small" type="primary" @click="relatedPrimaryAction(company)">
+                {{ relatedPrimaryLabel(company) }}
+              </Button>
+              <Button size="small" @click="openDocuments(company)">
+                {{ $t('gainos.companies.documents') }}
+              </Button>
+              <Dropdown
+                v-if="relatedMenuItems(company).length > 0"
+                :trigger="['click']"
+                placement="bottomRight"
+              >
+                <Button size="small">{{ $t('gainos.companies.more') }}</Button>
+                <template #overlay>
+                  <Menu
+                    :items="relatedMenuItems(company)"
+                    @click="(info) => onRelatedMenu(info, company)"
+                  />
+                </template>
+              </Dropdown>
+            </div>
+          </GsCard>
+          <p v-if="filteredRelated.length === 0" class="co-muted">
+            {{ $t('gainos.companies.noMatch') }}
+          </p>
+        </div>
+      </section>
     </template>
+    </div>
 
     <MarketCandidatesPanel v-if="marketCompany?.id" :hidden="claimsOpen || docsOpen" :company-id="marketCompany.id" :company-name="marketCompany.name ?? marketCompany.domain ?? ''" :context="marketContext" @close="closeMarketCandidates" @recover="recoverMarketView" />
 
-    <!-- 建档向导（官网可选；至少名称或官网其一） -->
-    <Teleport to="body">
-      <div v-if="wizardOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.wizardTitle')">
-        <div class="cp__modal-mask" @click="wizardOpen = false"></div>
-        <div class="cp__modal-body">
-          <header>
-            <h2>{{ $t('gainos.companies.wizardTitle') }}</h2>
-            <button type="button" class="cp__modal-x" aria-label="Close" @click="wizardOpen = false">✕</button>
-          </header>
-          <p class="cp__modal-hint">{{ $t('gainos.companies.wizardHint') }}</p>
-          <form novalidate @submit.prevent="create">
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.website') }}</span>
-              <input v-model="form.website" type="url" :placeholder="$t('gainos.companies.websitePlaceholder')" />
-            </label>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.name') }}</span>
-              <input v-model="form.name" type="text" :placeholder="$t('gainos.companies.namePlaceholder')" />
-            </label>
-            <p v-if="formError" class="cp__form-err" role="alert">{{ formError }}</p>
-            <div class="cp__modal-actions">
-              <button type="button" class="cp__btn cp__btn--ghost" @click="wizardOpen = false">{{ $t('gainos.common.cancel') }}</button>
-              <button type="submit" class="cp__btn cp__btn--primary" :disabled="creating">
-                {{ creating ? $t('gainos.companies.creating') : $t('gainos.companies.create') }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 添加关联公司：先说明「日常只需维护注册公司」，再进入建档界面 -->
+    <Modal
+      v-model:open="addRelatedOpen"
+      :ok-text="$t('gainos.companies.addRelatedContinue')"
+      :title="$t('gainos.companies.addRelatedTitle')"
+      :width="480"
+      data-gs="add-related-modal"
+      @ok="continueAddRelated"
+    >
+      <p class="co-modal-desc">{{ $t('gainos.companies.addRelatedDesc') }}</p>
+    </Modal>
 
-    <!-- 档案编辑 + 自动找官网（2026-11-03）：补官网后可一键启动理解 -->
-    <Teleport to="body">
-      <div v-if="editOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.editTitle')">
-        <div class="cp__modal-mask" @click="editOpen = false"></div>
-        <div class="cp__modal-body">
-          <header>
-            <h2>{{ $t('gainos.companies.editTitle') }}</h2>
-            <button type="button" class="cp__modal-x" aria-label="Close" @click="editOpen = false">✕</button>
-          </header>
-          <p class="cp__modal-hint">{{ $t('gainos.companies.editHint') }}</p>
-          <form novalidate @submit.prevent="saveEdit">
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.name') }}</span>
-              <input v-model="editForm.name" type="text" maxlength="200" />
-            </label>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.website') }}</span>
-              <input v-model="editForm.website" type="url" :placeholder="$t('gainos.companies.websitePlaceholder')" />
-            </label>
-            <div class="cp__candidates">
-              <button type="button" class="cp__btn cp__btn--ghost" :disabled="candidatesLoading" @click="findCandidates">
-                {{ candidatesLoading ? $t('gainos.companies.autoFinding') : $t('gainos.companies.autoFind') }}
-              </button>
-              <p v-if="candidatesError" class="cp__modal-hint">{{ candidatesError }}</p>
-              <template v-if="candidates.length > 0">
-                <p class="cp__modal-hint">{{ $t('gainos.companies.autoFindHint') }}</p>
-                <ul class="cp__candidate-list">
-                  <li v-for="candidate in candidates" :key="candidate.url" class="cp__candidate">
-                    <div class="cp__candidate-main">
-                      <strong>{{ candidate.title || candidate.url }}</strong>
-                      <span>{{ candidate.url }}</span>
-                    </div>
-                    <button type="button" class="cp__confirm" @click="useCandidate(candidate)">
-                      {{ $t('gainos.companies.useCandidate') }}
-                    </button>
-                  </li>
-                </ul>
-              </template>
-            </div>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.industryLabel') }}</span>
-              <input v-model="editForm.industry" type="text" maxlength="200" :placeholder="$t('gainos.companies.industryPlaceholder')" />
-            </label>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.businessEmailLabel') }}</span>
-              <input v-model="editForm.businessEmail" type="email" maxlength="320" :placeholder="$t('gainos.companies.businessEmailPlaceholder')" />
-            </label>
-            <label class="cp__field">
-              <span>{{ $t('gainos.companies.targetMarketsLabel') }}</span>
-              <input v-model="editForm.markets" type="text" :placeholder="$t('gainos.companies.targetMarketsPlaceholder')" />
-            </label>
-            <p v-if="editError" class="cp__form-err" role="alert">{{ editError }}</p>
-            <div class="cp__modal-actions">
-              <button type="button" class="cp__btn cp__btn--ghost" @click="editOpen = false">{{ $t('gainos.common.cancel') }}</button>
-              <button type="submit" class="cp__btn cp__btn--primary" :disabled="editSaving">
-                {{ editSaving ? $t('gainos.companies.saving') : $t('gainos.companies.save') }}
-              </button>
-            </div>
-          </form>
-        </div>
+    <!-- 建档（新增注册公司或关联公司；官网可选，名称与官网至少其一） -->
+    <Modal
+      v-model:open="wizardOpen"
+      :confirm-loading="creating"
+      :ok-text="$t('gainos.companies.create')"
+      :title="$t('gainos.companies.wizardTitle')"
+      :width="520"
+      data-gs="company-wizard"
+      @ok="create"
+    >
+      <div class="co-form">
+        <p class="co-muted">{{ $t('gainos.companies.wizardHint') }}</p>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.website') }}</span>
+          <Input
+            v-model:value="form.website"
+            :placeholder="$t('gainos.companies.websitePlaceholder')"
+            type="url"
+          />
+        </label>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.name') }}</span>
+          <Input
+            v-model:value="form.name"
+            :placeholder="$t('gainos.companies.namePlaceholder')"
+            type="text"
+          />
+        </label>
+        <Alert v-if="formError" :message="formError" role="alert" show-icon type="error" />
       </div>
-    </Teleport>
+    </Modal>
+
+    <!-- 编辑档案 + 自动找官网 -->
+    <Modal
+      v-model:open="editOpen"
+      :confirm-loading="editSaving"
+      :ok-text="$t('gainos.companies.save')"
+      :title="$t('gainos.companies.editTitle')"
+      :width="640"
+      data-gs="company-edit"
+      @ok="saveEdit"
+    >
+      <div class="co-form">
+        <p class="co-muted">{{ $t('gainos.companies.editHint') }}</p>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.name') }}</span>
+          <Input v-model:value="editForm.name" :maxlength="200" type="text" />
+        </label>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.website') }}</span>
+          <Input
+            v-model:value="editForm.website"
+            :placeholder="$t('gainos.companies.websitePlaceholder')"
+            type="url"
+          />
+        </label>
+        <div class="co-candidates">
+          <Button :loading="candidatesLoading" @click="findCandidates">
+            {{ candidatesLoading ? $t('gainos.companies.autoFinding') : $t('gainos.companies.autoFind') }}
+          </Button>
+          <p v-if="candidatesError" class="co-muted">{{ candidatesError }}</p>
+          <template v-if="candidates.length > 0">
+            <p class="co-muted">{{ $t('gainos.companies.autoFindHint') }}</p>
+            <ul class="co-candidate-list">
+              <li v-for="candidate in candidates" :key="candidate.url" class="co-candidate">
+                <div class="min-w-0">
+                  <strong>{{ candidate.title || candidate.url }}</strong>
+                  <span>{{ candidate.url }}</span>
+                </div>
+                <Button size="small" @click="useCandidate(candidate)">
+                  {{ $t('gainos.companies.useCandidate') }}
+                </Button>
+              </li>
+            </ul>
+          </template>
+        </div>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.industryLabel') }}</span>
+          <Input
+            v-model:value="editForm.industry"
+            :maxlength="200"
+            :placeholder="$t('gainos.companies.industryPlaceholder')"
+          />
+        </label>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.businessEmailLabel') }}</span>
+          <Input
+            v-model:value="editForm.businessEmail"
+            :maxlength="320"
+            :placeholder="$t('gainos.companies.businessEmailPlaceholder')"
+            type="email"
+          />
+        </label>
+        <label class="co-field">
+          <span>{{ $t('gainos.companies.targetMarketsLabel') }}</span>
+          <Input
+            v-model:value="editForm.markets"
+            :placeholder="$t('gainos.companies.targetMarketsPlaceholder')"
+          />
+        </label>
+        <Alert v-if="editError" :message="editError" role="alert" show-icon type="error" />
+      </div>
+    </Modal>
 
     <!-- 资料库（Phase 2c）：上传经引擎中转 → 解析状态 → 检索 -->
-    <Teleport to="body">
-      <div v-if="docsOpen" class="cp__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.companies.documentsTitle')">
-        <div class="cp__modal-mask" @click="closeDocuments"></div>
-        <div ref="docsPanel" class="cp__modal-body cp__docs-panel" :data-readonly="docsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown="trapDialogTab($event, docsPanel)" @keydown.esc="closeDocuments">
+    <Modal
+      :open="docsOpen"
+      :body-style="{ padding: '0' }"
+      :closable="false"
+      :footer="null"
+      :mask-closable="true"
+      :width="800"
+      data-gs="company-docs"
+      style="top: 32px"
+      @cancel="closeDocuments"
+    >
+        <div ref="docsPanel" class="cp__docs-panel" :data-readonly="docsRecoveryReadOnly" data-gs="company-docs" tabindex="-1">
           <header>
             <h2>{{ $t('gainos.companies.documentsTitle') }} · {{ docsCompany?.name ?? '' }}</h2>
             <button type="button" class="cp__modal-x" aria-label="Close" @click="closeDocuments">✕</button>
@@ -1260,15 +1726,15 @@ onUnmounted(() => {
                 <span v-if="row.processingErrorCode" class="cp__item-error">{{ row.processingErrorCode }}</span>
               </div>
               <div class="cp__docs-side">
-                <button v-if="row.status === 'ready'" type="button" class="cp__confirm" @click="downloadDocument(row)">
+                <Button v-if="row.status === 'ready'" size="small" @click="downloadDocument(row)">
                   {{ $t('gainos.companies.download') }}
-                </button>
-                <button v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')" type="button" class="cp__confirm" @click="retryDocument(row)">
+                </Button>
+                <Button v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')" size="small" @click="retryDocument(row)">
                   {{ $t('gainos.companies.retryUnderstanding') }}
-                </button>
-                <button v-if="!docsRecoveryReadOnly" type="button" class="cp__confirm" @click="removeDocument(row)">
+                </Button>
+                <Button v-if="!docsRecoveryReadOnly" size="small" @click="removeDocument(row)">
                   {{ $t('gainos.companies.delete') }}
-                </button>
+                </Button>
               </div>
             </li>
           </ul>
@@ -1280,9 +1746,9 @@ onUnmounted(() => {
           <p v-else-if="!docsLoading && docs.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentsEmpty') }}</p>
           <form class="cp__docs-search" @submit.prevent="searchDocuments">
             <input v-model="docsQuery" type="search" minlength="2" maxlength="200" :placeholder="$t('gainos.companies.documentSearchPlaceholder')" />
-            <button type="submit" class="cp__btn cp__btn--ghost" :disabled="docsSearching">
+            <Button :disabled="docsSearching" html-type="submit">
               {{ docsSearching ? $t('gainos.companies.loading') : $t('gainos.companies.documentSearch') }}
-            </button>
+            </Button>
           </form>
           <ul v-if="docsQuery.trim().length >= 2" class="cp__docs-hits">
             <li v-for="hit in docsHits" :key="`${hit.documentId}-${hit.seq}`" class="cp__docs-hit">
@@ -1292,23 +1758,24 @@ onUnmounted(() => {
             <li v-if="docsHits.length === 0" class="cp__modal-hint">{{ $t('gainos.companies.documentSearchEmpty') }}</li>
           </ul>
           <div class="cp__modal-actions">
-            <button type="button" class="cp__btn cp__btn--ghost" @click="closeDocuments">{{ $t('gainos.companies.close') }}</button>
+            <Button @click="closeDocuments">{{ $t('gainos.companies.close') }}</Button>
           </div>
         </div>
-      </div>
-    </Teleport>
+    </Modal>
 
     <!-- 企业事实审批（KNW-003 人工门）：只有「已通过」的事实进入目标客户画像设计 -->
-    <Teleport to="body">
-      <div
-        v-if="claimsOpen"
-        class="cp__modal"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="$t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' })"
-      >
-        <div class="cp__modal-mask" @click="closeClaims"></div>
-        <div ref="factsPanel" class="cp__modal-body cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" tabindex="-1" @keydown.stop @keydown="trapDialogTab($event, factsPanel)" @keydown.esc="closeClaims">
+    <Modal
+      :open="claimsOpen"
+      :body-style="{ padding: '0' }"
+      :closable="false"
+      :footer="null"
+      :mask-closable="true"
+      :width="840"
+      data-gs="company-facts"
+      style="top: 24px"
+      @cancel="closeClaims"
+    >
+        <div ref="factsPanel" class="cp__facts-panel" :data-readonly="claimsRecoveryReadOnly" data-gs="company-facts" tabindex="-1">
           <header class="cp__facts-head">
             <div>
               <h2>{{ $t('gainos.companies.factsTitle', { name: claimsCompany?.name ?? claimsCompany?.domain ?? '' }) }}</h2>
@@ -1517,10 +1984,10 @@ onUnmounted(() => {
               <span v-if="selectedCount > 0">· {{ $t('gainos.companies.selectedCount', { count: selectedCount }) }}</span>
             </label>
             <div class="cp__claim-actions">
-              <button
-                type="button"
-                class="cp__btn cp__btn--ghost cp__btn--danger"
+              <Button
+                danger
                 :disabled="claimBusy !== null || selectedCount === 0"
+                :loading="claimBusy === 'reject'"
                 @click="reviewSelected('reject')"
               >
                 {{ claimBusy === 'reject'
@@ -1528,15 +1995,15 @@ onUnmounted(() => {
                   : rejectArmed
                     ? $t('gainos.companies.confirmReject', { count: selectedCount })
                     : $t('gainos.companies.rejectSelected') }}
-              </button>
-              <button
-                type="button"
-                class="cp__btn cp__btn--primary"
+              </Button>
+              <Button
                 :disabled="claimBusy !== null || selectedCount === 0"
+                :loading="claimBusy === 'approve'"
+                type="primary"
                 @click="reviewSelected('approve')"
               >
                 {{ claimBusy === 'approve' ? claimProgress : $t('gainos.companies.approveSelected') }}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1546,13 +2013,12 @@ onUnmounted(() => {
                 ? $t('gainos.companies.approvedReady', { count: approvedCount })
                 : $t('gainos.companies.approvedNeed') }}
             </span>
-            <button type="button" class="cp__btn cp__btn--primary" :disabled="approvedCount === 0" @click="goFindBuyers">
+            <Button :disabled="approvedCount === 0" type="primary" @click="goFindBuyers">
               {{ $t('gainos.companies.goFindBuyers') }}
-            </button>
+            </Button>
           </footer>
         </div>
-      </div>
-    </Teleport>
+    </Modal>
   </div>
 </template>
 
@@ -1663,7 +2129,9 @@ onUnmounted(() => {
 .cp__candidate-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cp__candidate-main strong { font-size: 13px; color: var(--gs-fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp__candidate-main span { font-size: 12px; color: var(--gs-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cp__docs-panel { max-width: 760px; }
+.cp__docs-panel { width: 100%; max-width: 760px; margin: 0 auto; padding: 22px 24px 18px; box-sizing: border-box; }
+.cp__docs-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.cp__docs-panel > header h2 { margin: 0; color: var(--gs-fg); font-size: 17px; line-height: 26px; font-weight: 600; }
 .cp__docs-actions { display: flex; align-items: center; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
 .cp__docs-upload { position: relative; overflow: hidden; cursor: pointer; }
 .cp__docs-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
@@ -1700,7 +2168,7 @@ onUnmounted(() => {
 
 /* ── 企业事实审批面板 ── */
 .cp__facts-panel {
-  width: min(800px, 100%); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden;
+  width: 100%; max-width: 800px; margin: 0 auto; max-height: calc(100dvh - 32px); padding: 0; overflow: hidden;
   display: flex; flex-direction: column; outline: none; overflow-wrap: anywhere;
 }
 .cp__facts-head { flex: none; padding: 24px 26px 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -1898,4 +2366,306 @@ onUnmounted(() => {
 }
 .cp__menu button:hover { background: var(--gs-surface-2); }
 .cp__menu button.is-danger { color: var(--gs-danger); }
+
+/* ── 2026-11-25：公司档案 = 主档案 + 关联公司（对齐买家线索/找买家的卡片语言） ── */
+.co-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.co-muted {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.co-label {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.co-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.co-chip {
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 22px;
+}
+.co-badge {
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+  font-size: 12px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.co-logo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+.co-logo--sm {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+/* 主档案卡 */
+.co-primary__body {
+  display: grid;
+}
+.co-primary__grid {
+  display: grid;
+  grid-template-areas:
+    'identity'
+    'kpis'
+    'next';
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 20px 24px;
+}
+.co-primary__identity {
+  grid-area: identity;
+  display: flex;
+  min-width: 0;
+  gap: 14px;
+  align-items: flex-start;
+}
+.co-primary__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.co-primary__title h2 {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.co-primary__kpis {
+  grid-area: kpis;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.co-kpi {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.co-kpi strong {
+  color: var(--gs-fg);
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.co-kpi span {
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.co-next {
+  grid-area: next;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--gs-accent-soft-border);
+  border-radius: 10px;
+  background: var(--gs-accent-soft);
+}
+.co-next .co-label {
+  color: var(--gs-accent-fg);
+}
+.co-next__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.co-next__desc {
+  margin: 0 0 6px;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+.co-next :deep(.ant-btn) {
+  justify-self: start;
+}
+.co-primary__foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--gs-divider);
+}
+.co-icp {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.co-icp__value {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 13px;
+  line-height: 20px;
+}
+.co-icp__value strong {
+  font-weight: 600;
+}
+
+/* 关联公司 */
+.co-related {
+  display: grid;
+  gap: 12px;
+}
+.co-related__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.co-related__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.co-related__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.co-rel-card {
+  display: grid;
+  gap: 4px;
+}
+.co-rel-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.co-rel-card__top > :last-child {
+  margin-left: auto;
+  flex: none;
+}
+.co-rel-card__name {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.co-rel-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 弹层表单 */
+.co-modal-desc {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.co-form {
+  display: grid;
+  gap: 12px;
+}
+.co-field {
+  display: grid;
+  gap: 6px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.co-candidates {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.co-candidate-list {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.co-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.co-candidate strong {
+  display: block;
+  color: var(--gs-fg);
+  font-size: 13px;
+}
+.co-candidate span {
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 内容区变宽后：主档案三列，关联公司两列 */
+@container (min-width: 960px) {
+  .co-primary__grid {
+    grid-template-areas: 'identity kpis next';
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr) minmax(260px, 0.9fr);
+    align-items: start;
+  }
+  .co-primary__kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .co-related__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 </style>
