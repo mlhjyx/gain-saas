@@ -87,7 +87,19 @@ export class WorkspacesController {
     if (membership.role === 'admin' && admins <= 1) {
       throw new BadRequestException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员；请先移交管理员角色' } });
     }
-    await this.prisma.membership.update({ where: { id: membership.id }, data: { status: 'left' } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.membership.update({ where: { id: membership.id }, data: { status: 'left' } });
+      await tx.session.updateMany({
+        where: {
+          realm: 'tenant',
+          subjectType: 'user',
+          subjectId: tenant.userId,
+          workspaceId,
+          revokedAt: null,
+        },
+        data: { revokedAt: new Date() },
+      });
+    });
     await this.audit.record({ realm: 'tenant', actorId: tenant.userId, action: 'workspaces.leave', target: workspaceId });
     if (workspaceId === tenant.workspaceId) {
       await this.sessions.revoke(tenant.jti);

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BffHandler } from './bff.module.js';
+import { AdminGuard } from '../tenant/admin.guard.js';
+import { SESSION_COOKIE } from '../tenant/session.service.js';
+import { TenantGuard } from '../tenant/tenant.guard.js';
+import { BffGuard, BffHandler, registerBffMiddleware } from './bff.module.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { EngineHttp } from './engine-http.js';
 import { BFF_ROUTES, budgetQuoteRequest, engineRequestBody } from './routes.js';
@@ -71,12 +74,119 @@ describe('BFF 路由表(SD7)', () => {
     }
   });
 
-  it('PRD §2.2 的管理员专属端点必须 access=admin', () => {
-    const adminOnly = ['claims/:claimId/approve', 'claims/:claimId/reject', 'claims/:claimId/revoke', 'conflicts/:conflictId/resolve', 'leads/:leadId/sanctions-review', 'data-providers', 'canonical-companies/:id', 'canonical-companies/:id/discover-contacts', 'canonical-companies/:id/guess-emails', 'contact-points/:pointId/verify'];
-    for (const path of adminOnly) {
-      const route = BFF_ROUTES.find((r) => r.saasPath === path);
-      expect(route, path).toBeDefined();
-      expect(route!.access, path).toBe('admin');
+  it('PRD §2.2 及收紧后的管理员专属端点必须 access=admin', () => {
+    const adminOnly: Array<readonly [string, string]> = [
+      ['POST', 'claims/:claimId/approve'],
+      ['POST', 'claims/:claimId/reject'],
+      ['POST', 'claims/:claimId/revoke'],
+      ['POST', 'conflicts/:conflictId/resolve'],
+      ['POST', 'leads/:leadId/sanctions-review'],
+      ['GET', 'data-providers'],
+      ['GET', 'canonical-companies/:id'],
+      ['POST', 'canonical-companies/:id/discover-contacts'],
+      ['POST', 'canonical-companies/:id/guess-emails'],
+      ['POST', 'contact-points/:pointId/verify'],
+      ['DELETE', 'companies/:companyId'],
+      ['DELETE', 'seller-documents/:documentId'],
+      ['POST', 'companies/:companyId/confirm'],
+      ['DELETE', 'icp-rules/:ruleId'],
+    ];
+    for (const [method, saasPath] of adminOnly) {
+      const route = BFF_ROUTES.find((r) => r.method === method && r.saasPath === saasPath);
+      expect(route, `${method} ${saasPath}`).toBeDefined();
+      expect(route!.access, `${method} ${saasPath}`).toBe('admin');
+    }
+    expect(BFF_ROUTES.find((r) => r.method === 'PATCH' && r.saasPath === 'companies/:companyId')?.access).toBe('member');
+    expect(BFF_ROUTES.find((r) => r.method === 'PATCH' && r.saasPath === 'icp-rules/:ruleId')?.access).toBe('member');
+  });
+
+  it('BffGuard / registerBffMiddleware 对 4 条收紧路由：member 返回 403 ADMIN_REQUIRED，admin 放行', async () => {
+    const cases: Array<readonly ['DELETE' | 'POST', string]> = [
+      ['DELETE', '/api/companies/c1'],
+      ['DELETE', '/api/seller-documents/d1'],
+      ['POST', '/api/companies/c1/confirm'],
+      ['DELETE', '/api/icp-rules/r1'],
+    ];
+    for (const role of ['member', 'admin'] as const) {
+      const call = vi.fn(async () => ({
+        status: 200,
+        body: { data: { ok: true } },
+        contentType: 'application/json',
+        headers: {},
+      }));
+      const handler = new BffHandler(
+        { call } as never,
+        { issue: vi.fn() } as never,
+        { record: vi.fn(async () => undefined) } as never,
+        { history: vi.fn() } as never,
+        {} as never,
+      );
+      const claims = {
+        userId: '11111111-1111-4111-8111-111111111111',
+        workspaceId: '22222222-2222-4222-8222-222222222222',
+        role,
+        jti: 'jti-1',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      };
+      const tenantGuard = new TenantGuard(
+        { verify: async (token: string) => (token === 'tok' ? claims : null), needsRefresh: () => false } as never,
+        {
+          membership: {
+            findFirst: async () => ({
+              role,
+              workspace: { status: 'ACTIVE', onboardingCompletedAt: new Date(), onboardingCompanyId: 'c1' },
+            }),
+          },
+        } as never,
+      );
+      const guard = new BffGuard(tenantGuard, new AdminGuard());
+      let middleware!: (req: unknown, res: unknown, next: () => void) => Promise<void>;
+      registerBffMiddleware(
+        { use: (fn) => { middleware = fn as typeof middleware; } },
+        handler,
+        guard,
+      );
+
+      for (const [method, path] of cases) {
+        call.mockClear();
+        const sent: { status?: number; json?: { error?: { code?: string; userCopy?: { title?: string } } } } = {};
+        const req = {
+          method,
+          path,
+          originalUrl: path,
+          cookies: { [SESSION_COOKIE]: 'tok' },
+          headers: {},
+          body: method === 'POST' ? {} : undefined,
+          get: () => undefined,
+        };
+        const res = {
+          status(code: number) {
+            sent.status = code;
+            return this;
+          },
+          json(payload: typeof sent.json) {
+            sent.json = payload;
+            return this;
+          },
+          clearCookie: vi.fn(),
+          cookie: vi.fn(),
+          setHeader: vi.fn(),
+          type() {
+            return this;
+          },
+          send: vi.fn(),
+        };
+        await middleware(req, res, () => undefined);
+        if (role === 'member') {
+          expect(sent.status, `${role} ${method} ${path}`).toBe(403);
+          expect(sent.json?.error?.code).toBe('ADMIN_REQUIRED');
+          expect(sent.json?.error?.userCopy?.title).toBeTruthy();
+          expect(call).not.toHaveBeenCalled();
+        } else {
+          expect(sent.status, `${role} ${method} ${path}`).toBe(200);
+          expect(call).toHaveBeenCalledTimes(1);
+        }
+      }
     }
   });
 

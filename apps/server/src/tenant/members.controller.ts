@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuthService } from './auth.service.js';
@@ -58,19 +58,19 @@ export class MembersController {
   async changeRole(@Param('membershipId') membershipId: string, @Body() body: { role?: string }, @Req() req: Request) {
     const tenant = req.tenant!;
     if (body.role !== 'admin' && body.role !== 'member') {
-      throw new UnauthorizedException({ error: { code: 'VALIDATION_ERROR', message: '角色必须是 admin 或 member' } });
+      throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: '角色必须是 admin 或 member' } });
     }
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, workspaceId: tenant.workspaceId, status: 'active' },
     });
     if (!membership) {
-      throw new UnauthorizedException({ error: { code: 'NOT_FOUND', message: '成员不存在' } });
+      throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '成员不存在' } });
     }
     // 工作空间必须保留至少一名管理员
     if (membership.role === 'admin' && body.role === 'member') {
       const admins = await this.prisma.membership.count({ where: { workspaceId: tenant.workspaceId, role: 'admin', status: 'active' } });
       if (admins <= 1) {
-        throw new UnauthorizedException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员' } });
+        throw new ConflictException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员' } });
       }
     }
     const updated = await this.prisma.membership.update({ where: { id: membershipId }, data: { role: body.role } });
@@ -88,20 +88,32 @@ export class MembersController {
       where: { id: membershipId, workspaceId: tenant.workspaceId, status: 'active' },
     });
     if (!membership) {
-      throw new UnauthorizedException({ error: { code: 'NOT_FOUND', message: '成员不存在' } });
+      throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '成员不存在' } });
     }
     if (membership.userId === tenant.userId) {
-      throw new UnauthorizedException({ error: { code: 'SELF_REMOVAL', message: '不能移除自己;如需退出请联系其他管理员' } });
+      throw new BadRequestException({ error: { code: 'SELF_REMOVAL', message: '不能移除自己;如需退出请联系其他管理员' } });
     }
     if (membership.role === 'admin') {
       const admins = await this.prisma.membership.count({ where: { workspaceId: tenant.workspaceId, role: 'admin', status: 'active' } });
       if (admins <= 1) {
-        throw new UnauthorizedException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员' } });
+        throw new ConflictException({ error: { code: 'LAST_ADMIN', message: '工作空间至少需要一名管理员' } });
       }
     }
-    await this.prisma.membership.update({ where: { id: membershipId }, data: { status: 'removed' } });
-    await this.prisma.auditLog.create({
-      data: { realm: 'tenant', actorId: tenant.userId, action: 'members.remove', target: membershipId },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.membership.update({ where: { id: membershipId }, data: { status: 'removed' } });
+      await tx.session.updateMany({
+        where: {
+          realm: 'tenant',
+          subjectType: 'user',
+          subjectId: membership.userId,
+          revokedAt: null,
+          OR: [{ workspaceId: tenant.workspaceId }, { workspaceId: null }],
+        },
+        data: { revokedAt: new Date() },
+      });
+      await tx.auditLog.create({
+        data: { realm: 'tenant', actorId: tenant.userId, action: 'members.remove', target: membershipId },
+      });
     });
     return { data: { ok: true } };
   }

@@ -33,17 +33,19 @@ describe('company profile edit / delete / website candidates BFF routes', () => 
   const find = (method: string, saasPath: string) =>
     BFF_ROUTES.find((route) => route.method === method && route.saasPath === saasPath);
 
-  it('registers PATCH/DELETE companies and a website-candidates search as member routes without grants', () => {
+  it('registers PATCH companies and website-candidates as member routes, and DELETE/confirm companies as admin routes without grants', () => {
     const patch = find('PATCH', 'companies/:companyId');
     const del = find('DELETE', 'companies/:companyId');
+    const confirm = find('POST', 'companies/:companyId/confirm');
     const candidates = find('POST', 'companies/:companyId/website-candidates');
     expect(patch).toMatchObject({ enginePath: '/companies/:companyId', access: 'member' });
-    expect(del).toMatchObject({ enginePath: '/companies/:companyId', access: 'member' });
+    expect(del).toMatchObject({ enginePath: '/companies/:companyId', access: 'admin' });
+    expect(confirm).toMatchObject({ enginePath: '/companies/:companyId/confirm', access: 'admin' });
     expect(candidates).toMatchObject({
       enginePath: '/companies/:companyId/website-candidates',
       access: 'member',
     });
-    for (const route of [patch, del, candidates]) {
+    for (const route of [patch, del, confirm, candidates]) {
       expect(route?.grant).toBeUndefined();
       expect(budgetQuoteRequest(route!, { companyId: 'c1' }, {})).toBeNull();
     }
@@ -54,8 +56,8 @@ describe('seller documents BFF routes', () => {
   const find = (method: string, saasPath: string) =>
     BFF_ROUTES.find((route) => route.method === method && route.saasPath === saasPath);
 
-  it('registers the document lifecycle as member passthroughs without grants', () => {
-    const expected: Array<[string, string]> = [
+  it('registers the document lifecycle as member passthroughs without grants, except DELETE as admin', () => {
+    const expectedMember: Array<[string, string]> = [
       ['POST', 'companies/:companyId/seller-documents/presign'],
       ['PUT', 'companies/:companyId/seller-documents/:documentId/content'],
       ['POST', 'companies/:companyId/seller-documents/:documentId/commit'],
@@ -64,17 +66,32 @@ describe('seller documents BFF routes', () => {
       ['GET', 'seller-documents/:documentId'],
       ['GET', 'seller-documents/:documentId/download-url'],
       ['POST', 'seller-documents/:documentId/retry'],
-      ['DELETE', 'seller-documents/:documentId'],
     ];
-    for (const [method, saasPath] of expected) {
+    for (const [method, saasPath] of expectedMember) {
       const route = find(method, saasPath);
       expect(route, `${method} ${saasPath}`).toMatchObject({ access: 'member' });
       expect(route?.grant).toBeUndefined();
     }
+    const delDoc = find('DELETE', 'seller-documents/:documentId');
+    expect(delDoc).toMatchObject({
+      method: 'DELETE',
+      saasPath: 'seller-documents/:documentId',
+      enginePath: '/seller-documents/:documentId',
+      access: 'admin',
+    });
+    expect(delDoc?.grant).toBeUndefined();
     expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
       binary: true,
       timeoutMs: 180_000,
     });
+  });
+
+  it('registers DELETE icp-rules/:ruleId as admin without grant while PATCH stays member', () => {
+    const patchRule = BFF_ROUTES.find((route) => route.method === 'PATCH' && route.saasPath === 'icp-rules/:ruleId');
+    const delRule = BFF_ROUTES.find((route) => route.method === 'DELETE' && route.saasPath === 'icp-rules/:ruleId');
+    expect(patchRule).toMatchObject({ enginePath: '/icp-rules/:ruleId', access: 'member' });
+    expect(delRule).toMatchObject({ enginePath: '/icp-rules/:ruleId', access: 'admin' });
+    expect(delRule?.grant).toBeUndefined();
   });
 
   it('registers seller-document-claims 3 routes as member passthroughs without grants', () => {

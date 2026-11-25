@@ -1093,11 +1093,13 @@ model Session {
   realm       String // tenant | ops | service | event_consumer
   subjectType String    @map("subject_type") // user | ops_user
   subjectId   String    @map("subject_id")
+  workspaceId String?   @map("workspace_id") @db.Uuid
   expiresAt   DateTime  @map("expires_at")
   revokedAt   DateTime? @map("revoked_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([subjectId])
+  @@index([workspaceId])
   @@map("session")
 }
 

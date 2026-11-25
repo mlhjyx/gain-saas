@@ -336,37 +336,65 @@ export class OpsService {
     if (!WORKSPACE_STATUSES.has(status)) {
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'status 需要 ACTIVE|DISABLED|ARCHIVED' } });
     }
-    const before = await this.prisma.workspace.findUnique({
-      where: { id },
-      select: { id: true, name: true, status: true },
+    const now = new Date();
+    const { before, after, revokedAuthorizations, revokedSessions } = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.workspace.findUnique({
+        where: { id },
+        select: { id: true, name: true, status: true },
+      });
+      if (!current) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+      const updated = await tx.workspace.update({
+        where: { id },
+        data: {
+          status: status as 'ACTIVE' | 'DISABLED' | 'ARCHIVED',
+          statusUpdatedAt: now,
+          statusUpdatedBy: actorId,
+          statusNote: note ?? null,
+        },
+        select: { id: true, name: true, status: true, statusUpdatedAt: true },
+      });
+      await tx.workspaceRegistry.updateMany({
+        where: { workspaceId: id },
+        data: { enabled: status === 'ACTIVE' },
+      });
+      if (status === 'ACTIVE') {
+        return { before: current, after: updated, revokedAuthorizations: 0, revokedSessions: 0 };
+      }
+      // M2.0：停用/归档联动撤销该空间全部未过期执行授权（campaign 控制面 §8）与活跃租户会话。
+      const authResult = await tx.campaignExecutionAuthorization.updateMany({
+        where: { workspaceId: id, state: 'ISSUED' },
+        data: { state: 'REVOKED', revokedAt: now, revokeReason: `WORKSPACE_${status}` },
+      });
+      const members = await tx.membership.findMany({
+        where: { workspaceId: id, status: 'active' },
+        select: { userId: true },
+      });
+      const memberIds = members.map((member) => member.userId);
+      const sessionResult = await tx.session.updateMany({
+        where: {
+          realm: 'tenant',
+          subjectType: 'user',
+          revokedAt: null,
+          OR: [
+            { workspaceId: id },
+            ...(memberIds.length > 0 ? [{ workspaceId: null, subjectId: { in: memberIds } }] : []),
+          ],
+        },
+        data: { revokedAt: now },
+      });
+      return {
+        before: current,
+        after: updated,
+        revokedAuthorizations: authResult.count,
+        revokedSessions: sessionResult.count,
+      };
     });
-    if (!before) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
-    const after = await this.prisma.workspace.update({
-      where: { id },
-      data: {
-        status: status as 'ACTIVE' | 'DISABLED' | 'ARCHIVED',
-        statusUpdatedAt: new Date(),
-        statusUpdatedBy: actorId,
-        statusNote: note ?? null,
-      },
-      select: { id: true, name: true, status: true, statusUpdatedAt: true },
-    });
-    // M2.0：停用/归档联动撤销该空间全部未过期执行授权（campaign 控制面 §8）。
-    const revokedAuthorizations =
-      status === 'ACTIVE'
-        ? 0
-        : (
-            await this.prisma.campaignExecutionAuthorization.updateMany({
-              where: { workspaceId: id, state: 'ISSUED' },
-              data: { state: 'REVOKED', revokedAt: new Date(), revokeReason: `WORKSPACE_${status}` },
-            })
-          ).count;
     await this.audit.record({
       realm: 'ops',
       actorId,
       action: 'workspace.status',
       target: String(before.name),
-      detail: { before, after, revokedAuthorizations },
+      detail: { before, after, revokedAuthorizations, revokedSessions },
     });
     return { workspace: after };
   }

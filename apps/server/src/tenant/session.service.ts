@@ -48,7 +48,7 @@ export class SessionService {
       .setExpirationTime(exp)
       .sign(this.secret);
     await this.prisma.session.create({
-      data: { jti, realm: 'tenant', subjectType: 'user', subjectId: userId, expiresAt: new Date(exp * 1000) },
+      data: { jti, realm: 'tenant', subjectType: 'user', subjectId: userId, workspaceId, expiresAt: new Date(exp * 1000) },
     });
     return { token, claims: { userId, workspaceId, role, jti, exp } };
   }
@@ -60,7 +60,8 @@ export class SessionService {
       if (!payload.sub || typeof payload.wid !== 'string' || !role) return null;
       // 吊销/过期检查(session 表为准,cookie 只是凭证载体)
       const row = await this.prisma.session.findUnique({ where: { jti: String(payload.jti) } });
-      if (!row || row.revokedAt || row.expiresAt.getTime() < Date.now()) return null;
+      if (!row || row.realm !== 'tenant' || row.revokedAt || row.expiresAt.getTime() < Date.now()) return null;
+      if (row.workspaceId !== null && row.workspaceId !== payload.wid) return null;
       return {
         userId: payload.sub,
         workspaceId: payload.wid,
