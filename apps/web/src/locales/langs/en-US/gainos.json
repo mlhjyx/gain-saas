@@ -426,6 +426,7 @@
     "createdNoUnderstanding": "Company profile created. No website was provided, so understanding did not start automatically; you can add the website later.",
     "overviewMarkets": "Target markets",
     "overviewEmail": "Business email",
+    "overviewWebsite": "Website",
     "statusReview": "Ready to confirm",
     "confirm": "Confirm profile",
     "confirming": "Confirming…",

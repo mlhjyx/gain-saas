@@ -571,6 +571,24 @@ const offerings = ref<CompanyOffering[]>([]);
 const overviewLoading = ref(false);
 const overviewError = ref<string | null>(null);
 const conflicts = ref<CompanyConflict[]>([]);
+const hasOverviewFacts = computed(() => {
+  const company = companyOverview.value;
+  return Boolean(company?.industry || company?.targetMarkets?.length || company?.website || company?.businessEmail);
+});
+const pageRoot = ref<HTMLElement | null>(null);
+const offeringsOpen = ref(false);
+let offeringsDefaultApplied = false;
+/** 内容区宽度（不含左右内边距），与容器查询的参照一致。 */
+function pageContentWidth(): number {
+  const element = pageRoot.value;
+  if (!element) return 0;
+  const style = getComputedStyle(element);
+  return (
+    element.clientWidth -
+    Number.parseFloat(style.paddingLeft) -
+    Number.parseFloat(style.paddingRight)
+  );
+}
 const conflictsLoading = ref(false);
 const conflictsError = ref<string | null>(null);
 const conflictBusy = ref('');
@@ -670,6 +688,12 @@ async function loadCompanyOverview(): Promise<void> {
     completeness.value = unwrap(stats);
     const rows = unwrap(items);
     offerings.value = Array.isArray(rows) ? rows : [];
+    // 产品与服务默认是否展开只定一次：宽屏两栏时左栏高度有富余，默认展开让档案一眼看全；
+    // 窄屏单栏默认收起，免得把审批清单挤远。900 与 .co-facts 的两栏断点保持一致。
+    if (!offeringsDefaultApplied) {
+      offeringsDefaultApplied = true;
+      offeringsOpen.value = pageContentWidth() >= 900 && offerings.value.length <= 12;
+    }
   } catch (err) {
     if (current()) overviewError.value = failureText(err).title;
   } finally {
@@ -1405,6 +1429,7 @@ onUnmounted(() => {
 
 <template>
   <div
+    ref="pageRoot"
     class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container"
     data-gs="companies-page"
   >
@@ -1623,7 +1648,8 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 企业事实：左侧概览与冲突，右侧审批清单，一屏内完成判断与操作 -->
+        <!-- 企业事实：DOM 顺序是「审批清单 → 概览/冲突」——窄屏单栏时先看到要处理的事实；
+             宽屏两栏用 grid-area 把概览放回左侧，作为判断事实时的上下文。 -->
         <div
           v-if="panelTab === 'facts'"
           ref="factsPanel"
@@ -1632,124 +1658,6 @@ onUnmounted(() => {
           data-gs="company-facts"
           tabindex="-1"
         >
-          <div class="co-facts__aside">
-            <h3 class="co-pane__title">{{ $t('gainos.companies.overviewTitle') }}</h3>
-
-            <div v-if="overviewLoading" class="co-panel__state">
-              {{ $t('gainos.companies.overviewLoading') }}
-            </div>
-            <div v-else-if="overviewError" class="co-panel__state co-panel__state--error">
-              <span>{{ overviewError }}</span>
-              <Button size="small" @click="loadCompanyOverview">
-                {{ $t('gainos.common.retry') }}
-              </Button>
-            </div>
-            <div v-else class="cp__overview">
-              <p v-if="companyOverview?.summary" class="cp__overview-summary">
-                {{ companyOverview.summary }}
-              </p>
-              <div class="cp__overview-meta">
-                <span v-if="companyOverview?.industry">
-                  {{ $t('gainos.companies.overviewIndustry') }}：{{ companyOverview.industry }}
-                </span>
-                <span v-if="companyOverview?.targetMarkets?.length">
-                  {{ $t('gainos.companies.overviewMarkets') }}：{{ companyOverview.targetMarkets.join(' / ') }}
-                </span>
-                <span v-if="companyOverview?.businessEmail">
-                  {{ $t('gainos.companies.overviewEmail') }}：{{ companyOverview.businessEmail }}
-                </span>
-                <a
-                  v-if="companyOverview?.website"
-                  :href="companyOverview.website"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >{{ companyOverview.website }}</a>
-              </div>
-              <div v-if="completeness" class="cp__stats">
-                <div>
-                  <strong>{{ completeness.approvedClaims }}</strong>
-                  <span>{{ $t('gainos.companies.statApproved') }}</span>
-                </div>
-                <div>
-                  <strong>{{ completeness.pendingClaims }}</strong>
-                  <span>{{ $t('gainos.companies.statPending') }}</span>
-                </div>
-                <div>
-                  <strong>{{ completeness.offerings }}</strong>
-                  <span>{{ $t('gainos.companies.statOfferings') }}</span>
-                </div>
-                <div>
-                  <strong>{{ completeness.conflictsOpen }}</strong>
-                  <span>{{ $t('gainos.companies.statConflicts') }}</span>
-                </div>
-              </div>
-              <details v-if="offerings.length" class="cp__offerings">
-                <summary>{{ $t('gainos.companies.offeringsTitle', { count: offerings.length }) }}</summary>
-                <ul>
-                  <li v-for="offering in offerings" :key="offering.id">
-                    <strong>{{ offering.name }}</strong>
-                    <span v-if="offering.description"> · {{ offering.description }}</span>
-                    <a
-                      v-if="offering.sourceUrl"
-                      :href="offering.sourceUrl"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    > ↗</a>
-                  </li>
-                </ul>
-              </details>
-              <p v-else class="cp__muted">{{ $t('gainos.companies.offeringsEmpty') }}</p>
-            </div>
-
-            <div
-              v-if="conflictsLoading || conflictsError || conflicts.length"
-              class="cp__conflicts"
-            >
-              <div class="cp__conflicts-head">
-                <h3>{{ $t('gainos.companies.conflictsTitle', { count: conflicts.length }) }}</h3>
-                <p class="cp__muted">{{ $t('gainos.companies.conflictsHint') }}</p>
-              </div>
-              <p v-if="conflictsLoading" class="cp__muted">
-                {{ $t('gainos.companies.claimsLoading') }}
-              </p>
-              <p v-else-if="conflictsError" class="cp__form-err">{{ conflictsError }}</p>
-              <div v-for="conflict in conflicts" :key="conflict.id" class="cp__conflict">
-                <div class="cp__conflict-head">
-                  <span class="cp__claim-type">
-                    {{ claimTypeLabel(conflict.claimType || conflict.claimA?.type || '') }}
-                  </span>
-                  <span v-if="!isAdmin" class="cp__muted">
-                    {{ $t('gainos.companies.conflictsAdminOnly') }}
-                  </span>
-                </div>
-                <div class="cp__conflict-grid">
-                  <div class="cp__conflict-side">
-                    <p>{{ conflict.claimA?.statement || '—' }}</p>
-                    <Button
-                      v-if="isAdmin && !claimsRecoveryReadOnly"
-                      :disabled="conflictBusy === conflict.id"
-                      size="small"
-                      @click="resolveConflict(conflict, 'a')"
-                    >
-                      {{ $t('gainos.companies.keepThis') }}
-                    </Button>
-                  </div>
-                  <div class="cp__conflict-side">
-                    <p>{{ conflict.claimB?.statement || '—' }}</p>
-                    <Button
-                      v-if="isAdmin && !claimsRecoveryReadOnly"
-                      :disabled="conflictBusy === conflict.id"
-                      size="small"
-                      @click="resolveConflict(conflict, 'b')"
-                    >
-                      {{ $t('gainos.companies.keepThis') }}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <div class="co-facts__main">
             <div class="cp__tabs" role="tablist">
               <button
@@ -1940,6 +1848,141 @@ onUnmounted(() => {
                 >
                   {{ claimBusy === 'approve' ? claimProgress : $t('gainos.companies.approveSelected') }}
                 </Button>
+              </div>
+            </div>
+          </div>
+
+          <div class="co-facts__aside">
+            <h3 class="co-pane__title">{{ $t('gainos.companies.overviewTitle') }}</h3>
+
+            <div v-if="overviewLoading" class="co-panel__state">
+              {{ $t('gainos.companies.overviewLoading') }}
+            </div>
+            <div v-else-if="overviewError" class="co-panel__state co-panel__state--error">
+              <span>{{ overviewError }}</span>
+              <Button size="small" @click="loadCompanyOverview">
+                {{ $t('gainos.common.retry') }}
+              </Button>
+            </div>
+            <div v-else class="co-overview">
+              <!-- 简介整段展示：左栏本来就有余量，不再沿用弹窗时代的截断加内滚动。 -->
+              <div v-if="companyOverview?.summary || hasOverviewFacts" class="co-overview__sheet">
+                <p v-if="companyOverview?.summary" class="co-overview__summary">
+                  {{ companyOverview.summary }}
+                </p>
+                <dl class="co-overview__facts">
+                  <div v-if="companyOverview?.industry">
+                    <dt>{{ $t('gainos.companies.overviewIndustry') }}</dt>
+                    <dd>{{ companyOverview.industry }}</dd>
+                  </div>
+                  <div v-if="companyOverview?.targetMarkets?.length">
+                    <dt>{{ $t('gainos.companies.overviewMarkets') }}</dt>
+                    <dd class="co-overview__markets">
+                      <Tag
+                        v-for="market in companyOverview.targetMarkets"
+                        :key="market"
+                        :bordered="false"
+                        class="co-chip"
+                      >
+                        {{ market }}
+                      </Tag>
+                    </dd>
+                  </div>
+                  <div v-if="companyOverview?.website">
+                    <dt>{{ $t('gainos.companies.overviewWebsite') }}</dt>
+                    <dd>
+                      <a :href="companyOverview.website" target="_blank" rel="noopener noreferrer">
+                        {{ companyOverview.website }}
+                      </a>
+                    </dd>
+                  </div>
+                  <div v-if="companyOverview?.businessEmail">
+                    <dt>{{ $t('gainos.companies.overviewEmail') }}</dt>
+                    <dd>{{ companyOverview.businessEmail }}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div v-if="completeness" class="co-overview__stats">
+                <div>
+                  <strong>{{ completeness.approvedClaims }}</strong>
+                  <span>{{ $t('gainos.companies.statApproved') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.pendingClaims }}</strong>
+                  <span>{{ $t('gainos.companies.statPending') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.offerings }}</strong>
+                  <span>{{ $t('gainos.companies.statOfferings') }}</span>
+                </div>
+                <div>
+                  <strong>{{ completeness.conflictsOpen }}</strong>
+                  <span>{{ $t('gainos.companies.statConflicts') }}</span>
+                </div>
+              </div>
+              <details v-if="offerings.length" :open="offeringsOpen" class="co-overview__offerings">
+                <summary>{{ $t('gainos.companies.offeringsTitle', { count: offerings.length }) }}</summary>
+                <ul>
+                  <li v-for="offering in offerings" :key="offering.id">
+                    <strong>{{ offering.name }}</strong>
+                    <span v-if="offering.description"> · {{ offering.description }}</span>
+                    <a
+                      v-if="offering.sourceUrl"
+                      :href="offering.sourceUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    > ↗</a>
+                  </li>
+                </ul>
+              </details>
+              <p v-else class="cp__muted">{{ $t('gainos.companies.offeringsEmpty') }}</p>
+            </div>
+
+            <div
+              v-if="conflictsLoading || conflictsError || conflicts.length"
+              class="cp__conflicts"
+            >
+              <div class="cp__conflicts-head">
+                <h3>{{ $t('gainos.companies.conflictsTitle', { count: conflicts.length }) }}</h3>
+                <p class="cp__muted">{{ $t('gainos.companies.conflictsHint') }}</p>
+              </div>
+              <p v-if="conflictsLoading" class="cp__muted">
+                {{ $t('gainos.companies.claimsLoading') }}
+              </p>
+              <p v-else-if="conflictsError" class="cp__form-err">{{ conflictsError }}</p>
+              <div v-for="conflict in conflicts" :key="conflict.id" class="cp__conflict">
+                <div class="cp__conflict-head">
+                  <span class="cp__claim-type">
+                    {{ claimTypeLabel(conflict.claimType || conflict.claimA?.type || '') }}
+                  </span>
+                  <span v-if="!isAdmin" class="cp__muted">
+                    {{ $t('gainos.companies.conflictsAdminOnly') }}
+                  </span>
+                </div>
+                <div class="cp__conflict-grid">
+                  <div class="cp__conflict-side">
+                    <p>{{ conflict.claimA?.statement || '—' }}</p>
+                    <Button
+                      v-if="isAdmin && !claimsRecoveryReadOnly"
+                      :disabled="conflictBusy === conflict.id"
+                      size="small"
+                      @click="resolveConflict(conflict, 'a')"
+                    >
+                      {{ $t('gainos.companies.keepThis') }}
+                    </Button>
+                  </div>
+                  <div class="cp__conflict-side">
+                    <p>{{ conflict.claimB?.statement || '—' }}</p>
+                    <Button
+                      v-if="isAdmin && !claimsRecoveryReadOnly"
+                      :disabled="conflictBusy === conflict.id"
+                      size="small"
+                      @click="resolveConflict(conflict, 'b')"
+                    >
+                      {{ $t('gainos.companies.keepThis') }}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2524,18 +2567,28 @@ onUnmounted(() => {
 .cp__facts-ready { font-size: 12.5px; line-height: 1.6; color: var(--gs-fg-muted); }
 .cp__facts-foot .cp__btn { padding: 9px 16px; font-size: 13px; }
 .cp__muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-subtle); line-height: 1.6; }
-.cp__overview { display: grid; gap: 10px; margin-top: 14px; padding: 14px; background: var(--gs-divider); border-radius: 12px; }
-.cp__overview-summary { margin: 0; max-height: 4.8em; overflow: auto; font-size: 13px; line-height: 1.75; color: var(--gs-fg-2); }
-.cp__overview-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--gs-fg-muted); }
-.cp__overview-meta a { color: var(--gs-accent-strong); text-decoration: none; }
-.cp__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.cp__stats div { display: grid; gap: 2px; padding: 8px 10px; background: var(--gs-surface); border-radius: 9px; }
-.cp__stats strong { font-size: 16px; color: var(--gs-fg); }
-.cp__stats span { font-size: 11.5px; color: var(--gs-fg-subtle); }
-.cp__offerings { font-size: 12.5px; color: var(--gs-fg-2); }
-.cp__offerings summary { cursor: pointer; font-weight: 600; }
-.cp__offerings ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; max-height: 120px; overflow: auto; }
-.cp__offerings a { color: var(--gs-accent-strong); text-decoration: none; }
+/* 档案概览：简介整段展示 + 关键信息对照，靠页面本身滚动，不设内滚动区 */
+.co-overview { display: grid; gap: 12px; }
+.co-overview__sheet { display: grid; gap: 12px; padding: 14px; border-radius: 12px; background: var(--gs-divider); }
+.co-overview__summary { margin: 0; font-size: 13px; line-height: 1.75; color: var(--gs-fg-2); overflow-wrap: anywhere; }
+.co-overview__facts { display: grid; gap: 8px; margin: 0; }
+.co-overview__facts > div { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 20px; }
+.co-overview__facts dt { color: var(--gs-fg-muted); }
+.co-overview__facts dd { margin: 0; min-width: 0; color: var(--gs-fg); overflow-wrap: anywhere; }
+.co-overview__facts a { color: var(--gs-accent-strong); text-decoration: none; }
+.co-overview__facts a:hover { text-decoration: underline; }
+.co-overview__markets { display: flex; flex-wrap: wrap; gap: 6px; }
+.co-overview__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.co-overview__stats > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 9px; background: var(--gs-surface-2); }
+.co-overview__stats strong { color: var(--gs-fg); font-size: 16px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.co-overview__stats span { color: var(--gs-fg-subtle); font-size: 11.5px; }
+.co-overview__offerings { font-size: 12.5px; color: var(--gs-fg-2); }
+.co-overview__offerings summary { cursor: pointer; font-weight: 600; color: var(--gs-fg); }
+.co-overview__offerings ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.co-overview__offerings li { line-height: 1.6; overflow-wrap: anywhere; }
+.co-overview__offerings li strong { color: var(--gs-fg); font-weight: 600; }
+.co-overview__offerings li span { color: var(--gs-fg-muted); }
+.co-overview__offerings a { color: var(--gs-accent-strong); text-decoration: none; }
 .cp__overview-state {
   display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 14px;
   border-radius: 10px; background: var(--gs-divider); color: var(--gs-fg-muted); font-size: 13px;
@@ -2565,7 +2618,6 @@ onUnmounted(() => {
 @media (max-width: 620px) {
   .cp__item { flex-wrap: wrap; }
   .cp__item-side { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
-  .cp__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
   .cp__modal { padding: 8px; }
@@ -2573,12 +2625,6 @@ onUnmounted(() => {
   .cp__facts-head { padding: 18px 16px 0; }
   .cp__facts-hint { display: none; }
   .cp__facts-body { padding: 0 16px 12px; }
-  .cp__overview { margin-top: 10px; padding: 10px; gap: 8px; }
-  .cp__overview-summary { max-height: 5.2em; font-size: 12.5px; }
-  .cp__stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-  .cp__stats div { padding: 6px 7px; }
-  .cp__stats strong { font-size: 14px; }
-  .cp__stats span { font-size: 10.5px; }
   .cp__tabs { margin: 12px 0 8px; overflow-x: auto; }
   .cp__manual-bar .cp__muted { display: none; }
   .cp__claim-bar, .cp__facts-foot { align-items: stretch; padding: 12px 16px; }
@@ -3049,6 +3095,10 @@ onUnmounted(() => {
 /* 事实：左概览/冲突，右审批清单 */
 .co-facts {
   display: grid;
+  grid-template-areas:
+    'main'
+    'aside'
+    'foot';
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
@@ -3059,7 +3109,12 @@ onUnmounted(() => {
   align-content: start;
   min-width: 0;
 }
-.co-facts__aside .cp__overview,
+.co-facts__main {
+  grid-area: main;
+}
+.co-facts__aside {
+  grid-area: aside;
+}
 .co-facts__aside .cp__conflicts {
   margin-top: 0;
 }
@@ -3092,7 +3147,7 @@ onUnmounted(() => {
 }
 .co-facts__foot {
   display: flex;
-  grid-column: 1 / -1;
+  grid-area: foot;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -3154,6 +3209,9 @@ onUnmounted(() => {
 
 @container (min-width: 900px) {
   .co-facts {
+    grid-template-areas:
+      'aside main'
+      'foot foot';
     grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
     align-items: start;
   }
@@ -3190,8 +3248,15 @@ onUnmounted(() => {
   }
 }
 
+/* 单栏但较宽（平板）：概览通栏，关键信息排两列，免得右半边空着 */
+@container (min-width: 560px) and (max-width: 899px) {
+  .co-overview__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 16px;
+  }
+}
 @container (max-width: 559px) {
-  .co-workspace .cp__stats {
+  .co-overview__stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .co-workspace .cp__conflict-grid {
