@@ -12,7 +12,7 @@ import type { Lead } from '#/api/gainos';
 
 import { computed } from 'vue';
 
-import { evaluateT0Channels } from '@gain-saas/shared';
+import { evaluateT0Channels, isSafeLinkedinUrl } from '@gain-saas/shared';
 import { Ellipsis } from '@vben/icons';
 
 import { Button, Dropdown, Menu, Tag } from 'ant-design-vue';
@@ -151,7 +151,12 @@ const channelSocials = computed(() =>
     .map((item) => ({
       platform: item.platform,
       label: socialPlatformLabel(item.platform),
-      url: safeHttpUrl(item.url),
+      url:
+        item.platform.toLowerCase() === 'linkedin'
+          ? isSafeLinkedinUrl(item.url)
+            ? item.url.trim()
+            : ''
+          : safeHttpUrl(item.url),
     }))
     .filter((item) => Boolean(item.url))
     .slice(0, 5),

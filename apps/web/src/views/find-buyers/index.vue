@@ -209,6 +209,7 @@ const activeIcp = computed(() => icps.value.find((icp) => icp.status === 'ACTIVE
 // 注册时填写的公司是主档案（workspace.onboardingCompanyId）：设定画像时排在第一位并标注。
 // Phase 1：解除单公司仅能建一组画像的前端锁，允许按不同市场/产品线为同一公司创建多组画像。
 const primaryCompanyId = ref<string | null>(null);
+const isAdmin = ref(false);
 const icpCountByCompany = computed(() => {
   const counts = new Map<string, number>();
   for (const icp of icps.value) {
@@ -520,7 +521,7 @@ function openCreate(): void {
 }
 
 async function quickApproveOnboardingFacts(): Promise<void> {
-  if (!selectedCompanyId.value || quickApprovingFacts.value) return;
+  if (!isAdmin.value || !selectedCompanyId.value || quickApprovingFacts.value) return;
   quickApprovingFacts.value = true;
   createError.value = null;
   try {
@@ -528,17 +529,20 @@ async function quickApproveOnboardingFacts(): Promise<void> {
     const pending = await gainosApi.claims(selectedCompanyId.value, 'NEEDS_REVIEW');
     const rows = Array.isArray(pending) ? pending : [];
     let approved = 0;
+    let lastApproveError: unknown = null;
     for (const claim of rows.slice(0, 12)) {
       try {
         await gainosApi.approveClaim(claim.id);
         approved += 1;
-      } catch {
-        // 单条审批失败继续处理其余草稿
+      } catch (err) {
+        lastApproveError = err;
       }
     }
     await checkApprovedClaims(selectedCompanyId.value);
     if (approved > 0) {
       uiFeedback.message.success($t('gainos.findBuyers.quickApproveDone', { count: approved }));
+    } else if (lastApproveError) {
+      createError.value = failureText(lastApproveError);
     } else if ((approvedClaimCount.value ?? 0) === 0) {
       uiFeedback.message.warning($t('gainos.findBuyers.quickApproveEmpty'));
     }
@@ -940,8 +944,10 @@ async function loadPrimaryCompany(): Promise<void> {
   try {
     const context = await gainosApi.workspaceContext();
     primaryCompanyId.value = context.onboarding?.companyId ?? null;
+    isAdmin.value = context.workspace?.role === 'admin';
   } catch {
     primaryCompanyId.value = null;
+    isAdmin.value = false;
   }
 }
 onMounted(() => {
@@ -1419,11 +1425,16 @@ onMounted(() => {
         </Alert>
         <Alert
           v-else-if="approvedClaimCount === 0"
-          :message="$t('gainos.findBuyers.noApprovedFacts')"
+          :message="
+            isAdmin
+              ? $t('gainos.findBuyers.noApprovedFacts')
+              : $t('gainos.findBuyers.noApprovedFactsMember')
+          "
+          data-gs="no-approved-facts-alert"
           show-icon
           type="warning"
         >
-          <template #action>
+          <template v-if="isAdmin" #action>
             <Button
               :loading="quickApprovingFacts"
               data-gs="quick-approve-facts"

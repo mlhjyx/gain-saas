@@ -589,6 +589,7 @@
     "checkingFacts": "正在检查已通过的企业事实…",
     "factsCheckFailed": "暂时无法确认这家公司的企业事实，请稍后重试。",
     "noApprovedFacts": "这家公司还没有已通过的企业事实。请先到「公司档案」确认至少一条事实，或点右侧按钮从建档信息一键生成并确认。",
+    "noApprovedFactsMember": "这家公司还没有已通过的企业事实。请联系工作空间管理员在「公司档案」确认至少一条事实后再生成目标客户画像。",
     "allCompaniesHaveIcp": "每份公司档案都已经有一组目标客户画像。直接查看并调整已有初稿即可。",
     "companyIcpCount": "已有 {count} 组画像",
     "createTargetMarkets": "目标市场（可选，两位国家码，逗号分隔）",

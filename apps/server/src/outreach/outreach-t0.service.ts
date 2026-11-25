@@ -207,6 +207,10 @@ export class OutreachT0Service {
         realm: 'tenant',
         action: T0_TOUCH_ACTION,
         target: leadId,
+        detail: {
+          path: ['workspaceId'],
+          equals: tenant.workspaceId,
+        },
       },
       orderBy: { at: 'desc' },
       take: 50,

@@ -170,6 +170,25 @@ test('T0 四通道轻外联：IT/DE/BR 合规分流、SUPPRESSED 全禁与触达
   await expect(page.locator('[data-gs="t0-action-linkedin"]')).toBeDisabled();
   await expect(page.locator('[data-gs="t0-action-whatsapp"]')).toBeDisabled();
   await expect(page.locator('[data-gs="t0-action-form"]')).toBeDisabled();
+  await expect(page.locator('[data-gs="t0-record-touch"]')).toBeDisabled();
+
+  // 5. 服务端门禁接口 500 故障：严格 fail-closed，锁死全部 4 条触达动作与留痕按钮
+  backend.set('POST', '/outreach/t0/check', async ({ route }) => {
+    await route.fulfill({
+      body: JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'DNC check failed' } }),
+      contentType: 'application/json',
+      status: 500,
+    });
+    return true;
+  });
+  await page.goto(`/leads/${LEAD_IT}`);
+  await expect(page.locator('[data-gs="t0-blocked-banner"]')).toBeVisible();
+  await expect(page.locator('[data-gs="t0-outreach"]')).toContainText('DNC_UNAVAILABLE');
+  await expect(page.locator('[data-gs="t0-action-mailto"]')).toBeDisabled();
+  await expect(page.locator('[data-gs="t0-action-linkedin"]')).toBeDisabled();
+  await expect(page.locator('[data-gs="t0-action-whatsapp"]')).toBeDisabled();
+  await expect(page.locator('[data-gs="t0-action-form"]')).toBeDisabled();
+  await expect(page.locator('[data-gs="t0-record-touch"]')).toBeDisabled();
 });
 
 test('线索页接入 Battle CSV 导出按钮并按队列透传 scope', async ({ page }) => {
@@ -429,7 +448,7 @@ test('找买家：允许同公司新建第二组画像（带 attemptId）并支�
   await page.goto('/find-buyers');
 
   // 即使公司已有 1 组画像，点击「设定目标客户画像」依然弹出创建模态框
-  await page.locator('[data-gs="new-icp"]').click();
+  await page.getByRole('button', { name: '设定目标客户画像' }).click();
   await expect(page.getByRole('dialog', { name: '设定目标客户画像' })).toBeVisible();
 
   // 无已通过事实时，点击一键确认建档事实解锁生成
@@ -443,4 +462,21 @@ test('找买家：允许同公司新建第二组画像（带 attemptId）并支�
   const createBody = backend.callsTo('POST', `/companies/${COMPANY_ID}/icps`)[0]!.body as Record<string, unknown>;
   expect(typeof createBody.attemptId).toBe('string');
   expect(createBody.confirmedTargetMarkets).toEqual(['IT', 'ES']);
+});
+
+test('找买家：普通成员（非管理员）不显示一键审批事实按钮，提示联系管理员', async ({ page }) => {
+  const backend = await installMockBackend(page, { role: 'member' });
+  backend.set('GET', '/companies', [
+    { id: COMPANY_ID, name: 'E2E 光伏工厂', website: 'https://solar.example', targetMarkets: ['IT'] },
+  ]);
+  backend.set('GET', '/icps', []);
+  backend.set('GET', `/companies/${COMPANY_ID}/claims`, []);
+
+  await loginAs(page);
+  await page.goto('/find-buyers');
+
+  await page.getByRole('button', { name: '设定目标客户画像' }).click();
+  await expect(page.getByRole('dialog', { name: '设定目标客户画像' })).toBeVisible();
+  await expect(page.locator('[data-gs="no-approved-facts-alert"]')).toContainText('联系工作空间管理员');
+  await expect(page.locator('[data-gs="quick-approve-facts"]')).toHaveCount(0);
 });

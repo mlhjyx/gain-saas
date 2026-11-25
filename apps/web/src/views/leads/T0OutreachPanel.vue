@@ -28,6 +28,7 @@ import {
   evaluateT0Channels,
   formatDateTime,
   isSafeHttpUrl,
+  isSafeLinkedinUrl,
 } from '@gain-saas/shared';
 import { Alert, Button, Input, Space, Tag } from 'ant-design-vue';
 
@@ -64,7 +65,9 @@ const icebreaker = ref('');
 const copyDirty = ref(false);
 
 const serverCheck = ref<T0CheckResult | null>(null);
-const checking = ref(false);
+const checking = ref(true);
+let complianceCheckSeq = 0;
+let mountedReady = false;
 
 const touches = ref<T0TouchRecord[]>([]);
 const touchesLoading = ref(false);
@@ -83,7 +86,7 @@ const leadSuppressed = computed(() => props.pkg.status === 'SUPPRESSED');
 
 const companyLinkedinUrl = computed(() => {
   const match = (props.pkg.social_profiles ?? []).find(
-    (item) => item.platform?.toLowerCase() === 'linkedin' && isSafeHttpUrl(item.url),
+    (item) => item.platform?.toLowerCase() === 'linkedin' && isSafeLinkedinUrl(item.url),
   );
   return match?.url ?? '';
 });
@@ -147,7 +150,7 @@ const targetOptions = computed<TargetOption[]>(() => {
       contactName: contact.fullName,
       email,
       phone: phonePt?.value ?? companyPhones.value[0] ?? '',
-      linkedinUrl: (liPt?.value && isSafeHttpUrl(liPt.value) ? liPt.value : '') || companyLinkedinUrl.value,
+      linkedinUrl: (liPt?.value && isSafeLinkedinUrl(liPt.value) ? liPt.value : '') || companyLinkedinUrl.value,
       label: `${contact.fullName}${roleSuffix}${emailSuffix}`,
     });
   }
@@ -204,7 +207,30 @@ const localEvaluation = computed<T0EvaluationResult>(() =>
 );
 
 const evaluation = computed<T0EvaluationResult>(() => serverCheck.value ?? localEvaluation.value);
+const interactionBlocked = computed(() => checking.value || evaluation.value.blockedAll);
 const suppressionReasons = computed(() => serverCheck.value?.suppressionReasons ?? []);
+
+function buildFailClosedResult(): T0CheckResult {
+  const evaluated = evaluateT0Channels({
+    countryCode: countryCode.value,
+    companyName: companyName.value,
+    contactName: activeTarget.value.contactName,
+    email: activeTarget.value.email,
+    phone: activeTarget.value.phone,
+    whatsappUrl: companyWhatsappUrl.value,
+    linkedinUrl: activeTarget.value.linkedinUrl,
+    formUrl: primaryFormUrl.value,
+    suppressed: leadSuppressed.value,
+    sanctionsHold: sanctionsHold.value,
+    dncCheckFailed: true,
+  });
+  return {
+    ...evaluated,
+    recommendedSequence: [...evaluated.recommendedSequence],
+    consentStatus: 'UNKNOWN',
+    suppressionReasons: [],
+  };
+}
 
 function extractDraftParts(draftRecord?: Record<string, unknown> | null): {
   body: string;
@@ -294,6 +320,7 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 async function runComplianceCheck(): Promise<void> {
+  const seq = ++complianceCheckSeq;
   checking.value = true;
   try {
     const res = await gainosApi.checkT0Outreach({
@@ -310,15 +337,19 @@ async function runComplianceCheck(): Promise<void> {
       leadStatus: props.pkg.status,
       sanctionsHold: sanctionsHold.value,
     });
+    if (seq !== complianceCheckSeq) return;
     serverCheck.value =
       res && typeof res === 'object' && res.channels && typeof res.channels.mailto?.allowed === 'boolean'
         ? res
-        : null;
+        : buildFailClosedResult();
   } catch {
-    // 后端门禁接口暂不可用时回落本地确定性 D3 规则，不清空已有安全阻断。
-    serverCheck.value = null;
+    if (seq !== complianceCheckSeq) return;
+    // 严格 fail-closed：服务端 DNC / 合规门禁接口不可用时阻断全部触达动作，不得回落乐观放行。
+    serverCheck.value = buildFailClosedResult();
   } finally {
-    checking.value = false;
+    if (seq === complianceCheckSeq) {
+      checking.value = false;
+    }
   }
 }
 
@@ -357,7 +388,7 @@ async function saveTouch(
   note?: string,
   silent = false,
 ): Promise<void> {
-  if (evaluation.value.blockedAll) return;
+  if (interactionBlocked.value) return;
   recordingTouch.value = true;
   try {
     const created = await gainosApi.recordT0Touch({
@@ -389,7 +420,7 @@ async function saveTouch(
 }
 
 function openMailto(): void {
-  if (!mailtoHref.value) return;
+  if (interactionBlocked.value || !mailtoHref.value) return;
   touchChannel.value = 'mailto';
   window.location.href = mailtoHref.value;
   void saveTouch('mailto', 'OPENED', undefined, true);
@@ -397,7 +428,7 @@ function openMailto(): void {
 }
 
 async function openLinkedinCopilot(): Promise<void> {
-  if (!linkedinHref.value) return;
+  if (interactionBlocked.value || !linkedinHref.value) return;
   touchChannel.value = 'linkedin';
   const copiedOk = await copyText(icebreaker.value);
   window.open(linkedinHref.value, '_blank', 'noopener,noreferrer');
@@ -408,12 +439,13 @@ async function openLinkedinCopilot(): Promise<void> {
 }
 
 async function copyIcebreakerOnly(): Promise<void> {
+  if (interactionBlocked.value) return;
   const ok = await copyText(icebreaker.value);
   if (ok) feedback.message.success($t('gainos.leads.copied'));
 }
 
 function openWhatsapp(): void {
-  if (!whatsappHref.value) return;
+  if (interactionBlocked.value || !whatsappHref.value) return;
   touchChannel.value = 'whatsapp';
   window.open(whatsappHref.value, '_blank', 'noopener,noreferrer');
   void saveTouch('whatsapp', 'OPENED', undefined, true);
@@ -421,7 +453,7 @@ function openWhatsapp(): void {
 }
 
 async function openFormWithCopy(): Promise<void> {
-  if (!formHref.value) return;
+  if (interactionBlocked.value || !formHref.value) return;
   touchChannel.value = 'form';
   const copiedOk = await copyText(body.value);
   window.open(formHref.value, '_blank', 'noopener,noreferrer');
@@ -432,6 +464,7 @@ async function openFormWithCopy(): Promise<void> {
 }
 
 async function submitManualTouch(): Promise<void> {
+  if (interactionBlocked.value) return;
   await saveTouch(touchChannel.value, touchOutcome.value, touchNote.value);
   touchNote.value = '';
 }
@@ -454,7 +487,9 @@ watch(
 watch(
   () => [props.pkg.lead_id, selectedTargetKey.value],
   () => {
-    void runComplianceCheck();
+    if (mountedReady) {
+      void runComplianceCheck();
+    }
     if (!copyDirty.value) {
       icebreaker.value = buildLinkedInIcebreaker({
         companyName: companyName.value,
@@ -467,7 +502,9 @@ watch(
 
 onMounted(async () => {
   hydrateCopy(true);
-  await Promise.all([loadContacts(), loadTouches()]);
+  void loadTouches();
+  await loadContacts();
+  mountedReady = true;
   await runComplianceCheck();
 });
 </script>
@@ -571,7 +608,7 @@ onMounted(async () => {
           />
           <div class="flex justify-end">
             <Button
-              :disabled="evaluation.blockedAll || !icebreaker.trim()"
+              :disabled="interactionBlocked || !icebreaker.trim()"
               size="small"
               @click="copyIcebreakerOnly"
             >
@@ -584,7 +621,7 @@ onMounted(async () => {
       <!-- 4 条合规轻外联动作 -->
       <div class="grid gap-3 @min-[680px]:grid-cols-2">
         <!-- 1. mailto -->
-        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.mailto.allowed }">
+        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.mailto.allowed || checking }">
           <div class="t0-tile__head">
             <span class="t0-tile__title">{{ $t('gainos.leads.t0.channel.mailto') }}</span>
             <Tag :bordered="false" class="m-0 text-xs">
@@ -599,7 +636,7 @@ onMounted(async () => {
             }}
           </p>
           <Button
-            :disabled="!mailtoHref || checking"
+            :disabled="!mailtoHref || interactionBlocked"
             data-gs="t0-action-mailto"
             type="primary"
             @click="openMailto"
@@ -609,7 +646,7 @@ onMounted(async () => {
         </div>
 
         <!-- 2. LinkedIn Co-Pilot -->
-        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.linkedin.allowed }">
+        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.linkedin.allowed || checking }">
           <div class="t0-tile__head">
             <span class="t0-tile__title">{{ $t('gainos.leads.t0.channel.linkedin') }}</span>
             <Tag :bordered="false" class="m-0 text-xs">
@@ -628,7 +665,7 @@ onMounted(async () => {
             }}
           </p>
           <Button
-            :disabled="!linkedinHref || checking"
+            :disabled="!linkedinHref || interactionBlocked"
             data-gs="t0-action-linkedin"
             @click="openLinkedinCopilot"
           >
@@ -637,7 +674,7 @@ onMounted(async () => {
         </div>
 
         <!-- 3. Compliant wa.me -->
-        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.whatsapp.allowed }">
+        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.whatsapp.allowed || checking }">
           <div class="t0-tile__head">
             <span class="t0-tile__title">{{ $t('gainos.leads.t0.channel.whatsapp') }}</span>
             <Tag :bordered="false" class="m-0 text-xs">
@@ -652,7 +689,7 @@ onMounted(async () => {
             }}
           </p>
           <Button
-            :disabled="!whatsappHref || checking"
+            :disabled="!whatsappHref || interactionBlocked"
             data-gs="t0-action-whatsapp"
             @click="openWhatsapp"
           >
@@ -661,7 +698,7 @@ onMounted(async () => {
         </div>
 
         <!-- 4. Website Contact Form -->
-        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.form.allowed }">
+        <div class="t0-tile" :class="{ 'is-disabled': !evaluation.channels.form.allowed || checking }">
           <div class="t0-tile__head">
             <span class="t0-tile__title">{{ $t('gainos.leads.t0.channel.form') }}</span>
             <Tag :bordered="false" class="m-0 max-w-[200px] truncate text-xs">
@@ -676,7 +713,7 @@ onMounted(async () => {
             }}
           </p>
           <Button
-            :disabled="!formHref || checking"
+            :disabled="!formHref || interactionBlocked"
             data-gs="t0-action-form"
             @click="openFormWithCopy"
           >
@@ -699,7 +736,7 @@ onMounted(async () => {
           <GsSelect
             v-model="touchChannel"
             :ariaLabel="$t('gainos.leads.t0.logChannel')"
-            :disabled="evaluation.blockedAll"
+            :disabled="interactionBlocked"
             :options="[
               { label: $t('gainos.leads.t0.channel.mailto'), value: 'mailto' },
               { label: $t('gainos.leads.t0.channel.linkedin'), value: 'linkedin' },
@@ -711,7 +748,7 @@ onMounted(async () => {
           <GsSelect
             v-model="touchOutcome"
             :ariaLabel="$t('gainos.leads.t0.logOutcome')"
-            :disabled="evaluation.blockedAll"
+            :disabled="interactionBlocked"
             :options="[
               { label: $t('gainos.leads.t0.outcome.SENT'), value: 'SENT' },
               { label: $t('gainos.leads.t0.outcome.OPENED'), value: 'OPENED' },
@@ -721,7 +758,7 @@ onMounted(async () => {
           />
           <Input
             v-model:value="touchNote"
-            :disabled="evaluation.blockedAll"
+            :disabled="interactionBlocked"
             :maxlength="500"
             :placeholder="$t('gainos.leads.t0.logNotePlaceholder')"
             class="min-w-[200px] flex-1"
@@ -729,7 +766,7 @@ onMounted(async () => {
             @press-enter="submitManualTouch"
           />
           <Button
-            :disabled="evaluation.blockedAll || recordingTouch"
+            :disabled="interactionBlocked || recordingTouch"
             :loading="recordingTouch"
             data-gs="t0-record-touch"
             type="primary"

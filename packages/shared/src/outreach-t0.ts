@@ -116,6 +116,16 @@ export function isSafeHttpUrl(raw: unknown): raw is string {
   }
 }
 
+export function isSafeLinkedinUrl(raw: unknown): raw is string {
+  if (!isSafeHttpUrl(raw)) return false;
+  try {
+    const host = new URL(raw.trim()).hostname.toLowerCase();
+    return host === 'linkedin.com' || host.endsWith('.linkedin.com');
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeWebsiteUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
@@ -254,10 +264,9 @@ export function evaluateT0Channels(input: T0ChannelEvaluationInput): T0Evaluatio
   const isSuppressed = Boolean(input.suppressed) || consentStatus === 'OPT_OUT';
   const dncFailed = Boolean(input.dncCheckFailed);
 
-  const directProfileUrl =
-    isSafeHttpUrl(input.linkedinUrl) && /linkedin\.com/i.test(input.linkedinUrl)
-      ? input.linkedinUrl.trim()
-      : null;
+  const directProfileUrl = isSafeLinkedinUrl(input.linkedinUrl)
+    ? input.linkedinUrl.trim()
+    : null;
   const profileSearchQuery = [input.contactName, input.companyName]
     .filter(Boolean)
     .join(' ')

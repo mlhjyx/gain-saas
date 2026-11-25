@@ -5,6 +5,7 @@ import {
   buildWhatsappHref,
   evaluateT0Channels,
   isKnownIsoCountry,
+  isSafeLinkedinUrl,
   isUkCorporateSubscriber,
   maskEmailLocalPart,
   normalizeCountryCode,
@@ -153,6 +154,32 @@ describe('D3 jurisdiction rules & T0 four-channel policy', () => {
     });
     expect(unsafe.channels.form.allowed).toBe(false);
     expect(unsafe.channels.linkedin.mode).toBe('search');
+
+    // 伪造域名的 LinkedIn URL 不得放行为 direct，必须严格按 hostname 校验并回落安全搜索链接
+    expect(isSafeLinkedinUrl('https://www.linkedin.com/in/maria-rossi')).toBe(true);
+    expect(isSafeLinkedinUrl('https://linkedin.com/company/refeel')).toBe(true);
+    expect(isSafeLinkedinUrl('https://de.linkedin.com/company/solaris')).toBe(true);
+    expect(isSafeLinkedinUrl('https://evil.example/linkedin.com/in/ceo')).toBe(false);
+    expect(isSafeLinkedinUrl('https://evil.example/?q=linkedin.com')).toBe(false);
+    expect(isSafeLinkedinUrl('https://fake-linkedin.com/company/refeel')).toBe(false);
+    expect(isSafeLinkedinUrl('https://linkedin.com.evil.example/in/ceo')).toBe(false);
+
+    for (const spoofed of [
+      'https://evil.example/linkedin.com/in/ceo',
+      'https://evil.example/?q=linkedin.com',
+      'https://fake-linkedin.com/in/ceo',
+      'https://linkedin.com.evil.example/in/ceo',
+    ]) {
+      const spoofedResult = evaluateT0Channels({
+        countryCode: 'IT',
+        companyName: 'Refeel S.r.l.',
+        linkedinUrl: spoofed,
+      });
+      expect(spoofedResult.channels.linkedin.mode).toBe('search');
+      expect(spoofedResult.channels.linkedin.url).toMatch(
+        /^https:\/\/www\.linkedin\.com\/search\/results\/people\/\?keywords=/,
+      );
+    }
 
     const wa = buildWhatsappHref('+55 (11) 98765-4321', 'Hello from factory');
     expect(wa).toContain('https://wa.me/5511987654321?text=');

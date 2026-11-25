@@ -7,6 +7,7 @@
  * 写操作 → 成功空回执。
  */
 import type { Page, Route } from '@playwright/test';
+import { evaluateT0Channels } from '@gain-saas/shared';
 
 export interface RecordedCall {
   body: unknown;
@@ -239,6 +240,22 @@ export async function installMockBackend(
     if (path === '/onboarding/preview') {
       backend.onboardingPreviewStarted = true;
       return fulfill(route, { started: true, preview: ONBOARDING_PREVIEW });
+    }
+    if (path === '/outreach/t0/check') {
+      const payload = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+      const evaluated = evaluateT0Channels({
+        countryCode: typeof payload.countryCode === 'string' ? payload.countryCode : undefined,
+        companyName: typeof payload.companyName === 'string' ? payload.companyName : undefined,
+        contactName: typeof payload.contactName === 'string' ? payload.contactName : undefined,
+        email: typeof payload.email === 'string' ? payload.email : undefined,
+        phone: typeof payload.phone === 'string' ? payload.phone : undefined,
+        whatsappUrl: typeof payload.whatsappUrl === 'string' ? payload.whatsappUrl : undefined,
+        linkedinUrl: typeof payload.linkedinUrl === 'string' ? payload.linkedinUrl : undefined,
+        formUrl: typeof payload.formUrl === 'string' ? payload.formUrl : undefined,
+        suppressed: payload.leadStatus === 'SUPPRESSED',
+        sanctionsHold: Boolean(payload.sanctionsHold),
+      });
+      return fulfill(route, { ...evaluated, consentStatus: 'MISSING', suppressionReasons: [] });
     }
     if (path === '/onboarding/company') backend.onboardingComplete = true;
     return fulfill(route, {});

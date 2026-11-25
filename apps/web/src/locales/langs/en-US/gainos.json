@@ -589,6 +589,7 @@
     "checkingFacts": "Checking approved company facts…",
     "factsCheckFailed": "Could not confirm this company's facts. Please retry.",
     "noApprovedFacts": "No approved facts for this company yet. Approve at least one fact in Company profile, or use the button to generate and approve facts from onboarding details.",
+    "noApprovedFactsMember": "No approved facts for this company yet. Ask a workspace admin to approve at least one fact in Company profile before generating a buyer profile.",
     "allCompaniesHaveIcp": "Every company profile already has a target-buyer draft. Open and adjust the existing one instead.",
     "companyIcpCount": "{count} existing",
     "createTargetMarkets": "Target markets (optional, 2-letter codes, comma-separated)",
