@@ -91,6 +91,10 @@ const plans = ref<QueryPlan[]>([]);
 const plansLoading = ref(false);
 const plansError = ref<{ title: string; next?: string } | null>(null);
 const planBusy = ref<string | null>(null);
+/** 本次打开详情后改过画像：已有方案是按改动前的内容生成的，要提示重新生成。 */
+const profileEdited = ref(false);
+/** 运行终态；不在这个列表里的（如 RUNNING）算还在跑。 */
+const TERMINAL_RUN_STATUSES = ['DONE', 'PARTIAL', 'FAILED', 'CANCELLED'];
 // Run 2.0（M0②）：挖掘任务（每个 ICP 复用一个活动任务）与最近运行。
 const taskRuns = ref<TaskRunView[]>([]);
 let taskCache: AcquisitionTaskView | null = null;
@@ -399,6 +403,10 @@ async function loadTaskRuns(icpId: string): Promise<void> {
   }
 }
 
+/** 这个任务的上一轮寻源是否还在跑。引擎没有并发锁，同时起两条会各算一次费用，界面先挡住。 */
+const taskRunning = computed(() =>
+  taskRuns.value.some((run) => !TERMINAL_RUN_STATUSES.includes(run.status)));
+
 /** 任务对象前移（M0②）：每个 ICP 复用一个活动任务；没有则懒创建「默认挖掘任务」。 */
 async function ensureTask(icpId: string): Promise<AcquisitionTaskView> {
   if (taskCache?.icpId === icpId) return taskCache;
@@ -442,6 +450,7 @@ async function openDetail(icp: Icp): Promise<void> {
   taskCache = null;
   taskRuns.value = [];
   feedback.value = null;
+  profileEdited.value = false;
   try {
     selected.value = await gainosApi.icp(icp.id);
     await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id), loadFeedback(icp.id)]);
@@ -457,6 +466,7 @@ function closeDetail(): void {
   taskRuns.value = [];
   taskCache = null;
   feedback.value = null;
+  profileEdited.value = false;
   backtest.value = null;
   ruleOpen.value = false;
 }
@@ -582,6 +592,8 @@ async function saveEdit(): Promise<void> {
     editOpen.value = false;
     uiFeedback.message.success($t('gainos.findBuyers.saved'));
     await load();
+    // 方案是生成那一刻的快照，不会跟着画像变：有旧方案时提示重新生成。
+    profileEdited.value = plans.value.length > 0;
   } catch (error) {
     editError.value = failureText(error);
   } finally {
@@ -688,6 +700,7 @@ async function createPlan(): Promise<void> {
     // P1：每次「生成方案」点击带新的幂等键（同一计划不再被防重放砖化；同一次点击重试复用）。
     await gainosApi.createQueryPlan(selected.value.id, mintAttemptId());
     await loadPlans(selected.value.id);
+    profileEdited.value = false;
     void prefetchSummary(selected.value.id);
     uiFeedback.message.success($t('gainos.findBuyers.planCreated'));
   } catch (error) {
@@ -1078,18 +1091,30 @@ onMounted(() => {
         <GsCard data-gs="icp-plans">
           <template #title>{{ $t('gainos.findBuyers.plansTitle') }}</template>
           <template #extra>
+            <!-- 画像生效中随时可以再生成：迭代画像后靠它出新方案，已有方案不会自动跟着变。 -->
             <Button
-              v-if="!plansLoading && plans.length === 0"
+              v-if="!plansLoading"
               :disabled="selected.status !== 'ACTIVE' || planBusy === 'create'"
               :loading="planBusy === 'create'"
               :title="selected.status !== 'ACTIVE' ? $t('gainos.findBuyers.planNeedsActive') : undefined"
               type="primary"
               @click="createPlan"
             >
-              {{ $t('gainos.findBuyers.createPlan') }}
+              {{
+                plans.length > 0
+                  ? $t('gainos.findBuyers.regeneratePlan')
+                  : $t('gainos.findBuyers.createPlan')
+              }}
             </Button>
           </template>
           <p class="fb-muted">{{ $t('gainos.findBuyers.plansDesc') }}</p>
+          <Alert
+            v-if="profileEdited"
+            :message="$t('gainos.findBuyers.planStaleAfterEdit', { version: versionOfSelected })"
+            role="status"
+            show-icon
+            type="warning"
+          />
 
           <ErrorNotice v-if="plansError" :next="plansError.next" :title="plansError.title" />
           <Skeleton v-else-if="plansLoading" active :paragraph="{ rows: 2 }" />
@@ -1159,14 +1184,25 @@ onMounted(() => {
                   </Button>
                   <Button
                     v-if="plan.status === 'READY'"
-                    :disabled="planBusy === plan.id"
+                    :disabled="planBusy === plan.id || taskRunning"
                     :loading="planBusy === plan.id"
+                    :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
                     type="primary"
                     @click="executePlan(plan)"
                   >
                     {{ $t('gainos.findBuyers.executePlan') }}
                   </Button>
                 </template>
+                <!-- 已执行的方案可以按原样再跑一次：引擎凭新的尝试标识放行，每次都是一条新的运行。 -->
+                <Button
+                  v-if="plan.status === 'EXECUTED'"
+                  :disabled="planBusy === plan.id || taskRunning"
+                  :loading="planBusy === plan.id"
+                  :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
+                  @click="executePlan(plan)"
+                >
+                  {{ $t('gainos.findBuyers.rerunPlan') }}
+                </Button>
               </div>
               <p v-if="runRefs[plan.id]" class="fb-muted">{{ $t('gainos.findBuyers.runStarted') }}</p>
               <p v-else-if="plan.status === 'EXECUTED'" class="fb-muted">

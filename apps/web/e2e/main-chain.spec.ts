@@ -240,6 +240,137 @@ test('主链路 3：目标客户画像 → 方案生成/确认 → 开始寻源 
   await expect(page.getByText('Muster Metallbau GmbH')).toBeVisible();
 });
 
+/** 迭代画像后重新寻源的公共 mock：生效中的画像 + 一份带历史运行的任务 + 运行页。 */
+function mockIteratedSourcing(
+  backend: MockBackend,
+  options: { plans: Array<Record<string, unknown>>; runs: Array<Record<string, unknown>> },
+) {
+  const icp = { ...ICP, version: 2 };
+  backend.set('GET', '/companies', [COMPANY]);
+  backend.set('GET', '/icps', [icp]);
+  backend.set('GET', '/icps/icp-1', json(() => icp));
+  backend.set('PATCH', '/icps/icp-1', json(() => {
+    icp.version += 1;
+    return icp;
+  }));
+  backend.set('GET', '/icps/icp-1/query-plans', json(() => options.plans));
+  const draft = {
+    createdAt: NOW,
+    icpId: 'icp-1',
+    id: 'plan-2',
+    queries: [{ keywords: ['电动工具 经销商'], source_class: 'public_web' }],
+    status: 'DRAFT',
+    version: 1,
+  };
+  backend.set('POST', '/icps/icp-1/query-plans', json(() => {
+    if (!options.plans.includes(draft)) options.plans.unshift(draft);
+    return draft;
+  }));
+  backend.set('POST', '/query-plans/plan-2/confirm', json(() => {
+    draft.status = 'READY';
+    return draft;
+  }));
+  backend.set('GET', '/tasks', json(() => [{
+    createdAt: NOW,
+    createdBy: 'user-e2e',
+    icpId: 'icp-1',
+    id: 'task-1',
+    lastRunAt: NOW,
+    name: '德国五金进口商 · 挖掘任务',
+    runs: options.runs,
+    status: 'active',
+    updatedAt: NOW,
+  }]));
+  backend.set('POST', '/tasks/task-1/runs', { runId: 'run-2', status: 'RUNNING', taskRunId: 'tr-2' });
+  backend.set('POST', '/runs', {});
+  backend.set('GET', '/discovery-runs/run-2', {
+    createdAt: NOW,
+    icpId: 'icp-1',
+    id: 'run-2',
+    mode: 'quick',
+    planId: 'plan-1',
+    stats: {},
+    status: 'RUNNING',
+    taskRef: { taskId: 'task-1', taskRunId: 'tr-2' },
+  });
+  backend.set('GET', '/discovery-runs/run-2/jobs', []);
+  backend.set('GET', '/discovery-runs/run-2/events', { events: [], nextAfter: 0, status: 'RUNNING' });
+  backend.set('GET', '/runs/run-2/trace', { data: [], page: { has_more: false } });
+}
+
+const EXECUTED_PLAN = {
+  createdAt: NOW,
+  icpId: 'icp-1',
+  id: 'plan-1',
+  queries: [{ keywords: ['五金工具 进口商'], source_class: 'public_web' }],
+  status: 'EXECUTED',
+  version: 2,
+};
+const FINISHED_RUN = {
+  attempt: 1,
+  finishedAt: NOW,
+  id: 'tr-1',
+  planId: 'plan-1',
+  rerunOf: null,
+  runId: 'run-1',
+  startedAt: NOW,
+  status: 'PARTIAL',
+  trigger: 'manual',
+};
+
+test('主链路 3b：编辑画像后可重新生成寻源方案，已执行方案可再跑一次', async ({ page }) => {
+  const backend = await installMockBackend(page);
+  mockIteratedSourcing(backend, { plans: [EXECUTED_PLAN], runs: [FINISHED_RUN] });
+
+  await loginAs(page);
+  await page.goto('/find-buyers');
+  await page.getByRole('button', { name: '查看与调整' }).click();
+  await settle(page);
+
+  // 已有方案的画像：生成入口还在，已执行的方案可以再跑一次
+  await expect(page.getByRole('button', { name: '重新生成寻源方案' })).toBeVisible();
+  const executed = page.locator('li.fb-plan').filter({ hasText: '已执行' });
+  await expect(executed.getByRole('button', { name: '再跑一次' })).toBeEnabled();
+
+  // 编辑画像：版本号前进，并提示旧方案是按更新前的内容生成的
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '保存修改' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '第 3 版' })).toBeVisible();
+  await expect(page.getByText('重新生成后才会按新画像搜索')).toBeVisible();
+
+  // 重新生成：新方案待确认，提示随之消失
+  await page.getByRole('button', { name: '重新生成寻源方案' }).click();
+  const draft = page.locator('li.fb-plan').filter({ hasText: '待确认' });
+  await expect(draft.getByRole('button', { name: '确认方案' })).toBeVisible();
+  await expect(page.getByText('重新生成后才会按新画像搜索')).toHaveCount(0);
+  await draft.getByRole('button', { name: '确认方案' }).click();
+  await expect(page.locator('li.fb-plan').filter({ hasText: '可执行' }).getByRole('button', { name: '开始寻源' })).toBeEnabled();
+
+  // 旧方案再跑一次：带新的尝试标识发起，进入一条新的运行
+  await executed.getByRole('button', { name: '再跑一次' }).click();
+  await page.waitForURL(/\/runs\/run-2/);
+  const call = backend.take('POST', '/tasks/task-1/runs');
+  expect(call?.body).toEqual({ attemptId: expect.stringMatching(/^[a-f0-9-]{36}$/), planId: 'plan-1' });
+});
+
+test('主链路 3c：上一轮寻源还在进行时不重复发起', async ({ page }) => {
+  const backend = await installMockBackend(page);
+  mockIteratedSourcing(backend, { plans: [EXECUTED_PLAN], runs: [{ ...FINISHED_RUN, status: 'RUNNING', finishedAt: null }] });
+
+  await loginAs(page);
+  await page.goto('/find-buyers');
+  await page.getByRole('button', { name: '查看与调整' }).click();
+  await settle(page);
+
+  // 再跑一次、开始寻源都先挡住；重新生成方案不受影响
+  await expect(page.locator('li.fb-plan').filter({ hasText: '已执行' }).getByRole('button', { name: '再跑一次' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '重新生成寻源方案' })).toBeEnabled();
+  await page.getByRole('button', { name: '重新生成寻源方案' }).click();
+  await page.locator('li.fb-plan').filter({ hasText: '待确认' }).getByRole('button', { name: '确认方案' }).click();
+  await expect(page.locator('li.fb-plan').filter({ hasText: '可执行' }).getByRole('button', { name: '开始寻源' })).toBeDisabled();
+  expect(backend.callsTo('POST', '/tasks/task-1/runs')).toHaveLength(0);
+});
+
 test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
   const backend = await installMockBackend(page);
   backend.set('GET', '/icps', [ICP]);

@@ -1842,3 +1842,58 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
   responsive 手机与平板、pass2/pass3 取色扫描（公司页空态改用 antd simple 图，避免默认插画的硬编码灰与渐变）；
   全量 e2e 由 PR CI 复核。
 - 未做：真实数据后端到端走查（本期未改 API/引擎，仅前端页面结构）。
+
+## 23. 档案概览整段展示（2026-11-25）
+
+用户反馈：档案概览下面明明有空间，却没有展示全。
+
+### 23.1 原因
+- 公司简介还留着弹窗时代的 `max-height: 4.8em; overflow: auto`，被截成不到 5 行并自带滚动条；「产品与服务」展开后的列表同样有 120px 内滚动。
+
+### 23.2 改动
+- `views/companies/index.vue`：简介整段展示；行业、目标市场、官网、业务邮箱改为标签对照（`dl`），目标市场用标签；产品与服务展开后不再内滚动；
+  数量统计改浅灰块；没有简介也没有关键信息时不留空灰框。
+- 宽屏两栏（内容区 ≥ 900px）且产品服务 ≤ 12 条时默认展开，窄屏默认收起。
+- DOM 顺序改为「审批清单 → 概览/冲突」：窄屏先看到要处理的事实，宽屏用 `grid-area` 把概览放回左侧。
+- i18n 新增 `companies.overviewWebsite`（zh/en）。事实清单保留 540px 内滚动（要和批量操作栏同屏）。
+
+### 23.3 验证
+- typecheck / build / lint:terms / lint:date 绿；定向 e2e（`companies-profile`、`nav-shell`、`main-chain` 事实审批、a11y `/companies`、
+  responsive 手机与平板、`market-candidates-read` 的 V01/V01b）通过。
+- 模拟数据截图：1586 / 1920 / 820 / 390、暗色、超长简介、30 条产品服务、草稿档案、带冲突；整块工作台只剩事实清单一个内滚动区。
+- pass2 / pass3 取色扫描通过。未做：全量 e2e（由 PR CI 复核）；真实数据下的效果由用户在 5666 验收。
+
+## 24. 线索档案包「决策人」改为「联系人」（2026-11-25）
+
+- 改动：`leads.tab.people`、`leads.peopleAdminOnly` 与 `contacts.*`（title / emptyTitle / scopeHint / discoverOnceHint / missingEmail /
+  discoverTitle / guessDesc / discoverDone），中文 10 处、英文 9 处。这些键只被线索档案包使用，其余页面不受影响。
+  路由参数 `?tab=people`、组件名 `DecisionMakerCard` 不变；`leads-detail` 用例的页签断言与设计系统 §13 同步。
+- 合并 #203 后，其新增的查邮验真文案（`contacts.enrichDesc / enrichDone / enrichNoContacts`，英文含 `enrichTitle`）在同一个页签里，一并改为「联系人」。
+- 未改：线索列表卡片的 `leads.channelDecisionMakers`（「{count} 位决策人」）在买家线索列表而非档案包，不在本次范围内。
+- 未做：`packages/shared/src/errors.ts` 里 BFF 返回的错误文案 `CONTACT_DISCOVERY_LAWFUL_BASIS_REQUIRED` 仍写「发现决策人前需要先声明合法性依据」。
+  改它要动共享包和服务端构建，按「不动 packages / server」的约束未改。
+
+## 25. 迭代画像后可重新发起寻源（2026-11-25）
+
+用户反馈：编辑画像（版本号迭代）后没法发起新的寻源任务。
+
+### 25.1 原因
+- 前端「生成寻源方案」只在没有方案时显示；已执行的方案只有「查看运行」；任务页与运行页的「重试」只对失败 / 部分完成 / 已取消开放。
+- 方案是生成那一刻的快照，画像改了却不重新生成，搜索条件仍是旧的。
+- 引擎与 BFF 本身支持：同一画像可有多份方案；`EXECUTED` 计划带新 `attemptId` 可重跑；生产环境 attemptId 透传开关已开。这是纯前端缺口。
+
+### 25.2 改动（`views/find-buyers/index.vue` + i18n）
+- 画像生效中随时可生成方案，已有方案时文案为「重新生成寻源方案」。
+- 已执行方案卡增加「再跑一次」，复用原 `executePlan`（任务 → `POST /tasks/:taskId/runs`，带新 attemptId）。
+- 该任务有未到终态的运行时，「开始寻源」「再跑一次」置灰并提示；重新生成不受影响。
+- 保存画像后若已有方案，方案卡顶部提示「画像已更新到第 N 版…重新生成后才会按新画像搜索」，重新生成后消失。
+- i18n 新增 `findBuyers.regeneratePlan / rerunPlan / runInProgress / planStaleAfterEdit`（zh/en）。
+
+### 25.3 验证
+- 新增 `main-chain` 3b（编辑画像 → 提示 → 重新生成 → 确认 → 旧方案再跑一次并校验请求体）、3c（运行中不重复发起）。
+- 主链路与档案包 12 条、a11y 9 条、responsive 2 条、dark-mode 1 条通过；模拟数据截图（改动前 / 编辑后 / 重新生成后 / 暗色 / 手机）。
+- 合并主分支后复跑上述用例全部通过；pass2 / pass3 取色扫描、零术语扫描通过。未做：全量 e2e（由 PR CI 复核）；真实环境下的重跑未验证。
+
+### 25.4 搁置项
+- 编辑已完成档案的行业 / 目标市场 / 官网、已完成档案重新理解、同一张画像原地升版：引擎当前只允许 DRAFT 编辑与启动理解，
+  重新生成画像永远是新建一张，需要改引擎。用户决定先不做。
