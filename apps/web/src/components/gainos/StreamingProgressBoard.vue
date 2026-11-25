@@ -22,6 +22,7 @@ const props = withDefaults(
     compact?: boolean;
     cancelling?: boolean;
     showLeadsAction?: boolean;
+    showRefreshAction?: boolean;
     showCancelAction?: boolean;
     title?: string;
   }>(),
@@ -29,6 +30,7 @@ const props = withDefaults(
     compact: false,
     cancelling: false,
     showLeadsAction: true,
+    showRefreshAction: true,
     showCancelAction: false,
     title: '',
   },
@@ -112,8 +114,13 @@ const headerStatusLabel = computed(() => {
         >
           {{ $t('gainos.streaming.viewReadyBuyers', { count: progress.readyCandidates }) }}
         </Button>
-        <Button size="small" data-gs="streaming-refresh" @click="emit('refresh')">
-          {{ $t('gainos.common.refresh') }}
+        <Button
+          v-if="showRefreshAction"
+          size="small"
+          data-gs="streaming-refresh"
+          @click="emit('refresh')"
+        >
+          {{ $t('gainos.streaming.refreshProgress') }}
         </Button>
         <Button
           v-if="showCancelAction && progress.isRunning"

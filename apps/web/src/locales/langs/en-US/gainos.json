@@ -2350,6 +2350,7 @@
     "minutesSeconds": "{mins}m {secs}s",
     "firstBuyerIn": "First buyer in {secs}s",
     "viewReadyBuyers": "View {count} matched buyers",
+    "refreshProgress": "Refresh progress",
     "stopDiscovery": "Stop discovery",
     "progressiveHint": "Progresses from L0 recall to L1 fast extraction & scoring and L2 contact verification — inspect matched buyers immediately without waiting for completion.",
     "l0Title": "L0 Multi-source recall",

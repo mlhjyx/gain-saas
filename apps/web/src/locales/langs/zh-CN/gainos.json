@@ -2350,6 +2350,7 @@
     "minutesSeconds": "{mins} 分 {secs} 秒",
     "firstBuyerIn": "首家买家出线 {secs} 秒",
     "viewReadyBuyers": "查看已筛出的 {count} 家买家",
+    "refreshProgress": "刷新进度",
     "stopDiscovery": "停止本次寻源",
     "progressiveHint": "系统按 L0 召回 → L1 极速提取判分 → L2 补齐联系人与验真邮箱逐批推进，无需等待整轮结束即可先查看已出线的候选买家。",
     "l0Title": "L0 多源召回入池",
