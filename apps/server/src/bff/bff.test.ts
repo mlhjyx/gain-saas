@@ -1,3 +1,6 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AdminGuard } from '../tenant/admin.guard.js';
 import { SESSION_COOKIE } from '../tenant/session.service.js';
@@ -90,6 +93,7 @@ describe('BFF 路由表(SD7)', () => {
       ['DELETE', 'seller-documents/:documentId'],
       ['POST', 'companies/:companyId/confirm'],
       ['DELETE', 'icp-rules/:ruleId'],
+      ['GET', 'deletion-requests'],
     ];
     for (const [method, saasPath] of adminOnly) {
       const route = BFF_ROUTES.find((r) => r.method === method && r.saasPath === saasPath);
@@ -100,12 +104,13 @@ describe('BFF 路由表(SD7)', () => {
     expect(BFF_ROUTES.find((r) => r.method === 'PATCH' && r.saasPath === 'icp-rules/:ruleId')?.access).toBe('member');
   });
 
-  it('BffGuard / registerBffMiddleware 对 4 条收紧路由：member 返回 403 ADMIN_REQUIRED，admin 放行', async () => {
-    const cases: Array<readonly ['DELETE' | 'POST', string]> = [
+  it('BffGuard / registerBffMiddleware 对 4 条收紧路由及 GET /api/deletion-requests：member 返回 403 ADMIN_REQUIRED，admin 放行', async () => {
+    const cases: Array<readonly ['DELETE' | 'POST' | 'GET', string]> = [
       ['DELETE', '/api/companies/c1'],
       ['DELETE', '/api/seller-documents/d1'],
       ['POST', '/api/companies/c1/confirm'],
       ['DELETE', '/api/icp-rules/r1'],
+      ['GET', '/api/deletion-requests'],
     ];
     for (const role of ['member', 'admin'] as const) {
       const call = vi.fn(async () => ({
@@ -572,5 +577,264 @@ describe('资料库上传与文档转 Claim BFF 透传', () => {
       expect.objectContaining({ body: draftBody, headers: { 'idempotency-key': 'idem-1' } }),
     );
     expect(issue).not.toHaveBeenCalled();
+  });
+});
+
+describe('资料库流式下载代理 (GET /api/seller-documents/:documentId/content)', () => {
+  const realFetch = globalThis.fetch;
+
+  function stubEngineFetch(
+    handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+  ) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith('http://engine.test')) {
+          return handler(url, init);
+        }
+        return realFetch(input, init);
+      }),
+    );
+  }
+
+  it('openStream 透传查询/鉴权头，200 时直接返回 ReadableStream 不调用 arrayBuffer', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('hello-pdf'));
+        controller.close();
+      },
+    });
+    const arrayBufferSpy = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        status: 200,
+        headers: new Headers({
+          'content-type': 'application/pdf',
+          'content-disposition': "attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf",
+          'content-length': '9',
+        }),
+        body: stream,
+        arrayBuffer: arrayBufferSpy,
+      })),
+    );
+    const engineHttp = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'signed-jwt' } as never,
+    );
+    const result = await engineHttp.openStream(
+      { userId: 'u-1', workspaceId: 'w-1', role: 'member' },
+      'GET',
+      '/seller-documents/doc-1/content',
+      { timeoutMs: 180_000 },
+    );
+    expect(result.status).toBe(200);
+    expect(result.bodyStream).toBe(stream);
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+  });
+
+  it('真实 HTTP 流式透传：转发字节流与安全响应头', async () => {
+    const upstreamChunks = [Buffer.from('%PDF-1.4\n'), Buffer.from('chunk-2')];
+    stubEngineFetch(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (const c of upstreamChunks) {
+            controller.enqueue(new Uint8Array(c));
+            await new Promise((r) => setTimeout(r, 5));
+          }
+          controller.close();
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'content-type': 'application/pdf',
+          'content-disposition': "attachment; filename=\"brochure.pdf\"; filename*=UTF-8''%E5%85%AC%E5%8F%B8%E4%BB%8B%E7%BB%8D.pdf",
+          'content-length': String(Buffer.concat(upstreamChunks).length),
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    });
+    const engineHttp = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'signed-jwt' } as never,
+    );
+    const handler = new BffHandler(
+      engineHttp,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+
+    const app = express();
+    app.use((req, res) => {
+      req.tenant = { userId: 'u-1', workspaceId: 'w-1', role: 'member', onboardingCompleted: true } as never;
+      void handler.handle(req, res);
+    });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/api/seller-documents/doc-1/content`);
+      expect(resp.status).toBe(200);
+      expect(resp.headers.get('content-type')).toBe('application/pdf');
+      expect(resp.headers.get('content-disposition')).toContain('%E5%85%AC%E5%8F%B8%E4%BB%8B%E7%BB%8D.pdf');
+      expect(resp.headers.get('content-length')).toBe(String(Buffer.concat(upstreamChunks).length));
+      expect(resp.headers.get('cache-control')).toBe('no-store');
+      expect(resp.headers.get('x-content-type-options')).toBe('nosniff');
+      const buf = Buffer.from(await resp.arrayBuffer());
+      expect(buf.toString('utf8')).toBe('%PDF-1.4\nchunk-2');
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('客户端提前断开连接时中止上游 AbortSignal', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let aborted = false;
+    stubEngineFetch(async (_url, init) => {
+      observedSignal = init?.signal ?? undefined;
+      observedSignal?.addEventListener('abort', () => {
+        aborted = true;
+      });
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(Buffer.from('first-chunk')));
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/octet-stream' },
+      });
+    });
+    const engineHttp = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'signed-jwt' } as never,
+    );
+    const handler = new BffHandler(
+      engineHttp,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    const app = express();
+    app.use((req, res) => {
+      req.tenant = { userId: 'u-1', workspaceId: 'w-1', role: 'member', onboardingCompleted: true } as never;
+      void handler.handle(req, res);
+    });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const ac = new AbortController();
+      const resp = await fetch(`http://127.0.0.1:${port}/api/seller-documents/doc-1/content`, {
+        signal: ac.signal,
+      });
+      const reader = resp.body!.getReader();
+      await reader.read();
+      ac.abort();
+      await reader.cancel().catch(() => undefined);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(observedSignal?.aborted || aborted).toBe(true);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it.each([
+    [404, 'NOT_FOUND', 404],
+    [409, 'SELLER_DOCUMENT_NOT_READY', 409],
+    [503, 'SELLER_DOCUMENTS_STORAGE_UNAVAILABLE', 503],
+    [401, 'TOKEN_INVALID', 502],
+  ] as const)('上游返回 %i (%s) 时映射为 %i JSON 错误', async (upstreamStatus, code, expectedStatus) => {
+    stubEngineFetch(async () =>
+      new Response(JSON.stringify({ error: { code, message: 'upstream err' } }), {
+        status: upstreamStatus,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const engineHttp = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'signed-jwt' } as never,
+    );
+    const handler = new BffHandler(
+      engineHttp,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    const app = express();
+    app.use((req, res) => {
+      req.tenant = { userId: 'u-1', workspaceId: 'w-1', role: 'member', onboardingCompleted: true } as never;
+      void handler.handle(req, res);
+    });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/api/seller-documents/doc-1/content`, {
+        headers: { 'accept-language': 'zh-CN' },
+      });
+      expect(resp.status).toBe(expectedStatus);
+      const json = (await resp.json()) as { error?: { code?: string; userCopy?: { title?: string } } };
+      expect(json.error?.code).toBe(code);
+      expect(json.error?.userCopy?.title).toBeTruthy();
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('headersSent 之后上游流出错时安全销毁响应而不抛 ERR_HTTP_HEADERS_SENT', async () => {
+    stubEngineFetch(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(Buffer.from('partial-')));
+          setTimeout(() => controller.error(new Error('mid-stream boom')), 10);
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      });
+    });
+    const engineHttp = new EngineHttp(
+      { ENGINE_ORIGIN: 'http://engine.test' } as never,
+      { mint: async () => 'signed-jwt' } as never,
+    );
+    const handler = new BffHandler(
+      engineHttp,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    let unhandledError: unknown = null;
+    const app = express();
+    app.use((req, res) => {
+      req.tenant = { userId: 'u-1', workspaceId: 'w-1', role: 'member', onboardingCompleted: true } as never;
+      handler.handle(req, res).catch((err) => {
+        unhandledError = err;
+      });
+    });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/api/seller-documents/doc-1/content`);
+      await resp.arrayBuffer().catch(() => undefined);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(unhandledError).toBeNull();
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

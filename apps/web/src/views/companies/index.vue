@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { feedback } from '#/feedback';
@@ -38,6 +38,8 @@ import {
   type CompanyConflict,
   type CompanyOffering,
   type CompanyProfile,
+  type DocumentChunkView,
+  type DocumentClaimPreview,
   type Icp,
   type SellerDocument,
   type UpdateCompanyInput,
@@ -452,7 +454,7 @@ const primaryMenuItems = computed(() => {
   if (understandingFailed(company)) {
     items.push({ key: 'retry', label: $t('gainos.companies.retryUnderstanding') });
   }
-  if (company.status === 'REVIEW') {
+  if (isAdmin.value && company.status === 'REVIEW') {
     items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
   }
   return items;
@@ -471,8 +473,8 @@ function relatedMenuItems(company: CompanyProfile): Array<{ key: string; label: 
   if (company.status === 'DRAFT') items.push({ key: 'edit', label: $t('gainos.companies.edit') });
   if (marketContext.value) items.push({ key: 'market', label: $t('gainos.companies.marketCandidates') });
   if (understandingFailed(company)) items.push({ key: 'retry', label: $t('gainos.companies.retryUnderstanding') });
-  if (company.status === 'REVIEW') items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
-  if (company.status === 'DRAFT') items.push({ key: 'delete', label: $t('gainos.companies.delete') });
+  if (isAdmin.value && company.status === 'REVIEW') items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
+  if (isAdmin.value && company.status === 'DRAFT') items.push({ key: 'delete', label: $t('gainos.companies.delete') });
   return items;
 }
 function onRelatedMenu(info: { key: number | string }, company: CompanyProfile): void {
@@ -1129,7 +1131,179 @@ const docsNotice = ref<string | null>(null);
 const docsQuery = ref('');
 const docsHits = ref<Array<{ documentId: string; filename: string; seq: number; text: string; score: number }>>([]);
 const docsSearching = ref(false);
+const downloadingDocId = ref<string | null>(null);
 let docsTimer: ReturnType<typeof setInterval> | null = null;
+
+// ── 文档分段提炼企业事实（chunks/:seq → claim-previews → claim-drafts）──
+const utf8Encoder = new TextEncoder();
+const extractOpen = ref(false);
+const extractCompanyId = ref<string | null>(null);
+const extractDoc = ref<{ id: string; filename: string; chunkCount?: number } | null>(null);
+const extractSeq = ref(0);
+const extractChunk = ref<DocumentChunkView | null>(null);
+const extractLoading = ref(false);
+const extractError = ref<string | null>(null);
+const extractQuote = ref('');
+const extractType = ref('capability');
+const extractStatement = ref('');
+const extractPreview = ref<DocumentClaimPreview | null>(null);
+const extractPreviewBusy = ref(false);
+const extractSaveBusy = ref(false);
+let extractEpoch = 0;
+
+const extractTypeOptions = computed(() =>
+  Object.entries(CLAIM_TYPE_KEY).map(([value, key]) => ({
+    value,
+    label: $t(key),
+  })),
+);
+
+const extractPageNumber = computed<number | null>(() => {
+  const page = extractChunk.value?.context?.page;
+  return typeof page === 'number' && Number.isFinite(page) ? page : null;
+});
+
+watch([extractQuote, extractType, extractStatement], () => {
+  extractPreview.value = null;
+  extractError.value = null;
+});
+
+function findUtf8ByteRange(haystack: string, needle: string): { startByte: number; endByte: number } | null {
+  if (!needle) return null;
+  let match = needle;
+  let charIdx = haystack.indexOf(match);
+  if (charIdx < 0 && needle.trim() !== needle) {
+    match = needle.trim();
+    charIdx = match ? haystack.indexOf(match) : -1;
+  }
+  if (charIdx < 0) return null;
+  const startByte = utf8Encoder.encode(haystack.slice(0, charIdx)).byteLength;
+  const endByte = startByte + utf8Encoder.encode(match).byteLength;
+  return { startByte, endByte };
+}
+
+async function loadExtractChunk(seq: number): Promise<void> {
+  const companyId = extractCompanyId.value;
+  const doc = extractDoc.value;
+  if (!companyId || !doc) return;
+  const epoch = ++extractEpoch;
+  extractLoading.value = true;
+  extractError.value = null;
+  extractPreview.value = null;
+  extractChunk.value = null;
+  try {
+    const chunk = await gainosApi.sellerDocumentChunk(companyId, doc.id, seq);
+    if (epoch !== extractEpoch) return;
+    extractChunk.value = chunk;
+    extractSeq.value = chunk.chunkSeq;
+    extractQuote.value = Array.from(chunk.text).slice(0, 300).join('');
+  } catch (err) {
+    if (epoch === extractEpoch) {
+      const detail = failureText(err);
+      extractError.value = detail.next ? `${detail.title} —— ${detail.next}` : detail.title;
+    }
+  } finally {
+    if (epoch === extractEpoch) extractLoading.value = false;
+  }
+}
+
+function openExtractModal(doc: { id: string; filename: string; chunkCount?: number }, seq = 0): void {
+  const companyId = docsCompany.value?.id;
+  if (!companyId) return;
+  extractCompanyId.value = companyId;
+  extractDoc.value = { id: doc.id, filename: doc.filename, chunkCount: doc.chunkCount };
+  extractSeq.value = seq;
+  extractStatement.value = '';
+  extractQuote.value = '';
+  extractPreview.value = null;
+  extractError.value = null;
+  extractOpen.value = true;
+  void loadExtractChunk(seq);
+}
+
+async function runExtractPreview(): Promise<void> {
+  const companyId = extractCompanyId.value;
+  const doc = extractDoc.value;
+  const chunk = extractChunk.value;
+  if (!companyId || !doc || !chunk || extractPreviewBusy.value) return;
+  extractError.value = null;
+  const statement = extractStatement.value.trim();
+  if (!statement) {
+    extractError.value = $t('gainos.companies.chunkStatementRequired');
+    return;
+  }
+  const range = findUtf8ByteRange(chunk.text, extractQuote.value);
+  if (!range) {
+    extractError.value = $t('gainos.companies.chunkQuoteNotFound');
+    return;
+  }
+  extractPreviewBusy.value = true;
+  try {
+    extractPreview.value = await gainosApi.previewSellerDocumentClaim(companyId, doc.id, {
+      reference: {
+        documentId: chunk.documentId,
+        documentContentHash: chunk.documentContentHash,
+        parseRevision: chunk.parseRevision,
+        chunkSeq: chunk.chunkSeq,
+        chunkTextHash: chunk.chunkTextHash,
+        quoteStartByte: range.startByte,
+        quoteEndByte: range.endByte,
+      },
+      type: extractType.value,
+      statement,
+    });
+  } catch (err) {
+    extractPreview.value = null;
+    const detail = failureText(err);
+    extractError.value = detail.next ? `${detail.title} —— ${detail.next}` : detail.title;
+  } finally {
+    extractPreviewBusy.value = false;
+  }
+}
+
+async function saveExtractDraft(): Promise<void> {
+  const companyId = extractCompanyId.value;
+  const doc = extractDoc.value;
+  const chunk = extractChunk.value;
+  const preview = extractPreview.value;
+  if (!companyId || !doc || !chunk || !preview || extractSaveBusy.value) return;
+  const range = findUtf8ByteRange(chunk.text, extractQuote.value);
+  if (!range) {
+    extractError.value = $t('gainos.companies.chunkQuoteNotFound');
+    extractPreview.value = null;
+    return;
+  }
+  extractSaveBusy.value = true;
+  extractError.value = null;
+  try {
+    const draft = await gainosApi.createSellerDocumentClaimDraft(companyId, doc.id, {
+      reference: {
+        documentId: chunk.documentId,
+        documentContentHash: chunk.documentContentHash,
+        parseRevision: chunk.parseRevision,
+        chunkSeq: chunk.chunkSeq,
+        chunkTextHash: chunk.chunkTextHash,
+        quoteStartByte: range.startByte,
+        quoteEndByte: range.endByte,
+      },
+      type: extractType.value,
+      statement: extractStatement.value.trim(),
+      requestDigest: preview.requestDigest,
+    });
+    feedback.message.success(
+      draft.replayed ? $t('gainos.companies.chunkDraftReplayed') : $t('gainos.companies.chunkDraftCreated'),
+    );
+    claimsStale.value = true;
+    extractOpen.value = false;
+    void loadSummaries();
+    if (claimsCompany.value?.id === companyId) void loadClaims();
+  } catch (err) {
+    const detail = failureText(err);
+    extractError.value = detail.next ? `${detail.title} —— ${detail.next}` : detail.title;
+  } finally {
+    extractSaveBusy.value = false;
+  }
+}
 
 const DOC_MIME_BY_EXT: Record<string, string> = {
   pdf: 'application/pdf',
@@ -1303,11 +1477,18 @@ async function retryDocument(row: SellerDocument): Promise<void> {
 }
 
 async function downloadDocument(row: SellerDocument): Promise<void> {
+  if (downloadingDocId.value) return;
+  downloadingDocId.value = row.id;
+  docsError.value = null;
   try {
-    const signed = await gainosApi.sellerDocumentDownloadUrl(row.id);
-    window.open(signed.url, '_blank', 'noopener');
+    const filename = await gainosApi.downloadSellerDocument(row.id, row.filename);
+    feedback.message.success($t('gainos.companies.downloadDone', { name: filename }));
   } catch (err) {
-    docsError.value = failureText(err).title;
+    const detail = failureText(err);
+    docsError.value = detail.next ? `${detail.title} —— ${detail.next}` : detail.title;
+    feedback.message.error(detail.title);
+  } finally {
+    downloadingDocId.value = null;
   }
 }
 
@@ -2054,8 +2235,21 @@ onUnmounted(() => {
                   </span>
                 </div>
                 <div class="cp__docs-side">
-                  <Button v-if="row.status === 'ready'" size="small" @click="downloadDocument(row)">
-                    {{ $t('gainos.companies.download') }}
+                  <Button
+                    v-if="row.status === 'ready'"
+                    :disabled="downloadingDocId === row.id"
+                    :loading="downloadingDocId === row.id"
+                    size="small"
+                    @click="downloadDocument(row)"
+                  >
+                    {{ downloadingDocId === row.id ? $t('gainos.companies.downloading') : $t('gainos.companies.download') }}
+                  </Button>
+                  <Button
+                    v-if="row.status === 'ready' && (row.chunkCount ?? 0) > 0 && !docsRecoveryReadOnly"
+                    size="small"
+                    @click="openExtractModal(row, 0)"
+                  >
+                    {{ $t('gainos.companies.extractFact') }}
                   </Button>
                   <Button
                     v-if="!docsRecoveryReadOnly && (row.status === 'failed_terminal' || row.status === 'queued')"
@@ -2064,7 +2258,7 @@ onUnmounted(() => {
                   >
                     {{ $t('gainos.companies.retryUnderstanding') }}
                   </Button>
-                  <Button v-if="!docsRecoveryReadOnly" size="small" @click="removeDocument(row)">
+                  <Button v-if="isAdmin && !docsRecoveryReadOnly" size="small" @click="removeDocument(row)">
                     {{ $t('gainos.companies.delete') }}
                   </Button>
                 </div>
@@ -2103,6 +2297,11 @@ onUnmounted(() => {
               >
                 <strong>{{ hit.filename }} · #{{ hit.seq }}</strong>
                 <p>{{ hit.text.slice(0, 200) }}</p>
+                <div v-if="!docsRecoveryReadOnly" class="mt-2 flex justify-end">
+                  <Button size="small" @click="openExtractModal({ id: hit.documentId, filename: hit.filename }, hit.seq)">
+                    {{ $t('gainos.companies.extractFact') }}
+                  </Button>
+                </div>
               </li>
               <li v-if="docsHits.length === 0" class="co-muted">
                 {{ $t('gainos.companies.documentSearchEmpty') }}
@@ -2323,6 +2522,116 @@ onUnmounted(() => {
           />
         </label>
         <Alert v-if="editError" :message="editError" role="alert" show-icon type="error" />
+      </div>
+    </Modal>
+
+    <!-- 从资料分段提炼企业事实（读取分段 → 预览校验 → 保存待审草稿） -->
+    <Modal
+      v-model:open="extractOpen"
+      :footer="null"
+      :title="$t('gainos.companies.extractModalTitle')"
+      :width="660"
+    >
+      <div class="grid gap-3 pt-2" data-gs="doc-claim-modal">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0 text-sm">
+            <strong class="mr-2">{{ extractDoc?.filename }}</strong>
+            <GsTag v-if="extractDoc?.chunkCount" tone="neutral">
+              {{ $t('gainos.companies.chunkSeqLabel', { current: extractSeq + 1, total: extractDoc.chunkCount }) }}
+            </GsTag>
+            <GsTag v-else tone="neutral">
+              {{ $t('gainos.companies.chunkSingleLabel', { seq: extractSeq }) }}
+            </GsTag>
+            <GsTag v-if="extractPageNumber !== null" class="ml-1" tone="info">
+              {{ $t('gainos.companies.chunkPageLabel', { page: extractPageNumber }) }}
+            </GsTag>
+          </div>
+          <Space :size="6">
+            <Button
+              :disabled="extractLoading || extractSeq <= 0"
+              size="small"
+              @click="loadExtractChunk(extractSeq - 1)"
+            >
+              {{ $t('gainos.companies.chunkPrev') }}
+            </Button>
+            <Button
+              :disabled="extractLoading || (extractDoc?.chunkCount !== undefined && extractSeq >= extractDoc.chunkCount - 1)"
+              size="small"
+              @click="loadExtractChunk(extractSeq + 1)"
+            >
+              {{ $t('gainos.companies.chunkNext') }}
+            </Button>
+          </Space>
+        </div>
+
+        <Skeleton v-if="extractLoading" active :paragraph="{ rows: 3 }" />
+        <template v-else-if="extractChunk">
+          <div class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--gs-border)] bg-[var(--gs-surface-2)] p-3 text-xs leading-relaxed text-[var(--gs-fg-2)]">
+            {{ extractChunk.text }}
+          </div>
+
+          <label class="grid gap-1 text-xs">
+            <span class="font-medium text-[var(--gs-fg-2)]">{{ $t('gainos.companies.chunkQuoteLabel') }}</span>
+            <Textarea
+              v-model:value="extractQuote"
+              :rows="2"
+              data-gs="doc-claim-quote"
+            />
+            <span class="text-[var(--gs-fg-subtle)]">{{ $t('gainos.companies.chunkQuoteHint') }}</span>
+          </label>
+
+          <label class="grid gap-1 text-xs">
+            <span class="font-medium text-[var(--gs-fg-2)]">{{ $t('gainos.companies.chunkTypeLabel') }}</span>
+            <GsSelect
+              v-model="extractType"
+              :ariaLabel="$t('gainos.companies.chunkTypeLabel')"
+              :options="extractTypeOptions"
+            />
+          </label>
+
+          <label class="grid gap-1 text-xs">
+            <span class="font-medium text-[var(--gs-fg-2)]">{{ $t('gainos.companies.chunkStatementLabel') }}</span>
+            <Textarea
+              v-model:value="extractStatement"
+              :maxlength="4000"
+              :placeholder="$t('gainos.companies.chunkStatementPlaceholder')"
+              :rows="2"
+              data-gs="doc-claim-statement"
+            />
+          </label>
+
+          <Alert
+            v-if="extractPreview"
+            :description="$t('gainos.companies.chunkPreviewQuote', { quote: extractPreview.quote })"
+            :message="$t('gainos.companies.chunkPreviewTitle')"
+            data-gs="doc-claim-preview"
+            show-icon
+            type="success"
+          />
+        </template>
+
+        <Alert v-if="extractError" :message="extractError" role="alert" show-icon type="warning" />
+
+        <div class="flex flex-wrap justify-end gap-2 border-t border-[var(--gs-border)] pt-3">
+          <Button @click="extractOpen = false">{{ $t('gainos.common.cancel') }}</Button>
+          <Button
+            :disabled="extractLoading || !extractChunk || extractPreviewBusy"
+            :loading="extractPreviewBusy"
+            data-gs="doc-claim-preview-btn"
+            @click="runExtractPreview"
+          >
+            {{ extractPreviewBusy ? $t('gainos.companies.chunkPreviewing') : $t('gainos.companies.chunkPreviewBtn') }}
+          </Button>
+          <Button
+            :disabled="!extractPreview || extractSaveBusy"
+            :loading="extractSaveBusy"
+            data-gs="doc-claim-save-btn"
+            type="primary"
+            @click="saveExtractDraft"
+          >
+            {{ extractSaveBusy ? $t('gainos.companies.chunkSaving') : $t('gainos.companies.chunkSaveDraft') }}
+          </Button>
+        </div>
       </div>
     </Modal>
 

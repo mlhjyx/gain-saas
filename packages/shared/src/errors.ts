@@ -1042,6 +1042,107 @@ export const ENGINE_ERROR_COPY = {
       next: "Respect the objection: do not call again; use another channel only with fresh consent.",
     },
   },
+  // ── MT-P0：资料下载、文档转事实、DSR 主体与上传/权限控制 ─────────────────
+  SELLER_DOCUMENT_NOT_READY: {
+    title: '资料尚未处理完成，暂时不能下载',
+    why: '这份资料仍在上传、排队或解析中，文件尚未就绪。',
+    next: '等待状态变为「已就绪」后再下载；如长时间未就绪，请点「重试理解」或重新上传。',
+    en: {
+      title: 'This document is not ready to download yet',
+      why: 'The file is still uploading, queued, or being parsed.',
+      next: 'Wait until its status becomes Ready and try again, or retry/re-upload if it stays stuck.',
+    },
+  },
+  SELLER_DOCUMENTS_STORAGE_UNAVAILABLE: {
+    title: '资料存储服务暂时不可用',
+    why: '文档存储服务当前无法读取该文件，这与你的权限或文件本身无关。',
+    next: '稍后刷新页面重试；若持续不可用，请联系平台运营检查存储服务。',
+    en: {
+      title: 'Document storage is temporarily unavailable',
+      why: 'The file store could not serve this document right now; this is unrelated to your permissions or the file.',
+      next: 'Refresh and retry shortly; if it persists, ask operations to check document storage.',
+    },
+  },
+  SUBJECT_NOT_FOUND: {
+    title: '找不到对应的删除对象',
+    why: '该买家公司或联系人编号不存在，或不属于当前工作空间。',
+    next: '从买家列表重新选择公司，或核对联系人记录编号后再提交。',
+    en: {
+      title: 'Target record could not be found',
+      why: 'That buyer company or contact ID does not exist or belongs to another workspace.',
+      next: 'Pick the company from the selector again, or verify the contact ID before submitting.',
+    },
+  },
+  DOCUMENT_CLAIM_SOURCE_UNAVAILABLE: {
+    title: '资料分段暂不可用，无法提炼企业事实',
+    why: '文档尚未解析就绪，或刚被更新/删除，当前引用已失效。',
+    next: '刷新资料库确认文档已就绪并重新打开该分段后再提交。',
+    en: {
+      title: 'Document passage is unavailable for fact extraction',
+      why: 'The document is not ready yet, or it was updated or removed so this reference is stale.',
+      next: 'Refresh the document list, verify it is Ready, and reopen the passage before submitting.',
+    },
+  },
+  DOCUMENT_CLAIM_REQUEST_MISMATCH: {
+    title: '预览与提交内容不一致，已拦截保存',
+    why: '你在预览之后修改了摘录区间、事实类型或陈述，当前摘要已过期。',
+    next: '先重新点击「预览校验」确认原文与摘要，再保存为待审事实。',
+    en: {
+      title: 'Preview and submission do not match',
+      why: 'The quote selection, fact type, or statement changed after the preview was generated.',
+      next: 'Run the preview check again to refresh the binding, then save the fact draft.',
+    },
+  },
+  DOCUMENT_CLAIM_CONFLICT: {
+    title: '该来源分段已存在不同的企业事实记录',
+    why: '同一引文绑定已有另一条不同陈述的记录，不能直接覆盖。',
+    next: '到「企业事实」清单查看已有事实，或修改陈述后作为新事实补充。',
+    en: {
+      title: 'A different fact already uses this document reference',
+      why: 'Another fact with a different statement is already bound to this exact reference.',
+      next: 'Check existing facts in the Company facts tab, or revise your selection before submitting.',
+    },
+  },
+  PAYLOAD_TOO_LARGE: {
+    title: '上传文件超出大小上限',
+    why: '单份资料大小超过了平台允许的 50 MB 上限。',
+    next: '压缩文件或拆分成多个较小文档后重新上传。',
+    en: {
+      title: 'File exceeds the size limit',
+      why: 'A single document cannot exceed the 50 MB upload limit.',
+      next: 'Compress the file or split it into smaller documents before uploading again.',
+    },
+  },
+  UNSUPPORTED_CONTENT_ENCODING: {
+    title: '不支持的上传传输编码',
+    why: '上传请求使用了服务端不接受的压缩或内容编码格式。',
+    next: '请使用浏览器直接选择原始文件重新上传。',
+    en: {
+      title: 'Unsupported upload content encoding',
+      why: 'The upload request used a compression or content encoding that the server does not accept.',
+      next: 'Select the original file directly in the browser and upload again.',
+    },
+  },
+  SELF_REMOVAL: {
+    title: '不能在成员列表里移除自己',
+    why: '为避免误操作把当前登录账号踢出工作空间，移除自己需走「退出工作空间」流程。',
+    next: '如需离开当前空间，请使用「退出工作空间」功能，或先由其他管理员处理。',
+    en: {
+      title: 'You cannot remove yourself from the member list',
+      why: 'To prevent accidentally locking out your own session, leaving a workspace uses the Leave workspace action.',
+      next: 'Use Leave workspace instead, or ask another admin to manage memberships.',
+    },
+  },
+  ADMIN_REQUIRED: {
+    title: '需要工作空间管理员权限',
+    why: '该操作涉及删除、权限或合规管理，只对当前工作空间管理员开放。',
+    next: '请联系工作空间管理员执行，或请管理员将你的角色调整为管理员。',
+    en: {
+      title: 'Workspace admin permission required',
+      why: 'This action involves deletion, permissions, or compliance management and is limited to workspace admins.',
+      next: 'Ask a workspace admin to complete this action, or ask them to grant you the admin role.',
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

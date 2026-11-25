@@ -2,8 +2,12 @@
  * GainOS 业务 API(BFF 路由表透传；错误已由 request.ts 统一解包/映射,PRD §14)。
  * 字段命名跟随引擎 OpenAPI(packages/engine-client);未知字段一律防御性可选。
  */
+import { useAppConfig } from '@vben/hooks';
+import { preferences } from '@vben/preferences';
 import { baseRequestClient, requestClient } from '#/api/request';
 import { buildExecutionBody, type ExecutionFeatureOptions } from './execution-body';
+
+const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
 export interface CompanyProfile {
   id?: string;
@@ -807,6 +811,70 @@ export interface SellerDocument {
   createdAt?: string;
 }
 
+export interface DocumentChunkView {
+  documentId: string;
+  documentContentHash: string;
+  parseRevision: number;
+  chunkSeq: number;
+  chunkTextHash: string;
+  text: string;
+  context: Record<string, unknown> | null;
+}
+
+export interface DocumentClaimSourceRef {
+  documentId: string;
+  documentContentHash: string;
+  parseRevision: number;
+  chunkSeq: number;
+  chunkTextHash: string;
+  quoteStartByte: number;
+  quoteEndByte: number;
+}
+
+export interface PreviewDocumentClaimInput {
+  reference: DocumentClaimSourceRef;
+  type: string;
+  statement: string;
+}
+
+export interface DocumentClaimPreview {
+  documentId: string;
+  documentContentHash: string;
+  parseRevision: number;
+  chunkSeq: number;
+  quote: string;
+  quoteStartByte: number;
+  quoteEndByte: number;
+  quoteDigest: string;
+  statementDigest: string;
+  bindingHash: string;
+  requestDigest: string;
+  context: Record<string, unknown> | null;
+}
+
+export interface CreateDocumentClaimDraftInput extends PreviewDocumentClaimInput {
+  requestDigest: string;
+}
+
+export interface DocumentClaimDraft {
+  claimId: string;
+  evidenceId: string;
+  referenceId: string;
+  bindingHash: string;
+  status: 'NEEDS_REVIEW' | 'APPROVED' | 'REJECTED' | 'REVOKED' | string;
+  claimVersion: number;
+  replayed: boolean;
+  available: boolean;
+}
+
+export interface CanonicalCompanyListItem {
+  id: string;
+  name?: string | null;
+  domain?: string | null;
+  country?: string | null;
+  status?: string;
+}
+
 export interface WebsiteCandidate {
   url: string;
   title: string;
@@ -880,6 +948,8 @@ export const gainosApi = {
     ),
   createDeletionRequest: (input: { subjectType: 'company' | 'contact'; subjectId: string; reason?: string; requestRef?: string }) =>
     requestClient.post<DeletionRequestView>('/deletion-requests', input),
+  deletionRequests: (params: { cursor?: string; limit?: number; status?: string } = {}) =>
+    pagedGet<DeletionRequestView>('/deletion-requests', params),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),
   /** 2026-11-04 取消租户声明：平台统一合法依据 + 本工作空间只读历史。requestClient 已解包 {data}。 */
   complianceInfo: () => requestClient.get<ComplianceInfoView>('/settings/compliance'),
@@ -933,6 +1003,55 @@ export const gainosApi = {
     requestClient.delete<{ id: string }>(`/seller-documents/${documentId}`),
   sellerDocumentDownloadUrl: (documentId: string) =>
     requestClient.get<{ url: string; expiresAt: string }>(`/seller-documents/${documentId}/download-url`),
+  downloadSellerDocument: async (documentId: string, fallbackFilename?: string): Promise<string> => {
+    const base = (apiURL || '/api').replace(/\/$/, '');
+    const res = await fetch(`${base}/seller-documents/${encodeURIComponent(documentId)}/content`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { 'Accept-Language': preferences.app.locale },
+    });
+    if (!res.ok) {
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const json = await res.json().catch(() => null);
+        const title = json?.error?.userCopy?.title ?? json?.error?.message ?? `HTTP ${res.status}`;
+        throw Object.assign(new Error(title), { response: { status: res.status, data: json } });
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const filename =
+      parseContentDispositionFilename(res.headers.get('content-disposition')) ||
+      fallbackFilename?.trim() ||
+      'document';
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.style.display = 'none';
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+    return filename;
+  },
+  sellerDocumentChunk: (companyId: string, documentId: string, seq: number) =>
+    requestClient.get<DocumentChunkView>(
+      `/companies/${encodeURIComponent(companyId)}/seller-documents/${encodeURIComponent(documentId)}/chunks/${seq}`,
+    ),
+  previewSellerDocumentClaim: (companyId: string, documentId: string, input: PreviewDocumentClaimInput) =>
+    requestClient.post<DocumentClaimPreview>(
+      `/companies/${encodeURIComponent(companyId)}/seller-documents/${encodeURIComponent(documentId)}/claim-previews`,
+      input,
+    ),
+  createSellerDocumentClaimDraft: (companyId: string, documentId: string, input: CreateDocumentClaimDraftInput) =>
+    requestClient.post<DocumentClaimDraft>(
+      `/companies/${encodeURIComponent(companyId)}/seller-documents/${encodeURIComponent(documentId)}/claim-drafts`,
+      input,
+    ),
   confirmCompany: (companyId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/confirm`, {}),
   companyDetail: (companyId: string) => requestClient.get<CompanyProfile>(`/companies/${companyId}`),
@@ -960,6 +1079,8 @@ export const gainosApi = {
   resolveConflict: (conflictId: string, keep: 'a' | 'b') =>
     requestClient.post<CompanyConflict>(`/conflicts/${conflictId}/resolve`, { keep }),
   // ── 决策人（联系人挖掘 M4；引擎只对管理员身份的 compliance:manage 放行）──
+  canonicalCompanies: (params: { cursor?: string; limit?: number; status?: string } = {}) =>
+    pagedGet<CanonicalCompanyListItem>('/canonical-companies', params),
   canonicalCompany: (companyId: string) =>
     requestClient.get<CanonicalCompanyDetail>(`/canonical-companies/${companyId}`),
   discoverContacts: (companyId: string, input: DiscoverContactsInput) =>
@@ -1586,6 +1707,31 @@ export interface PagedResult<T> {
   page?: { next_cursor?: string | null; has_more?: boolean };
 }
 
+function parseContentDispositionFilename(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const utf8Match = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/i.exec(disposition);
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ''));
+      const clean = decoded.split(/[\\/]/).pop()?.trim();
+      if (clean) return clean;
+    } catch {
+      // fall back to filename=
+    }
+  }
+  const quotedMatch = /filename\s*=\s*"([^"]+)"/i.exec(disposition);
+  if (quotedMatch?.[1]) {
+    const clean = quotedMatch[1].split(/[\\/]/).pop()?.trim();
+    if (clean) return clean;
+  }
+  const bareMatch = /filename\s*=\s*([^;]+)/i.exec(disposition);
+  if (bareMatch?.[1]) {
+    const clean = bareMatch[1].trim().replace(/^["']|["']$/g, '').split(/[\\/]/).pop()?.trim();
+    if (clean) return clean;
+  }
+  return null;
+}
+
 /**
  * 分页只读端点的原样信封：用 baseRequestClient 保留 `page`（游标/截断标记）。
  * 返回 `response.data`——即 BFF 透传的引擎信封本体。
@@ -1594,9 +1740,25 @@ async function pagedGet<T>(
   url: string,
   params: Record<string, unknown> = {},
 ): Promise<PagedResult<T>> {
-  const response = await baseRequestClient.get<unknown>(url, { params });
-  const body = (response as { data?: PagedResult<T> }).data;
-  return { data: body?.data ?? [], ...(body?.page ? { page: body.page } : {}) };
+  const response = await baseRequestClient.get<unknown>(url, {
+    headers: { 'Accept-Language': preferences.app.locale },
+    params,
+  });
+  const raw = (response as { data?: unknown })?.data;
+  const body = (
+    raw &&
+    typeof raw === 'object' &&
+    !('page' in raw) &&
+    'data' in raw &&
+    (raw as { data?: unknown }).data &&
+    typeof (raw as { data?: unknown }).data === 'object'
+      ? (raw as { data: PagedResult<T> }).data
+      : raw
+  ) as PagedResult<T> | undefined;
+  return {
+    data: Array.isArray(body?.data) ? body.data : [],
+    ...(body?.page ? { page: body.page } : {}),
+  };
 }
 
 export type QgoOutcomeValue =

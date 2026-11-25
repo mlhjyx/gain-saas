@@ -65,6 +65,7 @@ describe('seller documents BFF routes', () => {
       ['GET', 'companies/:companyId/seller-documents/search'],
       ['GET', 'seller-documents/:documentId'],
       ['GET', 'seller-documents/:documentId/download-url'],
+      ['GET', 'seller-documents/:documentId/content'],
       ['POST', 'seller-documents/:documentId/retry'],
     ];
     for (const [method, saasPath] of expectedMember) {
@@ -84,6 +85,25 @@ describe('seller documents BFF routes', () => {
       binary: true,
       timeoutMs: 180_000,
     });
+    expect(find('GET', 'seller-documents/:documentId/content')).toEqual({
+      method: 'GET',
+      saasPath: 'seller-documents/:documentId/content',
+      enginePath: '/seller-documents/:documentId/content',
+      access: 'member',
+      stream: true,
+      timeoutMs: 180_000,
+    });
+  });
+
+  it('registers GET deletion-requests as admin passthrough without grant', () => {
+    const listDsr = find('GET', 'deletion-requests');
+    expect(listDsr).toEqual({
+      method: 'GET',
+      saasPath: 'deletion-requests',
+      enginePath: '/deletion-requests',
+      access: 'admin',
+    });
+    expect(listDsr?.grant).toBeUndefined();
   });
 
   it('registers DELETE icp-rules/:ruleId as admin without grant while PATCH stays member', () => {

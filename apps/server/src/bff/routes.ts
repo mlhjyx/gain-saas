@@ -20,6 +20,8 @@ export interface BffRoute {
   readonly access: 'member' | 'admin';
   /** 二进制原样透传(资料库上传):body 为 Buffer,content-type 原样转发。 */
   readonly binary?: boolean;
+  /** 流式下载透传(资料库下载):直接管道转发上游 ReadableStream,不在 BFF 内存整包缓冲。 */
+  readonly stream?: boolean;
   readonly grant?: true;
   /** D6：请求未带 lawfulBasis 时由 BFF 注入租户的合法依据声明。 */
   readonly complianceInject?: true;
@@ -45,6 +47,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents/search', enginePath: '/companies/:companyId/seller-documents/search', access: 'member' },
   { method: 'GET', saasPath: 'seller-documents/:documentId', enginePath: '/seller-documents/:documentId', access: 'member' },
   { method: 'GET', saasPath: 'seller-documents/:documentId/download-url', enginePath: '/seller-documents/:documentId/download-url', access: 'member' },
+  { method: 'GET', saasPath: 'seller-documents/:documentId/content', enginePath: '/seller-documents/:documentId/content', access: 'member', stream: true, timeoutMs: 180_000 },
   { method: 'POST', saasPath: 'seller-documents/:documentId/retry', enginePath: '/seller-documents/:documentId/retry', access: 'member' },
   { method: 'DELETE', saasPath: 'seller-documents/:documentId', enginePath: '/seller-documents/:documentId', access: 'admin' },
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents/:documentId/chunks/:seq', enginePath: '/companies/:companyId/seller-documents/:documentId/chunks/:seq', access: 'member' },
@@ -139,6 +142,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 数据主体删除请求(DSR,A6)──
   { method: 'POST', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },
+  { method: 'GET', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },
   { method: 'GET', saasPath: 'deletion-requests/:id', enginePath: '/deletion-requests/:id', access: 'admin' },
 
   // ── 判定复核队列(引擎 P3 J17;scope acquisition:review / acquisition:read)──
