@@ -1,11 +1,12 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
+import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { OutreachReconciliationService } from './outreach-reconciliation.service.js';
 
 /** 发送台账日对账（P4-14）：只读报告；缺口明细供审计包与运营台消费。 */
 @Controller('api/outreach/reconciliation')
-@UseGuards(TenantGuard)
+@UseGuards(TenantGuard, AdminGuard)
 export class OutreachReconciliationController {
   constructor(private readonly reconciliation: OutreachReconciliationService) {}
 
