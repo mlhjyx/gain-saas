@@ -700,30 +700,99 @@ describe('B0 兼容：空目标市场保存不新增分析或下游动作', () =
     );
     expect(result).toMatchObject({ data: { started: true } });
   });
+
+  it('Phase 2 多模态冷启动：startPreview 与 createCompany 支持 productDescription 且不进入 Grant 报价哈希', async () => {
+    const { controller, req, res, call, issue } = fixture({
+      engineImpl: (method, path) => {
+        if (method === 'POST' && path === '/companies') {
+          return { status: 201, body: { data: { id: 'engine-company-1', status: 'DRAFT' } } };
+        }
+        if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+          return { status: 200, body: { data: { ...PREVIEW, state: 'not_started', website: null } } };
+        }
+        return { status: 200, body: { data: { id: 'engine-company-1', status: 'REVIEW' } } };
+      },
+    });
+    const desc = '主营 N 型 HJT 700W 双面光伏组件与户用储能系统，已通过 CE/TUV 认证';
+    await controller.startPreview(req, { name: '琏升新能源', productDescription: `  ${desc}  ` });
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      { operation: 'POST /companies', body: { name: '琏升新能源' } },
+    );
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-1' }),
+      'POST',
+      '/companies',
+      expect.objectContaining({
+        body: { name: '琏升新能源', productDescription: desc },
+      }),
+    );
+
+    await expect(
+      controller.startPreview(req, { name: '琏升新能源', productDescription: '   ' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.createCompany(req, res, { name: '琏升新能源', productDescription: 'x'.repeat(2001) }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
 
-describe('BffGuard：未完成引导拒绝业务请求（SD11）', () => {
+describe('BffGuard：未完成引导拒绝业务请求（SD11 + Phase 2 草稿态画册与选国放行）', () => {
   function guardCtx(req: Request) {
     return {
       switchToHttp: () => ({ getRequest: () => req }),
     } as unknown as Parameters<BffGuard['canActivate']>[0];
   }
 
-  it('onboardingCompleted=false 时以 409 ONBOARDING_INCOMPLETE 拒绝 BFF 业务路由', async () => {
+  it('onboardingCompleted=false 时以 409 ONBOARDING_INCOMPLETE 拒绝一般 BFF 业务路由与跨公司访问', async () => {
     const req = {
       method: 'GET',
       path: '/api/companies',
-      tenant: tenant(),
+      tenant: tenant({ onboardingCompanyId: 'draft-co-1' }),
     } as unknown as Request;
-    const guard = new BffGuard({ canActivate: async () => true } as never, {} as never);
-    const error = await guard
-      .canActivate(guardCtx(req))
-      .catch((err: unknown) => err);
+    const guard = new BffGuard({ canActivate: async () => true } as never, { canActivate: async () => true } as never);
+    const error = await guard.canActivate(guardCtx(req)).catch((err: unknown) => err);
     expect(error).toBeInstanceOf(HttpException);
     expect((error as HttpException).getStatus()).toBe(409);
     expect((error as HttpException).getResponse()).toMatchObject({
       error: { code: 'ONBOARDING_INCOMPLETE' },
     });
+
+    const otherCompanyReq = {
+      method: 'GET',
+      path: '/api/companies/other-company/market-recommendations',
+      tenant: tenant({ onboardingCompanyId: 'draft-co-1' }),
+    } as unknown as Request;
+    const crossErr = await guard.canActivate(guardCtx(otherCompanyReq)).catch((err: unknown) => err);
+    expect(crossErr).toBeInstanceOf(HttpException);
+    expect((crossErr as HttpException).getStatus()).toBe(409);
+  });
+
+  it('onboardingCompleted=false 时放行绑定本空间草稿公司的选国推荐与管理员画册上传，并拦截非管理员写入', async () => {
+    const adminCheck = vi.fn(async () => true);
+    const guard = new BffGuard({ canActivate: async () => true } as never, { canActivate: adminCheck } as never);
+
+    const recReq = {
+      method: 'GET',
+      path: '/api/companies/draft-co-1/market-recommendations',
+      tenant: tenant({ onboardingCompanyId: 'draft-co-1', role: 'member' }),
+    } as unknown as Request;
+    await expect(guard.canActivate(guardCtx(recReq))).resolves.toBe(true);
+    expect(adminCheck).not.toHaveBeenCalled();
+
+    const presignReq = {
+      method: 'POST',
+      path: '/api/companies/draft-co-1/seller-documents/presign',
+      tenant: tenant({ onboardingCompanyId: 'draft-co-1', role: 'admin' }),
+    } as unknown as Request;
+    await expect(guard.canActivate(guardCtx(presignReq))).resolves.toBe(true);
+    expect(adminCheck).toHaveBeenCalledTimes(1);
+
+    const denyAdminGuard = new BffGuard(
+      { canActivate: async () => true } as never,
+      { canActivate: async () => false } as never,
+    );
+    await expect(denyAdminGuard.canActivate(guardCtx(presignReq))).resolves.toBe(false);
   });
 
   it('已完成引导时放行 member 路由', async () => {

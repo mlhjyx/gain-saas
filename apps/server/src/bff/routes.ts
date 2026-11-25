@@ -57,6 +57,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/completeness', enginePath: '/companies/:companyId/completeness', access: 'member' },
   { method: 'POST', saasPath: 'companies/:companyId/confirm', enginePath: '/companies/:companyId/confirm', access: 'admin' },
+  { method: 'GET', saasPath: 'companies/:companyId/market-recommendations', enginePath: '/companies/:companyId/market-recommendations', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/offerings', enginePath: '/companies/:companyId/offerings', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/claims', enginePath: '/companies/:companyId/claims', access: 'member' },
   { method: 'POST', saasPath: 'companies/:companyId/claims', enginePath: '/companies/:companyId/claims', access: 'member' },
@@ -96,6 +97,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'POST', saasPath: 'discovery-runs/:runId/cancel', enginePath: '/discovery-runs/:runId/cancel', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/events', enginePath: '/discovery-runs/:runId/events', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/jobs', enginePath: '/discovery-runs/:runId/jobs', access: 'member' },
+  { method: 'GET', saasPath: 'discovery-runs/:runId/streaming-progress', enginePath: '/discovery-runs/:runId/streaming-progress', access: 'member' },
   // ── M1 渠道数据源：租户面（P3 起平台渠道注册/治理/试跑只走运营台 /api/ops/channels）──
   { method: 'GET', saasPath: 'source-channels/available', enginePath: '/source-channels/available', access: 'member' },
   { method: 'GET', saasPath: 'source-channels/import-template', enginePath: '/source-channels/import-template', access: 'admin' },

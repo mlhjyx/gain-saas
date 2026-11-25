@@ -2,13 +2,18 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus } from '@gain-saas/shared';
+import {
+  deriveStreamingFunnelProgress,
+  glossaryStatus,
+  type StreamingProgressDto,
+} from '@gain-saas/shared';
 import { RotateCw, Search } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
 import { Alert, Button, Input, Modal, Skeleton } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
+import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
@@ -102,6 +107,67 @@ const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
 const icps = ref<Icp[]>([]);
 const activeIcpId = ref('');
+const activeRunId = ref<string | null>(null);
+const activeRunStreaming = ref<StreamingProgressDto | null>(null);
+let streamingPollTimer: ReturnType<typeof setInterval> | null = null;
+
+const liveStreamingProgress = computed(() =>
+  activeRunStreaming.value
+    ? deriveStreamingFunnelProgress({ streamingProgress: activeRunStreaming.value })
+    : null,
+);
+
+function stopStreamingPoll(): void {
+  if (streamingPollTimer) {
+    clearInterval(streamingPollTimer);
+    streamingPollTimer = null;
+  }
+}
+
+async function loadActiveStreamingRun(): Promise<void> {
+  const icpId = activeIcpId.value;
+  if (!icpId) {
+    activeRunId.value = null;
+    activeRunStreaming.value = null;
+    stopStreamingPoll();
+    return;
+  }
+  try {
+    const tasks = await gainosApi.acquisitionTasks(icpId);
+    const runningRun = (Array.isArray(tasks) ? tasks : [])
+      .flatMap((t) => t.runs ?? [])
+      .find((r) => String(r.status ?? '').toUpperCase() === 'RUNNING' && Boolean(r.runId));
+    if (!runningRun?.runId) {
+      activeRunId.value = null;
+      activeRunStreaming.value = null;
+      stopStreamingPoll();
+      return;
+    }
+    activeRunId.value = runningRun.runId;
+    const sp = await gainosApi.streamingProgress(runningRun.runId);
+    if (sp && typeof sp === 'object' && 'stages' in sp) {
+      activeRunStreaming.value = sp;
+    } else {
+      activeRunStreaming.value = null;
+    }
+    if (activeRunStreaming.value && !['DONE', 'COMPLETED', 'FAILED', 'CANCELLED'].includes(String(activeRunStreaming.value.runStatus ?? '').toUpperCase())) {
+      if (!streamingPollTimer) {
+        streamingPollTimer = setInterval(() => {
+          void refreshStreamingAndLeads();
+        }, 5000);
+      }
+    } else {
+      stopStreamingPoll();
+    }
+  } catch {
+    activeRunStreaming.value = null;
+    stopStreamingPoll();
+  }
+}
+
+async function refreshStreamingAndLeads(): Promise<void> {
+  await Promise.all([loadActiveStreamingRun(), load()]);
+}
 const queueCounts = ref<LeadQueueCounts | null>(null);
 const exportingCsv = ref(false);
 // 分页：按队列总数逐步加载，不再静默截断（2026-11-09 组件审计三-03）。
@@ -304,9 +370,15 @@ async function loadIcps(): Promise<void> {
   try {
     const data = await gainosApi.icps();
     icps.value = Array.isArray(data) ? data : [];
+    const routeIcpRaw = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
+    const routeIcp =
+      typeof routeIcpRaw === 'string' && icps.value.some((icp) => icp.id === routeIcpRaw)
+        ? routeIcpRaw
+        : '';
     activeIcpId.value =
-      icps.value.find((icp) => icp.status === 'ACTIVE')?.id ??
-      icps.value[0]?.id ??
+      routeIcp ||
+      icps.value.find((icp) => icp.status === 'ACTIVE')?.id ||
+      icps.value[0]?.id ||
       '';
   } catch {
     icps.value = [];
@@ -431,9 +503,12 @@ onMounted(async () => {
     activeQueue.value = 'sanctions_hold';
   }
   await loadIcps();
-  await load();
+  await Promise.all([load(), loadActiveStreamingRun()]);
 });
-onUnmounted(() => window.removeEventListener('keydown', onEscape));
+onUnmounted(() => {
+  window.removeEventListener('keydown', onEscape);
+  stopStreamingPoll();
+});
 </script>
 
 <template>
@@ -485,7 +560,7 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
             :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
             class="w-[200px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
             data-gs="icp-filter"
-            @change="load()"
+            @change="refreshStreamingAndLeads()"
           />
           <div class="w-[240px] @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="lead-search">
             <Input
@@ -521,6 +596,14 @@ onUnmounted(() => window.removeEventListener('keydown', onEscape));
           </Button>
         </div>
       </GsToolbar>
+
+      <StreamingProgressBoard
+        v-if="liveStreamingProgress && liveStreamingProgress.isRunning"
+        :progress="liveStreamingProgress"
+        :show-leads-action="false"
+        compact
+        @refresh="refreshStreamingAndLeads"
+      />
 
       <Alert
         v-if="activeQueue !== 'sanctions_hold' && (queueCounts?.sanctions_hold ?? 0) > 0"

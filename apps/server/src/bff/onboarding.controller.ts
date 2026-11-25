@@ -84,6 +84,7 @@ interface OnboardingFacts {
   industryCode?: string;
   targetMarkets?: string[];
   products?: string[];
+  productDescription?: string;
   businessEmail?: string;
 }
 
@@ -114,6 +115,7 @@ function parseOnboardingBody(input: unknown): Record<string, unknown> {
     'industryCode',
     'targetMarkets',
     'products',
+    'productDescription',
     'businessEmail',
   ]);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
@@ -158,6 +160,14 @@ function parseOnboardingBody(input: unknown): Record<string, unknown> {
     return invalid('products 须为 1–5 个产品名称（每个 1–120 字符）');
   }
   if (
+    body.productDescription !== undefined &&
+    (typeof body.productDescription !== 'string' ||
+      body.productDescription.trim().length < 1 ||
+      body.productDescription.length > 2000)
+  ) {
+    return invalid('productDescription 长度须为 1–2000');
+  }
+  if (
     body.businessEmail !== undefined &&
     (typeof body.businessEmail !== 'string' || body.businessEmail.length > 254 || !EMAIL.test(body.businessEmail))
   ) {
@@ -170,12 +180,19 @@ function parseOnboardingBody(input: unknown): Record<string, unknown> {
     ...(body.industryCode === undefined ? {} : { industryCode: body.industryCode }),
     ...(body.targetMarkets === undefined ? {} : { targetMarkets: body.targetMarkets }),
     ...(body.products === undefined ? {} : { products: body.products }),
+    ...(body.productDescription === undefined
+      ? {}
+      : { productDescription: body.productDescription.trim() }),
     ...(body.businessEmail === undefined ? {} : { businessEmail: body.businessEmail }),
   };
 }
 
-/** 预览启动入参：官网与名称至少一个（无官网=手动模式，先建名称草稿拿受控词表）。 */
-function parsePreviewBody(input: unknown): { website?: string; name?: string } {
+/** 预览启动入参：官网与名称至少一个（无官网=手动/多模态模式，支持附带 productDescription）。 */
+function parsePreviewBody(input: unknown): {
+  website?: string;
+  name?: string;
+  productDescription?: string;
+} {
   const invalid = (message: string): never => {
     throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message } });
   };
@@ -183,7 +200,7 @@ function parsePreviewBody(input: unknown): { website?: string; name?: string } {
     return invalid('请求体必须是对象');
   }
   const body = input as Record<string, unknown>;
-  const allowed = new Set(['website', 'name']);
+  const allowed = new Set(['website', 'name', 'productDescription']);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
     return invalid('请求体包含未知字段');
   }
@@ -196,12 +213,23 @@ function parsePreviewBody(input: unknown): { website?: string; name?: string } {
   ) {
     return invalid('website 必须是 URL 字符串');
   }
+  if (
+    body.productDescription !== undefined &&
+    (typeof body.productDescription !== 'string' ||
+      body.productDescription.trim().length < 1 ||
+      body.productDescription.length > 2000)
+  ) {
+    return invalid('productDescription 长度须为 1–2000');
+  }
   if (typeof body.website !== 'string' && typeof body.name !== 'string') {
     return invalid('企业名称与官网至少提供一个');
   }
   return {
     ...(body.name === undefined ? {} : { name: body.name as string }),
     ...(body.website === undefined ? {} : { website: body.website as string }),
+    ...(body.productDescription === undefined
+      ? {}
+      : { productDescription: (body.productDescription as string).trim() }),
   };
 }
 
@@ -273,6 +301,7 @@ export class OnboardingController {
         const patch: Record<string, string> = {};
         if (input.name !== undefined && input.name !== existing.name) patch.name = input.name;
         if (input.website !== undefined && input.website !== existing.website) patch.website = input.website;
+        if (input.productDescription !== undefined) patch.productDescription = input.productDescription;
         if (Object.keys(patch).length > 0) {
           const patched = await this.callEngine(tenant, 'PATCH', `/companies/${companyId}`, { body: patch });
           if (patched.status >= 400) throw this.engineHttpError(patched.status, patched.body);
@@ -283,11 +312,18 @@ export class OnboardingController {
         if (shouldStart) await this.startUnderstanding(tenant, companyId);
       }
     } else {
-      const createBody: Record<string, string> = {
+      // 2A #51: productDescription 不进入 POST /companies 的 Execution Budget Grant 哈希。
+      const quoteBody: Record<string, string> = {
         ...(input.website === undefined ? {} : { website: input.website }),
         ...(input.name === undefined ? {} : { name: input.name }),
       };
-      const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: createBody });
+      const createBody: Record<string, string> = {
+        ...quoteBody,
+        ...(input.productDescription === undefined
+          ? {}
+          : { productDescription: input.productDescription }),
+      };
+      const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: quoteBody });
       const result = await this.callEngine(tenant, 'POST', '/companies', {
         body: createBody,
         headers: { 'x-execution-budget-grant': grant, 'idempotency-key': previewIdempotencyKey },
@@ -389,6 +425,9 @@ export class OnboardingController {
         ...(body.industryCode === undefined ? {} : { industryCode: body.industryCode as string }),
         ...(body.targetMarkets === undefined ? {} : { targetMarkets: body.targetMarkets as string[] }),
         ...(body.products === undefined ? {} : { products: body.products as string[] }),
+        ...(body.productDescription === undefined
+          ? {}
+          : { productDescription: body.productDescription as string }),
         ...(body.businessEmail === undefined ? {} : { businessEmail: body.businessEmail as string }),
       };
       const before = await this.fetchPreviewSafe(tenant, companyId);
@@ -428,7 +467,8 @@ export class OnboardingController {
         },
       });
     }
-    const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body });
+    const { productDescription: _ignoredForQuote, ...quoteBody } = body;
+    const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: quoteBody });
     const headers: Record<string, string> = { 'x-execution-budget-grant': grant };
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
 
