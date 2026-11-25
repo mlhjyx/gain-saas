@@ -1,6 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
-  "pinnedAt": "2026-11-25",
-  "reason": "固定到源码697b20da的完整code-first合同（167路径，含Batch 1.4-C GET /api/v1/reports/battle-csv作战清表导出）；98条BFF薄透传全部覆盖，uncovered保持为空。",
+  "pinnedAt": "2026-11-26",
+  "reason": "固定到mlhjyx/global-backend@7de26af8（PR #1107）的完整code-first合同（168路径，新增GET /api/v1/seller-documents/{documentId}/content与GET /api/v1/deletion-requests）；98条BFF薄透传全部覆盖，uncovered保持为空。",
   "uncovered": []
 }
