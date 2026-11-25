@@ -295,7 +295,12 @@ for (const cell of matrix) {
       expect(h.requests.filter((request) => request.method === "POST")).toHaveLength(0);
       await expect(h.button("not-analyzed")).toBeVisible();
       await expect(page.getByTestId("mc-panel").locator("select")).toHaveCount(0);
-      for (const scenario of ["NO_OFFERINGS", "NO_APPROVED_CLAIMS"] as const) {
+      for (const [scenarioIndex, scenario] of (
+        ["NO_OFFERINGS", "NO_APPROVED_CLAIMS"] as const
+      ).entries()) {
+        // 上一次 recovery 已经把市场候选面板收起（页内工作台替代了弹窗），
+        // 第二个场景需要重新从卡片菜单打开面板。
+        if (scenarioIndex > 0) await h.open();
         h.state.prepareBasis = scenario;
         const code = scenario === "NO_OFFERINGS" ? "VALIDATION_ERROR" : "NO_APPROVED_CLAIMS";
         const responsePromise = page.waitForResponse(
@@ -314,6 +319,8 @@ for (const cell of matrix) {
         await expect(h.button("error-why")).toHaveText(copy.why);
         await expect(h.button("error-next")).toHaveText(copy.next);
         expect(await toastWasSeen(page)).toBe(false);
+        const displayedError = await h.button("error").textContent();
+        await captureState(page, cell, `missing-basis-refusal-${scenario}`, h.button("error"));
         await expect(h.button("not-analyzed")).toBeVisible();
         await expect(h.button("empty")).toHaveCount(0);
         await expect(h.button("phase")).toHaveCount(0);
@@ -332,16 +339,18 @@ for (const cell of matrix) {
           request.url().includes(expectedRecoveryPath),
         );
         await keyboardActivate(page, cell, `recover-${destination}`, recoveryTrigger);
-        const recoveryPanel = destination === "facts" ? ".cp__facts-panel" : ".cp__docs-panel";
-        await expect(page.locator(recoveryPanel)).toBeVisible();
-        await expect(page.locator(recoveryPanel)).toHaveAttribute("data-readonly", "true");
+        const recoveryPanel =
+          destination === "facts" ? '[data-gs="company-facts"]' : '[data-gs="company-docs"]';
+        const panel = page.locator(recoveryPanel);
+        await expect(panel).toBeVisible();
+        await expect(panel).toHaveAttribute("data-readonly", "true");
         if (destination === "facts") {
-          await expect(page.locator(".cp__manual-bar")).toHaveCount(0);
-          await expect(page.locator(".cp__claim-bar")).toHaveCount(0);
-          await expect(page.locator(".cp__claim-check")).toHaveCount(0);
+          await expect(panel.locator(".cp__manual-bar")).toHaveCount(0);
+          await expect(panel.locator(".cp__claim-bar")).toHaveCount(0);
+          await expect(panel.locator(".cp__claim-check")).toHaveCount(0);
         } else {
-          await expect(page.locator(".cp__docs-panel input[type=file]")).toHaveCount(0);
-          await expect(page.locator(".cp__docs-actions")).toHaveCount(0);
+          await expect(page.locator(".co-docs__upload")).toHaveCount(0);
+          await expect(panel.locator('input[type="file"]')).toHaveCount(0);
         }
         const recoveryRequest = await recoveryRequestPromise;
         expect(recoveryRequest.method()).toBe("GET");
@@ -351,37 +360,14 @@ for (const cell of matrix) {
         expect(
           recoveryCalls.some((request) => request.path.includes(expectedRecoveryPath)),
         ).toBe(true);
-        await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
-        await expect(page.getByTestId("mc-panel")).toBeHidden();
-        await expect(page.getByTestId("mc-panel").locator("xpath=..")).toHaveAttribute(
-          "aria-hidden",
-          "true",
-        );
-        const focusPanel = page.locator(recoveryPanel);
-        const focusables = focusPanel.locator(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        );
-        const controlCount = await focusables.count();
-        expect(controlCount).toBeGreaterThan(0);
-        await focusPanel.focus();
-        await page.keyboard.press("Shift+Tab");
-        await expect(focusables.nth(controlCount - 1)).toBeFocused();
-        await focusables.first().focus();
-        await page.keyboard.press("Shift+Tab");
-        await expect(focusables.nth(controlCount - 1)).toBeFocused();
-        await focusables.nth(controlCount - 1).focus();
-        await page.keyboard.press("Tab");
-        await expect(focusables.first()).toBeFocused();
-        await page.keyboard.press("Escape");
-        await expect(page.locator(recoveryPanel)).toHaveCount(0);
-        await expect(page.getByTestId("mc-panel")).toBeVisible();
-        await expect(recoveryTrigger).toBeFocused();
+        // 页内工作台取代了事实/资料库弹窗：市场候选面板直接收起，不再留下 dialog 遮罩。
+        await expect(page.getByTestId("mc-panel")).toHaveCount(0);
+        await expect(page.locator('[role="dialog"]:visible')).toHaveCount(0);
         await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 10000 });
         expect(h.requests.filter((request) => request.path.endsWith("/execute"))).toHaveLength(0);
         expect(h.state.executionDispatches).toBe(0);
         const posts = h.requests.filter((request) => request.method === "POST");
         expect(posts.at(-1)!.body).toEqual({ intentId: expect.stringMatching(/^[a-f0-9-]{36}$/) });
-        await captureState(page, cell, `missing-basis-refusal-${scenario}`, h.button("error"));
         console.log(
           JSON.stringify({
             kind: "PRIVATE_V01_BASIS_REFUSAL",
@@ -390,7 +376,7 @@ for (const cell of matrix) {
             fixed_contract_stage: "INITIAL_PREPARE_NEW_ALLOCATION",
             response_status: response.status(),
             response: body,
-            displayed_error: await h.button("error").textContent(),
+            displayed_error: displayedError,
             prepare: posts.at(-1),
             basis_witness: {
               effective_offerings: scenario === "NO_OFFERINGS" ? 0 : 1,
@@ -402,8 +388,6 @@ for (const cell of matrix) {
         );
       }
       expect(h.requests.filter((request) => request.method === "POST")).toHaveLength(2);
-      await h.button("close").click();
-      await expect(page.locator(".cp__more summary").first()).toBeFocused();
       h.check();
     });
     test("V01b late facts response for the old company never writes the current company", async ({
@@ -457,21 +441,20 @@ for (const cell of matrix) {
         fulfill(route, overview(ID.second, "Second Seller", "B-OVERVIEW")),
       );
       await h.button("recover-facts").click();
-      await expect(page.locator(".cp__facts-panel")).toBeVisible();
-      await page.locator(".cp__facts-panel .cp__modal-x").click();
-      await expect(page.locator(".cp__facts-panel")).toHaveCount(0);
-      await h.button("close").click();
+      const facts = page.locator('[data-gs="company-facts"]');
+      await expect(facts).toBeVisible();
       await expect(page.getByTestId("mc-panel")).toHaveCount(0);
-      const second = page.locator(".cp__table tbody tr").nth(1);
-      await second
+      // 关联公司 B 也是 ACTIVE：卡片主按钮在当前工作台直接切到 B 的事实
+      await page
+        .locator('[data-gs="related-company"]')
+        .first()
         .getByRole("button", {
-          name: cell.lang === "zh-CN" ? "查看档案" : "View profile",
+          name: cell.lang === "zh-CN" ? "企业事实" : "Company facts",
           exact: true,
         })
         .click();
-      await expect(page.locator(".cp__facts-panel")).toBeVisible();
-      await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
-      await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
+      await expect(facts).toContainText("B-OVERVIEW");
+      await expect(facts).toContainText("B-ONLY-CLAIM");
       const lateClaims = page.waitForResponse((response) =>
         response.url().includes(`/companies/${ID.company}/claims`),
       );
@@ -487,10 +470,10 @@ for (const cell of matrix) {
       await page.evaluate(
         () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
       );
-      await expect(page.locator(".cp__facts-panel")).toContainText("B-OVERVIEW");
-      await expect(page.locator(".cp__facts-panel")).toContainText("B-ONLY-CLAIM");
-      await expect(page.locator(".cp__facts-panel")).not.toContainText("A-OVERVIEW");
-      await expect(page.locator(".cp__facts-panel")).not.toContainText("A-ONLY-CLAIM");
+      await expect(facts).toContainText("B-OVERVIEW");
+      await expect(facts).toContainText("B-ONLY-CLAIM");
+      await expect(facts).not.toContainText("A-OVERVIEW");
+      await expect(facts).not.toContainText("A-ONLY-CLAIM");
       h.check();
     });
     test("V01c late document search never writes the current company or query", async ({
@@ -521,31 +504,27 @@ for (const cell of matrix) {
         if (q === "solar") await solarGate.promise;
         await fulfill(route, [hit(q === "solar" ? "A-SOLAR-ONLY" : "A-WIND-ONLY")]);
       });
-      const openDocs = async (rowIndex: number, query: string) => {
-        const row = page.locator(".cp__table tbody tr").nth(rowIndex);
-        await row.locator("summary").click();
-        await row
-          .getByRole("button", {
-            name: cell.lang === "zh-CN" ? "资料库" : "Documents",
-            exact: true,
-          })
-          .click();
-        await expect(page.locator(".cp__docs-panel")).toBeVisible();
-        const input = page.locator(".cp__docs-panel input[type=search]");
+      const docsPanel = page.locator('[data-gs="company-docs"]');
+      const docsLabel = cell.lang === "zh-CN" ? "资料库" : "Documents";
+      const searchLabel = cell.lang === "zh-CN" ? "在资料里检索" : "Search documents";
+      const openDocs = async (
+        which: "primary" | "related",
+        query: string,
+      ): Promise<import("@playwright/test").Locator> => {
+        const scope =
+          which === "primary"
+            ? page.locator('[data-gs="primary-company"]')
+            : page.locator('[data-gs="related-company"]').first();
+        await scope.getByRole("button", { name: docsLabel, exact: true }).click();
+        await expect(docsPanel).toBeVisible();
+        const input = docsPanel.locator('input[type="search"]');
         await input.fill(query);
-        await page
-          .locator(".cp__docs-panel")
-          .getByRole("button", {
-            name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
-            exact: true,
-          })
-          .click();
+        await docsPanel.getByRole("button", { name: searchLabel, exact: true }).click();
         return input;
       };
-      await openDocs(1, "pump");
-      await page.locator(".cp__docs-panel .cp__modal-x").click();
-      await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
-      const input = await openDocs(0, "solar");
+      // B 的检索先挂起；切回 A 后发起 solar 检索（也挂起），再改成 wind。
+      await openDocs("related", "pump");
+      const input = await openDocs("primary", "solar");
       await input.fill("wind");
       const lateSolar = page.waitForResponse((response) => {
         const url = new URL(response.url());
@@ -563,20 +542,11 @@ for (const cell of matrix) {
         () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
       );
       await expect(
-        page.locator(".cp__docs-panel").getByRole("button", {
-          name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
-          exact: true,
-        }),
+        docsPanel.getByRole("button", { name: searchLabel, exact: true }),
       ).toBeEnabled();
-      await expect(page.locator(".cp__docs-hits")).not.toContainText("A-SOLAR-ONLY");
-      await page
-        .locator(".cp__docs-panel")
-        .getByRole("button", {
-          name: cell.lang === "zh-CN" ? "在资料里检索" : "Search documents",
-          exact: true,
-        })
-        .click();
-      await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
+      await expect(docsPanel.locator(".cp__docs-hits")).not.toContainText("A-SOLAR-ONLY");
+      await docsPanel.getByRole("button", { name: searchLabel, exact: true }).click();
+      await expect(docsPanel.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
       const lateB = page.waitForResponse((response) =>
         response.url().includes(`/companies/${ID.second}/seller-documents/search`),
       );
@@ -586,8 +556,8 @@ for (const cell of matrix) {
       await page.evaluate(
         () => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))),
       );
-      await expect(page.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
-      await expect(page.locator(".cp__docs-hits")).not.toContainText("B-PUMP-ONLY");
+      await expect(docsPanel.locator(".cp__docs-hits")).toContainText("A-WIND-ONLY");
+      await expect(docsPanel.locator(".cp__docs-hits")).not.toContainText("B-PUMP-ONLY");
     });
     test("V03 both distinct countries and independent nulls are rendered", async ({ page }) => {
       const h = await setup(page, cell);
@@ -789,7 +759,7 @@ test.describe("service authorization collision and post-prepare read stages", ()
   });
 });
 
-test.describe("late document initialization must not survive close", () => {
+test.describe("late document initialization must not survive switching away", () => {
   const installIntervalProbe = (page: import("@playwright/test").Page) =>
     page.addInitScript(() => {
       const realSet = window.setInterval.bind(window);
@@ -813,16 +783,38 @@ test.describe("late document initialization must not survive close", () => {
           (window as unknown as { __probeIntervals: Map<number, number> }).__probeIntervals.values(),
         ).filter((timeout) => timeout === 10_000).length,
     );
-  const openDocuments = async (page: import("@playwright/test").Page, rowIndex: number) => {
-    const row = page.locator(".cp__table tbody tr").nth(rowIndex);
-    await row.locator("summary").evaluate((element) => (element as HTMLElement).click());
-    await row
+  const docsPanel = (page: import("@playwright/test").Page) =>
+    page.locator('[data-gs="company-docs"]');
+  const openDocuments = async (
+    page: import("@playwright/test").Page,
+    which: "primary" | "related",
+  ) => {
+    const scope =
+      which === "primary"
+        ? page.locator('[data-gs="primary-company"]')
+        : page.locator('[data-gs="related-company"]').first();
+    await scope
       .getByRole("button", {
         name: singleCell.lang === "zh-CN" ? "资料库" : "Documents",
         exact: true,
       })
-      .evaluate((element) => (element as HTMLElement).click());
-    await expect(page.locator(".cp__docs-panel")).toBeVisible();
+      .click();
+    await expect(docsPanel(page)).toBeVisible();
+  };
+  const showFacts = async (page: import("@playwright/test").Page) => {
+    await page
+      .getByRole("group", {
+        name:
+          singleCell.lang === "zh-CN"
+            ? "企业事实与资料库视图"
+            : "Company facts and documents view",
+      })
+      .getByRole("button", {
+        // 药丸页签会带上待确认计数（如「企业事实 0」），不能按精确名称匹配。
+        name: singleCell.lang === "zh-CN" ? "企业事实" : "Company facts",
+      })
+      .click();
+    await expect(docsPanel(page)).toHaveCount(0);
   };
   const flush = (page: import("@playwright/test").Page) =>
     page.evaluate(
@@ -839,7 +831,7 @@ test.describe("late document initialization must not survive close", () => {
     createdAt: NOW,
   };
 
-  test("close before the first read resolves never installs polling", async ({ page }) => {
+  test("switching views before the first read resolves never installs polling", async ({ page }) => {
     await installIntervalProbe(page);
     await setup(page, singleCell);
     const baseline = await tenSecondTimers(page);
@@ -856,11 +848,10 @@ test.describe("late document initialization must not survive close", () => {
         }),
       });
     });
-    await openDocuments(page, 0);
-    // The old GET is blocked inside the route handler before the panel closes.
+    await openDocuments(page, "primary");
+    // The old GET is blocked inside the route handler before the user leaves the view.
     await reached.promise;
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    await showFacts(page);
     const delayed = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
@@ -877,7 +868,7 @@ test.describe("late document initialization must not survive close", () => {
     expect(await tenSecondTimers(page)).toBe(baseline);
   });
 
-  test("a stale open from company A cannot install polling after B closes", async ({ page }) => {
+  test("a stale open from company A cannot install polling after switching to B", async ({ page }) => {
     await installIntervalProbe(page);
     await setup(page, singleCell);
     const baseline = await tenSecondTimers(page);
@@ -903,14 +894,11 @@ test.describe("late document initialization must not survive close", () => {
         }),
       }),
     );
-    await openDocuments(page, 0);
-    // The company A GET is blocked inside the route handler before A closes.
+    await openDocuments(page, "primary");
+    // The company A GET is blocked inside the route handler while the user switches to B.
     await reached.promise;
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
-    await openDocuments(page, 1);
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".cp__docs-panel")).toHaveCount(0);
+    await openDocuments(page, "related");
+    await expect(page.locator('[data-gs="company-workspace"]')).toContainText("Second Seller");
     const delayed = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
@@ -922,6 +910,9 @@ test.describe("late document initialization must not survive close", () => {
     await response.finished();
     await flush(page);
     await flush(page);
+    // B 自己的轮询仍在其生命周期内；A 的迟到响应不能额外装一个。
+    expect(await tenSecondTimers(page)).toBe(baseline + 1);
+    await showFacts(page);
     expect(await tenSecondTimers(page)).toBe(baseline);
   });
 });

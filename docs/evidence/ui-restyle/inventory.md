@@ -1837,4 +1837,8 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 用模拟数据截图核对：主档案 + 关联公司（1586 / 1024 / 390）、页内事实工作台、资料库工作台、切换关联公司后的
   「返回主档案」、编辑弹层、添加关联公司说明、暗色；三个页面页头插画/底纹可区分；移动端加载后不自动滚动（scrollY=0）、
   横向溢出 0；控制台无报错。
-- 未做：e2e 套件、a11y、取色扫描（按用户要求本轮快速验证，上线前再补）。
+- 定向 e2e 已补：`companies-profile`（主档案/关联公司/页内工作台/资料库/KPI 入口）、`main-chain` 事实审批、
+  `market-candidates-read` 的恢复入口与迟到响应/轮询清理、`nav-shell` 公司档案页头、a11y `/companies`（含工作台）、
+  responsive 手机与平板、pass2/pass3 取色扫描（公司页空态改用 antd simple 图，避免默认插画的硬编码灰与渐变）；
+  全量 e2e 由 PR CI 复核。
+- 未做：真实数据后端到端走查（本期未改 API/引擎，仅前端页面结构）。

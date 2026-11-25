@@ -144,8 +144,8 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   await page.locator('[data-sdr-nav]').getByText('获客', { exact: true }).click();
   await page.getByRole('menuitem', { name: '公司档案' }).click();
   await page.waitForURL(/\/companies/);
-  await page.getByRole('button', { name: '查看档案' }).click();
-  await expect(page.getByText('通过 IATF 16949 认证')).toBeVisible();
+  // 企业事实是页内工作台，进入页面后自动加载，不需要再点开弹窗。
+  await expect(page.locator('[data-gs="company-facts"]')).toContainText('通过 IATF 16949 认证');
   await page.getByRole('checkbox', { name: '选择这条事实' }).check();
   await page.getByRole('button', { name: '通过所选' }).click();
   await expect(page.getByText('已通过 1 条事实。')).toBeVisible();

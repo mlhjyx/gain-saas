@@ -63,8 +63,13 @@ function openMarketCandidates(company: CompanyProfile, event?: MouseEvent) {
 function closeMarketCandidates() { marketCompany.value = null; marketFocus?.focus(); }
 function recoverMarketView(payload: { companyId: string; destination: 'facts' | 'documents' }) {
   if (!marketCompany.value || payload.companyId !== marketCompany.value.id) return;
-  if (payload.destination === 'facts') void openClaims(marketCompany.value, { readOnly: true });
-  else if (payload.destination === 'documents') void openDocuments(marketCompany.value, { readOnly: true });
+  const company = marketCompany.value;
+  // 补资料/看事实现在是页内工作台，不再叠一层弹窗：直接收起市场候选面板，
+  // 把用户带到页内对应视图，避免“面板还盖着、页面已经切走”的错位。
+  marketCompany.value = null;
+  if (payload.destination === 'facts') void openClaims(company, { readOnly: true });
+  else void openDocuments(company, { readOnly: true });
+  void scrollToWorkspace();
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -141,6 +146,7 @@ type PanelTab = 'facts' | 'docs';
 const panelTab = ref<PanelTab>('facts');
 const panelCompanyId = ref<string | null>(null);
 const panelInitialized = ref(false);
+const claimsStale = ref(false);
 const workspaceRef = ref<HTMLElement | null>(null);
 
 const panelCompany = computed(
@@ -223,7 +229,8 @@ function onPanelTabChange(value: string): void {
       docsTimer = null;
     }
     claimsOpen.value = true;
-    if (claimsCompany.value?.id !== company.id) {
+    // 资料库切换期间作废了事实请求：回来后重取，避免停在半截的 loading/空列表。
+    if (claimsCompany.value?.id !== company.id || claimsStale.value) {
       void openClaims(company);
       return;
     }
@@ -615,6 +622,7 @@ async function openClaims(company: CompanyProfile, options: { readOnly?: boolean
   }
   claimsCompany.value = company;
   claimsOpen.value = true;
+  claimsStale.value = false;
   claimsRecoveryReadOnly.value = options.readOnly === true;
   claimsEpoch += 1;
   claims.value = [];
@@ -1139,6 +1147,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   panelCompanyId.value = company.id ?? null;
   claimsOpen.value = false;
   claimsEpoch += 1;
+  claimsStale.value = true;
   docsCompany.value = company;
   docsOpen.value = true;
   docsRecoveryReadOnly.value = options.readOnly === true;
@@ -1146,6 +1155,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   const epoch = docsEpoch;
   docsSearchSeq += 1;
   docsSearching.value = false;
+  docsLoading.value = false;
   docs.value = [];
   await nextTick();
   if (!docsOpen.value || docsEpoch !== epoch || docsCompany.value?.id !== company.id) return;
@@ -1431,6 +1441,7 @@ onUnmounted(() => {
 
     <GsCard v-else-if="!primaryCompany" data-gs="companies-empty">
       <GsEmpty
+        simple
         :description="$t('gainos.companies.emptyDesc')"
         :title="$t('gainos.companies.emptyTitle')"
       >
@@ -1617,6 +1628,7 @@ onUnmounted(() => {
           v-if="panelTab === 'facts'"
           ref="factsPanel"
           class="co-workspace__body co-facts"
+          :data-readonly="claimsRecoveryReadOnly"
           data-gs="company-facts"
           tabindex="-1"
         >
@@ -1949,6 +1961,7 @@ onUnmounted(() => {
           v-else
           ref="docsPanel"
           class="co-workspace__body co-docs"
+          :data-readonly="docsRecoveryReadOnly"
           data-gs="company-docs"
           tabindex="-1"
         >

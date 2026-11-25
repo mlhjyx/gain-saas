@@ -569,10 +569,18 @@ export async function setup(page: Page, cell: Cell) {
   let actionStart: number | null = null;
   const open = async (second = false) => {
     if (actionStart === null) actionStart = backend.calls.length;
-    const row = page.locator(".cp__table tbody tr").nth(second ? 1 : 0);
-    await row.locator("summary").click();
-    await row
+    // 主档案卡与关联公司卡各自有「更多」菜单，市场候选收在菜单里。
+    const scope = second
+      ? page.locator('[data-gs="related-company"]').first()
+      : page.locator('[data-gs="primary-company"]');
+    await scope
       .getByRole("button", {
+        name: cell.lang === "zh-CN" ? "更多" : "More",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole("menuitem", {
         name: cell.lang === "zh-CN" ? "市场候选" : "Market candidates",
         exact: true,
       })
@@ -618,7 +626,8 @@ export async function setup(page: Page, cell: Cell) {
         backend.calls
           .slice(actionStart ?? backend.calls.length)
           .filter((c) =>
-            /model|embedding|search|execution-budget|icps|query-plan|discovery|send|activate|contacts/.test(
+            // /icps 是公司页首屏的画像列表，不属于寻源/执行调用；这里只拦引擎侧动作。
+            /model|embedding|search|execution-budget|query-plan|discovery|send|activate|contacts/.test(
               c.path,
             ),
           ),
