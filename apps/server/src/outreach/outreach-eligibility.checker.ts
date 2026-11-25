@@ -10,12 +10,26 @@ export const OUTREACH_ELIGIBILITY_CHECKER = Symbol('OUTREACH_ELIGIBILITY_CHECKER
 /** 引擎四态（discovery/contact-point-verification-state.ts）。 */
 export type EngineEligibilityState = 'VALID' | 'INVALID' | 'CATCH_ALL_RISKY' | 'UNKNOWN';
 
+export type EngineRecommendedChannel = 'email' | 'linkedin_first' | 'manual_review';
+
+export interface EngineEligibilityD3Policy {
+  emailPolicy: string;
+  emailAllowedNow: boolean;
+  complianceTag: string;
+  requiresArticle14Notice: boolean;
+  recommendedSequence: string[];
+}
+
 export interface EngineEligibilityResult {
   found: boolean;
   state: EngineEligibilityState;
   score: number | null;
-  /** 仅 state==='VALID' 含 'outreach'——发送门以此为唯一放行依据（fail-closed）。 */
+  /** 仅 state==='VALID' 且合规允许时含 'outreach'——发送门以此为唯一放行依据（fail-closed）。 */
   allowedActions: string[];
+  /** Batch 1.4-C：Catch-All 且有领英或 D3 严格法域时引擎建议 linkedin_first。 */
+  recommendedChannel?: EngineRecommendedChannel;
+  /** Batch 1.4-C：引擎侧 D3 法域多通道合规裁决（旧镜像不返回时为 undefined）。 */
+  d3Policy?: EngineEligibilityD3Policy | null;
 }
 
 export interface OutreachEligibilityChecker {
@@ -76,6 +90,27 @@ export class EngineContactEligibilityChecker implements OutreachEligibilityCheck
         if (typeof row.emailHash !== 'string') {
           throw new Error('可触达性响应格式不合法：条目缺少 emailHash');
         }
+        const recChannel =
+          row.recommendedChannel === 'email' ||
+          row.recommendedChannel === 'linkedin_first' ||
+          row.recommendedChannel === 'manual_review'
+            ? row.recommendedChannel
+            : undefined;
+        const d3Raw = row.d3Policy && typeof row.d3Policy === 'object' ? (row.d3Policy as Record<string, unknown>) : null;
+        const d3Policy: EngineEligibilityD3Policy | null | undefined =
+          row.d3Policy === null
+            ? null
+            : d3Raw && typeof d3Raw.emailPolicy === 'string' && typeof d3Raw.complianceTag === 'string'
+              ? {
+                  emailPolicy: d3Raw.emailPolicy,
+                  emailAllowedNow: d3Raw.emailAllowedNow === true,
+                  complianceTag: d3Raw.complianceTag,
+                  requiresArticle14Notice: d3Raw.requiresArticle14Notice === true,
+                  recommendedSequence: Array.isArray(d3Raw.recommendedSequence)
+                    ? d3Raw.recommendedSequence.filter((s): s is string => typeof s === 'string')
+                    : [],
+                }
+              : undefined;
         byHash.set(row.emailHash, {
           found: row.found === true,
           state: (row.state as EngineEligibilityState) ?? 'UNKNOWN',
@@ -83,6 +118,8 @@ export class EngineContactEligibilityChecker implements OutreachEligibilityCheck
           allowedActions: Array.isArray(row.allowedActions)
             ? row.allowedActions.filter((a): a is string => typeof a === 'string')
             : [],
+          ...(recChannel !== undefined ? { recommendedChannel: recChannel } : {}),
+          ...(d3Policy !== undefined ? { d3Policy } : {}),
         });
       }
       for (const email of chunk) {

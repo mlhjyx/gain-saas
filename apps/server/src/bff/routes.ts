@@ -127,7 +127,8 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'suppressions/:id/decisions', enginePath: '/suppressions/:id/decisions', access: 'admin' },
   { method: 'DELETE', saasPath: 'suppressions/:id', enginePath: '/suppressions/:id', access: 'admin' },
 
-  // ── 周报(D10/D11)──
+  // ── 周报与多通道作战清表(D10/D11 / Batch 1.4-C)──
+  { method: 'GET', saasPath: 'reports/battle-csv', enginePath: '/reports/battle-csv', access: 'admin' },
 
   // ── 数据主体删除请求(DSR,A6)──
   { method: 'POST', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },

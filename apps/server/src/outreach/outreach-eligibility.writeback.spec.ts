@@ -66,6 +66,38 @@ describe('EngineContactEligibilityChecker', () => {
     const checker = new EngineContactEligibilityChecker(engine, { OUTREACH_ENGINE_SERVICE_TOKEN: 'token-16-chars-ok' } as never);
     await expect(checker.check(TENANT, ['a@example.com'])).rejects.toThrow('HTTP 503');
   });
+
+  it('Batch 1.4-C：透传引擎侧 recommendedChannel（linkedin_first）与 d3Policy', async () => {
+    const email = 'm.rossi@refeel-epc.it';
+    const { engine } = engineWith([
+      {
+        emailHash: sha256Hex(email),
+        found: true,
+        state: 'CATCH_ALL_RISKY',
+        score: 78,
+        allowedActions: ['display', 'match'],
+        recommendedChannel: 'linkedin_first',
+        d3Policy: {
+          emailPolicy: 'LEGITIMATE_INTEREST_STRICT',
+          emailAllowedNow: true,
+          complianceTag: 'IT:GDPR_LI+ART14',
+          requiresArticle14Notice: true,
+          recommendedSequence: ['email_li_art14', 'linkedin_copilot'],
+        },
+      },
+    ]);
+    const checker = new EngineContactEligibilityChecker(engine, { OUTREACH_ENGINE_SERVICE_TOKEN: 'token-16-chars-ok' } as never);
+    const out = await checker.check(TENANT, [email]);
+    expect(out.get(email)).toMatchObject({
+      state: 'CATCH_ALL_RISKY',
+      recommendedChannel: 'linkedin_first',
+      d3Policy: {
+        emailPolicy: 'LEGITIMATE_INTEREST_STRICT',
+        complianceTag: 'IT:GDPR_LI+ART14',
+        requiresArticle14Notice: true,
+      },
+    });
+  });
 });
 
 describe('OutreachBounceWritebackService', () => {
