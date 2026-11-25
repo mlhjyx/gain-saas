@@ -861,7 +861,7 @@ export class OutreachSendService {
     if (this.config.OUTREACH_ENGINE_ELIGIBILITY_ENABLED === true) {
       const forCheck = drafts.filter((draft) => !result.get(draft.id)?.skip);
       if (forCheck.length > 0) {
-        let outcomes: Map<string, { state: string; allowedActions: string[] }>;
+        let outcomes: Map<string, { state: string; allowedActions: string[]; recommendedChannel?: string }>;
         try {
           outcomes = await this.eligibility.check(
             tenant,
@@ -881,7 +881,10 @@ export class OutreachSendService {
             const entry = result.get(draft.id)!;
             entry.skip = {
               code: `OUTREACH_ELIGIBILITY_BLOCKED: ${outcome?.state ?? 'UNKNOWN'}`,
-              message: '引擎联系人核验未通过（仅核验有效 VALID 的邮箱可发送）',
+              message:
+                outcome?.recommendedChannel === 'linkedin_first'
+                  ? '该联系人属于 Catch-All 全收域或严格法域，建议改走领英人工首触达（不发冷邮）'
+                  : '引擎联系人核验未通过（仅核验有效 VALID 的邮箱可发送）',
               countryCode: normalizeCountry(draft.countryCode),
               jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode),
             };

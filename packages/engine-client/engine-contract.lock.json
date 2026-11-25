@@ -1,7 +1,7 @@
 {
   "schemaVersion": "engine-contract-pin/v1",
-  "specDigest": "9a631fa1b4adcd3f-3ca7a86b3e68ec35-e3703e3d8eed80e8-1404bf4b07ff8282",
+  "specDigest": "37051c1db7506569-335bbfb73d2f8d8c-fda2f368a87552f5-05fc27bb12416894",
   "pinnedAt": "2026-11-25",
-  "pinnedFrom": "global-backend complete code-first artifact at source 05ada06aeb8aa8a1c35e0c5af0ce90955f7351eb; raw SHA-256 85194bd6cb3ac7c6a5ef679345362615ef539069c7a6a94612789c69ddc0e7da; unmodified gen:engine via owned 127.0.0.1 ephemeral static fixture, not a deployed runtime; 2026-11-25",
+  "pinnedFrom": "global-backend complete code-first artifact at source 697b20da101b655a4d2df10d1b00418555f6d483 (PR #1099 Batch 1.4-C); 167 paths including GET /api/v1/reports/battle-csv; 2026-11-25",
   "action": "Upgrading the engine contract is a separate PR: run pnpm gen:engine against the target engine, review the OpenAPI diff (CI runs oasdiff breaking when this file changes), regenerate schema.d.ts, update specDigest here, and record the engine image/source SHA in the PR body."
 }
