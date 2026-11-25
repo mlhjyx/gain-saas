@@ -311,8 +311,55 @@ const scoreRows = computed(() => {
       typeof row.value === 'number' && Number.isFinite(row.value));
 });
 
-const contactPaths = computed(() =>
-  (pkg.value?.contact_points ?? []).filter((point) => point.url),
+function safeHttpUrl(value?: null | string): string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : '';
+}
+
+function socialPlatformLabel(platform: string): string {
+  const key = `gainos.leads.socialPlatform.${platform.toLowerCase()}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? platform : translated;
+}
+
+const companyEmails = computed(() =>
+  (pkg.value?.company_channels ?? []).filter((item) => item.channel === 'email' && item.value),
+);
+const companyPhones = computed(() =>
+  (pkg.value?.company_channels ?? []).filter((item) => item.channel === 'phone' && item.value),
+);
+const companySocials = computed(() =>
+  (pkg.value?.social_profiles ?? [])
+    .map((item) => ({
+      platform: item.platform,
+      label: socialPlatformLabel(item.platform),
+      url: safeHttpUrl(item.url),
+    }))
+    .filter((item) => Boolean(item.url)),
+);
+const contactPaths = computed(() => {
+  const seen = new Set<string>();
+  const out: Array<{ status?: string; url: string }> = [];
+  for (const ch of pkg.value?.company_channels ?? []) {
+    if (ch.channel !== 'form_url') continue;
+    const url = safeHttpUrl(ch.value);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url });
+  }
+  for (const point of pkg.value?.contact_points ?? []) {
+    const url = safeHttpUrl(point.url);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, status: point.status });
+  }
+  return out;
+});
+const hasAnyContactPath = computed(
+  () =>
+    companyEmails.value.length > 0 ||
+    companyPhones.value.length > 0 ||
+    companySocials.value.length > 0 ||
+    contactPaths.value.length > 0,
 );
 
 function sanctionLabel(value?: null | string): string {
@@ -644,22 +691,84 @@ watch(tab, (next) => {
               </GsCard>
 
               <GsCard :title="$t('gainos.leads.contactTitle')" data-gs="contact-paths">
-                <div v-if="contactPaths.length > 0" class="grid gap-2">
-                  <p
-                    v-for="(point, index) in contactPaths"
-                    :key="index"
-                    class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
-                  >
-                    <a
-                      class="break-all text-[var(--gs-accent-fg)]"
-                      :href="point.url"
-                      rel="noreferrer"
-                      target="_blank"
+                <div v-if="hasAnyContactPath" class="grid gap-3">
+                  <div v-if="companyEmails.length > 0" class="grid gap-1.5">
+                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                      {{ $t('gainos.leads.channelEmailsTitle') }}
+                    </p>
+                    <p
+                      v-for="(item, index) in companyEmails"
+                      :key="`em-${index}`"
+                      class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
                     >
-                      {{ point.url }}
-                    </a>
-                    <span class="text-xs text-[var(--gs-fg-subtle)]">{{ point.status }}</span>
-                  </p>
+                      <a
+                        class="break-all text-[var(--gs-accent-fg)]"
+                        :href="`mailto:${item.value}`"
+                      >
+                        {{ item.value }}
+                      </a>
+                      <Tag v-if="item.email_type" :bordered="false" class="m-0 text-xs">
+                        {{ item.email_type }}
+                      </Tag>
+                    </p>
+                  </div>
+
+                  <div v-if="companyPhones.length > 0" class="grid gap-1.5">
+                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                      {{ $t('gainos.leads.channelPhonesTitle') }}
+                    </p>
+                    <p
+                      v-for="(item, index) in companyPhones"
+                      :key="`ph-${index}`"
+                      class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
+                    >
+                      <a
+                        class="text-[var(--gs-fg)]"
+                        :href="`tel:${item.value}`"
+                      >
+                        {{ item.value }}
+                      </a>
+                    </p>
+                  </div>
+
+                  <div v-if="companySocials.length > 0" class="grid gap-1.5">
+                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                      {{ $t('gainos.leads.channelSocialsTitle') }}
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                      <a
+                        v-for="(social, index) in companySocials"
+                        :key="`soc-${index}`"
+                        class="inline-flex items-center rounded-md bg-[var(--gs-accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                        :href="social.url"
+                        rel="noreferrer"
+                        target="_blank"
+                        :title="social.url"
+                      >
+                        {{ social.label }}
+                      </a>
+                    </div>
+                  </div>
+
+                  <div v-if="contactPaths.length > 0" class="grid gap-1.5">
+                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                      {{ $t('gainos.leads.channelFormsTitle') }}
+                    </p>
+                    <p
+                      v-for="(point, index) in contactPaths"
+                      :key="`path-${index}`"
+                      class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
+                    >
+                      <a
+                        class="break-all text-[var(--gs-accent-fg)]"
+                        :href="point.url"
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {{ point.url }}
+                      </a>
+                    </p>
+                  </div>
                 </div>
                 <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
                   {{ $t('gainos.leads.noContactPath') }}
