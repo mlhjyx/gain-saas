@@ -233,6 +233,13 @@ export async function installMockBackend(
       if (path === '/notifications') return fulfill(route, { items: [], unreadCount: 0 });
       if (path === '/members') return fulfill(route, { invitations: [], members: [] });
       if (path === '/workspaces') return fulfill(route, session.workspaces);
+      if (path === '/canonical-companies' || path === '/deletion-requests') {
+        return route.fulfill({
+          body: JSON.stringify({ data: [], page: { next_cursor: null, has_more: false } }),
+          contentType: 'application/json',
+          status: 200,
+        });
+      }
       if (COLLECTIONS.has(path)) return fulfill(route, []);
       return fulfill(route, null);
     }

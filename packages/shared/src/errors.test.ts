@@ -152,6 +152,36 @@ describe('商机域错误码（M2 步 10）', () => {
   });
 });
 
+describe('资料下载、文档转事实与成员/上传错误码（MT-P0）', () => {
+  it('资料下载、文档引用、DSR 与上传/成员权限码均有中英文三层文案', () => {
+    const codes = [
+      'SELLER_DOCUMENT_NOT_READY',
+      'SELLER_DOCUMENTS_STORAGE_UNAVAILABLE',
+      'SUBJECT_NOT_FOUND',
+      'DOCUMENT_CLAIM_SOURCE_UNAVAILABLE',
+      'DOCUMENT_CLAIM_REQUEST_MISMATCH',
+      'DOCUMENT_CLAIM_CONFLICT',
+      'PAYLOAD_TOO_LARGE',
+      'UNSUPPORTED_CONTENT_ENCODING',
+      'SELF_REMOVAL',
+      'ADMIN_REQUIRED',
+    ] as const;
+    for (const code of codes) {
+      expect(code in ENGINE_ERROR_COPY, `${code} 未登记`).toBe(true);
+      const zh = copyForError(code, 'zh-CN');
+      const en = copyForError(code, 'en-US');
+      expect(zh.title.trim(), `${code}.zh.title`).not.toBe('');
+      expect(zh.why.trim(), `${code}.zh.why`).not.toBe('');
+      expect(zh.next.trim(), `${code}.zh.next`).not.toBe('');
+      expect(en.title.trim(), `${code}.en.title`).not.toBe('');
+      expect(en.why.trim(), `${code}.en.why`).not.toBe('');
+      expect(en.next.trim(), `${code}.en.next`).not.toBe('');
+    }
+    expect(copyForError('SELLER_DOCUMENT_NOT_READY').title).toContain('尚未');
+    expect(copyForError('ADMIN_REQUIRED', 'en-US').title.toLowerCase()).toContain('admin');
+  });
+});
+
 describe('copyForError 英文词表', () => {
   it('en 请求返回英文三层文案，缺省回落中文', async () => {
     const { copyForError } = await import('./errors.js');

@@ -19,6 +19,22 @@ export interface EngineCallResult {
   headers: Record<string, string>;
 }
 
+export type EngineStreamResult =
+  | {
+      status: number;
+      headers: Headers;
+      contentType: string;
+      errorBody: unknown;
+      bodyStream?: never;
+    }
+  | {
+      status: number;
+      headers: Headers;
+      contentType: string;
+      bodyStream: ReadableStream<Uint8Array> | null;
+      errorBody?: never;
+    };
+
 /**
  * 引擎业务域内的 403(不是「SaaS↔引擎授权未就绪」):要求用户补一个产品前提或刷新重试,
  * 页面上应给可执行的说明,不能折算成 502 的对接未就绪文案。
@@ -109,6 +125,50 @@ export class EngineHttp {
     // 非 JSON(周报 CSV)按原始字节透传:res.text() 按 fetch 规范吞掉 UTF-8 BOM,
     // 浏览器下载的 CSV 在 Excel 里会中文乱码。Buffer 原样交给 res.send。
     return { status: res.status, body: Buffer.from(await res.arrayBuffer()), contentType, headers };
+  }
+
+  async openStream(
+    tenant: Pick<TenantRequestContext, 'userId' | 'workspaceId' | 'role'>,
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+    enginePath: string,
+    options: {
+      query?: Record<string, string>;
+      headers?: Record<string, string>;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<EngineStreamResult> {
+    const role: SaasRole = tenant.role === 'admin' ? 'saas-admin' : 'saas-member';
+    const token = await this.signer.mint({
+      subjectId: tenant.userId,
+      workspaceId: tenant.workspaceId,
+      roles: [role],
+    });
+    const url = new URL(`/api/v1${enginePath}`, this.config.ENGINE_ORIGIN);
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+      if (value !== undefined && value !== '') url.searchParams.set(key, value);
+    }
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 30_000);
+    const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(options.headers ?? {}),
+      },
+      signal,
+    });
+    const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+    if (res.status >= 400) {
+      let errorBody: unknown = {};
+      if (contentType.includes('application/json')) {
+        errorBody = await res.json().catch(() => ({}));
+      } else {
+        await res.body?.cancel().catch(() => undefined);
+      }
+      return { status: res.status, headers: res.headers, contentType, errorBody };
+    }
+    return { status: res.status, headers: res.headers, contentType, bodyStream: res.body };
   }
 
   /** 非引擎 JWT 的服务身份调用(事件消费等),不走租户角色。 */

@@ -74,7 +74,7 @@ async function audit(
 }
 
 test.describe('WCAG 2.x A/AA 抽样', () => {
-  for (const path of ['/leads', '/companies', '/tasks', '/notifications', '/settings/audit']) {
+  for (const path of ['/leads', '/companies', '/tasks', '/notifications', '/settings/audit', '/settings/privacy']) {
     test(`页面 ${path} 无 A/AA 违规`, async ({ page }) => {
       const backend = await installMockBackend(page);
       backend.set('GET', '/icps', [ICP]);

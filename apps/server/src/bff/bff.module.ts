@@ -1,3 +1,6 @@
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
 import { type CanActivate, type ExecutionContext, HttpException, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
@@ -194,6 +197,71 @@ export class BffHandler {
         );
         return;
       }
+    }
+    if (route.stream) {
+      const abortController = new AbortController();
+      const onResClose = () => {
+        if (!res.writableEnded) abortController.abort();
+      };
+      res.on?.('close', onResClose);
+      try {
+        const result = await this.engine.openStream(tenant, route.method, fillParams(route.enginePath, params), {
+          query,
+          headers,
+          timeoutMs: route.timeoutMs,
+          signal: abortController.signal,
+        });
+        if (result.status >= 400) {
+          const clientStatus = this.engine.toClientStatus(result.status, result.errorBody);
+          res.status(clientStatus).json(
+            this.engine.toClientError(result.status, result.errorBody, req.headers?.['accept-language'] as string | undefined),
+          );
+          return;
+        }
+        res.status(result.status);
+        res.setHeader(
+          'Content-Type',
+          result.headers.get('content-type') ?? result.contentType ?? 'application/octet-stream',
+        );
+        const disposition = result.headers.get('content-disposition');
+        if (disposition) res.setHeader('Content-Disposition', disposition);
+        const contentLength = result.headers.get('content-length');
+        if (contentLength) res.setHeader('Content-Length', contentLength);
+        res.setHeader('Cache-Control', result.headers.get('cache-control') ?? 'no-store');
+        res.setHeader('X-Content-Type-Options', result.headers.get('x-content-type-options') ?? 'nosniff');
+        if (!result.bodyStream) {
+          res.end();
+          return;
+        }
+        const nodeStream = Readable.fromWeb(result.bodyStream as unknown as NodeWebReadableStream);
+        try {
+          await pipeline(nodeStream, res);
+        } catch (streamErr) {
+          nodeStream.destroy();
+          abortController.abort();
+          if (res.headersSent) {
+            if (!res.destroyed) res.destroy?.(streamErr instanceof Error ? streamErr : undefined);
+            return;
+          }
+          throw streamErr;
+        }
+      } catch (err) {
+        if (res.headersSent) {
+          abortController.abort();
+          if (!res.destroyed) res.destroy?.(err instanceof Error ? err : undefined);
+          return;
+        }
+        res.status(502).json(
+          this.engine.toClientError(
+            502,
+            { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } },
+            req.headers?.['accept-language'] as string | undefined,
+          ),
+        );
+      } finally {
+        res.removeListener?.('close', onResClose);
+      }
+      return;
     }
     try {
       const result = await this.engine.call(tenant, route.method, fillParams(route.enginePath, params), {
