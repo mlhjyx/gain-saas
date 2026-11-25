@@ -164,6 +164,10 @@ describe('SmtpOutreachTransport（TEST-only 进程内 sink）', () => {
     expect(raw).toContain(`Message-ID: <${result.messageId}>`);
     expect(raw).toContain('To: <buyer@example.test>');
     expect(raw).toContain('Subject: =?UTF-8?B?');
+    // 送达率不变量：纯文本（text/plain）、无 HTML、无追踪像素。
+    expect(raw).toContain('Content-Type: text/plain; charset=utf-8');
+    expect(raw).not.toMatch(/text\/html/i);
+    expect(raw).not.toMatch(/<img\b/i);
     expect(raw).toContain('DKIM-Signature: v=1');
     expect(verifyDkim(raw, publicKeyPem)).toBe(true);
   });

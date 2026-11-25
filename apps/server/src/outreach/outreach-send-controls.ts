@@ -6,15 +6,80 @@ import type { OutreachTenant } from './outreach-consent.service.js';
 import { normalizeCountry } from './outreach-jurisdiction.js';
 
 /**
- * 收件人国家 → 默认时区（第 5 章 §5.3.5.4：无法确定时按国家默认时区 + 保守窗口）。
- * 用 IANA 时区（Intl 解析），窗口判定天然覆盖 DST，不用固定 offset。
+ * 收件人国家 → 默认 IANA 时区（第 5 章 §5.3.5.4 + Batch 1.4 全球 60+ 市场覆盖）。
+ * 用 IANA 时区（Intl 解析），窗口判定天然覆盖夏令时（DST），不用固定 offset。
+ * 未命中时保守兜底 `Europe/Berlin`。
  */
-const COUNTRY_TIMEZONE: Record<string, string> = {
+export const COUNTRY_TIMEZONE: Readonly<Record<string, string>> = Object.freeze({
+  // Europe (DACH + Western / Southern / Northern / Eastern)
   DE: 'Europe/Berlin',
   AT: 'Europe/Vienna',
+  CH: 'Europe/Zurich',
   FR: 'Europe/Paris',
+  IT: 'Europe/Rome',
+  ES: 'Europe/Madrid',
+  PT: 'Europe/Lisbon',
+  NL: 'Europe/Amsterdam',
+  BE: 'Europe/Brussels',
+  LU: 'Europe/Luxembourg',
+  GB: 'Europe/London',
+  UK: 'Europe/London',
+  IE: 'Europe/Dublin',
+  PL: 'Europe/Warsaw',
+  CZ: 'Europe/Prague',
+  SK: 'Europe/Bratislava',
+  HU: 'Europe/Budapest',
+  RO: 'Europe/Bucharest',
+  BG: 'Europe/Sofia',
+  HR: 'Europe/Zagreb',
+  SI: 'Europe/Ljubljana',
+  GR: 'Europe/Athens',
+  SE: 'Europe/Stockholm',
+  NO: 'Europe/Oslo',
+  DK: 'Europe/Copenhagen',
+  FI: 'Europe/Helsinki',
+  UA: 'Europe/Kyiv',
+  TR: 'Europe/Istanbul',
+  // Americas
   US: 'America/New_York',
-};
+  CA: 'America/Toronto',
+  MX: 'America/Mexico_City',
+  BR: 'America/Sao_Paulo',
+  CL: 'America/Santiago',
+  CO: 'America/Bogota',
+  AR: 'America/Argentina/Buenos_Aires',
+  PE: 'America/Lima',
+  // Middle East & Africa
+  AE: 'Asia/Dubai',
+  SA: 'Asia/Riyadh',
+  QA: 'Asia/Qatar',
+  OM: 'Asia/Muscat',
+  KW: 'Asia/Kuwait',
+  BH: 'Asia/Bahrain',
+  EG: 'Africa/Cairo',
+  MA: 'Africa/Casablanca',
+  IL: 'Asia/Jerusalem',
+  ZA: 'Africa/Johannesburg',
+  NG: 'Africa/Lagos',
+  KE: 'Africa/Nairobi',
+  // Asia-Pacific
+  CN: 'Asia/Shanghai',
+  HK: 'Asia/Hong_Kong',
+  TW: 'Asia/Taipei',
+  JP: 'Asia/Tokyo',
+  KR: 'Asia/Seoul',
+  SG: 'Asia/Singapore',
+  MY: 'Asia/Kuala_Lumpur',
+  ID: 'Asia/Jakarta',
+  VN: 'Asia/Ho_Chi_Minh',
+  TH: 'Asia/Bangkok',
+  PH: 'Asia/Manila',
+  IN: 'Asia/Kolkata',
+  PK: 'Asia/Karachi',
+  BD: 'Asia/Dhaka',
+  AU: 'Australia/Sydney',
+  NZ: 'Pacific/Auckland',
+});
 const DEFAULT_TIMEZONE = 'Europe/Berlin';
 
 const WEEKDAY_INDEX: Record<string, number> = {

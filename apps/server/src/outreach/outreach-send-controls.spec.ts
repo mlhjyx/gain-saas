@@ -92,6 +92,18 @@ describe('recipientLocalTime（收件人当地时区，含 DST）', () => {
     expect(recipientLocalTime('DE', new Date('2026-07-15T06:30:00Z')).minutes).toBe(8 * 60 + 30);
     expect(recipientLocalTime('US', new Date('2026-07-15T13:30:00Z')).minutes).toBe(9 * 60 + 30);
   });
+
+  it('Batch 1.4 全球 60+ 目标市场均映射正确 IANA 时区（拉美/亚太/中东/欧陆）', () => {
+    expect(recipientLocalTime('BR', WEDNESDAY_10_BERLIN).timezone).toBe('America/Sao_Paulo');
+    expect(recipientLocalTime('MX', WEDNESDAY_10_BERLIN).timezone).toBe('America/Mexico_City');
+    expect(recipientLocalTime('IT', WEDNESDAY_10_BERLIN).timezone).toBe('Europe/Rome');
+    expect(recipientLocalTime('GB', WEDNESDAY_10_BERLIN).timezone).toBe('Europe/London');
+    expect(recipientLocalTime('JP', WEDNESDAY_10_BERLIN).timezone).toBe('Asia/Tokyo');
+    expect(recipientLocalTime('AU', WEDNESDAY_10_BERLIN).timezone).toBe('Australia/Sydney');
+    expect(recipientLocalTime('AE', WEDNESDAY_10_BERLIN).timezone).toBe('Asia/Dubai');
+    expect(recipientLocalTime('PL', WEDNESDAY_10_BERLIN).timezone).toBe('Europe/Warsaw');
+    expect(recipientLocalTime('TR', WEDNESDAY_10_BERLIN).timezone).toBe('Europe/Istanbul');
+  });
 });
 
 describe('OutreachSendControls：发送窗口', () => {

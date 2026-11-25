@@ -236,6 +236,61 @@ describe('OutreachIngestService（P4-06 回复/退信/投诉 ingest）', () => {
     expect(prisma.replies[0]).toMatchObject({ kind: 'UNSUBSCRIBE' });
   });
 
+  it('转交采购回复：识别 REFERRAL_NEW_CONTACT、抽取被转交邮箱并按 POSITIVE 记录', async () => {
+    const { prisma, ingest, audit } = build();
+    const result = await ingest.ingest(
+      tenant,
+      replyRaw({
+        messageId: 'reply-referral@ziel.de',
+        subject: 'Re: HJT Solar Modules',
+        body: 'I am not in procurement. Please contact our buyer Maria Rossi at m.rossi@ziel.de.\r\n\r\n> On Tue outreach@example.test wrote:\r\n> hello',
+      }),
+    );
+    expect(result).toMatchObject({
+      outcome: 'REPLY',
+      contactRef: CONTACT,
+      replyIntent: 'REFERRAL_NEW_CONTACT',
+      referredEmails: ['m.rossi@ziel.de'],
+    });
+    expect(prisma.replies[0]).toMatchObject({
+      kind: 'REPLY',
+      classification: 'POSITIVE',
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'outreach.reply.ingested',
+        detail: expect.objectContaining({
+          replyIntent: 'REFERRAL_NEW_CONTACT',
+          referredEmails: ['m.rossi@ziel.de'],
+        }),
+      }),
+    );
+  });
+
+  it('索要规格书/报价识别 ASK_DATASHEET_QUOTE（POSITIVE），暂缓排期识别 TIMING_LATER（NEUTRAL）', async () => {
+    const first = build();
+    const quote = await first.ingest.ingest(
+      tenant,
+      replyRaw({
+        messageId: 'reply-quote@ziel.de',
+        body: 'Could you send us the datasheet and FOB price list for 710W modules?',
+      }),
+    );
+    expect(quote).toMatchObject({ outcome: 'REPLY', replyIntent: 'ASK_DATASHEET_QUOTE' });
+    expect(first.prisma.replies[0]).toMatchObject({ classification: 'POSITIVE' });
+
+    const second = build();
+    const later = await second.ingest.ingest(
+      tenant,
+      replyRaw({
+        messageId: 'reply-later@ziel.de',
+        body: 'We already locked Q2 stock. Please check back in Q3.',
+      }),
+    );
+    expect(later).toMatchObject({ outcome: 'REPLY', replyIntent: 'TIMING_LATER' });
+    expect(second.prisma.replies[0]).toMatchObject({ classification: 'NEUTRAL' });
+  });
+
   it('负向：归因不到发送台账时 UNMATCHED，不写任何行', async () => {
     const { prisma, ingest } = build();
     const result = await ingest.ingest(
