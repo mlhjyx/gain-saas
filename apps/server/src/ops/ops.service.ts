@@ -18,8 +18,48 @@ import { csvFilename, toCsv, type CsvColumn } from './ops-csv.js';
 import { OpsDatabase } from './ops-database.service.js';
 import { OpsExportThrottle } from './ops-export-throttle.js';
 import { OpsTemporalService, SCHEDULE_WORKFLOW_WHITELIST } from './ops-temporal.service.js';
+import { DEFAULT_STORAGE_QUOTA } from '../tenant/workspace-context.controller.js';
 
 type Row = Record<string, unknown>;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const positiveIntField = (min: number, max: number, label: string) =>
+  z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform((value, ctx) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+      ctx.addIssue({ code: 'custom', message: `${label} 必须在 ${min}..${max} 之间` });
+      return z.NEVER;
+    }
+    return parsed;
+  });
+
+const positiveBigIntField = (min: bigint, max: bigint, label: string) =>
+  z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform((value, ctx) => {
+    try {
+      const parsed = BigInt(value);
+      if (parsed < min || parsed > max) {
+        ctx.addIssue({ code: 'custom', message: `${label} 必须在 ${min}..${max} 之间` });
+        return z.NEVER;
+      }
+      return parsed;
+    } catch {
+      ctx.addIssue({ code: 'custom', message: `${label} 必须是正整数` });
+      return z.NEVER;
+    }
+  });
+
+const updateStorageQuotaSchema = z
+  .object({
+    maxDocumentsPerWorkspace: positiveIntField(1, 100_000, 'maxDocumentsPerWorkspace'),
+    maxDocumentsPerCompany: positiveIntField(1, 50_000, 'maxDocumentsPerCompany'),
+    maxBytesPerWorkspace: positiveBigIntField(1_048_576n, 1_099_511_627_776n, 'maxBytesPerWorkspace'),
+    maxExportsPerDay: positiveIntField(1, 1_000, 'maxExportsPerDay'),
+  })
+  .refine((v) => v.maxDocumentsPerCompany <= v.maxDocumentsPerWorkspace, {
+    path: ['maxDocumentsPerCompany'],
+    message: 'maxDocumentsPerCompany 不能大于 maxDocumentsPerWorkspace',
+  });
 
 const PROVIDER_STATUSES = new Set(['ENABLED', 'DISABLED']);
 const SOURCE_STATUSES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED']);
@@ -551,6 +591,379 @@ export class OpsService {
       created_at: w.created_at,
       members: String(w.member_count),
     }));
+  }
+
+  private assertUuid(id: string): void {
+    if (!UUID_RE.test(id)) {
+      throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'id 必须是 UUID' } });
+    }
+  }
+
+  /**
+   * 双库工作空间一致性对账（MT-P1）：
+   * - 有 OWNER_DATABASE_URL 时扫描 global_dev.workspace 全集（含引擎孤儿空间），complete=true；
+   * - 仅有 app_user 池时逐租户通过 withWorkspace 核验，仍可检出 onlyInSaas 与 nameMismatches，complete=false。
+   */
+  async reconcileWorkspaces() {
+    const [saasRows, memberRows] = await Promise.all([
+      this.prisma.workspace.findMany({
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          onboardingCompletedAt: true,
+          onboardingCompanyId: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.$queryRaw<Array<{ id: string; member_count: bigint }>>`
+        SELECT id, member_count FROM public.app_ops_list_workspaces()
+      `,
+    ]);
+    const memberCountById = new Map(memberRows.map((row) => [row.id, Number(row.member_count)]));
+
+    const db = this.database.db;
+    let complete = false;
+    let warning: string | undefined;
+    const engineMap = new Map<string, { id: string; name: string; createdAt: string | null }>();
+
+    if (db.ownerPool) {
+      const engineRows = await db.ownerQuery<{ id: string; name: string; created_at: Date | string }>(
+        `SELECT id::text, name, created_at FROM workspace ORDER BY created_at ASC`,
+      );
+      for (const row of engineRows) {
+        engineMap.set(row.id, {
+          id: row.id,
+          name: row.name,
+          createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ''),
+        });
+      }
+      complete = true;
+    } else {
+      warning = 'OWNER_DATABASE_URL 未配置，仅核验 SaaS 已知空间，无法扫描引擎库孤儿空间';
+      for (const row of saasRows) {
+        const found = await db.withWorkspace(row.id, async (client) => {
+          const { rows } = await client.query<{ id: string; name: string; created_at: Date | string }>(
+            `SELECT id::text, name, created_at FROM workspace WHERE id = $1`,
+            [row.id],
+          );
+          return rows[0] ?? null;
+        });
+        if (found) {
+          engineMap.set(found.id, {
+            id: found.id,
+            name: found.name,
+            createdAt: found.created_at instanceof Date ? found.created_at.toISOString() : String(found.created_at ?? ''),
+          });
+        }
+      }
+    }
+
+    const saasIds = new Set(saasRows.map((row) => row.id));
+    const onlyInSaas: Array<Record<string, unknown>> = [];
+    const nameMismatches: Array<Record<string, unknown>> = [];
+    let matchedCount = 0;
+
+    for (const row of saasRows) {
+      const engine = engineMap.get(row.id);
+      if (!engine) {
+        onlyInSaas.push({
+          id: row.id,
+          name: row.name,
+          status: row.status,
+          onboardingCompletedAt: row.onboardingCompletedAt?.toISOString() ?? null,
+          memberCount: memberCountById.get(row.id) ?? 0,
+          createdAt: row.createdAt.toISOString(),
+        });
+        continue;
+      }
+      matchedCount += 1;
+      if (engine.name !== row.name) {
+        nameMismatches.push({
+          id: row.id,
+          saasName: row.name,
+          engineName: engine.name,
+          saasStatus: row.status,
+        });
+      }
+    }
+
+    const onlyInEngine = complete
+      ? [...engineMap.values()].filter((row) => !saasIds.has(row.id))
+      : [];
+
+    return {
+      complete,
+      ...(warning ? { warning } : {}),
+      summary: {
+        saasTotal: saasRows.length,
+        engineTotal: engineMap.size,
+        matchedCount,
+        onlyInSaasCount: onlyInSaas.length,
+        onlyInEngineCount: onlyInEngine.length,
+        nameMismatchCount: nameMismatches.length,
+      },
+      onlyInSaas,
+      onlyInEngine,
+      nameMismatches,
+    };
+  }
+
+  private async queryEngineWorkspaceSummary(workspaceId: string): Promise<Record<string, unknown>> {
+    try {
+      const db = this.database.db;
+      return await db.withWorkspace(workspaceId, async (client) => {
+        const [wsRes, docRes, entityRes] = await Promise.all([
+          client.query<{ id: string; name: string; created_at: Date | string }>(
+            `SELECT id::text, name, created_at FROM workspace WHERE id = $1`,
+            [workspaceId],
+          ),
+          client.query<{ total: string; total_bytes: string; pending_upload: string }>(
+            `SELECT count(*)::text AS total,
+                    coalesce(sum(size_bytes), 0)::text AS total_bytes,
+                    count(*) FILTER (WHERE status = 'pending_upload')::text AS pending_upload
+             FROM seller_document WHERE deleted_at IS NULL`,
+          ),
+          client.query<{
+            companies: string;
+            icps: string;
+            discovery_runs: string;
+            canonical_companies: string;
+            canonical_contacts: string;
+            leads: string;
+          }>(
+            `SELECT
+               (SELECT count(*)::text FROM company_profile WHERE deleted_at IS NULL) AS companies,
+               (SELECT count(*)::text FROM icp_definition) AS icps,
+               (SELECT count(*)::text FROM discovery_run) AS discovery_runs,
+               (SELECT count(*)::text FROM canonical_company) AS canonical_companies,
+               (SELECT count(*)::text FROM canonical_contact) AS canonical_contacts,
+               (SELECT count(*)::text FROM lead) AS leads`,
+          ),
+        ]);
+        const ws = wsRes.rows[0] ?? null;
+        const docs = docRes.rows[0];
+        const entities = entityRes.rows[0];
+        return {
+          available: true,
+          exists: ws !== null,
+          name: ws?.name ?? null,
+          createdAt: ws?.created_at instanceof Date ? ws.created_at.toISOString() : (ws?.created_at ?? null),
+          sellerDocuments: {
+            total: Number(docs?.total ?? 0),
+            totalBytes: Number(docs?.total_bytes ?? 0),
+            pendingUpload: Number(docs?.pending_upload ?? 0),
+          },
+          counts: {
+            companies: Number(entities?.companies ?? 0),
+            icps: Number(entities?.icps ?? 0),
+            discoveryRuns: Number(entities?.discovery_runs ?? 0),
+            canonicalCompanies: Number(entities?.canonical_companies ?? 0),
+            canonicalContacts: Number(entities?.canonical_contacts ?? 0),
+            leads: Number(entities?.leads ?? 0),
+          },
+        };
+      });
+    } catch {
+      return { available: false, exists: false, name: null, createdAt: null, sellerDocuments: null, counts: null };
+    }
+  }
+
+  async workspaceDetail(workspaceId: string) {
+    this.assertUuid(workspaceId);
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86_400_000);
+
+    const saasData = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } });
+      if (!workspace) {
+        throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+      }
+      const [
+        members,
+        registry,
+        storageRow,
+        campaigns,
+        qgos,
+        saos,
+        outreachBatches,
+        outreachSends30d,
+        deletionMirrors,
+      ] = await Promise.all([
+        tx.membership.findMany({
+          where: { workspaceId },
+          include: { user: { select: { email: true, status: true } } },
+          orderBy: { createdAt: 'asc' },
+        }),
+        tx.workspaceRegistry.findUnique({ where: { workspaceId } }),
+        tx.workspaceStorageQuota.findUnique({ where: { workspaceId } }),
+        tx.campaign.count({ where: { workspaceId } }),
+        tx.qgo.count({ where: { workspaceId } }),
+        tx.sao.count({ where: { workspaceId } }),
+        tx.outreachBatch.count({ where: { workspaceId } }),
+        tx.outreachSend.count({ where: { workspaceId, status: 'SENT', createdAt: { gte: thirtyDaysAgo } } }),
+        tx.deletionMirror.count({ where: { workspaceId } }),
+      ]);
+
+      return {
+        workspace: {
+          id: workspace.id,
+          name: workspace.name,
+          status: workspace.status,
+          statusUpdatedAt: workspace.statusUpdatedAt?.toISOString() ?? null,
+          statusUpdatedBy: workspace.statusUpdatedBy ?? null,
+          statusNote: workspace.statusNote ?? null,
+          onboardingCompletedAt: workspace.onboardingCompletedAt?.toISOString() ?? null,
+          onboardingCompanyId: workspace.onboardingCompanyId ?? null,
+          createdAt: workspace.createdAt.toISOString(),
+          updatedAt: workspace.updatedAt.toISOString(),
+        },
+        members: members.map((m) => ({
+          userId: m.userId,
+          email: m.user.email,
+          userStatus: m.user.status,
+          role: m.role,
+          status: m.status,
+          createdAt: m.createdAt.toISOString(),
+        })),
+        registry: registry
+          ? {
+              enabled: registry.enabled,
+              cursor: registry.cursor,
+              lastPulledAt: registry.lastPulledAt?.toISOString() ?? null,
+            }
+          : null,
+        storageQuota: {
+          workspaceId,
+          maxDocumentsPerWorkspace: storageRow?.maxDocumentsPerWorkspace ?? DEFAULT_STORAGE_QUOTA.maxDocumentsPerWorkspace,
+          maxDocumentsPerCompany: storageRow?.maxDocumentsPerCompany ?? DEFAULT_STORAGE_QUOTA.maxDocumentsPerCompany,
+          maxBytesPerWorkspace: (storageRow?.maxBytesPerWorkspace ?? DEFAULT_STORAGE_QUOTA.maxBytesPerWorkspace).toString(),
+          maxExportsPerDay: storageRow?.maxExportsPerDay ?? DEFAULT_STORAGE_QUOTA.maxExportsPerDay,
+          isDefault: storageRow === null,
+          updatedBy: storageRow?.updatedBy ?? null,
+          updatedAt: storageRow?.updatedAt?.toISOString() ?? null,
+        },
+        saasCounts: {
+          campaigns,
+          qgos,
+          saos,
+          outreachBatches,
+          outreachSends30d,
+          deletionMirrors,
+        },
+      };
+    });
+
+    const [activeSessions, engine] = await Promise.all([
+      this.prisma.session.count({
+        where: { realm: 'tenant', subjectType: 'user', workspaceId, revokedAt: null, expiresAt: { gt: now } },
+      }),
+      this.queryEngineWorkspaceSummary(workspaceId),
+    ]);
+
+    return {
+      ...saasData,
+      activeSessions,
+      engine,
+    };
+  }
+
+  async getWorkspaceStorageQuota(workspaceId: string) {
+    this.assertUuid(workspaceId);
+    const quota = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const workspace = await tx.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } });
+      if (!workspace) {
+        throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+      }
+      const row = await tx.workspaceStorageQuota.findUnique({ where: { workspaceId } });
+      return {
+        workspaceId,
+        maxDocumentsPerWorkspace: row?.maxDocumentsPerWorkspace ?? DEFAULT_STORAGE_QUOTA.maxDocumentsPerWorkspace,
+        maxDocumentsPerCompany: row?.maxDocumentsPerCompany ?? DEFAULT_STORAGE_QUOTA.maxDocumentsPerCompany,
+        maxBytesPerWorkspace: (row?.maxBytesPerWorkspace ?? DEFAULT_STORAGE_QUOTA.maxBytesPerWorkspace).toString(),
+        maxExportsPerDay: row?.maxExportsPerDay ?? DEFAULT_STORAGE_QUOTA.maxExportsPerDay,
+        isDefault: row === null,
+        updatedBy: row?.updatedBy ?? null,
+        updatedAt: row?.updatedAt?.toISOString() ?? null,
+      };
+    });
+
+    const engineSummary = await this.queryEngineWorkspaceSummary(workspaceId);
+    const docs = engineSummary.sellerDocuments as { total: number; totalBytes: number; pendingUpload: number } | null;
+    return {
+      ...quota,
+      usage: docs
+        ? {
+            totalDocuments: docs.total,
+            totalBytes: docs.totalBytes,
+            pendingUpload: docs.pendingUpload,
+          }
+        : null,
+    };
+  }
+
+  async updateWorkspaceStorageQuota(workspaceId: string, input: unknown, actorId: string) {
+    this.assertUuid(workspaceId);
+    const parsed = updateStorageQuotaSchema.safeParse(input);
+    if (!parsed.success) throw validationError(parsed.error);
+    const data = parsed.data;
+
+    const { before, after } = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      const workspace = await tx.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } });
+      if (!workspace) {
+        throw new NotFoundException({ error: { code: 'NOT_FOUND', message: '工作空间不存在' } });
+      }
+      const prev = await tx.workspaceStorageQuota.findUnique({ where: { workspaceId } });
+      const saved = await tx.workspaceStorageQuota.upsert({
+        where: { workspaceId },
+        create: {
+          workspaceId,
+          maxDocumentsPerWorkspace: data.maxDocumentsPerWorkspace,
+          maxDocumentsPerCompany: data.maxDocumentsPerCompany,
+          maxBytesPerWorkspace: data.maxBytesPerWorkspace,
+          maxExportsPerDay: data.maxExportsPerDay,
+          updatedBy: actorId,
+        },
+        update: {
+          maxDocumentsPerWorkspace: data.maxDocumentsPerWorkspace,
+          maxDocumentsPerCompany: data.maxDocumentsPerCompany,
+          maxBytesPerWorkspace: data.maxBytesPerWorkspace,
+          maxExportsPerDay: data.maxExportsPerDay,
+          updatedBy: actorId,
+        },
+      });
+      return {
+        before: prev
+          ? {
+              maxDocumentsPerWorkspace: prev.maxDocumentsPerWorkspace,
+              maxDocumentsPerCompany: prev.maxDocumentsPerCompany,
+              maxBytesPerWorkspace: prev.maxBytesPerWorkspace.toString(),
+              maxExportsPerDay: prev.maxExportsPerDay,
+            }
+          : null,
+        after: {
+          workspaceId: saved.workspaceId,
+          maxDocumentsPerWorkspace: saved.maxDocumentsPerWorkspace,
+          maxDocumentsPerCompany: saved.maxDocumentsPerCompany,
+          maxBytesPerWorkspace: saved.maxBytesPerWorkspace.toString(),
+          maxExportsPerDay: saved.maxExportsPerDay,
+          isDefault: false,
+          updatedBy: saved.updatedBy ?? null,
+          updatedAt: saved.updatedAt.toISOString(),
+        },
+      };
+    });
+
+    await this.audit.record({
+      realm: 'ops',
+      actorId,
+      workspaceId,
+      action: 'workspace.storage-quota.update',
+      target: workspaceId,
+      detail: { before, after },
+    });
+    return after;
   }
 
   /** 平台运营查看 SaaS 注册用户（SaaS 自有库，不是引擎 workspace 影子行）。 */

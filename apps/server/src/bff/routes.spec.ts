@@ -317,3 +317,22 @@ describe('contact enrichment BFF route (Batch 1.6)', () => {
     });
   });
 });
+
+describe('MT-P1 metrics & understanding recompute BFF routes', () => {
+  it('registers source-yield and understanding/recompute as member passthroughs without grants', () => {
+    const cases: Array<[string, string]> = [
+      ['GET', 'metrics/source-yield'],
+      ['POST', 'companies/:companyId/understanding/recompute'],
+    ];
+    for (const [method, saasPath] of cases) {
+      const route = BFF_ROUTES.find((candidate) => candidate.method === method && candidate.saasPath === saasPath);
+      expect(route, `${method} ${saasPath}`).toEqual({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
+  });
+});

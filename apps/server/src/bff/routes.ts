@@ -33,6 +33,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // ── 模块 02 卖家知识中心 ──
   { method: 'POST', saasPath: 'companies', enginePath: '/companies', access: 'member', grant: true },
   { method: 'POST', saasPath: 'companies/:companyId/understanding/retry', enginePath: '/companies/:companyId/understanding/retry', access: 'member', grant: true },
+  { method: 'POST', saasPath: 'companies/:companyId/understanding/recompute', enginePath: '/companies/:companyId/understanding/recompute', access: 'member' },
   { method: 'PATCH', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'member' },
   { method: 'DELETE', saasPath: 'companies/:companyId', enginePath: '/companies/:companyId', access: 'admin' },
   { method: 'POST', saasPath: 'companies/:companyId/website-candidates', enginePath: '/companies/:companyId/website-candidates', access: 'member' },
@@ -164,6 +165,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'metrics/catalog', enginePath: '/metrics/catalog', access: 'member' },
   { method: 'GET', saasPath: 'metrics/observations', enginePath: '/metrics/observations', access: 'member' },
   { method: 'GET', saasPath: 'metrics/rollups', enginePath: '/metrics/rollups', access: 'member' },
+  { method: 'GET', saasPath: 'metrics/source-yield', enginePath: '/metrics/source-yield', access: 'member' },
 ];
 
 export interface BudgetQuoteOptions {

@@ -1,13 +1,14 @@
-import { BadRequestException, Body, ForbiddenException, GoneException, Controller, Get, NotFoundException, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ForbiddenException, GoneException, HttpException, Controller, Get, NotFoundException, Optional, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
+import { EngineHttp } from '../bff/engine-http.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
 
 /**
  * 工作空间管理(A3/SD2):一企一空间——空间随企业注册创建，成员经邀请加入；
- * 这里只做列表、改名、退出（创建端点 410 退役）。不做所有权转移和高级空间管理。
+ * 这里只做列表、改名（联动引擎 PATCH /api/v1/workspace）、退出（创建端点 410 退役）。
  */
 @Controller('api/workspaces')
 @UseGuards(TenantGuard)
@@ -22,6 +23,7 @@ export class WorkspacesController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly sessions: SessionService,
+    @Optional() private readonly engine?: EngineHttp,
   ) {}
 
   @Get()
@@ -55,7 +57,7 @@ export class WorkspacesController {
     const tenant = req.tenant!;
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 128) : '';
     if (!name) throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: '工作空间名称必填' } });
-    const updated = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+    await this.prisma.withWorkspace(workspaceId, async (tx) => {
       const membership = await tx.membership.findFirst({
         where: { userId: tenant.userId, workspaceId, status: 'active' },
         include: { workspace: { select: { status: true } } },
@@ -67,9 +69,47 @@ export class WorkspacesController {
       if (membership.role !== 'admin') {
         throw new BadRequestException({ error: { code: 'FORBIDDEN', message: '只有管理员可以修改工作空间名称' } });
       }
-      return tx.workspace.update({ where: { id: workspaceId }, data: { name } });
     });
-    await this.audit.record({ realm: 'tenant', actorId: tenant.userId, workspaceId, action: 'workspaces.rename', target: workspaceId, detail: { name } });
+    const lang = req.headers?.['accept-language'] as string | undefined;
+    let engineSynced = false;
+    if (this.engine) {
+      let engineRes;
+      try {
+        engineRes = await this.engine.call(
+          { userId: tenant.userId, workspaceId, role: 'admin' },
+          'PATCH',
+          '/workspace',
+          { body: { name } },
+        );
+      } catch (err) {
+        throw new HttpException(
+          this.engine.toClientError(
+            502,
+            { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } },
+            lang,
+          ),
+          502,
+        );
+      }
+      if (engineRes.status >= 400) {
+        throw new HttpException(
+          this.engine.toClientError(engineRes.status, engineRes.body, lang),
+          this.engine.toClientStatus(engineRes.status, engineRes.body),
+        );
+      }
+      engineSynced = true;
+    }
+    const updated = await this.prisma.withWorkspace(workspaceId, (tx) =>
+      tx.workspace.update({ where: { id: workspaceId }, data: { name } }),
+    );
+    await this.audit.record({
+      realm: 'tenant',
+      actorId: tenant.userId,
+      workspaceId,
+      action: 'workspaces.rename',
+      target: workspaceId,
+      detail: { name, engineSynced },
+    });
     return { data: { id: updated.id, name: updated.name } };
   }
 

@@ -118,6 +118,16 @@ export const ENGINE_ERROR_COPY = {
       next: "Pick the closest option in the reason dialog.",
     },
   },
+  UNDERSTANDING_IN_PROGRESS: {
+    title: '企业画像正在解析中，暂时无法重算',
+    why: '当前档案仍有进行中的企业理解任务，需等待本轮完成后再触发重算。',
+    next: '请稍候刷新页面，待解析完成后再次点击重算。',
+    en: {
+      title: 'Company profile analysis is currently running',
+      why: 'An understanding task is still in progress for this company profile.',
+      next: 'Wait for the current run to finish, refresh the page, and retry recomputation.',
+    },
+  },
   INVALID_REASON_CODE: {
     title: '原因选项无效',
     why: '提交的原因不在可选范围。',
