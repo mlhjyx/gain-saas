@@ -8,7 +8,17 @@ SaaS 侧代码不依赖本文件即可开发与测试;但以下 4 项不完成,*
 > - 因此本机走 **https 回环端点** `https://127.0.0.1:18446`(TLS 由 socat 终止,证书由引擎已信任的 `growthos-server-ca` 签发),不是 4020 裸 http。
 > - `outbox_event` 对 `app_user` 启用 RLS,回填用 `OPS_APP_DATABASE_URL` 会静默读到 0 行,必须用 owner/BYPASSRLS 连接。
 
+## 现行对接与模式
+
+- 用户身份继续由 SaaS 签发，引擎核对 JWKS、issuer 与 scope。引擎合同以 [engine-client](../packages/engine-client/README.md) 为准。
+- `LEGACY_EXECUTION_BUDGET_MODE` 默认 `enforce`，两仓按批准窗口统一切换。适用写路由在 `bypass` 时跳过旧 quote 与签发；客户积分的扣费开关与结算见 [钱包](../docs/technical/credits-wallet.md)。
+- `PLATFORM_AUTHORITY_MODE` 默认 `r4`。R4 运行使用 gain-saas 的绑定、签发和撤销接缝。`internal_db` 的启停与回退步骤见 [Backend 平台授权手册](https://github.com/mlhjyx/global-backend/blob/main/docs/runbooks/platform-authority-internal-db-and-slimming.md)。
+- 寻源完成与 `LeadQualified` 从引擎事件出口进入 SaaS 的 durable inbox，SaaS 负责投影任务/线索和 ACK。查看状态时先确认 API、Worker 与事件游标，再追具体任务的接收和投影。
+- 操作前核对 [本机运行读回](../docs/status/current.md)、部署入口和现行模式。下方 0–4 节的脚本、参数示例与回退步骤源自 R4 迁移批次，先与当前配置和受管进程核对，再按授权执行。
+
 ## 0. 一键执行(需要 root)
+
+> 2026-10 迁移操作记录。仅在适用的 R4 场景复用，并先核对回退基线。
 
 ```bash
 # 1) 演练:只打印将改的键,不写文件、不起服务
@@ -114,7 +124,7 @@ curl -s --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.we
 - `ops:read`/`ops:write`(P3 数据源归属,2026-11-04)只授予 `saas-ops`:这是运营台专用的引擎角色,由 gain-saas 服务端在 ops 会话下现铸(workspace claim 用哨兵 UUID `00000000-0000-4000-8000-000000000000`,平台级端点只操作全局表,不用它做租户 RLS 作用域);租户角色(`saas-admin`/`saas-member`)禁止携带 `ops:*`。**上线顺序固定**:① 引擎镜像先发布含 `ops:write` 的版本;② 再应用本文件的 role map(引擎按闭合词表解析,未知 scope 会让启动失败);③ 最后部署含 `/api/ops/channels` 的 gain-saas。运营域其余读仍走 PG 白名单。
 - **已知的 scope 缺口(按 PRD 设计保留,不是本次遗漏)**:BFF 的 `GET /leads/:leadId`、`GET /canonical-companies/:id` 需要 `personal-data:read`,`GET /data-providers` 需要 `ops:read`,成员可见的 `/suppressions` 系列需要 `compliance:manage`;这些路由在 M3 接入前要么调整 BFF 的 access,要么由产品重新决定 scope——**不要**为了跑通就把 `personal-data:read` 塞进用户角色。
 - **联系人挖掘 M4(2026-11-01,窄 scope 方案)**:引擎镜像 `d391a5f5` 已包含 `POST /canonical-companies/:id/discover-contacts`、`POST /canonical-companies/:id/guess-emails`、`POST /contact-points/:id/verify` 与 `GET /canonical-companies/:id`(2026-11-01 用 `/api/docs-json` 核实)。产品负责人已选定**窄 scope 方案**:引擎新增 `contact-discovery:read`(只覆盖具名联系人面),`saas-admin` 的映射自此包含它,`personal-data:read` 仍只授事件消费身份。上线顺序固定:① 引擎发布含 `contact-discovery:read` 的镜像;② 再应用本文件的 role map(`engine-integration-apply.py` 会拒绝在未知 scope 上启动);③ 卡片才可读写。在此之前,卡片会显示「获客能力尚未完成授权对接」并保持只读,不会误报成功。
-- **联系人发现暂时无法铸造 Grant(引擎侧缺口)**:引擎的 `workspace-technical-quote` 对 `POST /canonical-companies/:id/discover-contacts` 明确 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`,见引擎 `workspace-technical-budget-envelope.ts`:Contact discovery is outside the company-level acquisition chain)。因此「发现联系人」动作在引擎补上联系人阶段预算账户/报价(设计稿 D7,scope=contact.discovery)前无法签发一次性 Grant;BFF 会把该错误码原样透出为「这项操作还没有可用的执行预算账户」,不会误报成功。`guess-emails`/`verify` 不受此限。
+- **P8 对接时的联系人发现 Grant 限制（历史行为）**:引擎的 `workspace-technical-quote` 对 `POST /canonical-companies/:id/discover-contacts` 明确 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`,见引擎 `workspace-technical-budget-envelope.ts`:Contact discovery is outside the company-level acquisition chain)。因此「发现联系人」动作在引擎补上联系人阶段预算账户/报价(设计稿 D7,scope=contact.discovery)前无法签发一次性 Grant;BFF 会把该错误码原样透出为「这项操作还没有可用的执行预算账户」,不会误报成功。`guess-emails`/`verify` 不受此限。
 - 事件消费验证:`EVENT_CONSUMER_ENABLED=true` 后 `gain-saas-worker` 日志不再出现"引擎拒绝事件拉取",`outbox_delivery` 的 PENDING 开始转为 ACKED。
 
 > 配置值已用引擎仓编译好的 `JwksTokenVerifier` + `createRolesToScopesPolicy` 对运行中的 SaaS 预演(2026-10-29):https token 验签通过、三角色 scope 与预期一致、不设 `AUTH_WORKSPACE_CLAIM` 时按预期 `TOKEN_INVALID`。
@@ -133,6 +143,8 @@ ENGINE_DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' /global/backend/packages/db/
 脚本同时修了三个问题:导入路径(`./shared` → `../shared`)、根 `package.json` 缺 `bootstrap:backfill`、registry 外键缺影子 workspace。
 
 ## 4. 执行预算 Grant(2026-10-29 已决定迁到 gain-saas)
+
+> 以下为旧执行预算 enforce 与 R4 接线原始说明，运行模式见本页开头。
 
 > 产品负责人 2026-10-29 决定:**Grant 签发从 GrowthOS 移到 gain-saas,gain-saas 不再依赖 GrowthOS**。SD3 的“SaaS 不签发 grant”就此被取代;本文件记录新的运行合同。
 
@@ -163,7 +175,7 @@ EXECUTION_BUDGET_GRANT_AUDIENCE=global-backend:execution-budget
 EXECUTION_BUDGET_GRANT_ALGORITHMS=RS256
 ```
 
-`backend-platform-worker-runtime.env` 的 `EXECUTION_BUDGET_GRANT_*` **保持 GrowthOS**:平台 Grant/撤销仍走 R4 信任根(平台 schedule 仍 paused)。gain-saas 的用户写路径不再经过 GrowthOS。
+P8 之前曾保留 GrowthOS 的平台信任根；迁移后 R4 平台 Worker 使用其独立环境文件里的 gain-saas 预算 JWKS 和 issuer。实际 mode、绑定与启动依赖按本页顶部梳理。
 
 **R4 取舍**:api 的 `PlatformRevocationTrustRuntime` 复用 `EXECUTION_BUDGET_GRANT_*`,改指 gain-saas 后 GrowthOS 的撤销回执不再被 api 验证;fence-ack 端点仍应 200(它会抓 gain-saas 的预算 JWKS)。apply 脚本在重建后跑 `check_r4_fence_ack()` 兜底。
 

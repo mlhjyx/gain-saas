@@ -1,17 +1,25 @@
 # 前端发布与页面级回退演练（P5b-24）
 
 > 生命周期：`DRAFT`
+> 适用：开发预览、托管发布和回退指引。真实演练单独记录。
 > 生命周期依据：回退步骤与 redirect 核对器已入库；首次真实回退演练待下一次前端发版后执行（2026-11-09）。
 
 ## 1. 发布形态
 
-gain-saas 前端由 `apps/web` 构建出静态产物，随 SaaS 服务一起由 systemd（`gain-saas-web`）托管；发布 = 合并到 `main` → CI 绿 → 部署窗口内 `pnpm build` + `systemctl restart gain-saas-web`。**没有独立的前端 CDN 灰度层**，所以「页面级回退」= 在 `main` 上 revert 对应 PR 并重新发布。
+租户 SPA 从 `apps/web` 构建。运行在 systemd 托管的 SaaS 服务上；核对当前发布入口、制品和迁移。Web 静态产物与 server 版本可以单独采用：只更换 server 时要明确哪份 SPA 保留。实际发布在已批准的窗口切换版本化入口。
+
+### 本机预览与验证
+
+- 从自己的隔离工作树用 5667 做 HMR，用户验收用 `pnpm preview:web` 构建到 5666。`vite preview` 的 API 代理指向本机 SaaS；使用受管服务的登录态和数据时遵循验收范围。现行发布端口留给 systemd。前端界面由用户在 5666 验收通过，再进入 PR、CI、合并和部署。
+- 在需要运行前端的工作树通过已批准的本机配置准备 `apps/web/.env*`。Vben 把 API 地址写入 `dist/_app-config-*.js`；核对 API 前缀并在配置改动后重建。dev 和 preview 的样式类生成可能不同，最终用生产构建验收。
+- 本地按受影响页面跑 Playwright 定向用例；先确认默认预览端口的进程归属，冲突时改用 `GAINOS_E2E_PORT`，限时用 Playwright `--global-timeout`。截图和扫描可能写 `docs/evidence/ui-restyle/{antd-system,pass2,pass3}/`，先核对本任务范围再处理。
+- 打开真实上线入口前记录回退制品、服务端/前端版本、迁移兼容性。切换后核对 readiness、目标页面和历史深链，分别回读 Web 和 Worker 采用情况。
 
 ## 2. 页面级回退（目标 <10 分钟）
 
 1. 定位问题 PR：`git log --oneline -- apps/web/src/views/<page>`；确认其 squash 提交。
-2. 在 `main` 上开 revert 分支：`git revert <squash-sha>`（一个 PR 一个 revert，不夹带其它改动）。
-3. CI 绿后合并；部署窗口内重新构建并 `systemctl restart gain-saas-web`。
+2. 从核验后的主线在独立工作树开 revert 分支：`git revert <squash-sha>`（一个 PR 一个 revert，不夹带其它改动）。
+3. 通过独立审查、CI 和授权后合并；部署窗口按当前 service 入口采用新制品。若回到已保留的制品版本，先确认其对应 SPA、server 与数据库状态。
 4. 验证清单：
    - 目标页面恢复旧行为；`pnpm exec playwright test e2e/` 全绿（含 a11y 抽样）；
    - 被该 PR 触及的深链仍可用（见 §3）；

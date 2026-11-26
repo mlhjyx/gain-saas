@@ -2,9 +2,11 @@
 
 > 文档 ID：`DOC-TECH-WORKSPACE-BUDGET-QUOTA-001`
 > 生命周期：`CURRENT`
-> 最后核验：2026-11-04
+> 最后核验：2026-11-27（旧提醒与通知接线）；累计配额方案沿用 2026-11-04 设计。
 
 签发一次性执行预算 Grant 之前的累计配额检查。产品负责人 2026-11-04 拍板：新注册 workspace 滚动 30 天 **30 次 run / 15 USD**；存量 workspace 全部豁免。
+
+> 本页适用于旧执行预算 `enforce` 模式。适用请求采用 `bypass` 时跳过旧 quote 与 Grant。客户余额、预占与收费开关见[预付积分钱包](credits-wallet.md)。
 
 ## 为什么放在 SaaS 签发端
 
@@ -16,6 +18,12 @@
 - `WorkspaceBudgetPolicyService`（`apps/server/src/bff/`）：在同一事务里 upsert policy → `SELECT … FOR UPDATE` 锁行（同一 workspace 的签发串行化）→ 现算窗口内 `discovery_run_link` 计数与 `cost_ledger` 花费。`discovery.run` 的签发要求 `已用 run + 1 ≤ max_runs`；花费达到 `max_spend_micros` 时拒绝所有付费 Grant。
 - 超限抛 `WorkspaceBudgetQuotaExceededError`（HTTP 402，`WORKSPACE_BUDGET_EXCEEDED`，details 带窗口/上限/已用量）；BFF 与注册引导端点原样透传，前端沿用现有错误提示。
 - 开关：`WORKSPACE_QUOTA_ENFORCE=false` 时只记录日志不拒绝；额度用 env（`WORKSPACE_QUOTA_*`）或直接改 policy 行调整。
+
+## 旧提醒与通知列表
+
+主线自 #245 起，仅在 `LEGACY_EXECUTION_BUDGET_MODE=enforce` 且 `WORKSPACE_QUOTA_ENFORCE=true` 时启用旧额度提醒；具体工作空间仍按其配额策略判断。停用时不再生成 `WorkspaceQuotaWarning` 和 `WorkspaceQuotaExceeded`，已有记录从列表与未读计数中隐藏，全部标已读也使用相同范围。保存的历史记录仍可用于审计。实际启用以发布与配置读回为准。
+
+见[提醒开关](../../apps/server/src/shared/legacy-workspace-quota-alerts.ts)、[通知控制器](../../apps/server/src/tenant/notifications.controller.ts)与[事件消费者](../../apps/server/src/service/event-consumer.service.ts)。
 
 ## 已知边界
 

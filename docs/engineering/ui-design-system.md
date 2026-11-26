@@ -66,7 +66,7 @@
 
 - 成功：`feedback.message.success`（3s 自动消失）。
 - 可恢复失败：`feedback.message.error`；页面级持久错误：`ErrorNotice`（a-alert，保留「发生了什么/为什么/怎么办 + 技术详情」三层）。
-- 确认：`feedback.modal.confirm`；行内危险操作 `a-popconfirm`。
+- 确认：`feedback.confirm`，危险操作显式指定 danger；行内危险操作 `a-popconfirm`。
 - 顶部通知：`feedback.notification.*`（暗色自动取 token）。
 - Modal：10px 圆角，页脚右对齐「取消 / 确认」，危险操作用 `danger`。
 - 接口没有三层文案时（网关 5xx、断网、超时、引擎透传的裸报错），按状态码给本语言的说明（`gainos.errors.*`，5xx 带状态码），

@@ -7,6 +7,8 @@
 > [R4 迁移计划](r4-platform-authority-migration.md) §4.1
 > 现状核验：2026-10-31，`global_dev.platform_egress_schedule_fence` 三行 ACTIVE
 
+> 适用口径：R4 切换与撤销的专项历史或兼容模式。先到[引擎对接](../../deploy/engine-integration.md#现行对接与模式)核对授权模式，再选择适用的操作流程。
+
 ## 1. 现状
 
 | 项 | 事实 |
