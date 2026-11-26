@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { Prisma, type EventInbox } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
@@ -201,7 +201,7 @@ export class EventConsumerService implements OnModuleInit {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly signer: EngineTokenSigner,
     private readonly prisma: PrismaService,
-    @Optional() private readonly wallet?: WalletService,
+    @Optional() @Inject(forwardRef(() => WalletService)) private readonly wallet?: WalletService,
   ) {}
 
   onModuleInit(): void {

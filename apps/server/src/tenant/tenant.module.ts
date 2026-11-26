@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
@@ -30,7 +30,7 @@ import { ServiceModule } from '../service/service.module.js';
  * 而 BffModule 依赖本模块,不能反向导入。
  */
 @Module({
-  imports: [ConfigModule, ServiceModule],
+  imports: [ConfigModule, forwardRef(() => ServiceModule)],
   controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, RunTraceController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
   providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService, WorkspaceOffboardingService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService, EngineHttp],
