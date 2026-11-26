@@ -102,6 +102,10 @@
     "profileFallback": "目标客户画像"
   },
   "access": {
-    "readonlyAdminHint": "当前账号为成员角色，仅可查看；如需修改或审批，请联系工作空间管理员。"
+    "readonlyAdminHint": "当前账号为成员角色，仅可查看；如需修改或审批，请联系工作空间管理员。",
+    "campaignsReadonlyHint": "当前账号为成员角色，仅可查看战役计划与审批记录；创建、修订或审批计划需由工作空间管理员操作。",
+    "outreachReadonlyHint": "当前账号为成员角色，仅可查看外发批次、回信与健康状态；新建批次、编辑草稿、审批或执行外发需由工作空间管理员操作。",
+    "warmupAdminOnly": "预热周检清单仅工作空间管理员可查看，如需了解域名预热进度请联系管理员。",
+    "adminApprovalRequired": "待工作空间管理员审批。"
   }
 }

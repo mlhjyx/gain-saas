@@ -132,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function fetchUserInfo() {
     const userInfo = await getUserInfoApi();
     userStore.setUserInfo(userInfo);
+    accessStore.setAccessCodes(userInfo.roles?.includes('admin') ? ['ADMIN'] : []);
     return userInfo;
   }
 

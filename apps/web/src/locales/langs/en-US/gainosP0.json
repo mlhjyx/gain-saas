@@ -102,6 +102,10 @@
     "profileFallback": "Target customer profile"
   },
   "access": {
-    "readonlyAdminHint": "Your account has member access (view only). Ask a workspace admin to make changes or approve."
+    "readonlyAdminHint": "Your account has member access (view only). Ask a workspace admin to make changes or approve.",
+    "campaignsReadonlyHint": "Your account has member access (view only). Creating, revising, or approving campaign plans requires a workspace admin.",
+    "outreachReadonlyHint": "Your account has member access (view only). Creating batches, editing drafts, approving, or sending outreach requires a workspace admin.",
+    "warmupAdminOnly": "The warmup checklist is only visible to workspace admins. Contact an admin to check domain warmup status.",
+    "adminApprovalRequired": "Waiting for a workspace admin to approve."
   }
 }

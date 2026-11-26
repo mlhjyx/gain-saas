@@ -14,6 +14,7 @@ import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi, type CampaignSummary } from '#/api/gainos';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 
 defineOptions({ name: 'Campaigns' });
 
@@ -21,6 +22,11 @@ defineOptions({ name: 'Campaigns' });
 defineProps<{ embedded?: boolean }>();
 
 const router = useRouter();
+const { isAdmin, can, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
+const canDraftCampaign = computed(() => isAdmin.value || can('campaigns.draft'));
+const showReadOnlyHint = computed(
+  () => accessLoaded.value && !isAdmin.value && !canDraftCampaign.value,
+);
 
 const campaigns = ref<CampaignSummary[]>([]);
 const loading = ref(true);
@@ -59,6 +65,7 @@ const campaignStatusLabel = (status: string): string => {
 };
 
 function ctaOf(status: string): string {
+  if (!canDraftCampaign.value) return $t('gainos.campaigns.ctaView');
   // QW17：末列按状态给出明确动作，不再只显示「查看/—」。
   if (status === 'DRAFT') return $t('gainos.campaigns.ctaDraft');
   if (status === 'ACTIVE') return $t('gainos.campaigns.ctaActive');
@@ -78,6 +85,7 @@ async function load(): Promise<void> {
 }
 
 async function create(): Promise<void> {
+  if (!canDraftCampaign.value) return;
   createError.value = null;
   if (!name.value.trim()) {
     createError.value = $t('gainos.campaigns.nameLabel');
@@ -114,7 +122,10 @@ const columns = [
   { key: 'actions', dataIndex: 'actions', title: '', width: 120 },
 ];
 
-onMounted(load);
+onMounted(() => {
+  void ensureLoaded();
+  void load();
+});
 </script>
 
 <template>
@@ -124,13 +135,13 @@ onMounted(load);
       :subtitle="$t('gainos.campaigns.subtitle')"
       :title="$t('gainos.campaigns.title')"
     >
-      <template #actions>
+      <template v-if="canDraftCampaign" #actions>
         <Button type="primary" @click="showCreate = true">
           {{ $t('gainos.campaigns.newCampaign') }}
         </Button>
       </template>
     </PageHeader>
-    <div v-else class="cm__embedded-head">
+    <div v-else-if="canDraftCampaign" class="cm__embedded-head">
       <Button type="primary" @click="showCreate = true">
         {{ $t('gainos.campaigns.newCampaign') }}
       </Button>
@@ -141,6 +152,15 @@ onMounted(load);
       banner
       role="note"
       type="warning"
+    />
+
+    <Alert
+      v-if="showReadOnlyHint"
+      :message="$t('gainosP0.access.campaignsReadonlyHint')"
+      data-gs="campaigns-readonly-hint"
+      role="status"
+      show-icon
+      type="info"
     />
 
     <AsyncSection
@@ -154,7 +174,7 @@ onMounted(load);
       <template #empty>
         <EmptyState :title="$t('gainos.campaigns.empty')">
           <template #actions>
-            <Button type="primary" @click="showCreate = true">
+            <Button v-if="canDraftCampaign" type="primary" @click="showCreate = true">
               {{ $t('gainos.campaigns.newCampaign') }}
             </Button>
             <Button @click="router.push('/qgos')">
@@ -203,6 +223,7 @@ onMounted(load);
     </AsyncSection>
 
     <Modal
+      v-if="canDraftCampaign"
       v-model:open="showCreate"
       :confirm-loading="creating"
       :ok-text="$t('gainos.campaigns.create')"

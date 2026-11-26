@@ -9,18 +9,40 @@ import { TenantGuard } from './tenant.guard.js';
  * - GET /api/workspace/context：前端据此渲染角色差异与「允许动作」；
  * - GET /api/workspace/usage-summary：透传引擎 GET /api/v1/workspace/usage-summary 并融合 SaaS 侧实体计数与存储配额预警。
  */
-const ALLOWED_ACTIONS: Record<string, readonly string[]> = {
-  admin: [
+export const ALLOWED_ACTIONS: Record<string, readonly string[]> = Object.freeze({
+  admin: Object.freeze([
     'workspace.rename',
     'workspace.leave',
     'members.manage',
     'company.manage',
     'acquisition.run',
-    'reports.view',
+    'leads.review',
+    'qgo.manage',
+    't0.outreach',
+    'campaigns.view',
+    'campaigns.draft',
+    'campaigns.manage',
+    'campaigns.approve',
+    'outreach.view',
+    'outreach.draft',
+    'outreach.manage',
+    'outreach.approve',
+    'outreach.send',
+    'outreach.warmup.view',
+    'settings.manage',
+    'audit.view',
     'onboarding.complete',
-  ],
-  member: ['workspace.leave', 'acquisition.run', 'reports.view'],
-};
+  ]),
+  member: Object.freeze([
+    'workspace.leave',
+    'acquisition.run',
+    'leads.review',
+    'qgo.manage',
+    't0.outreach',
+    'campaigns.view',
+    'outreach.view',
+  ]),
+});
 
 export const DEFAULT_STORAGE_QUOTA = Object.freeze({
   maxDocumentsPerWorkspace: 500,
@@ -78,7 +100,7 @@ export class WorkspaceContextController {
           complete: tenant.onboardingCompleted !== false,
           companyId: tenant.onboardingCompanyId ?? null,
         },
-        allowedActions: ALLOWED_ACTIONS[membership.role] ?? [],
+        allowedActions: [...(ALLOWED_ACTIONS[membership.role] ?? [])],
       },
     };
   }
