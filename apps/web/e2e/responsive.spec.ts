@@ -14,20 +14,20 @@ import { installMockBackend, loginAs } from './support/mock-backend';
 
 const PAGES = [
   '/workspace',
+  '/analytics',
   '/companies',
   '/find-buyers',
+  '/tasks',
   '/leads',
+  '/leads?view=reviews',
   '/leads/lead-1',
   '/leads/lead-1?tab=people',
-  '/growth',
-  '/growth?tab=opportunities',
-  '/growth?tab=outreach',
-  '/growth?tab=reviews',
-  '/growth?tab=metrics',
+  '/outreach',
+  '/outreach?tab=batches',
+  '/outreach?tab=replies',
+  '/opportunities',
   '/settings/members',
   '/settings/suppressions',
-  '/campaigns',
-  '/qgos',
 ];
 
 test('窄屏布局冒烟：文档与内容区均无横向溢出、主内容可见', async ({ page }, testInfo) => {

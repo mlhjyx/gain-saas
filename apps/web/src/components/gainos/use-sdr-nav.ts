@@ -23,6 +23,19 @@ export interface SdrNavSection {
   label: string;
 }
 
+export function isNavPathActive(
+  path: string,
+  currentPath: string,
+  activePath?: unknown,
+): boolean {
+  if (typeof activePath === 'string' && activePath.length > 0) {
+    return activePath === path;
+  }
+  if (currentPath === path) return true;
+  // 详情页归属列表页：/leads/x 高亮 /leads。
+  return currentPath.startsWith(`${path}/`);
+}
+
 export function useSdrNav() {
   const route = useRoute();
   const router = useRouter();
@@ -70,10 +83,7 @@ export function useSdrNav() {
   );
 
   function isActive(path: string): boolean {
-    const current = route.path;
-    if (current === path) return true;
-    // 详情页归属列表页：/leads/x 高亮 /leads。
-    return current.startsWith(`${path}/`);
+    return isNavPathActive(path, route.path, route.meta?.activePath);
   }
 
   function go(path: string): void {

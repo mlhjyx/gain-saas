@@ -180,11 +180,15 @@ const columns = [
 
 <template>
   <PageContainer :compact="embedded" :class="{ 'rpl--embedded': embedded }">
-    <PageHeader :subtitle="$t('gainos.replies.subtitle')" :title="$t('gainos.replies.title')">
+    <PageHeader v-if="!embedded" :subtitle="$t('gainos.replies.subtitle')" :title="$t('gainos.replies.title')">
       <template #actions>
         <Button :loading="loading" @click="load">{{ $t('gainos.common.refresh') }}</Button>
       </template>
     </PageHeader>
+    <div v-else class="rpl__embedded-head">
+      <p class="rpl__sub">{{ $t('gainos.replies.subtitle') }}</p>
+      <Button :loading="loading" @click="load">{{ $t('gainos.common.refresh') }}</Button>
+    </div>
 
     <Alert
       v-if="showReadOnlyHint"
@@ -242,7 +246,7 @@ const columns = [
       <template #empty>
         <EmptyState :title="$t('gainos.replies.empty')">
           <template #actions>
-            <Button type="primary" @click="$router.push('/growth?tab=outreach')">
+            <Button type="primary" @click="$router.push('/outreach?tab=batches')">
               {{ $t('gainos.outreach.title') }}
             </Button>
             <Button @click="$router.push('/leads')">
@@ -327,6 +331,8 @@ const columns = [
 
 <style scoped>
 .rpl--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
+.rpl__embedded-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rpl__sub { margin: 0; font-size: 13px; color: var(--gs-fg-muted); }
 .rpl__kind { margin-left: 8px; font-size: 12px; color: var(--gs-fg-subtle); }
 .rpl__snippet { display: block; margin-top: 4px; color: var(--gs-fg-subtle); font-size: 12.5px; }
 .rpl__ref-desc { margin: 0 0 10px; font-size: 12.5px; color: var(--gs-fg-muted); }

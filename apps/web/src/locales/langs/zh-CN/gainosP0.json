@@ -107,5 +107,18 @@
     "outreachReadonlyHint": "当前账号为成员角色，仅可查看外发批次、回信与健康状态；新建批次、编辑草稿、审批或执行外发需由工作空间管理员操作。",
     "warmupAdminOnly": "预热周检清单仅工作空间管理员可查看，如需了解域名预热进度请联系管理员。",
     "adminApprovalRequired": "待工作空间管理员审批。"
+  },
+  "outreachHub": {
+    "title": "外发与战役",
+    "subtitle": "集中管理战役计划、触达批次与回复跟进；发送限制与授权状态按执行区块如实展示。",
+    "tabsLabel": "外发与战役视图",
+    "tabCampaigns": "战役计划",
+    "tabBatches": "触达批次",
+    "tabReplies": "回复"
+  },
+  "leadsView": {
+    "ariaLabel": "买家线索视图切换",
+    "list": "线索列表",
+    "reviews": "判定复核"
   }
 }

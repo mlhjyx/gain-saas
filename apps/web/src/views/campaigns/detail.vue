@@ -428,7 +428,7 @@ onUnmounted(stopPolling);
   <PageContainer>
     <PageHeader :subtitle="detail?.objective" :title="detail?.name ?? $t('gainos.menu.campaigns')">
       <template #actions>
-        <Button @click="router.push({ name: 'Campaigns' })">← {{ $t('gainosP0.campaigns.backToList') }}</Button>
+        <Button @click="router.push({ path: '/outreach', query: { tab: 'campaigns' } })">← {{ $t('gainosP0.campaigns.backToList') }}</Button>
         <Button
           v-if="canDraftCampaign"
           data-gs="campaign-manual-revision-btn"

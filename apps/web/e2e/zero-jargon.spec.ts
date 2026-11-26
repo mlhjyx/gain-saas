@@ -19,22 +19,21 @@ const BANNED = [
 
 const PAGES = [
   '/workspace',
+  '/analytics',
   '/companies',
   '/find-buyers',
+  '/tasks',
   '/leads',
-  '/growth',
-  '/growth?tab=opportunities',
-  '/growth?tab=outreach',
-  '/growth?tab=reviews',
-  '/growth?tab=metrics',
+  '/leads?view=reviews',
+  '/outreach',
+  '/outreach?tab=batches',
+  '/outreach?tab=replies',
+  '/opportunities',
   '/settings/members',
   '/settings/suppressions',
   '/settings/privacy',
   '/settings/audit',
   '/settings/sources',
-  '/qgos',
-  '/campaigns',
-  '/tasks',
 ];
 
 test('零术语扫描：全部租户页面的可见文本不含禁用词', async ({ page }) => {

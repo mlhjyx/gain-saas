@@ -2,16 +2,18 @@ import type { RouteRecordRaw } from 'vue-router';
 
 import { $t } from '#/locales';
 
+import { navTitle } from '../nav';
+
 /**
- * 挖掘任务列表（Q32：任务为导航主轴）。
- * run 仍然只作为任务下的执行记录（/runs/:runId 隐藏路由），任务本身在这里可达。
+ * 挖掘任务列表（Q32：任务为导航主轴，Wave B2 归属「获客与筛选」组 order: 5）。
+ * run 仍然只作为任务下的执行记录（/runs/:runId 隐藏路由），与 /tasks/:taskId 均高亮 /tasks。
  */
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:list-checks',
-      order: 4,
-      title: $t('gainos.menu.tasks'),
+      order: 5,
+      title: navTitle('tasks'),
     },
     name: 'Tasks',
     path: '/tasks',
@@ -19,6 +21,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     meta: {
+      activePath: '/tasks',
       hideInMenu: true,
       title: $t('gainos.tasks.detailTitle'),
     },

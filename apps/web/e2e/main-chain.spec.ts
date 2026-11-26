@@ -141,7 +141,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   );
 
   await loginAs(page);
-  await page.locator('[data-sdr-nav]').getByText('获客', { exact: true }).click();
+  await expect(page.locator('[data-sdr-nav]').getByText('获客与筛选', { exact: true })).toBeVisible();
   await page.getByRole('menuitem', { name: '公司档案' }).click();
   await page.waitForURL(/\/companies/);
   // 企业事实是页内工作台，进入页面后自动加载，不需要再点开弹窗。
@@ -418,7 +418,7 @@ test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
   const dialog = page.getByRole('dialog');
   await dialog.locator('textarea').fill('已收到客户回复，约下周电话');
   await dialog.getByRole('button', { name: '提升为商机' }).click();
-  await page.waitForURL(/\/qgos/);
+  await page.waitForURL(/\/opportunities/);
   const promote = backend.take('POST', '/qgos');
   expect(promote, '应提交商机提升').toBeTruthy();
   const body = promote!.body as { leadRef?: string; nextStep?: string };
@@ -496,11 +496,11 @@ test('主链路 5：战役计划审批 → 已批准 → 运行期横幅（按�
   );
 
   await loginAs(page);
-  await page.goto('/campaigns');
+  await page.goto('/outreach?tab=campaigns');
   // QW17：末列按状态给动作（草稿 → 继续起草），整行也可点。
   await expect(page.getByRole('button', { name: '继续起草' })).toBeVisible();
   await page.getByRole('button', { name: '继续起草' }).first().click();
-  await page.waitForURL(/\/campaigns\/camp-1/);
+  await page.waitForURL(/\/outreach\/campaigns\/camp-1/);
   await settle(page);
   await expect(page.getByRole('heading', { name: '待审批' })).toBeVisible();
   await expect(page.getByText('批准后将签发执行授权并进入执行；发送仍受国家合规门与渠道授权约束。')).toBeVisible();
@@ -549,7 +549,7 @@ test('主链路 6：商机接受（SAO）→ 登记 Outcome', async ({ page }) =
   );
 
   await loginAs(page);
-  await page.goto('/qgos');
+  await page.goto('/opportunities');
   await page.getByText('Muster Metallbau GmbH').first().click();
   const drawer = page.locator('.ant-drawer');
   await page.getByRole('button', { name: '接受商机' }).click();
@@ -648,9 +648,9 @@ test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发
   );
 
   await loginAs(page);
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
   await settle(page);
-  // 内嵌在「商机与触达」时不再渲染子页标题（F0），内容与「批准入队、发送受开关约束」语义仍需可见
+  // 内嵌在「外发与战役」时不再渲染子页标题（F0），内容与「批准入队、发送受开关约束」语义仍需可见
   await expect(page.getByText('草稿先审后发；批准只进入待发队列，发送通道开放前不会发出任何邮件。')).toBeVisible();
   await expect(page.getByText('einkauf@muster.de')).toBeVisible();
   await expect(page.getByText('关于工业泵供应的合作')).toBeVisible();

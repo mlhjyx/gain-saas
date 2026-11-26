@@ -205,7 +205,7 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
       verdict: 'UNKNOWN',
     });
     await loginAs(page);
-    await page.goto('/growth?tab=reviews');
+    await page.goto('/leads?view=reviews');
     await page.waitForLoadState('networkidle');
     await audit(page);
 
@@ -221,7 +221,7 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
   test('度量页可访问', async ({ page }) => {
     await installMockBackend(page);
     await loginAs(page);
-    await page.goto('/growth?tab=metrics');
+    await page.goto('/analytics');
     await page.waitForLoadState('networkidle');
     await audit(page);
   });

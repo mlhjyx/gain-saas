@@ -143,7 +143,7 @@ test('站内离开主流程页面再回来：浮窗和底部留白都恢复', as
   await expect.poll(viewPad).toBe('0px');
 
   // 再回主流程页面：进度数据还在，浮窗重新出现，留白恢复
-  await nav.getByText('线索', { exact: true }).click();
+  await expect(nav.getByText('获客与筛选', { exact: true })).toBeVisible();
   await nav.getByRole('menuitem', { name: '买家线索' }).click();
   await page.waitForURL(/\/leads$/);
   await expect(bar(page)).toBeVisible();

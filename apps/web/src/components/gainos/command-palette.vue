@@ -42,13 +42,14 @@ const activeIndex = ref(0);
 const inputRef = ref<HTMLInputElement>();
 const lastFocus = ref<HTMLElement | null>(null);
 
-/** 静态动作：只指向既有路由（pass3 禁止新增路由）。 */
+/** 静态动作：只指向既有规范路由。 */
 const actionItems = computed<PaletteItem[]>(() => {
   const t = isEnglish.value
     ? {
         discover: 'Find buyers',
         newCampaign: 'New campaign plan',
         viewLeads: 'View buyer leads',
+        reviews: 'Judgment reviews',
         invite: 'Invite member',
         notifications: 'View notifications',
         replies: 'Reply inbox',
@@ -57,14 +58,30 @@ const actionItems = computed<PaletteItem[]>(() => {
         discover: '去发现买家',
         newCampaign: '新建战役计划',
         viewLeads: '查看买家线索',
+        reviews: 'AI 判定复核',
         invite: '邀请成员',
         notifications: '查看通知',
         replies: '回复收件箱',
       };
   const items: PaletteItem[] = [
     { hint: t.discover, id: 'act-discover', kind: 'action', label: t.discover, path: '/find-buyers' },
-    { hint: t.newCampaign, id: 'act-campaign', kind: 'action', label: t.newCampaign, path: '/campaigns' },
+    {
+      hint: t.newCampaign,
+      id: 'act-campaign',
+      kind: 'action',
+      label: t.newCampaign,
+      path: '/outreach',
+      query: { tab: 'campaigns' },
+    },
     { hint: t.viewLeads, id: 'act-leads', kind: 'action', label: t.viewLeads, path: '/leads' },
+    {
+      hint: t.reviews,
+      id: 'act-reviews',
+      kind: 'action',
+      label: t.reviews,
+      path: '/leads',
+      query: { view: 'reviews' },
+    },
     { hint: t.invite, id: 'act-invite', kind: 'action', label: t.invite, path: '/settings/members' },
     { hint: t.notifications, id: 'act-notify', kind: 'action', label: t.notifications, path: '/notifications' },
     {
@@ -72,12 +89,20 @@ const actionItems = computed<PaletteItem[]>(() => {
       id: 'act-replies',
       kind: 'action',
       label: t.replies,
-      path: '/growth',
+      path: '/outreach',
       query: { tab: 'replies' },
     },
   ];
-  // 「商机与触达」隐藏期间，指向它的快捷动作一并隐藏。
-  return GROWTH_PAGE_HIDDEN ? items.filter((item) => item.path !== '/growth') : items;
+  // 「触达与转化」分组隐藏期间，指向 /outreach 与 /opportunities 的快捷动作一并隐藏；
+  // /analytics 与 /leads?view=reviews 常驻可达。
+  return GROWTH_PAGE_HIDDEN
+    ? items.filter(
+        (item) =>
+          item.path !== '/outreach' &&
+          !item.path.startsWith('/outreach/') &&
+          item.path !== '/opportunities',
+      )
+    : items;
 });
 
 /** 页面：拍平 accessMenus（分组名作为 hint），与侧边栏同源。 */

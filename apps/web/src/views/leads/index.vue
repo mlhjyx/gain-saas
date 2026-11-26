@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -39,9 +39,40 @@ import LeadCard from './lead-card.vue';
 
 defineOptions({ name: 'Leads' });
 
+const JudgmentReviews = defineAsyncComponent(() => import('#/views/reviews/index.vue'));
+
 const route = useRoute();
 const router = useRouter();
 const QUEUE_KEYS = ['needs_review', 'recommended', 'rejected', 'suppressed', 'sanctions_hold'] as const;
+
+type LeadsView = 'list' | 'reviews';
+
+function viewFromRoute(): LeadsView {
+  const raw = route.query.view;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === 'reviews' ? 'reviews' : 'list';
+}
+
+const activeView = computed<LeadsView>({
+  get: () => viewFromRoute(),
+  set: (next) => {
+    if (next === viewFromRoute()) return;
+    const query = { ...route.query };
+    if (next === 'reviews') {
+      query.view = 'reviews';
+    } else {
+      delete query.view;
+    }
+    void router.replace({ path: '/leads', query });
+  },
+});
+
+const viewOptions = computed(() => [
+  { label: $t('gainosP0.leadsView.list'), value: 'list' },
+  { label: $t('gainosP0.leadsView.reviews'), value: 'reviews' },
+]);
+
+const leadsInitialized = ref(false);
 
 function queueFromRoute(): string | null {
   const raw = route.query.queue;
@@ -264,7 +295,7 @@ async function submitPromote(): Promise<void> {
     promoteOpen.value = false;
     promoteTarget.value = null;
     feedback.message.success($t('gainos.leads.promoteDone'));
-    await router.push('/qgos');
+    await router.push('/opportunities');
   } catch (error) {
     promoteError.value = failureText(error);
   } finally {
@@ -502,9 +533,22 @@ async function submitDecision(): Promise<void> {
   }
 }
 
+async function initLeadsView(): Promise<void> {
+  if (leadsInitialized.value) return;
+  leadsInitialized.value = true;
+  await loadIcps();
+  await Promise.all([load(), loadActiveStreamingRun()]);
+}
+
 watch(activeQueue, () => {
+  if (!leadsInitialized.value) return;
   pageLimit.value = 50;
   void load();
+});
+watch(activeView, (next) => {
+  if (next === 'list') {
+    void initLeadsView();
+  }
 });
 watch(
   () => route.query.queue,
@@ -531,8 +575,9 @@ onMounted(async () => {
   if (isAdmin.value && rawQueue === 'sanctions_hold') {
     activeQueue.value = 'sanctions_hold';
   }
-  await loadIcps();
-  await Promise.all([load(), loadActiveStreamingRun()]);
+  if (activeView.value === 'list') {
+    await initLeadsView();
+  }
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscape);
@@ -546,6 +591,21 @@ onUnmounted(() => {
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
 
+    <div class="relative z-[1] -mt-12 flex items-center" data-gs="leads-view-switch">
+      <div class="rounded-xl border border-[var(--gs-border)] bg-[var(--gs-surface)] p-1 shadow-[var(--gs-shadow-xs)]">
+        <GsSegmented
+          v-model="activeView"
+          :ariaLabel="$t('gainosP0.leadsView.ariaLabel')"
+          :options="viewOptions"
+        />
+      </div>
+    </div>
+
+    <div v-if="activeView === 'reviews'" data-gs="leads-reviews-panel">
+      <JudgmentReviews embedded />
+    </div>
+
+    <template v-else>
     <GsEmpty
       v-if="!loading && !activeIcpId"
       :description="$t('gainos.leads.noIcpDesc')"
@@ -606,7 +666,7 @@ onUnmounted(() => {
           >
             {{ exportingCsv ? $t('gainos.leads.exportingBattleCsv') : $t('gainos.leads.exportBattleCsv') }}
           </Button>
-          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="qgo-entry" @click="$router.push('/qgos')">
+          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="qgo-entry" @click="$router.push('/opportunities')">
             {{ $t('gainos.leads.qgoEntry') }}
           </Button>
           <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
@@ -700,6 +760,7 @@ onUnmounted(() => {
           <Button @click="loadMore">{{ $t('gainos.leads.loadMore') }}</Button>
         </div>
       </template>
+    </template>
     </template>
 
     <!-- 裁决弹层 -->

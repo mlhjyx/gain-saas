@@ -7,52 +7,44 @@ import { useAccessStore } from '@vben/stores';
 import { $t } from '#/locales';
 
 /**
- * 侧边栏业务分组（2026-11-22 UI 重设计）。
+ * 侧边栏业务分组（Wave B2「3 组 8 项」一级信息架构）。
  *
  * 路由本身保持扁平（path/name/component 一律不动），这里只在 Vben 的菜单数据层
- * 把一级菜单收进 6 个业务组：工作空间 / 获客 / 线索 / 活动 / 增长 / 设置。
- * 组节点使用第一个子项的真实 path，避免全局搜索把用户带到不存在的路径。
+ * 把一级菜单收进 3 个业务组 + 设置：
+ * - 总览（overview）：/workspace、/analytics
+ * - 获客与筛选（acquisition）：/companies、/find-buyers、/tasks、/leads
+ * - 触达与转化（engagement）：/outreach、/opportunities（受 GROWTH_PAGE_HIDDEN 控制；无可见子项时整组自动隐藏）
+ * - 设置（settings）：/settings
  *
+ * 组节点使用第一个子项的真实 path，避免全局搜索把用户带到不存在的路径。
  * 分组是纯展示层：不新增路由、不改权限、不改菜单元数据；未匹配到的未来菜单
  * 会原样留在顶层，避免新增页面被静默吞掉。
  */
-interface MenuGroup {
+export interface MenuGroup {
   icon: string;
   key: string;
   labelKey: string;
   paths: string[];
 }
 
-const GROUPS: MenuGroup[] = [
+export const MENU_GROUPS: MenuGroup[] = [
   {
-    icon: 'lucide:briefcase',
-    key: 'workspace',
-    labelKey: 'gainos.menu.groupWorkspace',
-    paths: ['/workspace'],
+    icon: 'lucide:layout-dashboard',
+    key: 'overview',
+    labelKey: 'gainos.menu.groupOverview',
+    paths: ['/workspace', '/analytics'],
   },
   {
     icon: 'lucide:radar',
     key: 'acquisition',
     labelKey: 'gainos.menu.groupAcquisition',
-    paths: ['/companies'],
+    paths: ['/companies', '/find-buyers', '/tasks', '/leads'],
   },
   {
-    icon: 'lucide:users',
-    key: 'leads',
-    labelKey: 'gainos.menu.groupLeads',
-    paths: ['/find-buyers', '/leads'],
-  },
-  {
-    icon: 'lucide:list-checks',
-    key: 'activity',
-    labelKey: 'gainos.menu.groupActivity',
-    paths: ['/tasks'],
-  },
-  {
-    icon: 'lucide:handshake',
-    key: 'growth',
-    labelKey: 'gainos.menu.groupGrowth',
-    paths: ['/growth'],
+    icon: 'lucide:send',
+    key: 'engagement',
+    labelKey: 'gainos.menu.groupEngagement',
+    paths: ['/outreach', '/opportunities'],
   },
   {
     icon: 'lucide:settings',
@@ -66,12 +58,12 @@ function alreadyGrouped(menus: MenuRecordRaw[]): boolean {
   return menus.some((menu) => Boolean(menu.query?.__uiGroup));
 }
 
-function groupMenus(menus: MenuRecordRaw[]): MenuRecordRaw[] {
+export function groupMenus(menus: MenuRecordRaw[]): MenuRecordRaw[] {
   const remaining = new Map(menus.map((menu) => [menu.path, menu]));
   const grouped: MenuRecordRaw[] = [];
   let order = 1;
 
-  for (const group of GROUPS) {
+  for (const group of MENU_GROUPS) {
     // 设置本身就是带子页的菜单节点，直接作为“设置”组使用，避免双层“设置”。
     if (group.key === 'settings') {
       const settings = remaining.get('/settings');

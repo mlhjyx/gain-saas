@@ -8,7 +8,7 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:settings',
-      order: 6,
+      order: 99,
       title: navTitle('settings'),
     },
     name: 'Settings',

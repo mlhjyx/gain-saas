@@ -228,7 +228,7 @@ test('T1 完整外联工作台：画册附件、授权与投递、DNS 体检、�
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
 
   // 1. 新建草稿并勾选公司就绪 PDF 画册附件
   await page.locator('[data-gs="add-draft"]').click();
@@ -308,7 +308,7 @@ test('回复收件箱：识别转交联系人（REFERRAL）并一键合规创建
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=replies');
+  await page.goto('/outreach?tab=replies');
 
   await expect(page.locator('[data-gs="referral-leads-card"]')).toContainText('purchasing@memodo.it');
   await page.locator('[data-gs="referral-create-draft"]').first().click();

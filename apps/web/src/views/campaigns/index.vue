@@ -177,10 +177,10 @@ onMounted(() => {
             <Button v-if="canDraftCampaign" type="primary" @click="showCreate = true">
               {{ $t('gainos.campaigns.newCampaign') }}
             </Button>
-            <Button @click="router.push('/qgos')">
+            <Button @click="router.push('/opportunities')">
               {{ $t('gainos.qgos.title') }}
             </Button>
-            <Button @click="router.push('/growth?tab=outreach')">
+            <Button @click="router.push('/outreach?tab=batches')">
               {{ $t('gainos.growth.outreachTitle') }}
             </Button>
           </template>
