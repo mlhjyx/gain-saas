@@ -4,6 +4,7 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
 import { PrismaService } from '../shared/prisma.service.js';
+import { legacyWorkspaceQuotaAlertsEnabled } from '../shared/legacy-workspace-quota-alerts.js';
 import { extractDiscoveryBillableUnits } from '../wallet/bff-wallet-billing.js';
 import { WalletService } from '../wallet/wallet.service.js';
 
@@ -412,10 +413,10 @@ export class EventConsumerService implements OnModuleInit {
   /**
    * P5 配额告警：与签发闸门同口径（workspace_budget_policy + cost_ledger + discovery_run_link）。
    * 每窗口每档一条（≥80% 预警、≥100% 耗尽）；豁免空间（policy.enabled=false）与
-   * WORKSPACE_QUOTA_ENFORCE=false 不发——未被强制的额度不做惊吓式提醒。
+   * 旧预算旁路或关闭强制配额时停发旧提醒。
    */
   private async evaluateQuotaAlerts(workspaceId: string): Promise<void> {
-    if (!this.config.WORKSPACE_QUOTA_ENFORCE) return;
+    if (!legacyWorkspaceQuotaAlertsEnabled(this.config)) return;
     await this.prisma.withWorkspace(workspaceId, async (tx) => {
       const policy = await tx.workspaceBudgetPolicy.findUnique({ where: { workspaceId } });
       if (!policy || !policy.enabled) return;
