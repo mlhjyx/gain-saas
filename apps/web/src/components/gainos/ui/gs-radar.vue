@@ -3,18 +3,21 @@
  * 判定维度雷达图（2026-11-23）。
  *
  * 纯 SVG、无第三方图表依赖：五维（或任意 3–8 维）0–10 分画在同心多边形上，
- * 颜色全部走 --gs-* 令牌，明暗主题自动适配。证据不足（score=null）的维度
+ * 多边形使用半透明品牌蓝填充（rgba(51, 92, 255, 0.14)）以免遮挡底层网格；
+ * 颜色走 --gs-* 令牌，明暗主题均满足可读对比度。证据不足（score=null）的维度
  * 以 0 分绘制并画空心点，图下给出说明，避免把「没查到」误读成「查到了 0」。
  */
 import { computed } from 'vue';
 
+import { $t } from '#/locales';
+
 defineOptions({ name: 'GsRadar' });
 
-interface RadarDim {
+export interface RadarDim {
   id: string;
   label?: string;
   name: string;
-  score: number | null;
+  score: null | number;
 }
 
 const props = withDefaults(
@@ -28,6 +31,7 @@ const CX = 180;
 const CY = 154;
 const R = 96;
 const RINGS = [0.2, 0.4, 0.6, 0.8, 1];
+const AREA_FILL = 'rgba(51, 92, 255, 0.14)';
 
 const angles = computed(() =>
   props.dims.map(
@@ -39,7 +43,7 @@ function polar(angle: number, radius: number): { x: number; y: number } {
   return { x: CX + radius * Math.cos(angle), y: CY + radius * Math.sin(angle) };
 }
 
-function ratio(score: number | null): number {
+function ratio(score: null | number): number {
   if (typeof score !== 'number' || !Number.isFinite(score)) return 0;
   return Math.min(1, Math.max(0, score / props.max));
 }
@@ -99,7 +103,7 @@ const hasUnknown = computed(() =>
 </script>
 
 <template>
-  <figure class="gs-radar" role="img" :aria-label="ariaLabel">
+  <figure class="gs-radar" data-gs="radar" role="img" :aria-label="ariaLabel">
     <svg aria-hidden="true" :viewBox="`0 0 ${W} ${H}`">
       <polygon
         v-for="(ring, index) in rings"
@@ -117,7 +121,7 @@ const hasUnknown = computed(() =>
         :y1="CY"
         :y2="axis.y"
       />
-      <polygon class="gs-radar__area" :points="areaPoints" />
+      <polygon class="gs-radar__area" :fill="AREA_FILL" :points="areaPoints" />
       <circle
         v-for="vertex in vertices"
         :key="`vertex-${vertex.dim.id}`"
@@ -168,20 +172,20 @@ const hasUnknown = computed(() =>
 }
 .gs-radar__ring {
   fill: none;
-  stroke: var(--gs-fg-subtle);
-  stroke-opacity: 0.22;
+  stroke: var(--gs-fg-muted);
+  stroke-opacity: 0.28;
   stroke-width: 1;
 }
 .gs-radar__ring--outer {
-  stroke-opacity: 0.4;
+  stroke-opacity: 0.48;
 }
 .gs-radar__axis {
-  stroke: var(--gs-fg-subtle);
-  stroke-opacity: 0.18;
+  stroke: var(--gs-fg-muted);
+  stroke-opacity: 0.24;
   stroke-width: 1;
 }
 .gs-radar__area {
-  fill: var(--gs-accent-soft);
+  fill: rgba(51, 92, 255, 0.14);
   stroke: var(--gs-accent-cta);
   stroke-linejoin: round;
   stroke-width: 1.5;
@@ -208,7 +212,7 @@ const hasUnknown = computed(() =>
 }
 .gs-radar__note {
   margin: 2px 0 0;
-  color: var(--gs-fg-subtle);
+  color: var(--gs-fg-muted);
   font-size: 11px;
   text-align: center;
 }
