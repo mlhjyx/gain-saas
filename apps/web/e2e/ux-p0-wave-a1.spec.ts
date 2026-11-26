@@ -65,22 +65,15 @@ test('dark mode semantic tokens reach WCAG AA and GS_BRAND unifies light bgLayou
   const errorAlert = page.locator('.ant-alert-error').first();
   await expect(errorAlert).toBeVisible();
 
-  const errorIconColor = await errorAlert
-    .locator('.ant-alert-icon')
-    .evaluate((el) => getComputedStyle(el).color);
-  expect(errorIconColor).toBe('rgb(248, 113, 113)');
-
-  const dangerLinkColor = await page
-    .locator('.ant-btn-link.ant-btn-dangerous')
-    .first()
-    .evaluate((el) => getComputedStyle(el).color);
-  expect(dangerLinkColor).toBe('rgb(248, 113, 113)');
-
-  const primaryLinkColor = await page
-    .locator('.ant-btn-link:not(.ant-btn-dangerous)')
-    .first()
-    .evaluate((el) => getComputedStyle(el).color);
-  expect(primaryLinkColor).toBe('rgb(107, 142, 255)');
+  await expect(errorAlert.locator('.ant-alert-icon')).toHaveCSS('color', 'rgb(248, 113, 113)');
+  await expect(page.locator('.ant-btn-link.ant-btn-dangerous').first()).toHaveCSS(
+    'color',
+    'rgb(248, 113, 113)',
+  );
+  await expect(page.locator('.ant-btn-link:not(.ant-btn-dangerous)').first()).toHaveCSS(
+    'color',
+    'rgb(107, 142, 255)',
+  );
 
   const axe = await new AxeBuilder({ page })
     .include('main')
@@ -765,11 +758,10 @@ test('qgos translates outcome source, uses green badge for CONVERTED, and suppor
   await expect(rowButton.locator('header, h1, h2, h3, p, div')).toHaveCount(0);
 
   // CONVERTED badge must use green semantic color, distinct from OPEN accent blue.
-  const badgeColor = await page
-    .locator('.qg__state-badge--converted')
-    .first()
-    .evaluate((el) => getComputedStyle(el).color);
-  expect(badgeColor).toBe('rgb(26, 117, 68)');
+  await expect(page.locator('.qg__state-badge--converted').first()).toHaveCSS(
+    'color',
+    'rgb(26, 117, 68)',
+  );
 
   // Keyboard activation via focus + Enter opens the detail drawer.
   await rowButton.focus();
