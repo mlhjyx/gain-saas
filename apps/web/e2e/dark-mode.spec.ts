@@ -18,6 +18,8 @@ const PAGES = [
   '/opportunities',
   '/leads',
   '/leads?view=reviews',
+  '/ops',
+  '/ops?tab=workspaces',
 ];
 
 function luminance(rgb: string): number {
@@ -27,11 +29,58 @@ function luminance(rgb: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-test('深色模式：tokens 生效、关键与新增路由无横向溢出且 axe-core color-contrast 零严重违规', async ({
+test('深色模式：tokens 生效、关键与新增路由（含 /ops）无横向溢出且 axe-core color-contrast 零严重违规', async ({
   page,
 }) => {
   test.setTimeout(180_000);
-  await installMockBackend(page);
+  const backend = await installMockBackend(page);
+  const rawJson = (payload: unknown) => async ({ route }: { route: import('@playwright/test').Route }) => {
+    await route.fulfill({
+      body: JSON.stringify(payload),
+      contentType: 'application/json',
+      status: 200,
+    });
+    return true;
+  };
+  backend.set('GET', '/ops/auth/session', rawJson({ data: { user: { email: 'ops@gainos.local' } } }));
+  backend.set(
+    'GET',
+    '/ops/overview',
+    rawJson({
+      db: { ok: true },
+      dueSources: 1,
+      engine: { failedComponents: [], httpStatus: 200, ready: true },
+      failedFetches: [],
+      fetchStats24h: [{ n: 12, status: 'DONE' }],
+      leases: [{ last_seen_at: '2026-11-26T08:00:00.000Z', role: 'worker', state: 'ACTIVE' }],
+      probe: { missing: [], ok: true },
+      providersByStatus: [{ n: 4, status: 'ENABLED' }],
+      redLights: {
+        deadDeliveries: 0,
+        exhaustedBudgetAccounts: 0,
+        r4: { deliveryUnknown: 0, openRevocations: 0, platformExhaustedAuthorities: 0 },
+        temporal: { reachable: true },
+      },
+      sanctions: [{ key: 'ofac', last_refreshed_at: '2026-11-26T08:00:00.000Z', status: 'READY' }],
+      sourcesByStatus: [{ n: 6, status: 'ACTIVE' }],
+    }),
+  );
+  backend.set(
+    'GET',
+    '/ops/workspaces',
+    rawJson({
+      workspaces: [
+        {
+          id: '66666666-ffff-4fff-8fff-666666666666',
+          members: 3,
+          name: 'Dark Ops Corp',
+          status: 'ACTIVE',
+          status_note: 'ok',
+          status_updated_at: '2026-11-26T08:00:00.000Z',
+        },
+      ],
+    }),
+  );
   await loginAs(page);
 
   // 侧栏主题按钮的 aria-label 是 dark / light。
@@ -52,6 +101,16 @@ test('深色模式：tokens 生效、关键与新增路由无横向溢出且 axe
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.locator('.loading').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(350);
+
+    if (path.startsWith('/ops')) {
+      const cardBg = await page.evaluate(() => {
+        const card = document.querySelector('.ops__card, .ops__table-wrap, .ops__header');
+        return card ? getComputedStyle(card).backgroundColor : '';
+      });
+      if (cardBg) {
+        expect(luminance(cardBg), `${path} 暗色卡片不应为白色底：${cardBg}`).toBeLessThan(70);
+      }
+    }
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

@@ -15,7 +15,14 @@ import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.v
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
-import { failureText, gainosApi, type DiscoveryRun, type DiscoveryRunJob, type DiscoveryRunTrace } from '#/api/gainos';
+import {
+  failureText,
+  gainosApi,
+  type DiscoveryRun,
+  type DiscoveryRunJob,
+  type DiscoveryRunResultView,
+  type DiscoveryRunTrace,
+} from '#/api/gainos';
 
 defineOptions({ name: 'DiscoveryRunView' });
 
@@ -27,6 +34,7 @@ const runId = String(route.params.runId ?? '');
 
 const run = ref<DiscoveryRun | null>(null);
 const streamingDto = ref<StreamingProgressDto | null>(null);
+const resultView = ref<DiscoveryRunResultView | null>(null);
 const loading = ref(true);
 const streamingFunnel = computed(() =>
   run.value || streamingDto.value
@@ -506,28 +514,17 @@ function fmtUsd(value: unknown): string {
   if (!Number.isFinite(n)) return '—';
   return `$${(n / 1_000_000).toFixed(2)}`;
 }
-/** 查询跳过原因 → 中文(未收录的原样显示,便于对引擎新增原因)。 */
-const SKIP_REASON_LABELS: Record<string, string> = {
-  source_disabled: '源已停用',
-  no_enabled_provider: '无可用数据源',
-  source_lineage_unavailable: '源血缘不可用',
-};
+/** 查询跳过原因 → 双语映射（自 gainosB4.json 读取；未收录的原样回退）。 */
 function skipReasonLabel(reason: string): string {
-  return SKIP_REASON_LABELS[reason] ?? reason;
+  const key = `gainosB4.runs.skipReason.${reason}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? reason : translated;
 }
-/** 租约跳过按阶段 → 用户可读阶段名(键与引擎 leaseSkips 一致)。 */
-const LEASE_STAGE_LABELS: Record<string, string> = {
-  queries: '搜索',
-  companies: '收集',
-  fit: '匹配',
-  enrich: '富集',
-  signals: '信号',
-  contacts: '联系人',
-  watches: '监控',
-  patentEnqueue: '专利',
-};
+/** 租约跳过按阶段 → 双语映射（键与引擎 leaseSkips 一致）。 */
 function stageLabel(stage: string): string {
-  return LEASE_STAGE_LABELS[stage] ?? stage;
+  const key = `gainosB4.runs.leaseStage.${stage}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? stage : translated;
 }
 
 const fit = computed<Record<string, number>>(() => (recordOf('fit') as Record<string, number>) ?? {});
@@ -891,6 +888,15 @@ async function load(): Promise<void> {
         .catch(() => {
           streamingDto.value = null;
         }),
+      gainosApi
+        .discoveryRunResultView(runId)
+        .then((res) => {
+          resultView.value =
+            res && typeof res === 'object' && 'candidates' in res && 'scoring' in res ? res : null;
+        })
+        .catch(() => {
+          resultView.value = null;
+        }),
       jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
       traceRows.value.length === 0 ? loadTrace() : Promise.resolve(),
       loadTaskAttempts(),
@@ -998,6 +1004,43 @@ onUnmounted(() => {
       <p v-if="retryNotice" class="run__muted">{{ retryNotice }}</p>
       <p v-if="retryError" class="run__error-text" role="alert">{{ retryError }}</p>
       <p v-if="jobError" class="run__error-text" role="alert">{{ jobError }}</p>
+
+      <section v-if="resultView" class="run__card run__card--wide" data-gs="run-result-view">
+        <h2>{{ $t('gainosB4.runs.resultViewTitle') }}</h2>
+        <p class="run__muted">{{ $t('gainosB4.runs.resultViewSubtitle') }}</p>
+        <div class="run__rv-grid">
+          <div class="run__rv-box">
+            <span class="run__muted">{{ $t('gainosB4.runs.resultViewCandidates') }}</span>
+            <strong>
+              {{ resultView.candidates.total }}
+              <span v-if="resultView.candidates.truncated" class="run__chip is-warn">
+                {{ $t('gainosB4.runs.resultViewTruncated') }}
+              </span>
+            </strong>
+          </div>
+          <div class="run__rv-box">
+            <span class="run__muted">{{ $t('gainosB4.runs.resultViewThisRound') }}</span>
+            <strong v-if="resultView.scoring.thisRun.available">
+              {{
+                $t('gainosB4.runs.resultViewScored', {
+                  batches: resultView.scoring.thisRun.batches,
+                  count: resultView.scoring.thisRun.scoredCompanies ?? resultView.scoring.thisRun.items.length,
+                })
+              }}
+            </strong>
+            <strong v-else>{{ $t('gainosB4.runs.resultViewNotScored') }}</strong>
+            <small v-if="resultView.scoring.thisRun.scoredAt" class="run__muted">
+              {{ $t('gainosB4.runs.resultViewScoredAt', { time: formatDateTime(resultView.scoring.thisRun.scoredAt) }) }}
+            </small>
+          </div>
+          <div class="run__rv-box">
+            <span class="run__muted">{{ $t('gainosB4.runs.resultViewLatestLabel') }}</span>
+            <strong>
+              {{ $t('gainosB4.runs.resultViewLatestCount', { count: resultView.scoring.latest.items.length }) }}
+            </strong>
+          </div>
+        </div>
+      </section>
 
       <section class="run__grid">
         <article class="run__card run__card--wide">
@@ -1405,6 +1448,9 @@ onUnmounted(() => {
 .run__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
 .run__card { background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
 .run__card--wide { grid-column: 1 / -1; }
+.run__rv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.run__rv-box { display: grid; gap: 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--gs-border); background: var(--gs-surface-2); }
+.run__rv-box strong { font-size: 14px; font-weight: 600; color: var(--gs-fg); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .run__card h2 { margin: 0; font-size: 14px; font-weight: 650; color: var(--gs-fg); }
 .run__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .run__table th, .run__table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gs-border); vertical-align: top; }

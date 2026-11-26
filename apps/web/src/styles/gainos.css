@@ -337,7 +337,7 @@ h6 {
 .mb__state,
 .src__state {
   border: 1px solid var(--gs-border);
-  border-radius: var(--gs-radius-10) !important;
+  border-radius: var(--gs-radius-10);
   box-shadow: var(--gs-shadow-card);
 }
 
@@ -353,7 +353,7 @@ h6 {
 .run__action--primary,
 .wk__cta,
 .cd__primary {
-  border-radius: 9999px !important;
+  border-radius: var(--gs-radius-pill);
 }
 
 
@@ -440,9 +440,8 @@ h6 {
   background: transparent;
   color: var(--gs-fg-muted);
   font-weight: 500;
-  transform: translateZ(0);
   transition: background-color 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+    border-color 0.15s ease, box-shadow 0.15s ease;
 }
 [data-layout-region='header'] [data-tab-item]:hover {
   background: var(--gs-tab-hover);
@@ -456,9 +455,6 @@ h6 {
   color: var(--gs-surface);
   box-shadow: 0 1px 2px rgba(10, 10, 10, 0.18),
     0 4px 12px -6px rgba(10, 10, 10, 0.35);
-}
-[data-layout-region='header'] [data-tab-item]:active {
-  transform: scale(0.985);
 }
 [data-layout-region='header'] [data-tab-item]:focus-visible {
   outline: none;
@@ -608,32 +604,28 @@ aside[data-layout-region='sidebar']
   }
 }
 
-/* ── pass3 C9：微交互统一（仅 CSS，无动画库）── */
-/* 主按钮：hover 微上移 + 阴影，active 下压 */
+/* ── pass3 C9：微交互统一（仅 CSS，无动画库；保持无位移抖动）── */
+/* 主按钮：hover 阴影加深，不位移抖动 */
 .gs-card > button,
 .wk__cta,
 .wk__hero .wk__cta {
-  transition: transform 0.15s ease, box-shadow 0.15s ease,
-    border-color 0.15s ease, background 0.15s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 .wk__cta:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: var(--gs-shadow-xs), 0 4px 12px -4px rgba(51, 92, 255, 0.35);
 }
 .wk__cta:active:not(:disabled) {
-  transform: translateY(0);
   box-shadow: var(--gs-shadow-xs);
 }
 
-/* 卡片 hover 抬升 1px + 阴影加深（未迁移页） */
+/* 卡片 hover 阴影加深（未迁移页，无垂直位移抖动） */
 .qg__card,
 .fb__card {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease,
-    transform 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .qg__card:hover,
 .fb__card:hover {
-  transform: translateY(-1px);
   box-shadow: var(--gs-shadow-sm);
 }
 

@@ -15,12 +15,14 @@ import type {
   CanonicalContact,
   CanonicalContactPoint,
   ComplianceInfoView,
+  ContactEnrichmentQualityFactView,
+  ContactEnrichmentResultView,
   ContactEvidence,
 } from '#/api/gainos';
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 
-import { formatDate as formatDateValue } from '@gain-saas/shared';
+import { formatDate as formatDateValue, formatDateTime } from '@gain-saas/shared';
 
 import { Alert, Button, Checkbox, Modal, Skeleton, Space, Tag } from 'ant-design-vue';
 
@@ -28,6 +30,8 @@ import ErrorNotice from '#/components/error-notice.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 import { newAttemptId } from '#/utils/attempt-id';
 
@@ -35,7 +39,21 @@ import { failureText, gainosApi } from '#/api/gainos';
 
 defineOptions({ name: 'DecisionMakerCard' });
 
-const props = defineProps<{ companyId: string }>();
+const props = withDefaults(
+  defineProps<{
+    companyId: string;
+    hideOfficialChannels?: boolean;
+  }>(),
+  {
+    hideOfficialChannels: false,
+  },
+);
+
+const emit = defineEmits<{
+  'enrichment-updated': [];
+}>();
+
+const { isAdmin, ensureLoaded } = useWorkspaceAccess();
 
 type DialogKind = 'discover' | 'enrich' | 'guess' | 'verify';
 type GsTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
@@ -61,6 +79,140 @@ const form = reactive({
 /** 2026-11-04 取消租户声明：合法依据由平台统一提供（BFF 自动注入），此处只读取展示依据引用。 */
 const platformBasis = ref<ComplianceInfoView['platform'] | null>(null);
 let platformBasisLoaded = false;
+
+// ── B1 联系人补强结果与质量事实（仅管理员可调用，防 member 403）────────────────
+const enrichmentResults = ref<ContactEnrichmentResultView[]>([]);
+const qualityFacts = ref<ContactEnrichmentQualityFactView[]>([]);
+const enrichmentLoading = ref(false);
+const recoveringOpRef = ref<string | null>(null);
+const expandedOpRef = ref<string | null>(null);
+const detailLoadingOpRef = ref<string | null>(null);
+const enrichmentDetailMap = ref<Record<string, ContactEnrichmentResultView>>({});
+const qualityFactDetailMap = ref<Record<string, ContactEnrichmentQualityFactView>>({});
+
+const qualityFactByOp = computed(() => {
+  const map = new Map<string, ContactEnrichmentQualityFactView>();
+  for (const fact of qualityFacts.value) {
+    if (fact?.operationRef) map.set(fact.operationRef, fact);
+  }
+  return map;
+});
+
+function enrichmentStatusText(status?: string): string {
+  const normalized = (status ?? 'UNKNOWN').toUpperCase();
+  const key = `gainosB4.leadsDetail.enrichment.status.${normalized}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? $t('gainosB4.leadsDetail.enrichment.status.UNKNOWN') : translated;
+}
+
+function enrichmentStatusTone(status?: string): GsTone {
+  const normalized = (status ?? '').toUpperCase();
+  if (normalized === 'COMPLETED') return 'success';
+  if (normalized === 'RUNNING' || normalized === 'PREPARED' || normalized === 'APPLY_PENDING') return 'info';
+  if (normalized === 'RESULT_UNKNOWN') return 'warning';
+  if (normalized === 'FAILED') return 'danger';
+  return 'neutral';
+}
+
+function enrichmentReasonText(code?: string): string {
+  if (!code) return $t('gainosB4.leadsDetail.enrichment.reason.OTHER');
+  const key = `gainosB4.leadsDetail.enrichment.reason.${code}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? $t('gainosB4.leadsDetail.enrichment.reason.OTHER') : translated;
+}
+
+function enrichmentEntrypointText(entrypoint?: string): string {
+  return entrypoint === 'discovery_run'
+    ? $t('gainosB4.leadsDetail.enrichment.entrypointDiscovery')
+    : $t('gainosB4.leadsDetail.enrichment.entrypointHttp');
+}
+
+function isRecoverableEnrichment(status?: string): boolean {
+  const normalized = (status ?? '').toUpperCase();
+  return normalized === 'FAILED' || normalized === 'RESULT_UNKNOWN' || normalized === 'APPLY_PENDING';
+}
+
+function fmtMicrousd(raw?: string | null): string {
+  if (raw === null || raw === undefined || raw === '') return '—';
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return '—';
+  return `$${(n / 1_000_000).toFixed(2)}`;
+}
+
+async function loadEnrichmentState(): Promise<void> {
+  if (!props.companyId || !isAdmin.value) {
+    enrichmentResults.value = [];
+    qualityFacts.value = [];
+    return;
+  }
+  enrichmentLoading.value = true;
+  try {
+    const [resultsPage, factsPage] = await Promise.all([
+      gainosApi.contactEnrichmentResults(props.companyId).catch(() => ({ data: [] as ContactEnrichmentResultView[] })),
+      gainosApi.contactEnrichmentQualityFacts(props.companyId).catch(() => ({ data: [] as ContactEnrichmentQualityFactView[] })),
+    ]);
+    enrichmentResults.value = Array.isArray(resultsPage?.data) ? resultsPage.data : [];
+    qualityFacts.value = Array.isArray(factsPage?.data) ? factsPage.data : [];
+  } finally {
+    enrichmentLoading.value = false;
+  }
+}
+
+async function toggleEnrichmentDetail(operationRef: string): Promise<void> {
+  if (expandedOpRef.value === operationRef) {
+    expandedOpRef.value = null;
+    return;
+  }
+  expandedOpRef.value = operationRef;
+  if (!isAdmin.value || enrichmentDetailMap.value[operationRef]) return;
+  detailLoadingOpRef.value = operationRef;
+  try {
+    const [resDetail, factDetail] = await Promise.all([
+      gainosApi.contactEnrichmentResultDetail(props.companyId, operationRef).catch(() => null),
+      gainosApi.contactEnrichmentQualityFactDetail(props.companyId, operationRef).catch(() => null),
+    ]);
+    if (resDetail && typeof resDetail === 'object' && 'operationRef' in resDetail) {
+      enrichmentDetailMap.value = { ...enrichmentDetailMap.value, [operationRef]: resDetail };
+    }
+    if (factDetail && typeof factDetail === 'object' && 'operationRef' in factDetail) {
+      qualityFactDetailMap.value = { ...qualityFactDetailMap.value, [operationRef]: factDetail };
+    }
+  } finally {
+    if (detailLoadingOpRef.value === operationRef) {
+      detailLoadingOpRef.value = null;
+    }
+  }
+}
+
+async function recoverEnrichment(operationRef: string): Promise<void> {
+  if (!isAdmin.value || recoveringOpRef.value) return;
+  const confirmed = await new Promise<boolean>((resolve) => {
+    feedback.confirm({
+      title: $t('gainosB4.leadsDetail.enrichment.recoverConfirmTitle'),
+      content: $t('gainosB4.leadsDetail.enrichment.recoverConfirmContent'),
+      okText: $t('gainosB4.leadsDetail.enrichment.recoverBtn'),
+      cancelText: $t('gainos.common.cancel'),
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+  if (!confirmed) return;
+  recoveringOpRef.value = operationRef;
+  try {
+    const recovered = await gainosApi.recoverContactEnrichment(props.companyId, operationRef);
+    if (recovered && typeof recovered === 'object' && 'operationRef' in recovered) {
+      enrichmentDetailMap.value = { ...enrichmentDetailMap.value, [operationRef]: recovered };
+    }
+    setNotice($t('gainosB4.leadsDetail.enrichment.recoverSuccess'), 'success');
+    await Promise.all([load(), loadEnrichmentState()]);
+    emit('enrichment-updated');
+  } catch (err) {
+    const failure = failureText(err);
+    setNotice(failure.title, 'error');
+  } finally {
+    recoveringOpRef.value = null;
+  }
+}
 
 function isSwitchboardPlaceholder(contact: CanonicalContact): boolean {
   const name = contact.fullName?.trim().toLowerCase() ?? '';
@@ -358,10 +510,18 @@ function setNotice(text: string, tone: NoticeTone = 'success'): void {
 
 async function load(): Promise<void> {
   if (!props.companyId) return;
+  await ensureLoaded();
+  if (!isAdmin.value) {
+    detail.value = null;
+    enrichmentResults.value = [];
+    qualityFacts.value = [];
+    return;
+  }
   loading.value = true;
   loadError.value = null;
   try {
     detail.value = await gainosApi.canonicalCompany(props.companyId);
+    void loadEnrichmentState();
   } catch (error) {
     loadError.value = failureText(error);
     detail.value = null;
@@ -488,6 +648,7 @@ async function submit(): Promise<void> {
     }
     dialog.value = null;
     await load();
+    emit('enrichment-updated');
   } catch (error) {
     const failure = failureText(error);
     // 发现授权只绑定公司(不含 body),同一公司第二次发现必然 GRANT_REUSED;
@@ -516,6 +677,13 @@ const needsScopeHint = computed(() => {
     failure?.title.includes('授权对接') || failure?.code?.includes('授权对接'),
   );
 });
+
+watch(
+  () => [props.companyId, isAdmin.value],
+  () => {
+    void load();
+  },
+);
 
 onMounted(() => {
   void load();
@@ -579,8 +747,8 @@ onMounted(() => {
         @close="notice = null"
       />
 
-      <!-- 公司官方公开渠道与社媒（独立于具名决策人，避免把总机/职能邮箱误展为决策人） -->
-      <GsCard v-if="hasOfficialChannels" data-gs="official-channels" padding="18px 24px">
+      <!-- 公司官方公开渠道与社媒（当外层线索详情页已独立渲染公开渠道时，避免重复展示） -->
+      <GsCard v-if="!hideOfficialChannels && hasOfficialChannels" data-gs="official-channels" padding="18px 24px">
         <div class="dm-official">
           <div>
             <h3 class="dm-official__title">{{ $t('gainos.contacts.officialChannelsTitle') }}</h3>
@@ -728,6 +896,170 @@ onMounted(() => {
           </div>
         </GsCard>
       </template>
+
+      <!-- B1 联系人补强进度、质量事实摘要与一键恢复（仅管理员可见） -->
+      <GsCard
+        :title="$t('gainosB4.leadsDetail.enrichment.title')"
+        data-gs="enrichment-results-card"
+        padding="18px 24px"
+      >
+        <template #extra>
+          <Button
+            :loading="enrichmentLoading"
+            data-gs="enrichment-refresh-btn"
+            size="small"
+            @click="loadEnrichmentState"
+          >
+            {{ $t('gainosB4.leadsDetail.enrichment.refresh') }}
+          </Button>
+        </template>
+        <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
+          {{ $t('gainosB4.leadsDetail.enrichment.subtitle') }}
+        </p>
+
+        <p v-if="enrichmentLoading && enrichmentResults.length === 0" class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]">
+          {{ $t('gainosB4.leadsDetail.enrichment.loading') }}
+        </p>
+        <p v-else-if="enrichmentResults.length === 0" class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]">
+          {{ $t('gainosB4.leadsDetail.enrichment.empty') }}
+        </p>
+        <ul v-else class="dm-enrich-list" data-gs="enrichment-results-list">
+          <li
+            v-for="item in enrichmentResults"
+            :key="item.operationRef"
+            class="dm-enrich-item"
+            data-gs="enrichment-result-item"
+          >
+            <div class="dm-enrich-item__head">
+              <Space :size="8" wrap>
+                <GsTag :tone="enrichmentStatusTone(item.status)" data-gs="enrichment-item-status">
+                  {{ enrichmentStatusText(item.status) }}
+                </GsTag>
+                <Tag :bordered="false" class="m-0 text-xs">
+                  {{ enrichmentEntrypointText(item.entrypoint) }}
+                </Tag>
+                <span class="text-xs text-[var(--gs-fg-subtle)]">
+                  {{ formatDateTime(item.createdAt) || '—' }}
+                </span>
+              </Space>
+              <Space :size="6" wrap>
+                <Button
+                  v-if="isRecoverableEnrichment(item.status)"
+                  :disabled="!!recoveringOpRef"
+                  :loading="recoveringOpRef === item.operationRef"
+                  data-gs="enrichment-recover-btn"
+                  size="small"
+                  type="primary"
+                  @click="recoverEnrichment(item.operationRef)"
+                >
+                  {{
+                    recoveringOpRef === item.operationRef
+                      ? $t('gainosB4.leadsDetail.enrichment.recovering')
+                      : $t('gainosB4.leadsDetail.enrichment.recoverBtn')
+                  }}
+                </Button>
+                <Button
+                  data-gs="enrichment-detail-btn"
+                  size="small"
+                  @click="toggleEnrichmentDetail(item.operationRef)"
+                >
+                  {{
+                    expandedOpRef === item.operationRef
+                      ? $t('gainosB4.leadsDetail.enrichment.hideDetailBtn')
+                      : $t('gainosB4.leadsDetail.enrichment.detailBtn')
+                  }}
+                </Button>
+              </Space>
+            </div>
+
+            <p class="dm-enrich-item__summary">
+              {{
+                $t('gainosB4.leadsDetail.enrichment.metricsSummary', {
+                  attempted: item.summary?.physicallyAttemptedUniqueContacts ?? 0,
+                  candidates: item.summary?.newCandidatePoints ?? 0,
+                  considered: item.summary?.consideredUniqueContacts ?? 0,
+                  eligible: item.summary?.eligibleUniqueContacts ?? 0,
+                  unresolved: item.summary?.unresolvedUniqueContacts ?? 0,
+                })
+              }}
+            </p>
+
+            <p
+              v-if="qualityFactDetailMap[item.operationRef] || qualityFactByOp.get(item.operationRef)"
+              class="dm-enrich-item__quality"
+              data-gs="enrichment-quality-summary"
+            >
+              {{
+                $t('gainosB4.leadsDetail.enrichment.qualitySummary', {
+                  covered: (qualityFactDetailMap[item.operationRef] ?? qualityFactByOp.get(item.operationRef))?.summary?.coveredUniqueContacts ?? 0,
+                  org: (qualityFactDetailMap[item.operationRef] ?? qualityFactByOp.get(item.operationRef))?.summary?.organizationChannelContacts ?? 0,
+                  unknown: (qualityFactDetailMap[item.operationRef] ?? qualityFactByOp.get(item.operationRef))?.summary?.unknownEmailTypeContacts ?? 0,
+                })
+              }}
+            </p>
+
+            <div v-if="(item.summary?.skippedByReason ?? []).length > 0" class="flex flex-wrap gap-1.5">
+              <Tag
+                v-for="bucket in item.summary.skippedByReason"
+                :key="bucket.reasonCode"
+                :bordered="false"
+                class="m-0 text-xs"
+              >
+                {{ enrichmentReasonText(bucket.reasonCode) }} × {{ bucket.count }}
+              </Tag>
+            </div>
+
+            <p v-if="item.spend" class="dm-enrich-item__spend">
+              {{
+                $t('gainosB4.leadsDetail.enrichment.spendLabel', {
+                  charged: fmtMicrousd(item.spend.knownChargedMicrousd),
+                  quoted: fmtMicrousd(item.spend.quotedUpperBoundMicrousd),
+                })
+              }}
+            </p>
+
+            <div
+              v-if="expandedOpRef === item.operationRef"
+              class="dm-enrich-detail"
+              data-gs="enrichment-detail-panel"
+            >
+              <p v-if="detailLoadingOpRef === item.operationRef" class="m-0 text-xs text-[var(--gs-fg-subtle)]">
+                {{ $t('gainosB4.leadsDetail.enrichment.detailLoading') }}
+              </p>
+              <template v-else>
+                <p class="dm-label">{{ $t('gainosB4.leadsDetail.enrichment.detailPerContactTitle') }}</p>
+                <ul
+                  v-if="(enrichmentDetailMap[item.operationRef]?.perContact ?? item.perContact ?? []).length > 0"
+                  class="dm-enrich-per-contact"
+                >
+                  <li
+                    v-for="(row, idx) in (enrichmentDetailMap[item.operationRef]?.perContact ?? item.perContact ?? [])"
+                    :key="`${item.operationRef}-${idx}`"
+                    class="dm-enrich-per-contact__row"
+                  >
+                    <span>#{{ idx + 1 }}</span>
+                    <Tag :bordered="false" class="m-0 text-xs">{{ enrichmentReasonText(row.reasonCode) }}</Tag>
+                    <span class="text-xs text-[var(--gs-fg-muted)]">
+                      {{
+                        row.newCandidate
+                          ? $t('gainosB4.leadsDetail.enrichment.detailNewCandidate')
+                          : $t('gainosB4.leadsDetail.enrichment.detailNoNewCandidate')
+                      }}
+                    </span>
+                  </li>
+                </ul>
+                <p v-else class="m-0 text-xs text-[var(--gs-fg-subtle)]">
+                  {{ $t('gainosB4.leadsDetail.enrichment.detailNoContacts') }}
+                </p>
+                <details class="dm-enrich-tech">
+                  <summary>{{ $t('gainosB4.leadsDetail.enrichment.detailTechSummary') }}</summary>
+                  <code>{{ item.operationRef }}</code>
+                </details>
+              </template>
+            </div>
+          </li>
+        </ul>
+      </GsCard>
     </template>
 
     <!-- 发现 / 猜测 / 验证 的确认弹层 -->
@@ -1068,6 +1400,77 @@ a.dm-point__value:hover {
 .dm-dialog__ack {
   font-size: 13px;
   line-height: 1.6;
+}
+.dm-enrich-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dm-enrich-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.dm-enrich-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dm-enrich-item__summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--gs-fg);
+}
+.dm-enrich-item__quality {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gs-fg-2);
+}
+.dm-enrich-item__spend {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--gs-fg-muted);
+}
+.dm-enrich-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gs-border);
+}
+.dm-enrich-per-contact {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dm-enrich-per-contact__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--gs-fg);
+}
+.dm-enrich-tech {
+  font-size: 11.5px;
+  color: var(--gs-fg-subtle);
+}
+.dm-enrich-tech summary {
+  cursor: pointer;
+}
+.dm-enrich-tech code {
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
 }
 
 @container (min-width: 860px) {

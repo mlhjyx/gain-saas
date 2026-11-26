@@ -11,18 +11,22 @@ import {
 import { RotateCw, Search } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
-import { Alert, Button, Input, Modal, Skeleton } from 'ant-design-vue';
+import { Alert, Button, Checkbox, Input, Modal, Skeleton } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
+import GsBulkActionBar from '#/components/gainos/ui/gs-bulk-action-bar.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsModal from '#/components/gainos/ui/gs-modal.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
 import { usePendingAction } from '#/composables/use-pending-action';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { feedback } from '#/feedback';
+import { newAttemptId } from '#/utils/attempt-id';
 import { copyText } from '#/utils/clipboard';
 
 import {
@@ -32,6 +36,7 @@ import {
   type Lead,
   type LeadDecisionInput,
   type LeadQueueCounts,
+  type OutreachBatchSummary,
   type PromoteQgoInput,
 } from '#/api/gainos';
 
@@ -74,6 +79,8 @@ const viewOptions = computed(() => [
 
 const leadsInitialized = ref(false);
 
+const STATUS_KEYS = ['DISCOVERED', 'REVIEW', 'QUALIFIED', 'REJECTED', 'SUPPRESSED'] as const;
+
 function queueFromRoute(): string | null {
   const raw = route.query.queue;
   const queue = Array.isArray(raw) ? raw[0] : raw;
@@ -81,7 +88,21 @@ function queueFromRoute(): string | null {
   return (QUEUE_KEYS as readonly string[]).includes(queue) ? queue : null;
 }
 
+function queryTextFromRoute(): string {
+  const raw = route.query.q;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === 'string' ? value : '';
+}
+
+function statusFromRoute(): string {
+  const raw = route.query.status;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === 'string' && (STATUS_KEYS as readonly string[]).includes(value) ? value : '';
+}
+
+const { isAdmin: accessIsAdmin, can: accessCan, ensureLoaded: ensureWorkspaceAccess } = useWorkspaceAccess();
 const isAdmin = ref(false);
+const canDraftOutreach = computed(() => isAdmin.value || accessIsAdmin.value || accessCan('outreach.draft'));
 
 // 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
 const QUEUE_META = [
@@ -120,8 +141,46 @@ const REJECT_CODES = [
 const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
 
 const activeQueue = ref<string>(queueFromRoute() ?? 'needs_review');
+const activeStatus = ref<string>(statusFromRoute());
 const leads = ref<Lead[]>([]);
-const searchQuery = ref('');
+const searchQuery = ref(queryTextFromRoute());
+
+const statusFilterOptions = computed(() => [
+  { label: $t('gainosB4.leadsBulk.statusAll'), value: '' },
+  { label: $t('gainosB4.leadsBulk.statusDiscovered'), value: 'DISCOVERED' },
+  { label: $t('gainosB4.leadsBulk.statusReview'), value: 'REVIEW' },
+  { label: $t('gainosB4.leadsBulk.statusQualified'), value: 'QUALIFIED' },
+  { label: $t('gainosB4.leadsBulk.statusRejected'), value: 'REJECTED' },
+  { label: $t('gainosB4.leadsBulk.statusSuppressed'), value: 'SUPPRESSED' },
+]);
+
+function syncFiltersToUrl(): void {
+  if (activeView.value !== 'list') return;
+  const nextQuery: Record<string, string> = {};
+  for (const [k, v] of Object.entries(route.query)) {
+    if (['icp', 'q', 'queue', 'status'].includes(k)) continue;
+    const single = Array.isArray(v) ? v[0] : v;
+    if (typeof single === 'string' && single) nextQuery[k] = single;
+  }
+  if (activeQueue.value && (activeQueue.value !== 'needs_review' || route.query.queue !== undefined)) {
+    nextQuery.queue = activeQueue.value;
+  }
+  const trimmedQ = searchQuery.value.trim();
+  if (trimmedQ) nextQuery.q = trimmedQ;
+  if (activeStatus.value) nextQuery.status = activeStatus.value;
+  if (activeIcpId.value && (route.query.icp !== undefined || icps.value.length > 1)) {
+    nextQuery.icp = activeIcpId.value;
+  }
+  const currentComparable: Record<string, string> = {};
+  for (const [k, v] of Object.entries(route.query)) {
+    const single = Array.isArray(v) ? v[0] : v;
+    if (typeof single === 'string' && single) currentComparable[k] = single;
+  }
+  if (JSON.stringify(currentComparable) !== JSON.stringify(nextQuery)) {
+    void router.replace({ path: '/leads', query: nextQuery });
+  }
+}
+
 const filteredLeads = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
   if (!query) return leads.value;
@@ -133,6 +192,282 @@ const filteredLeads = computed(() => {
     return haystack.includes(query);
   });
 });
+
+// ── 批量选择与 GsBulkActionBar 操作 ───────────────────────────────────────
+const selectedLeadIds = ref<Set<string>>(new Set());
+const selectedLeads = computed(() =>
+  filteredLeads.value.filter((lead) => selectedLeadIds.value.has(lead.id)),
+);
+const allPageSelected = computed(
+  () =>
+    filteredLeads.value.length > 0 &&
+    filteredLeads.value.every((lead) => selectedLeadIds.value.has(lead.id)),
+);
+const somePageSelected = computed(
+  () =>
+    !allPageSelected.value &&
+    filteredLeads.value.some((lead) => selectedLeadIds.value.has(lead.id)),
+);
+
+function isLeadSelected(id: string): boolean {
+  return selectedLeadIds.value.has(id);
+}
+
+function toggleLeadSelection(id: string, checked: boolean): void {
+  const next = new Set(selectedLeadIds.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  selectedLeadIds.value = next;
+}
+
+function toggleSelectAllPage(checked: boolean): void {
+  if (!checked) {
+    selectedLeadIds.value = new Set();
+    return;
+  }
+  selectedLeadIds.value = new Set(filteredLeads.value.map((lead) => lead.id));
+}
+
+function clearSelection(): void {
+  selectedLeadIds.value = new Set();
+}
+
+const bulkBusy = ref(false);
+const bulkRejectOpen = ref(false);
+const bulkRejectCode = ref('');
+const bulkRejectNote = ref('');
+const bulkRejectError = ref('');
+
+const bulkOutreachOpen = ref(false);
+const bulkOutreachLoading = ref(false);
+const bulkOutreachBatches = ref<OutreachBatchSummary[]>([]);
+const bulkOutreachBatchId = ref('');
+const bulkOutreachError = ref('');
+
+const bulkActionableLeads = computed(() => selectedLeads.value.filter((lead) => canAct(lead)));
+
+function openBulkReject(): void {
+  if (bulkActionableLeads.value.length === 0) {
+    feedback.message.info($t('gainosB4.leadsBulk.bulkNoActionable'));
+    return;
+  }
+  bulkRejectCode.value = '';
+  bulkRejectNote.value = '';
+  bulkRejectError.value = '';
+  bulkRejectOpen.value = true;
+}
+
+async function submitBulkReject(): Promise<void> {
+  if (bulkBusy.value) return;
+  if (!bulkRejectCode.value) {
+    bulkRejectError.value = $t('gainos.leads.reasonRequired');
+    return;
+  }
+  const targets = bulkActionableLeads.value;
+  if (targets.length === 0) {
+    bulkRejectOpen.value = false;
+    return;
+  }
+  bulkBusy.value = true;
+  bulkRejectError.value = '';
+  const selectedReasonCode = bulkRejectCode.value;
+  const noteTrimmed = bulkRejectNote.value.trim();
+  const input: LeadDecisionInput = {
+    reasonCode: selectedReasonCode,
+    ...(noteTrimmed ? { reason: noteTrimmed } : {}),
+  };
+  let succeeded = 0;
+  let failed = 0;
+  try {
+    for (const lead of targets) {
+      try {
+        await gainosApi.rejectLead(lead.id, input, newAttemptId());
+        succeeded += 1;
+        const targetIcpId = lead.icpId || activeIcpId.value;
+        if (targetIcpId) {
+          const mappedReason = mapRejectCodeToFeedbackReason(selectedReasonCode);
+          await gainosApi
+            .recordIcpFeedback(targetIcpId, {
+              leadId: lead.id,
+              companyId: lead.company?.id,
+              domain: lead.company?.domain ?? undefined,
+              companyName: lead.company?.name ?? undefined,
+              industry: lead.company?.industry ?? undefined,
+              outcome: 'rejected',
+              ...(mappedReason ? { rejectionReason: mappedReason } : {}),
+              ...(noteTrimmed ? { note: noteTrimmed } : {}),
+            })
+            .catch(() => undefined);
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+    bulkRejectOpen.value = false;
+    clearSelection();
+    if (failed === 0) {
+      feedback.message.success($t('gainosB4.leadsBulk.bulkDone', { succeeded }));
+    } else {
+      feedback.message.warning($t('gainosB4.leadsBulk.bulkPartial', { failed, succeeded }));
+    }
+    await load();
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+function confirmBulkAccept(): void {
+  const targets = bulkActionableLeads.value;
+  if (targets.length === 0) {
+    feedback.message.info($t('gainosB4.leadsBulk.bulkNoActionable'));
+    return;
+  }
+  feedback.confirm({
+    title: $t('gainosB4.leadsBulk.bulkAcceptTitle'),
+    content: $t('gainosB4.leadsBulk.bulkAcceptContent', {
+      actionable: targets.length,
+      total: selectedLeads.value.length,
+    }),
+    okText: $t('gainosB4.leadsBulk.bulkAcceptOk'),
+    cancelText: $t('gainos.common.cancel'),
+    onOk: async () => {
+      bulkBusy.value = true;
+      let succeeded = 0;
+      let failed = 0;
+      try {
+        for (const lead of targets) {
+          try {
+            await gainosApi.acceptLead(lead.id, {}, newAttemptId());
+            succeeded += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+        clearSelection();
+        if (failed === 0) {
+          feedback.message.success($t('gainosB4.leadsBulk.bulkDone', { succeeded }));
+        } else {
+          feedback.message.warning($t('gainosB4.leadsBulk.bulkPartial', { failed, succeeded }));
+        }
+        await load();
+      } finally {
+        bulkBusy.value = false;
+      }
+    },
+  });
+}
+
+async function openBulkOutreach(): Promise<void> {
+  if (selectedLeads.value.length === 0) return;
+  bulkOutreachError.value = '';
+  bulkOutreachBatchId.value = '';
+  bulkOutreachOpen.value = true;
+  bulkOutreachLoading.value = true;
+  try {
+    const rows = await gainosApi.outreachBatches();
+    bulkOutreachBatches.value = (Array.isArray(rows) ? rows : []).filter((b) => b.status === 'DRAFT');
+    if (bulkOutreachBatches.value[0]) {
+      bulkOutreachBatchId.value = bulkOutreachBatches.value[0].id;
+    }
+  } catch (err) {
+    bulkOutreachBatches.value = [];
+    bulkOutreachError.value = failureText(err).title;
+  } finally {
+    bulkOutreachLoading.value = false;
+  }
+}
+
+function goBulkOutreachPage(): void {
+  const firstLead = selectedLeads.value[0];
+  bulkOutreachOpen.value = false;
+  void router.push({
+    path: '/outreach',
+    query: {
+      tab: 'batches',
+      ...(firstLead ? { lead: firstLead.id } : {}),
+    },
+  });
+}
+
+async function submitBulkOutreach(): Promise<void> {
+  if (bulkBusy.value || !bulkOutreachBatchId.value || !canDraftOutreach.value) return;
+  const targets = selectedLeads.value;
+  const withEmail = targets.filter((lead) => Boolean(lead.channelSummary?.emails?.[0]));
+  if (withEmail.length === 0) {
+    bulkOutreachError.value = $t('gainosB4.leadsBulk.bulkOutreachNoEmail');
+    return;
+  }
+  bulkBusy.value = true;
+  bulkOutreachError.value = '';
+  let added = 0;
+  let skipped = targets.length - withEmail.length;
+  try {
+    for (const lead of withEmail) {
+      const email = lead.channelSummary?.emails?.[0];
+      if (!email) {
+        skipped += 1;
+        continue;
+      }
+      const companyName = lead.company?.name || $t('gainos.leads.unknownCompany');
+      try {
+        await gainosApi.addOutreachDraft(bulkOutreachBatchId.value, {
+          contactRef: lead.id,
+          recipientEmail: email,
+          companyName,
+          ...(lead.company?.country ? { countryCode: lead.company.country } : {}),
+          subject: `B2B Supply Inquiry — ${companyName}`,
+          body: `Hello ${companyName} team,\n\nWe would be glad to share product specifications and supply details for your review.\n\nBest regards,`,
+        });
+        added += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+    bulkOutreachOpen.value = false;
+    clearSelection();
+    feedback.message.success($t('gainosB4.leadsBulk.bulkOutreachDone', { added, skipped }));
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+function csvCell(value: unknown): string {
+  const raw = value === null || value === undefined ? '' : String(value);
+  const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function exportSelectedCsv(): void {
+  if (!isAdmin.value || selectedLeads.value.length === 0) return;
+  const header = ['Company', 'Domain', 'Country', 'Industry', 'Queue', 'Status', 'Score', 'Email', 'Phone'];
+  const rows = selectedLeads.value.map((lead) => [
+    lead.company?.name ?? '',
+    lead.company?.domain ?? '',
+    lead.company?.country ?? '',
+    lead.company?.industry ?? '',
+    lead.queue ?? '',
+    lead.status ?? '',
+    typeof lead.totalScore === 'number' ? Math.round(lead.totalScore) : '',
+    lead.channelSummary?.emails?.[0] ?? '',
+    lead.channelSummary?.phones?.[0] ?? '',
+  ]);
+  const csv = `\uFEFF${[header, ...rows].map((cols) => cols.map(csvCell).join(',')).join('\n')}\n`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `selected-leads-${activeQueue.value}.csv`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  feedback.message.success(
+    $t('gainosB4.leadsBulk.bulkExportDone', { count: selectedLeads.value.length }),
+  );
+}
 const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
 const icps = ref<Icp[]>([]);
@@ -444,8 +779,16 @@ async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    const data = await gainosApi.leads({ icpId: activeIcpId.value, queue: activeQueue.value, limit: pageLimit.value });
+    const data = await gainosApi.leads({
+      icpId: activeIcpId.value,
+      queue: activeQueue.value,
+      ...(activeStatus.value ? { status: activeStatus.value } : {}),
+      limit: pageLimit.value,
+    });
     leads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
+    // 清理已不在当前结果集中的勾选项
+    const validIds = new Set(leads.value.map((lead) => lead.id));
+    selectedLeadIds.value = new Set([...selectedLeadIds.value].filter((id) => validIds.has(id)));
     await loadQueueCounts();
   } catch (error) {
     loadError.value = failureText(error);
@@ -543,7 +886,25 @@ async function initLeadsView(): Promise<void> {
 watch(activeQueue, () => {
   if (!leadsInitialized.value) return;
   pageLimit.value = 50;
+  clearSelection();
+  syncFiltersToUrl();
   void load();
+});
+watch(activeStatus, () => {
+  if (!leadsInitialized.value) return;
+  pageLimit.value = 50;
+  clearSelection();
+  syncFiltersToUrl();
+  void load();
+});
+watch(searchQuery, () => {
+  if (!leadsInitialized.value) return;
+  syncFiltersToUrl();
+});
+watch(activeIcpId, () => {
+  if (!leadsInitialized.value) return;
+  clearSelection();
+  syncFiltersToUrl();
 });
 watch(activeView, (next) => {
   if (next === 'list') {
@@ -551,10 +912,14 @@ watch(activeView, (next) => {
   }
 });
 watch(
-  () => route.query.queue,
+  () => [route.query.queue, route.query.q, route.query.status],
   () => {
     const queue = queueFromRoute();
-    if (queue) activeQueue.value = queue;
+    if (queue && queue !== activeQueue.value) activeQueue.value = queue;
+    const q = queryTextFromRoute();
+    if (q !== searchQuery.value) searchQuery.value = q;
+    const st = statusFromRoute();
+    if (st !== activeStatus.value) activeStatus.value = st;
   },
 );
 function onEscape(event: KeyboardEvent): void {
@@ -566,10 +931,13 @@ function onEscape(event: KeyboardEvent): void {
 onMounted(async () => {
   window.addEventListener('keydown', onEscape);
   try {
-    const session = await gainosApi.session();
-    isAdmin.value = session.workspace?.role === 'admin';
+    const [session] = await Promise.all([
+      gainosApi.session(),
+      ensureWorkspaceAccess(),
+    ]);
+    isAdmin.value = session.workspace?.role === 'admin' || accessIsAdmin.value;
   } catch {
-    isAdmin.value = false;
+    isAdmin.value = accessIsAdmin.value;
   }
   const rawQueue = Array.isArray(route.query.queue) ? route.query.queue[0] : route.query.queue;
   if (isAdmin.value && rawQueue === 'sanctions_hold') {
@@ -643,6 +1011,17 @@ onUnmounted(() => {
             data-gs="icp-filter"
             @change="refreshStreamingAndLeads()"
           />
+          <div
+            class="w-[140px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
+            data-gs="lead-status-filter"
+          >
+            <GsSelect
+              v-model="activeStatus"
+              :ariaLabel="$t('gainosB4.leadsBulk.statusFilterLabel')"
+              :options="statusFilterOptions"
+              class="w-full"
+            />
+          </div>
           <div class="w-[240px] @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="lead-search">
             <Input
               v-model:value="searchQuery"
@@ -734,6 +1113,26 @@ onUnmounted(() => {
       </GsEmpty>
 
       <template v-else>
+        <div
+          v-if="filteredLeads.length > 0"
+          class="flex items-center justify-between px-1"
+          data-gs="leads-selection-bar"
+        >
+          <Checkbox
+            :checked="allPageSelected"
+            :indeterminate="somePageSelected"
+            data-gs="leads-select-all"
+            @change="(e: { target?: { checked?: boolean } }) => toggleSelectAllPage(Boolean(e?.target?.checked))"
+          >
+            <span class="text-xs text-[var(--gs-fg-muted)]">
+              {{ $t('gainosB4.leadsBulk.selectAllPage') }}
+            </span>
+          </Checkbox>
+          <span v-if="selectedLeads.length > 0" class="text-xs text-[var(--gs-fg-muted)]">
+            {{ $t('gainosB4.leadsBulk.selectedSummary', { count: selectedLeads.length }) }}
+          </span>
+        </div>
+
         <p v-if="filteredLeads.length === 0" class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
           {{ $t('gainos.companies.noMatch') }}
         </p>
@@ -745,13 +1144,64 @@ onUnmounted(() => {
           :can-act="canAct(lead)"
           :expanded="isExpanded(lead.id)"
           :lead="lead"
+          :selectable="true"
+          :selected="isLeadSelected(lead.id)"
           @accept="openAccept(lead)"
           @copy="copyDomain(lead)"
           @package="openPackage(lead)"
           @promote="openPromote(lead)"
           @reject="openReject(lead)"
+          @select="(checked) => toggleLeadSelection(lead.id, checked)"
           @toggle="toggleExpanded(lead.id)"
         />
+
+        <!-- 底部批量操作栏：抬高 --gs-flow-bar-h 与底部主链路浮窗零遮挡 -->
+        <GsBulkActionBar
+          :clear-label="$t('gainosB4.leadsBulk.clearSelection')"
+          :selected-count="selectedLeads.length"
+          :selected-label="$t('gainosB4.leadsBulk.selectedSummary', { count: selectedLeads.length })"
+          :style="{ bottom: 'calc(12px + var(--gs-flow-bar-h, 0px))' }"
+          :total-count="filteredLeads.length"
+          @clear="clearSelection"
+        >
+          <template #actions>
+            <Button
+              :disabled="bulkBusy || bulkActionableLeads.length === 0"
+              danger
+              data-gs="bulk-reject"
+              size="small"
+              @click="openBulkReject"
+            >
+              {{ $t('gainosB4.leadsBulk.bulkReject') }}
+            </Button>
+            <Button
+              :disabled="bulkBusy"
+              data-gs="bulk-outreach"
+              size="small"
+              @click="openBulkOutreach"
+            >
+              {{ $t('gainosB4.leadsBulk.bulkOutreach') }}
+            </Button>
+            <Button
+              :disabled="bulkBusy || bulkActionableLeads.length === 0"
+              data-gs="bulk-accept"
+              size="small"
+              type="primary"
+              @click="confirmBulkAccept"
+            >
+              {{ $t('gainosB4.leadsBulk.bulkAccept') }}
+            </Button>
+            <Button
+              v-if="isAdmin"
+              :disabled="bulkBusy"
+              data-gs="bulk-export"
+              size="small"
+              @click="exportSelectedCsv"
+            >
+              {{ $t('gainosB4.leadsBulk.bulkExport') }}
+            </Button>
+          </template>
+        </GsBulkActionBar>
 
         <div v-if="hasMoreLeads" class="flex items-center justify-between" data-gs="load-more">
           <span class="text-xs text-[var(--gs-fg-subtle)]">
@@ -877,5 +1327,99 @@ onUnmounted(() => {
         </label>
       </div>
     </Modal>
+
+    <!-- 批量排除弹层 -->
+    <GsModal
+      v-model:open="bulkRejectOpen"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="bulkBusy"
+      :ok-text="$t('gainosB4.leadsBulk.bulkRejectOk')"
+      :subtitle="$t('gainosB4.leadsBulk.bulkRejectSubtitle', { actionable: bulkActionableLeads.length })"
+      :title="$t('gainosB4.leadsBulk.bulkRejectTitle')"
+      danger
+      size="md"
+      @ok="submitBulkReject"
+    >
+      <div class="grid gap-3" data-gs="bulk-reject-modal">
+        <p v-if="bulkRejectError" class="m-0 text-xs text-[var(--gs-danger-fg)]" role="alert">
+          {{ bulkRejectError }}
+        </p>
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]" data-gs="bulk-reject-reason">
+          <span>{{ $t('gainos.leads.reasonCode') }} *</span>
+          <GsSelect
+            v-model="bulkRejectCode"
+            :ariaLabel="$t('gainos.leads.reasonCode')"
+            :options="REJECT_CODES.map((code) => ({ label: $t(`gainos.leads.reason.${code}`), value: code }))"
+            :placeholder="$t('gainos.leads.reasonSelect')"
+          />
+        </label>
+        <label class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]">
+          <span>{{ $t('gainos.leads.reasonNote') }}</span>
+          <Input.TextArea
+            v-model:value="bulkRejectNote"
+            :maxlength="500"
+            :placeholder="$t('gainos.leads.reasonPlaceholder')"
+            :rows="2"
+            data-gs="bulk-reject-note"
+          />
+        </label>
+      </div>
+    </GsModal>
+
+    <!-- 批量加入外发批次弹层 -->
+    <GsModal
+      v-model:open="bulkOutreachOpen"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="bulkBusy"
+      :ok-text="$t('gainosB4.leadsBulk.bulkOutreachSubmit')"
+      :subtitle="$t('gainosB4.leadsBulk.bulkOutreachSubtitle')"
+      :title="$t('gainosB4.leadsBulk.bulkOutreachTitle')"
+      size="md"
+      @ok="submitBulkOutreach"
+    >
+      <div class="grid gap-3" data-gs="bulk-outreach-modal">
+        <p v-if="bulkOutreachError" class="m-0 text-xs text-[var(--gs-danger-fg)]" role="alert">
+          {{ bulkOutreachError }}
+        </p>
+        <p v-if="bulkOutreachLoading" class="m-0 text-xs text-[var(--gs-fg-muted)]">
+          {{ $t('gainos.common.loading') }}
+        </p>
+        <template v-else-if="!canDraftOutreach">
+          <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
+            {{ $t('gainosB4.leadsBulk.bulkOutreachReadonly') }}
+          </p>
+        </template>
+        <template v-else-if="bulkOutreachBatches.length === 0">
+          <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
+            {{ $t('gainosB4.leadsBulk.bulkOutreachNoBatch') }}
+          </p>
+        </template>
+        <label v-else class="grid gap-1.5 text-xs font-medium text-[var(--gs-fg-2)]" data-gs="bulk-outreach-batch-select">
+          <span>{{ $t('gainosB4.leadsBulk.bulkOutreachBatchLabel') }}</span>
+          <GsSelect
+            v-model="bulkOutreachBatchId"
+            :ariaLabel="$t('gainosB4.leadsBulk.bulkOutreachBatchLabel')"
+            :options="bulkOutreachBatches.map((b) => ({ label: b.name, value: b.id }))"
+            :placeholder="$t('gainosB4.leadsBulk.bulkOutreachBatchPlaceholder')"
+          />
+        </label>
+      </div>
+      <template #footer>
+        <Button @click="bulkOutreachOpen = false">{{ $t('gainos.common.cancel') }}</Button>
+        <Button data-gs="bulk-outreach-open-page" @click="goBulkOutreachPage">
+          {{ $t('gainosB4.leadsBulk.bulkOutreachOpenPage') }}
+        </Button>
+        <Button
+          v-if="canDraftOutreach && bulkOutreachBatches.length > 0"
+          :disabled="!bulkOutreachBatchId || bulkBusy"
+          :loading="bulkBusy"
+          data-gs="bulk-outreach-confirm"
+          type="primary"
+          @click="submitBulkOutreach"
+        >
+          {{ $t('gainosB4.leadsBulk.bulkOutreachSubmit') }}
+        </Button>
+      </template>
+    </GsModal>
   </div>
 </template>

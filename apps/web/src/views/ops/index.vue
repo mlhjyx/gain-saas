@@ -1,5 +1,11 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+
+import { Input } from 'ant-design-vue';
+
+import GsModal from '#/components/gainos/ui/gs-modal.vue';
+import { feedback } from '#/feedback';
 
 import OpsWorkspaceGovernance from './components/ops-workspace-governance.vue';
 import OpsWalletPanel from './components/ops-wallet-panel.vue';
@@ -7,6 +13,9 @@ import OpsWalletPanel from './components/ops-wallet-panel.vue';
 defineOptions({ name: 'OpsConsole' });
 
 type Row = Record<string, any>;
+
+const route = useRoute();
+const router = useRouter();
 
 const authed = ref(false);
 const checking = ref(true);
@@ -33,7 +42,46 @@ const TABS = [
   { key: 'revocations', label: '平台撤销' },
   { key: 'audit', label: '审计' },
 ] as const;
-const active = ref<string>('overview');
+const VALID_TABS = new Set<string>(TABS.map((tab) => tab.key));
+function tabFromRoute(): string {
+  const raw = route.query.tab;
+  const key = Array.isArray(raw) ? raw[0] : raw;
+  return typeof key === 'string' && VALID_TABS.has(key) ? key : 'overview';
+}
+const active = ref<string>(tabFromRoute());
+
+function confirmOpsAction(options: {
+  title: string;
+  content: string;
+  okText?: string;
+  danger?: boolean;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    feedback.confirm({
+      title: options.title,
+      content: options.content,
+      okText: options.okText ?? '确认',
+      cancelText: '取消',
+      okType: options.danger ? 'danger' : 'primary',
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
+
+const cancelRevocationModal = ref<{ id: string; scheduleId: string } | null>(null);
+const cancelRevocationReason = ref('');
+const cancelRevocationError = ref('');
+const cancelRevocationOpen = computed({
+  get: () => cancelRevocationModal.value !== null,
+  set: (value: boolean) => {
+    if (!value && !revocationBusy.value) {
+      cancelRevocationModal.value = null;
+      cancelRevocationReason.value = '';
+      cancelRevocationError.value = '';
+    }
+  },
+});
 const loading = ref(false);
 const error = ref('');
 const notice = ref('');
@@ -428,7 +476,12 @@ async function previewChannel(channel: Row): Promise<void> {
 }
 
 async function runChannel(channel: Row): Promise<void> {
-  if (!window.confirm(`立即运行渠道 ${channel.name}?运行受平台抓取预算上限约束(单轮页数/单渠道日配额)。`)) return;
+  const ok = await confirmOpsAction({
+    title: '立即运行平台渠道',
+    content: `立即运行渠道 ${channel.name}？运行受平台抓取预算上限约束（单轮页数/单渠道日配额）。`,
+    okText: '立即运行',
+  });
+  if (!ok) return;
   channelBusy.value = String(channel.id);
   error.value = '';
   try {
@@ -476,13 +529,17 @@ async function loadWorkspaceAdmin(): Promise<void> {
 }
 
 async function handleWorkspaceStatus(workspace: Row, event: Event): Promise<void> {
-  const status = (event.target as HTMLSelectElement).value;
+  const select = event.target as HTMLSelectElement;
+  const status = select.value;
   if (status === workspace.status) return;
-  const ok = window.confirm(
-    `确认把工作空间「${workspace.name || workspace.id}」改为 ${status}？停用/归档后该空间全部请求会被拒绝（数据保留，可改回 ACTIVE 恢复）。`,
-  );
+  const ok = await confirmOpsAction({
+    title: '变更工作空间状态',
+    content: `确认把工作空间「${workspace.name || workspace.id}」改为 ${status}？停用/归档后该空间全部请求会被拒绝（数据保留，可改回 ACTIVE 恢复）。`,
+    okText: '确认变更',
+    danger: status !== 'ACTIVE',
+  });
   if (!ok) {
-    (event.target as HTMLSelectElement).value = String(workspace.status ?? 'ACTIVE');
+    select.value = String(workspace.status ?? 'ACTIVE');
     return;
   }
   workspaceBusy.value = String(workspace.id);
@@ -568,7 +625,13 @@ async function loadUsers(): Promise<void> {
 async function toggleUser(user: Row): Promise<void> {
   const next = user.status === 'active' ? 'disabled' : 'active';
   const action = next === 'disabled' ? '停用' : '启用';
-  if (!window.confirm(`确认${action}用户 ${user.email}？${next === 'disabled' ? '停用后该用户的会话会立即失效。' : ''}`)) return;
+  const ok = await confirmOpsAction({
+    title: `${action}用户`,
+    content: `确认${action}用户 ${user.email}？${next === 'disabled' ? '停用后该用户的会话会立即失效。' : ''}`,
+    okText: `确认${action}`,
+    danger: next === 'disabled',
+  });
+  if (!ok) return;
   userBusy.value = String(user.id);
   error.value = '';
   notice.value = '';
@@ -700,7 +763,13 @@ async function loadWorkflows(): Promise<void> {
 }
 async function scheduleAction(id: string, action: 'pause' | 'unpause' | 'trigger' | 'delete'): Promise<void> {
   const labels: Record<string, string> = { pause: '暂停', unpause: '恢复', trigger: '立即触发', delete: '删除' };
-  if (!window.confirm(`确认${labels[action]} schedule ${id}?`)) return;
+  const ok = await confirmOpsAction({
+    title: `${labels[action]} schedule`,
+    content: `确认${labels[action]} schedule ${id}？`,
+    okText: `确认${labels[action]}`,
+    danger: action === 'delete' || action === 'pause',
+  });
+  if (!ok) return;
   scheduleBusy.value = true;
   error.value = '';
   try {
@@ -723,7 +792,12 @@ async function createSchedule(): Promise<void> {
     error.value = '请填写 schedule id';
     return;
   }
-  if (!window.confirm(`创建 schedule ${form.scheduleId} (${form.workflowType}, 每 ${form.intervalMinutes} 分钟)?`)) return;
+  const ok = await confirmOpsAction({
+    title: '创建 schedule',
+    content: `创建 schedule ${form.scheduleId}（${form.workflowType}，每 ${form.intervalMinutes} 分钟）？`,
+    okText: '确认创建',
+  });
+  if (!ok) return;
   scheduleBusy.value = true;
   error.value = '';
   try {
@@ -820,11 +894,15 @@ function fmtUsd(value: unknown): string {
 async function createRevocation(): Promise<void> {
   const form = revocationForm.value;
   const reason = REVOCATION_REASONS.find((item) => item.value === form.reasonCode)?.label ?? form.reasonCode;
-  const confirmed = window.confirm(
-    `确认对 ${form.scheduleId} 发起平台撤销（${reason}）？\n\n`
-    + '影响：关闭该 schedule 的整个出网围栏，所有在途出网立即被阻断；这不是暂停，'
-    + '且当前没有产品化的重开路径，恢复需要受审计的重开流程。操作会记入审计。',
-  );
+  const confirmed = await confirmOpsAction({
+    title: '发起平台撤销',
+    content:
+      `确认对 ${form.scheduleId} 发起平台撤销（${reason}）？`
+      + '影响：关闭该 schedule 的整个出网围栏，所有在途出网立即被阻断；这不是暂停，'
+      + '且当前没有产品化的重开路径，恢复需要受审计的重开流程。操作会记入审计。',
+    okText: '确认发起撤销',
+    danger: true,
+  });
   if (!confirmed) return;
   revocationBusy.value = 'create';
   error.value = '';
@@ -841,7 +919,13 @@ async function createRevocation(): Promise<void> {
 }
 
 async function confirmRevocation(id: string, scheduleId: string): Promise<void> {
-  if (!window.confirm(`确认投递 ${scheduleId} 的撤销请求？投递后 fence 会立刻生效且当前不可重开。`)) return;
+  const confirmed = await confirmOpsAction({
+    title: '确认投递撤销请求',
+    content: `确认投递 ${scheduleId} 的撤销请求？投递后 fence 会立刻生效且当前不可重开。`,
+    okText: '确认投递',
+    danger: true,
+  });
+  if (!confirmed) return;
   revocationBusy.value = id;
   error.value = '';
   try {
@@ -855,50 +939,90 @@ async function confirmRevocation(id: string, scheduleId: string): Promise<void> 
   }
 }
 
-async function cancelRevocation(id: string, scheduleId: string): Promise<void> {
-  const reason = window.prompt(`取消 ${scheduleId} 的撤销请求（原因会记入审计）。\n只会取消从未投递或已确定未提交的请求。`);
-  if (!reason || !reason.trim()) return;
-  revocationBusy.value = id;
+function openCancelRevocation(id: string, scheduleId: string): void {
+  cancelRevocationModal.value = { id, scheduleId };
+  cancelRevocationReason.value = '';
+  cancelRevocationError.value = '';
+}
+
+function closeCancelRevocation(): void {
+  if (revocationBusy.value) return;
+  cancelRevocationModal.value = null;
+  cancelRevocationReason.value = '';
+  cancelRevocationError.value = '';
+}
+
+async function submitCancelRevocation(): Promise<void> {
+  const target = cancelRevocationModal.value;
+  if (!target || revocationBusy.value) return;
+  const reason = cancelRevocationReason.value.trim();
+  if (!reason) {
+    cancelRevocationError.value = '请填写取消原因（必填，会记入运营审计）';
+    return;
+  }
+  revocationBusy.value = target.id;
+  cancelRevocationError.value = '';
   error.value = '';
   try {
-    await api(`/api/ops/r4/revocations/${encodeURIComponent(id)}/cancel`, {
-      method: 'POST', body: JSON.stringify({ reason: reason.trim() }),
+    await api(`/api/ops/r4/revocations/${encodeURIComponent(target.id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
+    cancelRevocationModal.value = null;
+    cancelRevocationReason.value = '';
     notice.value = '撤销请求已取消';
     await loadRevocations();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    cancelRevocationError.value = msg;
+    error.value = msg;
   } finally {
     revocationBusy.value = '';
   }
 }
 
-async function switchTab(tab: string): Promise<void> {
-  active.value = tab;
+async function switchTab(tab: string, syncUrl = true): Promise<void> {
+  const normalized = VALID_TABS.has(tab) ? tab : 'overview';
+  active.value = normalized;
   error.value = '';
   notice.value = '';
-  if (tab === 'overview') await loadOverview();
-  if (tab === 'users') await loadUsers();
-  if (tab === 'workspaces') await loadWorkspaceAdmin();
-  if (tab === 'cooperation-intents') await loadCooperationIntents();
-  if (tab === 'providers') await loadProviders();
-  if (tab === 'campaign-attribution') await loadCampaignAttribution();
-  if (tab === 'campaign-metrics') await loadCampaignMetrics();
-  if (tab === 'channels') await loadChannels();
-  if (tab === 'sources') await loadSources();
-  if (tab === 'budget') await loadBudget();
-  if (tab === 'diagnostics') await Promise.all([loadWorkspaces(), loadGlobalDiagnostics()]);
-  if (tab === 'schedules') await loadSchedules();
-  if (tab === 'revocations') await loadRevocations();
-  if (tab === 'audit') await loadAudit();
+  if (syncUrl && route.query.tab !== normalized) {
+    void router.replace({ query: { ...route.query, tab: normalized } });
+  }
+  if (normalized === 'overview') await loadOverview();
+  if (normalized === 'users') await loadUsers();
+  if (normalized === 'workspaces') await loadWorkspaceAdmin();
+  if (normalized === 'cooperation-intents') await loadCooperationIntents();
+  if (normalized === 'providers') await loadProviders();
+  if (normalized === 'campaign-attribution') await loadCampaignAttribution();
+  if (normalized === 'campaign-metrics') await loadCampaignMetrics();
+  if (normalized === 'channels') await loadChannels();
+  if (normalized === 'sources') await loadSources();
+  if (normalized === 'budget') await loadBudget();
+  if (normalized === 'diagnostics') await Promise.all([loadWorkspaces(), loadGlobalDiagnostics()]);
+  if (normalized === 'schedules') await loadSchedules();
+  if (normalized === 'revocations') await loadRevocations();
+  if (normalized === 'audit') await loadAudit();
 }
+
+watch(
+  () => route.query.tab,
+  () => {
+    const nextTab = tabFromRoute();
+    if (authed.value && nextTab !== active.value) {
+      void switchTab(nextTab, false);
+    } else if (!authed.value) {
+      active.value = nextTab;
+    }
+  },
+);
 
 async function checkSession(): Promise<void> {
   try {
     const res = await api<{ data: { user: { email: string } } }>('/api/ops/auth/session');
     operator.value = res.data.user;
     authed.value = true;
-    await loadOverview();
+    await switchTab(tabFromRoute(), false);
   } catch {
     authed.value = false;
   } finally {
@@ -917,7 +1041,7 @@ async function login(): Promise<void> {
     operator.value = res.data.user;
     authed.value = true;
     loginPassword.value = '';
-    await loadOverview();
+    await switchTab(tabFromRoute(), false);
   } catch (err) {
     loginError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -934,7 +1058,13 @@ async function logout(): Promise<void> {
 
 async function toggleProvider(provider: Row): Promise<void> {
   const next = String(provider.status) === 'ENABLED' ? 'DISABLED' : 'ENABLED';
-  if (!window.confirm(`确认把数据源 ${provider.key} 置为 ${next}?这会立即影响新 run 的调用。`)) return;
+  const ok = await confirmOpsAction({
+    title: '切换数据源状态',
+    content: `确认把数据源 ${provider.key} 置为 ${next}？这会立即影响新 run 的调用。`,
+    okText: `置为 ${next}`,
+    danger: next === 'DISABLED',
+  });
+  if (!ok) return;
   try {
     await api(`/api/ops/providers/${encodeURIComponent(String(provider.key))}/status`, {
       method: 'POST',
@@ -947,7 +1077,12 @@ async function toggleProvider(provider: Row): Promise<void> {
   }
 }
 async function acquireNow(source: Row): Promise<void> {
-  if (!window.confirm(`立即抓取 ${source.source_key}?实际抓取仍由 ACQ_SWEEP 调度执行。`)) return;
+  const ok = await confirmOpsAction({
+    title: '立即抓取监控源',
+    content: `立即抓取 ${source.source_key}？实际抓取仍由 ACQ_SWEEP 调度执行。`,
+    okText: '立即抓取',
+  });
+  if (!ok) return;
   try {
     await api(`/api/ops/sources/${source.id}/acquire-now`, { method: 'POST', body: '{}' });
     notice.value = '已置为立即到期;等待 ACQ_SWEEP 调度';
@@ -956,25 +1091,41 @@ async function acquireNow(source: Row): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
   }
 }
-async function setSourceStatus(source: Row, status: string): Promise<void> {
-  if (!window.confirm(`把源 ${source.source_key} 置为 ${status}?`)) return;
+async function setSourceStatus(source: Row, status: string, selectEl?: HTMLSelectElement): Promise<void> {
+  const ok = await confirmOpsAction({
+    title: '变更监控源状态',
+    content: `把源 ${source.source_key} 置为 ${status}？`,
+    okText: `置为 ${status}`,
+    danger: status !== 'ACTIVE',
+  });
+  if (!ok) {
+    if (selectEl) selectEl.value = String(source.status ?? 'ACTIVE');
+    return;
+  }
   try {
     await api(`/api/ops/sources/${source.id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
     notice.value = `源 ${source.source_key} 已改为 ${status}`;
     await loadSources();
   } catch (err) {
+    if (selectEl) selectEl.value = String(source.status ?? 'ACTIVE');
     error.value = err instanceof Error ? err.message : String(err);
   }
 }
 function handleSourceStatus(source: Row, event: Event): void {
-  const value = (event.target as HTMLSelectElement).value;
-  void setSourceStatus(source, value);
+  const selectEl = event.target as HTMLSelectElement;
+  void setSourceStatus(source, selectEl.value, selectEl);
 }
 function closeSourceDetail(): void {
   sourceDetail.value = null;
 }
 async function deleteSource(source: Row): Promise<void> {
-  if (!window.confirm(`删除源 ${source.source_key}?只有从未抓取过的源可删。`)) return;
+  const ok = await confirmOpsAction({
+    title: '删除监控源',
+    content: `删除源 ${source.source_key}？只有从未抓取过的源可删。`,
+    okText: '确认删除',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api(`/api/ops/sources/${source.id}`, { method: 'DELETE' });
     notice.value = `源 ${source.source_key} 已删除`;
@@ -1924,7 +2075,7 @@ onMounted(checkSession);
                     </td>
                     <td class="ops__row-actions">
                       <button v-if="row.state === 'PENDING_CONFIRMATION'" type="button" class="ops__btn ops__btn--danger" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="confirmRevocation(row.id, row.scheduleId)">确认投递</button>
-                      <button v-if="['PENDING_CONFIRMATION', 'BLOCKED', 'STORED_STATE_CONFLICT'].includes(row.state)" type="button" class="ops__btn" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="cancelRevocation(row.id, row.scheduleId)">取消</button>
+                      <button v-if="['PENDING_CONFIRMATION', 'BLOCKED', 'STORED_STATE_CONFLICT'].includes(row.state)" type="button" class="ops__btn" data-gs="ops-cancel-revocation-btn" :disabled="!!revocationBusy || !r4Flags.triggerEnabled" @click="openCancelRevocation(row.id, row.scheduleId)">取消</button>
                     </td>
                   </tr>
                   <tr v-if="revocationRows.length === 0"><td colspan="7" class="ops__muted">还没有撤销请求。上方可对三个有 egress 的 schedule 发起撤销。</td></tr>
@@ -2029,102 +2180,134 @@ onMounted(checkSession);
         </form>
       </div>
 
+      <GsModal
+        v-model:open="cancelRevocationOpen"
+        :confirm-loading="!!revocationBusy"
+        :subtitle="`取消 ${cancelRevocationModal?.scheduleId ?? ''} 的撤销请求（原因会记入运营审计，只会取消从未投递或已确定未提交的请求）。`"
+        cancel-text="返回"
+        danger
+        ok-text="确认取消撤销"
+        size="sm"
+        title="取消平台撤销请求"
+        @cancel="closeCancelRevocation"
+        @ok="submitCancelRevocation"
+      >
+        <div class="ops__stack" data-gs="ops-cancel-revocation-modal">
+          <label class="ops__field">
+            <span>取消原因 *</span>
+            <Input.TextArea
+              v-model:value="cancelRevocationReason"
+              :maxlength="300"
+              :rows="3"
+              data-gs="ops-cancel-revocation-reason"
+              placeholder="请填写取消原因（必填，记入运营审计）"
+            />
+          </label>
+          <p v-if="cancelRevocationError" class="ops__error" data-gs="ops-cancel-revocation-error" role="alert">
+            {{ cancelRevocationError }}
+          </p>
+        </div>
+      </GsModal>
+
     </template>
   </div>
 </template>
 
 <style scoped>
-.ops { min-height: 100vh; background: var(--gs-bg, #F7F7F7); color: var(--gs-fg, var(--gs-fg)); font-family: inherit; }
-.ops__state { min-height: 100vh; display: grid; place-items: center; color: var(--gs-fg-muted, var(--gs-fg-muted)); }
+.ops { min-height: 100vh; background: var(--gs-bg); color: var(--gs-fg); font-family: inherit; }
+.ops__state { min-height: 100vh; display: grid; place-items: center; color: var(--gs-fg-muted); }
 .ops__login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, 480px); align-items: center; gap: 48px; padding: 6vh 8vw; box-sizing: border-box; }
 .ops__brand { max-width: 560px; display: grid; gap: 14px; }
-.ops__brand h1 { margin: 0; font-size: 34px; letter-spacing: -.02em; }
+.ops__brand h1 { margin: 0; font-size: 34px; letter-spacing: -.02em; color: var(--gs-fg); }
 .ops__brand p { margin: 0; color: var(--gs-fg-2); line-height: 1.8; }
 .ops__brand ul { margin: 8px 0 0; padding-left: 18px; color: var(--gs-fg-muted); line-height: 2; }
-.ops__mark { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--gs-accent, var(--gs-accent)); color: #fff; font-size: 22px; font-weight: 700; }
+.ops__mark { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--gs-accent); color: var(--gs-accent-cta-fg); font-size: 22px; font-weight: 700; }
 .ops__login-card { background: var(--gs-surface); border: 1px solid var(--gs-border-strong); border-radius: 20px; padding: 30px; display: grid; gap: 14px; box-shadow: var(--gs-shadow-modal); }
-.ops__login-card h2 { margin: 0; font-size: 22px; }
+.ops__login-card h2 { margin: 0; font-size: 22px; color: var(--gs-fg); }
 .ops__login-card p { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .ops__login-card label, .ops__field { display: grid; gap: 6px; font-size: 13px; color: var(--gs-fg-2); }
-.ops__login-card input, .ops__field select, .ops__field input { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 10px 12px; font-size: 14px; background: #fff; color: var(--gs-fg); }
-.ops__login-card button { border: 0; border-radius: 10px; padding: 11px; background: var(--gs-accent, var(--gs-accent)); color: #fff; font-weight: 650; font-size: 14px; cursor: pointer; }
-.ops__header { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; background: #fff; border-bottom: 1px solid var(--gs-border); }
-.ops__brand-inline { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.ops__login-card input, .ops__field select, .ops__field input { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 10px 12px; font-size: 14px; background: var(--gs-surface); color: var(--gs-fg); }
+.ops__login-card button { border: 0; border-radius: 10px; padding: 11px; background: var(--gs-accent); color: var(--gs-accent-cta-fg); font-weight: 650; font-size: 14px; cursor: pointer; }
+.ops__header { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; background: var(--gs-surface); border-bottom: 1px solid var(--gs-border); }
+.ops__brand-inline { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--gs-fg); }
 .ops__brand-inline .ops__mark { width: 28px; height: 28px; border-radius: 9px; font-size: 14px; }
 .ops__tag { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--gs-fg-muted); background: var(--gs-surface-2); border-radius: 999px; padding: 3px 8px; }
 .ops__operator { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--gs-fg-2); }
-.ops__operator button { border: 1px solid var(--gs-border-strong); background: #fff; border-radius: 8px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; }
+.ops__operator button { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg); border-radius: 8px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; }
 .ops__body { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: calc(100vh - 58px); }
-.ops__nav { padding: 18px 12px; border-right: 1px solid var(--gs-border); background: #fff; display: grid; align-content: start; gap: 4px; }
+.ops__nav { padding: 18px 12px; border-right: 1px solid var(--gs-border); background: var(--gs-surface); display: grid; align-content: start; gap: 4px; }
 .ops__nav button { text-align: left; border: 0; background: transparent; border-radius: 9px; padding: 9px 12px; font-size: 13.5px; color: var(--gs-fg-2); cursor: pointer; }
-.ops__nav button.is-active { background: var(--gs-accent-soft, #EBF1FF); color: var(--gs-accent-strong, #3559E9); font-weight: 650; }
-.ops__main { padding: 24px clamp(18px, 2.4vw, 32px) 48px; display: grid; align-content: start; gap: 16px; }
+.ops__nav button:hover { background: var(--gs-surface-2); color: var(--gs-fg); }
+.ops__nav button.is-active { background: var(--gs-accent-soft); color: var(--gs-accent-fg); font-weight: 650; }
+.ops__main { min-width: 0; padding: 24px clamp(18px, 2.4vw, 32px) 48px; display: grid; align-content: start; gap: 16px; }
 .ops__main-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
-.ops__kicker { font-size: 11px; letter-spacing: .18em; color: var(--gs-fg-subtle); font-weight: 700; }
-.ops__main-head h2 { margin: 4px 0 0; font-size: 22px; }
-.ops__refresh { border: 1px solid var(--gs-border-strong); background: #fff; border-radius: 9px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; }
-.ops__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-success-bg); color: var(--gs-success); font-size: 13px; font-weight: 600; }
-.ops__error { margin: 0; color: var(--gs-danger); font-size: 13px; }
-.ops__muted, .ops__login-card .ops__muted { color: var(--gs-fg-subtle); font-size: 12.5px; }
-.ops__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
-.ops__stack { display: grid; gap: 14px; }
-.ops__pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--gs-border); color: var(--gs-fg-2); }
-.ops__pill.is-ok { background: var(--gs-success-bg); color: var(--gs-success); }
-.ops__pill.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger); }
-.ops__danger { border: 1px solid var(--gs-danger-border); background: #fff; color: var(--gs-danger); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.ops__kicker { font-size: 11px; letter-spacing: .18em; color: var(--gs-fg-muted); font-weight: 700; }
+.ops__main-head h2 { margin: 4px 0 0; font-size: 22px; color: var(--gs-fg); }
+.ops__refresh { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); color: var(--gs-fg); border-radius: 9px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; }
+.ops__notice { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--gs-success-bg); color: var(--gs-success-fg); font-size: 13px; font-weight: 600; }
+.ops__error { margin: 0; color: var(--gs-danger-fg); font-size: 13px; }
+.ops__muted, .ops__login-card .ops__muted, .ops :deep(.ops__muted) { color: var(--gs-fg-muted); font-size: 12.5px; }
+.ops__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; min-width: 0; }
+.ops__stack, .ops :deep(.ops__stack) { display: grid; gap: 14px; min-width: 0; }
+.ops__pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--gs-surface-2); color: var(--gs-fg-2); }
+.ops__pill.is-ok { background: var(--gs-success-bg); color: var(--gs-success-fg); }
+.ops__pill.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger-fg); }
+.ops__danger { border: 1px solid var(--gs-danger-border); background: var(--gs-surface); color: var(--gs-danger-fg); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
 .ops__danger:disabled { opacity: .5; cursor: default; }
-.ops__card { background: #fff; border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 8px; }
-.ops__card--wide { grid-column: 1 / -1; }
-.ops__card h3 { margin: 0; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
-.ops__card p { margin: 0; font-size: 13px; color: var(--gs-fg-2); line-height: 1.6; }
-.ops__ok { color: var(--gs-success) !important; font-weight: 650; }
-.ops__warn { color: var(--gs-warn) !important; font-weight: 650; }
+.ops__card, .ops :deep(.ops__card) { min-width: 0; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; padding: 18px 20px; display: grid; gap: 8px; }
+.ops__card--wide, .ops :deep(.ops__card--wide) { grid-column: 1 / -1; }
+.ops__card h3, .ops :deep(.ops__card h3) { margin: 0; font-size: 13px; font-weight: 650; color: var(--gs-fg); }
+.ops__card p, .ops :deep(.ops__card p) { margin: 0; font-size: 13px; color: var(--gs-fg-2); line-height: 1.6; }
+.ops__ok { color: var(--gs-success-fg) !important; font-weight: 650; }
+.ops__warn { color: var(--gs-warn-fg) !important; font-weight: 650; }
 .ops__list { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; color: var(--gs-fg-2); }
-.ops__table-wrap { background: #fff; border: 1px solid var(--gs-border); border-radius: 14px; overflow: auto; }
-.ops__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.ops__table th, .ops__table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--gs-surface-2); vertical-align: top; }
-.ops__table th { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-surface-3); white-space: nowrap; }
-.ops__table tr:last-child td { border-bottom: 0; }
+.ops__table-wrap, .ops :deep(.ops__table-wrap) { min-width: 0; max-width: 100%; background: var(--gs-surface); border: 1px solid var(--gs-border); border-radius: 14px; overflow: auto; }
+.ops__table, .ops :deep(.ops__table) { width: 100%; border-collapse: collapse; font-size: 12.5px; color: var(--gs-fg); }
+.ops__table th, .ops__table td, .ops :deep(.ops__table th), .ops :deep(.ops__table td) { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--gs-border); vertical-align: top; }
+.ops__table th, .ops :deep(.ops__table th) { color: var(--gs-fg-muted); font-weight: 600; background: var(--gs-table-head); white-space: nowrap; }
+.ops__table tr:last-child td, .ops :deep(.ops__table tr:last-child td) { border-bottom: 0; }
+.ops__table a, .ops :deep(.ops__table a) { color: var(--gs-accent-fg); }
 .ops__message { max-width: 320px; white-space: pre-wrap; word-break: break-word; }
-.ops__note-input { width: 150px; border: 1px solid var(--gs-border-strong); border-radius: 6px; padding: 4px 6px; font-size: 12px; margin-right: 4px; }
-.ops__row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.ops__note-input { width: 150px; border: 1px solid var(--gs-border-strong); border-radius: 6px; padding: 4px 6px; font-size: 12px; margin-right: 4px; background: var(--gs-surface); color: var(--gs-fg); }
 .ops__json { max-width: 320px; word-break: break-all; color: var(--gs-fg-muted); }
-.ops__badge { font-size: 11px; font-weight: 650; border-radius: 999px; padding: 2px 8px; background: var(--gs-surface-2); color: var(--gs-fg-2); }
-.ops__badge.is-ok { background: var(--gs-success-bg); color: var(--gs-success); }
-.ops__badge.is-warn { background: var(--gs-warn-bg); color: var(--gs-warn); }
-.ops__badge.is-bad { background: var(--gs-danger-bg); color: var(--gs-danger); }
-.ops__badge.is-muted { background: var(--gs-border); color: var(--gs-fg-2); }
-.ops__btn { border: 1px solid var(--gs-border-strong); background: #fff; border-radius: 8px; padding: 5px 9px; font-size: 12px; cursor: pointer; color: var(--gs-fg-2); }
-.ops__btn--danger { border-color: var(--gs-danger-border); color: var(--gs-danger); }
+.ops__badge, .ops :deep(.ops__badge) { font-size: 11px; font-weight: 650; border-radius: 999px; padding: 2px 8px; background: var(--gs-surface-2); color: var(--gs-fg-2); }
+.ops__badge.is-ok, .ops :deep(.ops__badge.is-ok) { background: var(--gs-success-bg); color: var(--gs-success-fg); }
+.ops__badge.is-warn, .ops :deep(.ops__badge.is-warn) { background: var(--gs-warn-bg); color: var(--gs-warn-fg); }
+.ops__badge.is-bad, .ops :deep(.ops__badge.is-bad) { background: var(--gs-danger-bg); color: var(--gs-danger-fg); }
+.ops__badge.is-muted, .ops :deep(.ops__badge.is-muted) { background: var(--gs-surface-2); color: var(--gs-fg-muted); }
+.ops__btn, .ops :deep(.ops__btn) { border: 1px solid var(--gs-border-strong); background: var(--gs-surface); border-radius: 8px; padding: 5px 9px; font-size: 12px; cursor: pointer; color: var(--gs-fg); }
+.ops__btn--danger, .ops :deep(.ops__btn--danger) { border-color: var(--gs-danger-border); color: var(--gs-danger-fg); }
 .ops__row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.ops__row-actions select { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 5px 6px; font-size: 12px; background: #fff; }
+.ops__row-actions select { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 5px 6px; font-size: 12px; background: var(--gs-surface); color: var(--gs-fg); }
 .ops__detail { border-top: 1px solid var(--gs-border); padding: 14px 16px; display: grid; gap: 8px; }
 .ops__detail header { display: flex; justify-content: space-between; align-items: center; }
 .ops__inline-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .ops__inline-form .ops__field { min-width: 160px; }
-.ops__toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.ops__toolbar h3 { margin: 0; margin-right: auto; }
-.ops__toolbar select, .ops__toolbar input { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; background: #fff; color: var(--gs-fg); }
-.ops__toolbar input { min-width: 250px; }
-.ops__btn--primary { background: var(--gs-accent, var(--gs-accent)); border-color: transparent; color: #fff; font-weight: 650; }
-.ops__btn:disabled { opacity: .55; cursor: default; }
-.ops__modal { position: fixed; inset: 0; background: rgba(23,23,23,.42); display: grid; place-items: center; padding: 24px; z-index: 1000; overflow: hidden; }
-.ops__modal-card { width: min(760px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; overflow-x: hidden; background: #fff; border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 30px 80px -30px rgba(23,23,23,.5); }
+.ops__toolbar, .ops :deep(.ops__toolbar) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ops__toolbar h3, .ops :deep(.ops__toolbar h3) { margin: 0; margin-right: auto; }
+.ops__toolbar select, .ops__toolbar input, .ops :deep(.ops__toolbar select), .ops :deep(.ops__toolbar input) { border: 1px solid var(--gs-border-strong); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; background: var(--gs-surface); color: var(--gs-fg); }
+.ops__toolbar input { min-width: 220px; }
+.ops :deep(.ops__toolbar input[type='checkbox']) { min-width: auto; }
+.ops :deep(.ops__toolbar label) { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gs-fg-2); }
+.ops__btn--primary, .ops :deep(.ops__btn--primary) { background: var(--gs-accent); border-color: transparent; color: var(--gs-accent-cta-fg); font-weight: 650; }
+.ops__btn:disabled, .ops :deep(.ops__btn:disabled) { opacity: .55; cursor: default; }
+.ops__modal { position: fixed; inset: 0; background: var(--gs-mask); display: grid; place-items: center; padding: 24px; z-index: 1000; overflow: hidden; }
+.ops__modal-card { width: min(760px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; overflow-x: hidden; background: var(--gs-surface); color: var(--gs-fg); border: 1px solid var(--gs-border); border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--gs-shadow-modal); }
 .ops__modal-card > header {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding-bottom: 12px; border-bottom: 1px solid var(--gs-border);
 }
-.ops__modal-card h2 { margin: 0; font-size: 18px; }
+.ops__modal-card h2 { margin: 0; font-size: 18px; color: var(--gs-fg); }
 .ops__form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.ops__field textarea { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; resize: vertical; }
+.ops__field textarea { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 10px 12px; background: var(--gs-surface); color: var(--gs-fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; resize: vertical; }
 .ops__modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
-.ops__check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--gs-fg-2); }
+.ops__check, .ops :deep(.ops__check) { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--gs-fg-2); }
 .ops__model-picker { display: grid; gap: 8px; border-top: 1px solid var(--gs-surface-2); padding-top: 14px; }
 .ops__model-picker h3 { margin: 0; font-size: 14px; color: var(--gs-fg); }
 .ops__model-picker p { margin: 0; }
 .ops__model-option { display: flex; align-items: center; gap: 8px; border: 1px solid var(--gs-border); border-radius: 10px; padding: 9px 11px; font-size: 12.5px; color: var(--gs-fg-2); cursor: pointer; word-break: break-all; }
-.ops__model-option.is-selected { border-color: var(--gs-accent); background: var(--gs-accent-soft); color: var(--gs-accent-strong); font-weight: 600; }
-.ops__model-option input { accent-color: var(--gs-accent, var(--gs-accent)); }
+.ops__model-option.is-selected { border-color: var(--gs-accent); background: var(--gs-accent-soft); color: var(--gs-accent-fg); font-weight: 600; }
+.ops__model-option input { accent-color: var(--gs-accent); }
 .ops__model-fallback { display: grid; gap: 6px; }
 .ops__model-fallback p { margin: 0; }
 @media (max-width: 800px) {

@@ -15,7 +15,7 @@ import { computed } from 'vue';
 import { evaluateT0Channels, isSafeLinkedinUrl } from '@gain-saas/shared';
 import { Ellipsis } from '@vben/icons';
 
-import { Button, Dropdown, Menu, Tag } from 'ant-design-vue';
+import { Button, Checkbox, Dropdown, Menu, Tag } from 'ant-design-vue';
 
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsStatusIcon from '#/components/gainos/ui/gs-status-icon.vue';
@@ -47,6 +47,8 @@ const props = defineProps<{
   canAct: boolean;
   expanded: boolean;
   lead: Lead;
+  selectable?: boolean;
+  selected?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -55,6 +57,7 @@ const emit = defineEmits<{
   package: [];
   promote: [];
   reject: [];
+  select: [checked: boolean];
   toggle: [];
 }>();
 
@@ -236,10 +239,18 @@ function onMenu(info: MenuClickInfo): void {
 </script>
 
 <template>
-  <GsCard class="lead-card" data-gs="lead-card">
+  <GsCard class="lead-card" :class="{ 'lead-card--selected': selected }" data-gs="lead-card">
     <div class="lead-card__grid">
       <!-- 公司 -->
       <div class="lead-card__identity">
+        <div v-if="selectable" class="lead-card__check" @click.stop>
+          <Checkbox
+            :aria-label="$t('gainosB4.leadsBulk.selectLeadAria', { name: lead.company?.name || $t('gainos.leads.unknownCompany') })"
+            :checked="Boolean(selected)"
+            data-gs="lead-select-checkbox"
+            @change="(e: { target?: { checked?: boolean } }) => emit('select', Boolean(e?.target?.checked))"
+          />
+        </div>
         <span aria-hidden="true" class="lead-logo" :class="`lead-logo--${logoTone}`">
           {{ initial }}
         </span>
@@ -501,6 +512,16 @@ function onMenu(info: MenuClickInfo): void {
 }
 .lead-card:hover {
   border-color: var(--gs-accent-soft-border);
+}
+.lead-card--selected {
+  border-color: var(--gs-accent);
+  box-shadow: 0 0 0 1px var(--gs-accent-soft-border);
+}
+.lead-card__check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-top: 4px;
 }
 .lead-card__grid {
   display: grid;

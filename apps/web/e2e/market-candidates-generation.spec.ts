@@ -201,8 +201,10 @@ for (const cell of matrix)
       await expect(h.button("phase")).toHaveAttribute("data-phase", "PERSISTED");
       await captureState(page, cell, "phase");
       h.state.gen = generation("PREPARED");
-      page.once("dialog", (d) => d.accept());
       await h.button("new-intent").click();
+      const confirmModal = page.locator(".ant-modal-confirm");
+      await expect(confirmModal).toBeVisible();
+      await confirmModal.locator(".ant-modal-confirm-btns button").last().click();
       await expect(h.button("phase")).toHaveAttribute("data-phase", "PREPARED");
       await captureState(page, cell, "phase");
       const posts = h.requests.filter(
