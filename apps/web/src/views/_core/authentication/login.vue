@@ -2,7 +2,6 @@
 import { computed, reactive, ref } from 'vue';
 
 import { preferences } from '@vben/preferences';
-import { useRouter } from 'vue-router';
 
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
@@ -14,7 +13,6 @@ defineOptions({ name: 'Login' });
 /** 英文排版需要独立字号/字距(is-en) */
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
 
-const router = useRouter();
 const authStore = useAuthStore();
 
 const form = reactive({ email: '', password: '' });
@@ -51,7 +49,6 @@ async function onSubmit() {
       username: form.email.trim(),
       password: form.password,
     });
-    await router.push('/workspace');
   } catch (error) {
     const response = (
       error as {

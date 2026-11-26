@@ -29,6 +29,8 @@ import {
   type QueryPlan,
 } from '#/api/gainos';
 
+import SetupChecklist from './setup-checklist.vue';
+
 defineOptions({ name: 'WorkspaceHome' });
 
 interface CockpitStage {
@@ -108,6 +110,9 @@ const ARCHIVED_ACTIONS_KEY = 'gainos.cockpit.archived.v1';
 const actionView = ref<ActionView>('todo');
 const archivedActionKeys = ref<string[]>(readArchivedActions());
 const lastLoadedAt = ref<Date | null>(null);
+const setupCompaniesStatus = ref<'error' | 'loading' | 'ready'>('loading');
+const setupRunLinks = ref<DiscoveryRunLink[]>([]);
+const setupMode = ref<'dashboard' | 'setup'>('setup');
 
 function readArchivedActions(): string[] {
   try {
@@ -1231,6 +1236,7 @@ function applyNotifications(value: unknown): void {
 
 async function load(): Promise<void> {
   loading.value = true;
+  setupCompaniesStatus.value = 'loading';
   notificationsLoading.value = true;
   engineNotice.value = null;
   notificationsError.value = null;
@@ -1240,7 +1246,17 @@ async function load(): Promise<void> {
     const [sessionRes, companyRes, icpRes, notificationsRes, membersRes] =
       await Promise.allSettled([
         gainosApi.session(),
-        gainosApi.companies(),
+        gainosApi.companies().then(
+          (result) => {
+            companies.value = asArray(result);
+            setupCompaniesStatus.value = 'ready';
+            return result;
+          },
+          (error) => {
+            setupCompaniesStatus.value = 'error';
+            throw error;
+          },
+        ),
         gainosApi.icps(),
         gainosApi.notifications(),
         gainosApi.members(),
@@ -1257,9 +1273,7 @@ async function load(): Promise<void> {
       }
     }
 
-    if (companyRes.status === 'fulfilled') {
-      companies.value = asArray(companyRes.value);
-    } else {
+    if (companyRes.status === 'rejected') {
       companies.value = [];
       engineNotice.value = failureText(companyRes.reason).title;
     }
@@ -1316,6 +1330,7 @@ async function load(): Promise<void> {
         )[0]!;
       }
     }
+    setupRunLinks.value = [...linksByIcp.values()].flat();
     currentIcpId.value = chosen?.id ?? null;
     const active = chosen?.status === 'ACTIVE' ? chosen : null;
     if (active) {
@@ -1449,13 +1464,29 @@ watch(
     void focusNotifications();
   },
 );
+watch(() => route.path, (path, prior) => {
+  if (path === '/workspace' && prior !== '/workspace') void load();
+});
 onUnmounted(() => {
   if (highlightTimer) clearTimeout(highlightTimer);
 });
 </script>
 
 <template>
-  <div class="wk">
+  <div class="wk" :class="{ 'wk--setup': setupMode === 'setup' }" :data-workspace-mode="setupMode">
+    <div class="wk__setup">
+      <SetupChecklist
+        :companies="companies"
+        :companies-status="setupCompaniesStatus"
+        :completeness="completenessByCompany"
+        :dashboard-ready="!loading && !loadError"
+        :latest-run="latestRun"
+        :profiles="icps"
+        :run-links="setupRunLinks"
+        @company-saved="load"
+        @mode-change="setupMode = $event"
+      />
+    </div>
     <div v-if="loadError" class="wk__error" role="alert">
       <div>
         <strong>{{ loadError.title }}</strong>
@@ -1762,6 +1793,8 @@ onUnmounted(() => {
   margin: 0 auto;
   padding: var(--gs-page-pad);
 }
+.wk__setup { display: contents; }
+.wk--setup > :not(.wk__setup, .wk__error) { display: none; }
 
 .wk__error {
   display: flex;
