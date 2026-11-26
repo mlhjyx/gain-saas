@@ -1,9 +1,11 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import { normalizeCountry } from './outreach-jurisdiction.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 
 /**
  * 收件人国家 → 默认 IANA 时区（第 5 章 §5.3.5.4 + Batch 1.4 全球 60+ 市场覆盖）。
@@ -161,8 +163,8 @@ export interface BatchCapsOverride {
 export interface BeginBatchOptions {
   /** 授权 scope caps（上界收紧）。 */
   capsOverride?: BatchCapsOverride;
-  /** 发件信箱资产的上限（P4-02；只收紧不放宽）。 */
-  mailbox?: { dailyCap?: number; weeklyCap?: number };
+  /** 发件信箱资产的上限与地址（P4-02 + M9 BYO；只收紧不放宽）。 */
+  mailbox?: { dailyCap?: number; weeklyCap?: number; address?: string };
   /** 资产计数表里的当前用量（P4-02 落库版）；缺省时回退台账计数。 */
   usage?: { dailySent: number; weeklySent: number };
 }
@@ -205,6 +207,7 @@ export class OutreachSendControls {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(APP_CONFIG) config: AppConfig,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {
     this.mailbox = config.OUTREACH_SMTP_FROM_ADDRESS ?? 'unconfigured';
     this.dailyCap = config.OUTREACH_MAILBOX_DAILY_CAP;
@@ -309,7 +312,7 @@ export class OutreachSendControls {
       this.domainHourlyCap,
       capsOverride.perDomainHourly ?? this.domainHourlyCap,
     );
-    const mailboxAddress = this.mailboxAddress();
+    const mailboxAddress = options.mailbox?.address?.trim().toLowerCase() || this.mailboxAddress();
     const dayStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
@@ -351,7 +354,14 @@ export class OutreachSendControls {
     const weeklySent = Math.max(options.usage?.weeklySent ?? 0, ledgerWeekly);
     const hourlyByDomain = new Map<string, number>();
     for (const row of hourlyRows as Array<{ recipientEmail: string }>) {
-      const domain = row.recipientEmail.split('@')[1]?.toLowerCase();
+      const email = this.crypto
+        ? this.crypto.decryptField(
+            tenant.workspaceId,
+            row.recipientEmail,
+            OUTREACH_PII_PURPOSE.SEND_RECIPIENT_EMAIL,
+          )
+        : row.recipientEmail;
+      const domain = email.split('@')[1]?.toLowerCase();
       if (!domain) continue;
       hourlyByDomain.set(domain, (hourlyByDomain.get(domain) ?? 0) + 1);
     }

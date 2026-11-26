@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CampaignModule } from '../campaign/campaign.module.js';
 import { ConfigModule } from '../shared/config.module.js';
+import { PiiCryptoModule } from '../shared/pii-crypto.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { OutreachBatchController } from './outreach-batch.controller.js';
 import { OutreachBatchService } from './outreach-batch.service.js';
@@ -40,7 +41,13 @@ import {
   OutreachImapPoller,
 } from './outreach-imap.poller.js';
 import { OutreachMailboxController } from './outreach-mailbox.controller.js';
-import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import {
+  OUTREACH_MAILBOX_DNS_RESOLVER,
+  OutreachMailboxService,
+} from './outreach-mailbox.service.js';
+import { OutreachDomainController } from './outreach-domain.controller.js';
+import { OutreachOAuthController } from './outreach-oauth.controller.js';
+import { OutreachOAuthService } from './outreach-oauth.service.js';
 import { OutreachWarmupController } from './outreach-warmup.controller.js';
 import { OutreachWarmupService } from './outreach-warmup.service.js';
 import { OutreachSeedTestController } from './outreach-seed-test.controller.js';
@@ -82,7 +89,7 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
  * 11-2/11-3 复用 OutreachConsentService；审批链仍走 M2.0 CampaignModule。
  */
 @Module({
-  imports: [ConfigModule, TenantModule, CampaignModule],
+  imports: [ConfigModule, PiiCryptoModule, TenantModule, CampaignModule],
   controllers: [
     OutreachController,
     OutreachBatchController,
@@ -90,6 +97,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachReplyController,
     OutreachPublicController,
     OutreachMailboxController,
+    OutreachDomainController,
+    OutreachOAuthController,
     OutreachSeedTestController,
     OutreachWarmupController,
     OutreachHealthController,
@@ -105,7 +114,9 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachConsentService,
     OutreachT0Service,
     { provide: OUTREACH_DNS_RESOLVER, useValue: NODE_DNS_RESOLVER },
+    { provide: OUTREACH_MAILBOX_DNS_RESOLVER, useExisting: OUTREACH_DNS_RESOLVER },
     OutreachT1Service,
+    OutreachOAuthService,
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,

@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { validateT1Attachments, type T1AttachmentRef } from '@gain-saas/shared';
@@ -11,9 +12,11 @@ import { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
 import { hashOutreachDrafts } from './outreach-content.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 import { sendJobKey } from './outreach-send-jobs.service.js';
 
 function authorizationErrorCode(error: unknown): string {
@@ -104,15 +107,42 @@ export class OutreachBatchService {
     private readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly authorizationIssuer: OutreachAuthorizationIssuer,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {
     this.approvalTtlMs = config.OUTREACH_APPROVAL_TTL_HOURS * 3600_000;
     // 单批收件人上限（M2 D-11-d：≤50），建草稿与提交两个入口都拦。
     this.maxRecipients = config.OUTREACH_BATCH_MAX_RECIPIENTS ?? 50;
   }
 
+  private encryptDraftEmail(workspaceId: string, email: string): string {
+    if (!this.crypto) return email;
+    return this.crypto.encryptField(
+      workspaceId,
+      email,
+      OUTREACH_PII_PURPOSE.DRAFT_RECIPIENT_EMAIL,
+    );
+  }
+
+  private decryptDraftEmail(workspaceId: string, stored: string): string {
+    if (!this.crypto) return stored;
+    return this.crypto.decryptField(
+      workspaceId,
+      stored,
+      OUTREACH_PII_PURPOSE.DRAFT_RECIPIENT_EMAIL,
+    );
+  }
+
+  private decryptDraft<T extends { recipientEmail: string }>(workspaceId: string, draft: T): T {
+    if (!this.crypto) return draft;
+    return {
+      ...draft,
+      recipientEmail: this.decryptDraftEmail(workspaceId, draft.recipientEmail),
+    };
+  }
+
   async createBatch(
     tenant: OutreachTenant,
-    input: { name: unknown; campaignId?: unknown },
+    input: { name: unknown; campaignId?: unknown; mailboxId?: unknown },
   ) {
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (!name || name.length > 200) {
@@ -124,6 +154,13 @@ export class OutreachBatchService {
         invalid('VALIDATION_ERROR', 'campaignId must be a UUID');
       }
       campaignId = input.campaignId;
+    }
+    let mailboxId: string | null = null;
+    if (input.mailboxId !== undefined && input.mailboxId !== null) {
+      if (typeof input.mailboxId !== 'string' || !UUID_RE.test(input.mailboxId)) {
+        invalid('VALIDATION_ERROR', 'mailboxId must be a UUID');
+      }
+      mailboxId = input.mailboxId;
     }
     const batch = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       if (campaignId !== null) {
@@ -137,16 +174,28 @@ export class OutreachBatchService {
           });
         }
       }
+      if (mailboxId !== null) {
+        const mailbox = await tx.outreachMailbox.findFirst({
+          where: { id: mailboxId, workspaceId: tenant.workspaceId },
+          select: { id: true },
+        });
+        if (!mailbox) {
+          throw new NotFoundException({
+            error: { code: 'OUTREACH_MAILBOX_NOT_FOUND', message: '发件信箱不存在' },
+          });
+        }
+      }
       return tx.outreachBatch.create({
         data: {
           workspaceId: tenant.workspaceId,
           campaignId,
+          ...(mailboxId ? { mailboxId } : {}),
           name,
           createdBy: tenant.userId,
         },
       });
     });
-    await this.event(tenant, batch.id, 'BATCH_CREATED', { name });
+    await this.event(tenant, batch.id, 'BATCH_CREATED', { name, ...(mailboxId ? { mailboxId } : {}) });
     return batch;
   }
 
@@ -194,7 +243,11 @@ export class OutreachBatchService {
       }),
     );
     if (!batch) notFound();
-    return this.attachDraftAttachments(batch);
+    const decryptedBatch = {
+      ...batch,
+      drafts: batch.drafts.map((draft) => this.decryptDraft(tenant.workspaceId, draft)),
+    };
+    return this.attachDraftAttachments(decryptedBatch);
   }
 
   private attachDraftAttachments<
@@ -247,13 +300,15 @@ export class OutreachBatchService {
             `单批收件人上限 ${this.maxRecipients}，请拆分为多个批次`,
           );
         }
-        return tx.outreachDraft.create({
+        const created = await tx.outreachDraft.create({
           data: {
             workspaceId: tenant.workspaceId,
             batchId,
             ...normalized,
+            recipientEmail: this.encryptDraftEmail(tenant.workspaceId, normalized.recipientEmail),
           },
         });
+        return this.decryptDraft(tenant.workspaceId, created);
       });
       await this.event(tenant, batchId, 'DRAFT_ADDED', {
         draftId: draft.id,
@@ -300,13 +355,16 @@ export class OutreachBatchService {
       if (input.contactPointId === undefined) delete data.contactPointId;
       // 换了收件邮箱而未随附新通讯点 → 清空旧 pointId：回写按 pointId 寻址，
       // 旧 id 绑新邮箱会把退信记到别人的联系点上（引擎侧 INVALID 是粘滞的）。
-      if (normalized.recipientEmail !== draft.recipientEmail && input.contactPointId === undefined) {
+      const existingEmail = this.decryptDraftEmail(tenant.workspaceId, draft.recipientEmail);
+      if (normalized.recipientEmail !== existingEmail && input.contactPointId === undefined) {
         data.contactPointId = null;
       }
-      return tx.outreachDraft.update({
+      data.recipientEmail = this.encryptDraftEmail(tenant.workspaceId, normalized.recipientEmail);
+      const saved = await tx.outreachDraft.update({
         where: { id: draftId },
         data,
       });
+      return this.decryptDraft(tenant.workspaceId, saved);
     });
     await this.event(tenant, batchId, 'DRAFT_EDITED', {
       draftId,
@@ -359,7 +417,8 @@ export class OutreachBatchService {
           `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.maxRecipients}`,
         );
       }
-      const nextHash = hashOutreachDrafts(batch.drafts);
+      const decryptedDrafts = batch.drafts.map((d) => this.decryptDraft(tenant.workspaceId, d));
+      const nextHash = hashOutreachDrafts(decryptedDrafts);
       const now = new Date();
       const expiresAt = new Date(now.getTime() + this.approvalTtlMs);
       const approval = await tx.outreachBatchApproval.create({
@@ -572,6 +631,171 @@ export class OutreachBatchService {
       });
     });
     return this.getBatch(tenant, batchId);
+  }
+
+  /**
+   * 中小租户一键确认通道（M9-PR2）：
+   * 当企业多级审批策略（OUTREACH_ENTERPRISE_APPROVAL_REQUIRED）关闭时，允许管理员在自动合规预检通过后
+   * 一步完成内容冻结、留痕确认、入队发送 job 并签发 ExecutionAuthorization v2；
+   * 全部法律与声誉底线（DNC / 退订 / DE-AT Opt-In / US-FR 页脚 / 熔断 / 预热上限）仍在发送器与预检中严格执行。
+   */
+  async quickConfirmBatch(
+    tenant: OutreachTenant,
+    batchId: string,
+    options: { mailboxId?: string } = {},
+  ): Promise<{
+    batchId: string;
+    approvalId: string;
+    contentHash: string;
+    authorizationId: string | null;
+    status: string;
+  }> {
+    if (!UUID_RE.test(batchId)) notFound();
+    if (this.config.OUTREACH_ENTERPRISE_APPROVAL_REQUIRED) {
+      conflict(
+        'OUTREACH_ENTERPRISE_APPROVAL_REQUIRED',
+        '当前企业审批策略要求走两段式提交与审批流程，已禁用一键确认发送',
+      );
+    }
+    const mailboxId = options.mailboxId?.trim() || undefined;
+    if (mailboxId && !UUID_RE.test(mailboxId)) {
+      invalid('VALIDATION_ERROR', 'mailboxId must be a UUID');
+    }
+
+    const confirmed = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const batch = await tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+        include: { drafts: true },
+      });
+      if (!batch) notFound();
+      if (batch.status !== 'DRAFT') {
+        conflict('OUTREACH_BATCH_NOT_DRAFT', '只有草稿状态的批次可以使用一键确认通道');
+      }
+      if (batch.drafts.length === 0) {
+        conflict('OUTREACH_BATCH_EMPTY', '批次内没有草稿');
+      }
+      if (batch.drafts.length > this.maxRecipients) {
+        conflict(
+          'OUTREACH_BATCH_SIZE_EXCEEDED',
+          `批次收件人 ${batch.drafts.length} 超过单批上限 ${this.maxRecipients}`,
+        );
+      }
+      if (mailboxId) {
+        const mailbox = await tx.outreachMailbox.findFirst({
+          where: { id: mailboxId, workspaceId: tenant.workspaceId },
+          select: { id: true, state: true, address: true },
+        });
+        if (!mailbox) {
+          throw new NotFoundException({
+            error: { code: 'OUTREACH_MAILBOX_NOT_FOUND', message: '发件信箱不存在' },
+          });
+        }
+        if (mailbox.state !== 'ACTIVE') {
+          conflict(
+            'OUTREACH_MAILBOX_PAUSED',
+            `发件信箱 ${mailbox.address} 处于 ${mailbox.state} 状态，无法用于一键确认发送`,
+          );
+        }
+      }
+
+      const decryptedDrafts = batch.drafts.map((d) => this.decryptDraft(tenant.workspaceId, d));
+      const nextHash = hashOutreachDrafts(decryptedDrafts);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + this.approvalTtlMs);
+
+      const approval = await tx.outreachBatchApproval.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          contentHash: nextHash,
+          state: 'APPROVED',
+          requestedBy: tenant.userId,
+          decidedBy: tenant.userId,
+          decidedAt: now,
+          decisionReason: 'SMB_ONE_CLICK_CONFIRM',
+          expiresAt,
+        },
+      });
+      await tx.outreachDraft.updateMany({
+        where: { batchId, status: 'DRAFT' },
+        data: {
+          status: 'APPROVED',
+          contentHash: nextHash,
+          approvedBy: tenant.userId,
+          approvedAt: now,
+        },
+      });
+      await tx.outreachBatch.update({
+        where: { id: batchId },
+        data: {
+          status: 'QUEUED',
+          contentHash: nextHash,
+          submittedAt: now,
+          decidedAt: now,
+          queuedAt: now,
+          ...(mailboxId ? { mailboxId } : {}),
+        },
+      });
+      await tx.outreachSendJob.createMany({
+        data: batch.drafts.map((draft) => ({
+          workspaceId: tenant.workspaceId,
+          batchId,
+          draftId: draft.id,
+          idempotencyKey: sendJobKey(batchId, draft.id),
+        })),
+        skipDuplicates: true,
+      });
+      await tx.outreachBatchEvent.create({
+        data: {
+          workspaceId: tenant.workspaceId,
+          batchId,
+          type: 'BATCH_QUICK_CONFIRMED',
+          actor: tenant.userId,
+          detail: {
+            approvalId: approval.id,
+            contentHash: nextHash,
+            mode: 'smb_one_click',
+            ...(mailboxId ? { mailboxId } : {}),
+          },
+        },
+      });
+      return { approvalId: approval.id, contentHash: nextHash };
+    });
+
+    await this.audit.record({
+      realm: 'tenant',
+      actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
+      action: 'outreach.batch.quick_confirmed',
+      target: batchId,
+      detail: {
+        approvalId: confirmed.approvalId,
+        contentHash: confirmed.contentHash,
+        ...(mailboxId ? { mailboxId } : {}),
+      },
+    });
+
+    let authorizationId: string | null = null;
+    if (this.authorizationIssuer?.issue) {
+      const issued = await this.authorizationIssuer.issue(tenant, batchId);
+      const authObj = (issued as { authorization?: { id?: unknown }; authorizationId?: unknown; id?: unknown });
+      authorizationId =
+        typeof authObj?.authorization?.id === 'string'
+          ? authObj.authorization.id
+          : typeof authObj?.authorizationId === 'string'
+            ? authObj.authorizationId
+            : typeof authObj?.id === 'string'
+              ? authObj.id
+              : null;
+    }
+
+    return {
+      batchId,
+      approvalId: confirmed.approvalId,
+      contentHash: confirmed.contentHash,
+      authorizationId,
+      status: 'QUEUED',
+    };
   }
 
   private async requireDraftableBatchTx(

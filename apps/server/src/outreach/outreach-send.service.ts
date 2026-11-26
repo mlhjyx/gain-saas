@@ -3,12 +3,15 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { AppConfig } from '../config/configuration.js';
 import { APP_CONFIG } from '../shared/config.module.js';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { hashDraftField, hashJson, hashOutreachDrafts } from './outreach-content.js';
 import {
@@ -30,11 +33,13 @@ import {
 import { OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachHealthService } from './outreach-health.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 import { OutreachSendGate } from './outreach-send.gate.js';
 import { OutreachSendControls } from './outreach-send-controls.js';
 import {
   OUTREACH_TRANSPORT,
   smtpFailureTelemetry,
+  type OutreachSmtpCredentials,
   type OutreachTransport,
 } from './outreach-smtp.transport.js';
 import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
@@ -115,9 +120,45 @@ interface PreflightDraft {
  * 其余照发；窗口/限速/信箱额度不满足时该封顺延（草稿保持待发，不写失败台账）。
  * `CAMPAIGN_EXECUTION_SHADOW=true`（默认）时只做全部门序校验与事件记录，不投递、不消费授权。
  */
+export interface OutreachBatchPreflightSummary {
+  batchId: string;
+  status: string;
+  totalDrafts: number;
+  readyCount: number;
+  skippedCount: number;
+  enterpriseApprovalRequired: boolean;
+  quickConfirmAllowed: boolean;
+  sendEnabled: boolean;
+  shadowMode: boolean;
+  mailbox: {
+    ready: boolean;
+    source: 'byo' | 'env' | 'none';
+    address: string | null;
+    authMode: string | null;
+    error?: string;
+  };
+  health: {
+    ok: boolean;
+    error?: string;
+  };
+  drafts: Array<{
+    draftId: string;
+    contactRef: string;
+    countryCode: string | null;
+    jurisdictionPolicy: string;
+    allowed: boolean;
+    skipCode?: string;
+    skipMessage?: string;
+    footerLinesCount: number;
+  }>;
+}
+
+const BATCH_SEND_LOCK_TTL_MS = 10 * 60_000;
+
 @Injectable()
 export class OutreachSendService {
-  private readonly inFlight = new Set<string>();
+  /** 仅在无 $queryRaw 的单测替身 Prisma 下退回进程内锁；真实 Postgres 一律走数据库行级租约锁。 */
+  private readonly fallbackInFlight = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -134,24 +175,243 @@ export class OutreachSendService {
     private readonly mailboxes: OutreachMailboxService,
     private readonly health: OutreachHealthService,
     private readonly experiments: OutreachExperimentsService,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
+
+  private decryptDraftEmail(workspaceId: string, stored: string): string {
+    if (!this.crypto) return stored;
+    return this.crypto.decryptField(
+      workspaceId,
+      stored,
+      OUTREACH_PII_PURPOSE.DRAFT_RECIPIENT_EMAIL,
+    );
+  }
+
+  private encryptSendEmail(workspaceId: string, email: string): string {
+    if (!this.crypto) return email;
+    return this.crypto.encryptField(
+      workspaceId,
+      email,
+      OUTREACH_PII_PURPOSE.SEND_RECIPIENT_EMAIL,
+    );
+  }
 
   isShadowMode(): boolean {
     return this.config.CAMPAIGN_EXECUTION_SHADOW !== false;
   }
 
+  private async acquireBatchSendLock(
+    tenant: OutreachTenant,
+    batchId: string,
+  ): Promise<{ token: string; mode: 'db' | 'memory' }> {
+    const supportsSqlLock = typeof (this.prisma as { $queryRaw?: unknown }).$queryRaw === 'function';
+    if (!supportsSqlLock) {
+      const lockKey = `${tenant.workspaceId}:${batchId}`;
+      if (this.fallbackInFlight.has(lockKey)) {
+        conflict('OUTREACH_BATCH_SEND_IN_PROGRESS', '该批次正在发送，请稍后刷新');
+      }
+      this.fallbackInFlight.add(lockKey);
+      return { token: lockKey, mode: 'memory' };
+    }
+
+    const lockToken = randomUUID();
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + BATCH_SEND_LOCK_TTL_MS);
+    const outcome = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        UPDATE public.outreach_batch
+        SET send_lock_token = ${lockToken}::uuid,
+            send_locked_until = ${lockUntil}
+        WHERE id = ${batchId}::uuid
+          AND workspace_id = ${tenant.workspaceId}::uuid
+          AND (send_lock_token IS NULL OR send_locked_until <= ${now})
+        RETURNING id
+      `;
+      if (rows.length > 0) return 'acquired' as const;
+      const exists = await tx.outreachBatch.findFirst({
+        where: { id: batchId, workspaceId: tenant.workspaceId },
+        select: { id: true },
+      });
+      return exists ? ('locked' as const) : ('missing' as const);
+    });
+    if (outcome === 'missing') notFound();
+    if (outcome === 'locked') {
+      conflict('OUTREACH_BATCH_SEND_IN_PROGRESS', '该批次正在发送，请稍后刷新');
+    }
+    return { token: lockToken, mode: 'db' };
+  }
+
+  private async releaseBatchSendLock(
+    tenant: OutreachTenant,
+    batchId: string,
+    lock: { token: string; mode: 'db' | 'memory' },
+  ): Promise<void> {
+    if (lock.mode === 'memory') {
+      this.fallbackInFlight.delete(lock.token);
+      return;
+    }
+    await this.prisma
+      .withWorkspace(tenant.workspaceId, (tx) =>
+        tx.$executeRaw`
+          UPDATE public.outreach_batch
+          SET send_lock_token = NULL,
+              send_locked_until = NULL
+          WHERE id = ${batchId}::uuid
+            AND workspace_id = ${tenant.workspaceId}::uuid
+            AND send_lock_token = ${lock.token}::uuid
+        `,
+      )
+      .catch(() => undefined);
+  }
+
+  /**
+   * 批次发送前只读合规自动预检（M9-PR2）：
+   * 汇总法域同意、US/FR 页脚、DNC（fail-closed）、退信/投诉熔断与 BYO/环境发信箱就绪度，
+   * 供中小租户「自动预检 → 一键确认发送」快捷通道使用。
+   */
+  async preflightBatch(
+    tenant: OutreachTenant,
+    batchId: string,
+    options: { mailboxId?: string } = {},
+  ): Promise<OutreachBatchPreflightSummary> {
+    if (!UUID_RE.test(batchId)) notFound();
+    const batch = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.outreachBatch.findFirst({
+        where: { workspaceId: tenant.workspaceId, id: batchId },
+        include: {
+          drafts: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
+    if (!batch) notFound();
+
+    const decryptedDrafts = batch.drafts.map((draft) => ({
+      ...draft,
+      recipientEmail: this.decryptDraftEmail(tenant.workspaceId, draft.recipientEmail),
+    }));
+
+    const now = new Date();
+    const preferredMailboxId =
+      options.mailboxId?.trim() || (batch as { mailboxId?: string | null }).mailboxId || null;
+    const byoMailbox = this.mailboxes.findActiveByoMailbox
+      ? await this.mailboxes.findActiveByoMailbox(tenant.workspaceId, preferredMailboxId).catch(() => null)
+      : null;
+
+    let mailboxInfo: OutreachBatchPreflightSummary['mailbox'];
+    let healthAddress = this.config.OUTREACH_SMTP_FROM_ADDRESS;
+    if (
+      byoMailbox &&
+      (byoMailbox as { credentialsCiphertext?: string | null }).credentialsCiphertext &&
+      (byoMailbox as { smtpHost?: string | null }).smtpHost
+    ) {
+      healthAddress = byoMailbox.address;
+      if (byoMailbox.state !== 'ACTIVE') {
+        mailboxInfo = {
+          ready: false,
+          source: 'byo',
+          address: byoMailbox.address,
+          authMode: (byoMailbox as { authMode?: string }).authMode ?? 'password',
+          error: `发件信箱 ${byoMailbox.address} 处于 ${byoMailbox.state}`,
+        };
+      } else {
+        mailboxInfo = {
+          ready: true,
+          source: 'byo',
+          address: byoMailbox.address,
+          authMode: (byoMailbox as { authMode?: string }).authMode ?? 'password',
+        };
+      }
+    } else {
+      try {
+        this.transport.ensureConfigured();
+        mailboxInfo = {
+          ready: true,
+          source: 'env',
+          address: this.config.OUTREACH_SMTP_FROM_ADDRESS ?? null,
+          authMode: 'password',
+        };
+      } catch (err) {
+        mailboxInfo = {
+          ready: false,
+          source: 'none',
+          address: byoMailbox?.address ?? null,
+          authMode: null,
+          error: err instanceof Error ? err.message : '尚未配置可用发信箱',
+        };
+      }
+    }
+
+    let healthOk = true;
+    let healthError: string | undefined;
+    try {
+      await this.controls.assertHealthy(tenant, now);
+      await this.health.assertBatchAllowed(tenant, {
+        mailboxAddress: healthAddress,
+        domain: healthAddress?.split('@')[1],
+      });
+    } catch (err) {
+      healthOk = false;
+      healthError = errorMessageOf(err, '发信健康度熔断中');
+    }
+
+    const holdout =
+      batch.campaignId !== null
+        ? await this.experiments
+            .holdoutContacts(
+              tenant,
+              batch.campaignId,
+              decryptedDrafts.map((draft) => draft.contactRef),
+            )
+            .catch(() => new Set<string>())
+        : new Set<string>();
+
+    const preflightMap = await this.preflightDrafts(tenant, decryptedDrafts, holdout);
+    const draftVerdicts = decryptedDrafts.map((draft) => {
+      const plan = preflightMap.get(draft.id) ?? { footerLines: [] };
+      const policy = outreachJurisdictionPolicy(draft.countryCode, {
+        companyName: draft.companyName,
+      });
+      return {
+        draftId: draft.id,
+        contactRef: draft.contactRef,
+        countryCode: draft.countryCode,
+        jurisdictionPolicy: plan.skip?.jurisdictionPolicy ?? policy,
+        allowed: !plan.skip,
+        ...(plan.skip
+          ? { skipCode: plan.skip.code, skipMessage: plan.skip.message }
+          : {}),
+        footerLinesCount: plan.footerLines.length,
+      };
+    });
+    const readyCount = draftVerdicts.filter((d) => d.allowed).length;
+    const skippedCount = draftVerdicts.length - readyCount;
+    const enterpriseApprovalRequired = Boolean(this.config.OUTREACH_ENTERPRISE_APPROVAL_REQUIRED);
+
+    return {
+      batchId: batch.id,
+      status: batch.status,
+      totalDrafts: draftVerdicts.length,
+      readyCount,
+      skippedCount,
+      enterpriseApprovalRequired,
+      quickConfirmAllowed:
+        !enterpriseApprovalRequired && batch.status === 'DRAFT' && readyCount > 0 && healthOk,
+      sendEnabled: this.gate.enabled(),
+      shadowMode: this.isShadowMode(),
+      mailbox: mailboxInfo,
+      health: { ok: healthOk, ...(healthError ? { error: healthError } : {}) },
+      drafts: draftVerdicts,
+    };
+  }
+
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
     if (!UUID_RE.test(batchId)) notFound();
 
-    const lockKey = `${tenant.workspaceId}:${batchId}`;
-    if (this.inFlight.has(lockKey)) {
-      conflict('OUTREACH_BATCH_SEND_IN_PROGRESS', '该批次正在发送，请稍后刷新');
-    }
-    this.inFlight.add(lockKey);
+    const lock = await this.acquireBatchSendLock(tenant, batchId);
     try {
       return await this.doSendBatch(tenant, batchId);
     } finally {
-      this.inFlight.delete(lockKey);
+      await this.releaseBatchSendLock(tenant, batchId, lock);
     }
   }
 
@@ -174,6 +434,10 @@ export class OutreachSendService {
       }),
     );
     if (!batch) notFound();
+    const decryptedDrafts = batch.drafts.map((draft) => ({
+      ...draft,
+      recipientEmail: this.decryptDraftEmail(tenant.workspaceId, draft.recipientEmail),
+    }));
 
     try {
       this.gate.assertEnabled();
@@ -206,7 +470,7 @@ export class OutreachSendService {
         '只有已批准进入待发队列的批次可以发送',
       );
     }
-    if (batch.drafts.length === 0) {
+    if (decryptedDrafts.length === 0) {
       await this.rejectBatch(tenant, batchId, 'OUTREACH_BATCH_EMPTY', '批次内没有草稿');
     }
 
@@ -227,7 +491,7 @@ export class OutreachSendService {
         '批准已过期，需重新提交审批后才能发送',
       );
     }
-    if (hashOutreachDrafts(batch.drafts) !== batch.contentHash) {
+    if (hashOutreachDrafts(decryptedDrafts) !== batch.contentHash) {
       await this.rejectBatch(
         tenant,
         batchId,
@@ -236,7 +500,7 @@ export class OutreachSendService {
       );
     }
 
-    for (const draft of batch.drafts) {
+    for (const draft of decryptedDrafts) {
       // 已按退订/DNC 跳过的草稿不再参与发送，也不再要求重新批准。
       if (draft.status === 'SKIPPED') continue;
       if (
@@ -254,8 +518,46 @@ export class OutreachSendService {
       }
     }
 
+    // 优先加载租户自有 BYO 加密凭据发信箱；未配置时兼容回退旧 env 出口。
+    const preferredMailboxId = (batch as { mailboxId?: string | null }).mailboxId ?? null;
+    const byoMailbox = this.mailboxes.findActiveByoMailbox
+      ? await this.mailboxes.findActiveByoMailbox(tenant.workspaceId, preferredMailboxId).catch(() => null)
+      : null;
+    let smtpCredentials: OutreachSmtpCredentials | undefined;
+    if (byoMailbox) {
+      if (byoMailbox.state !== 'ACTIVE') {
+        await this.rejectBatch(
+          tenant,
+          batchId,
+          'OUTREACH_MAILBOX_PAUSED',
+          `发件信箱 ${byoMailbox.address} 处于 ${byoMailbox.state}，整批停发`,
+        );
+      }
+      if (
+        (byoMailbox as { credentialsCiphertext?: string | null }).credentialsCiphertext &&
+        (byoMailbox as { smtpHost?: string | null }).smtpHost &&
+        this.mailboxes.resolveSmtpCredentialsForMailbox
+      ) {
+        try {
+          smtpCredentials =
+            (await this.mailboxes.resolveSmtpCredentialsForMailbox(
+              tenant.workspaceId,
+              byoMailbox,
+            )) ?? undefined;
+        } catch (error) {
+          await this.rejectBatch(
+            tenant,
+            batchId,
+            'OUTREACH_SMTP_NOT_CONFIGURED',
+            error instanceof Error ? error.message : 'BYO 发信箱凭据解析失败，拒绝发送',
+            'unavailable',
+          );
+        }
+      }
+    }
+
     try {
-      this.transport.ensureConfigured();
+      this.transport.ensureConfigured(smtpCredentials);
     } catch (error) {
       await this.rejectBatch(
         tenant,
@@ -274,7 +576,7 @@ export class OutreachSendService {
     const skippedDraftIds = new Set(
       batch.sends.filter((send) => send.status === 'SKIPPED').map((send) => send.draftId),
     );
-    const pending = batch.drafts
+    const pending = decryptedDrafts
       .filter((draft) => !sentDraftIds.has(draft.id) && !skippedDraftIds.has(draft.id))
       .slice(0, this.config.OUTREACH_SEND_BATCH_LIMIT);
     const now = new Date();
@@ -285,7 +587,7 @@ export class OutreachSendService {
       grant = await this.authorization.authorizeBatch(
         tenant,
         batch,
-        batch.drafts,
+        decryptedDrafts,
         pending.map((draft) => draft.id),
       );
     } catch (error) {
@@ -308,14 +610,16 @@ export class OutreachSendService {
         errorMessageOf(error, '发送健康度熔断'),
       );
     }
-    // 发件信箱资产（P4-02）：状态非 ACTIVE 整批停发；日/周上限取 min(env, 信箱, 授权)；
+    // 发件信箱资产（P4-02 + M9 BYO）：状态非 ACTIVE 整批停发；日/周上限取 min(env, 信箱, 授权)；
     // 用量优先读落库计数（跨进程/重启一致），无资产时回退台账回读。
-    const mailboxAsset = await this.mailboxes
-      .ensureDefaultMailbox(tenant.workspaceId, this.config.OUTREACH_SMTP_FROM_ADDRESS, {
-        dailyCap: this.config.OUTREACH_MAILBOX_DAILY_CAP,
-        weeklyCap: this.config.OUTREACH_MAILBOX_WEEKLY_CAP,
-      })
-      .catch(() => null);
+    const mailboxAsset =
+      byoMailbox ??
+      (await this.mailboxes
+        .ensureDefaultMailbox(tenant.workspaceId, this.config.OUTREACH_SMTP_FROM_ADDRESS, {
+          dailyCap: this.config.OUTREACH_MAILBOX_DAILY_CAP,
+          weeklyCap: this.config.OUTREACH_MAILBOX_WEEKLY_CAP,
+        })
+        .catch(() => null));
     if (mailboxAsset && mailboxAsset.state !== 'ACTIVE') {
       await this.rejectBatch(
         tenant,
@@ -324,12 +628,16 @@ export class OutreachSendService {
         `发件信箱 ${mailboxAsset.address} 处于 ${mailboxAsset.state}，整批停发`,
       );
     }
+    const effectiveMailboxAddress =
+      smtpCredentials?.fromAddress ?? mailboxAsset?.address ?? this.controls.mailboxAddress();
+    const effectiveHealthAddress =
+      smtpCredentials?.fromAddress ?? mailboxAsset?.address ?? this.config.OUTREACH_SMTP_FROM_ADDRESS;
     // P4-08：持久化熔断器（OPEN 整批停发；HALF_OPEN 限制小批复核），先于逐封循环检查。
     let halfOpenCap: number | undefined;
     try {
       const verdict = await this.health.assertBatchAllowed(tenant, {
-        mailboxAddress: this.config.OUTREACH_SMTP_FROM_ADDRESS,
-        domain: this.config.OUTREACH_SMTP_FROM_ADDRESS?.split('@')[1],
+        mailboxAddress: effectiveHealthAddress,
+        domain: effectiveHealthAddress?.split('@')[1],
       });
       halfOpenCap = verdict.maxSend;
     } catch (error) {
@@ -346,7 +654,11 @@ export class OutreachSendService {
     const controlState = await this.controls.beginBatch(tenant, now, {
       capsOverride: grant.action.caps,
       mailbox: mailboxAsset
-        ? { dailyCap: mailboxAsset.dailyCap, weeklyCap: mailboxAsset.weeklyCap }
+        ? {
+            dailyCap: mailboxAsset.dailyCap,
+            weeklyCap: mailboxAsset.weeklyCap,
+            address: mailboxAsset.address,
+          }
         : undefined,
       usage: mailboxUsage,
     });
@@ -409,10 +721,10 @@ export class OutreachSendService {
                 batchId,
                 draftId: draft.id,
                 attempt,
-                recipientEmail: draft.recipientEmail,
+                recipientEmail: this.encryptSendEmail(tenant.workspaceId, draft.recipientEmail),
                 subjectHash: hashDraftField(draft.subject),
                 bodyHash: hashDraftField(draft.body),
-                mailboxAddress: this.controls.mailboxAddress(),
+                mailboxAddress: effectiveMailboxAddress,
                 authorizationId: grant.authorizationId,
                 status: 'SKIPPED',
                 error: plan.skip!.code.slice(0, 1000),
@@ -510,7 +822,7 @@ export class OutreachSendService {
         const footer = ['---', ...plan.footerLines, `Abmelden / Unsubscribe: ${unsubscribeUrl}`].join(
           '\r\n',
         );
-        const { messageId } = await this.transport.send({
+        const mailPayload = {
           to: draft.recipientEmail,
           subject: draft.subject,
           body: `${draft.body}\r\n\r\n${footer}`,
@@ -518,7 +830,10 @@ export class OutreachSendService {
             'List-Unsubscribe': `<${unsubscribeUrl}>`,
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
           },
-        });
+        };
+        const { messageId } = smtpCredentials
+          ? await this.transport.send(mailPayload, smtpCredentials)
+          : await this.transport.send(mailPayload);
         await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
           Promise.all([
             tx.outreachSend.create({
@@ -527,10 +842,10 @@ export class OutreachSendService {
                 batchId,
                 draftId: draft.id,
                 attempt,
-                recipientEmail: draft.recipientEmail,
+                recipientEmail: this.encryptSendEmail(tenant.workspaceId, draft.recipientEmail),
                 subjectHash: hashDraftField(draft.subject),
                 bodyHash: hashDraftField(draft.body),
-                mailboxAddress: this.controls.mailboxAddress(),
+                mailboxAddress: effectiveMailboxAddress,
                 authorizationId: grant.authorizationId,
                 authorizationUse,
                 messageId,
@@ -568,10 +883,10 @@ export class OutreachSendService {
                 batchId,
                 draftId: draft.id,
                 attempt,
-                recipientEmail: draft.recipientEmail,
+                recipientEmail: this.encryptSendEmail(tenant.workspaceId, draft.recipientEmail),
                 subjectHash: hashDraftField(draft.subject),
                 bodyHash: hashDraftField(draft.body),
-                mailboxAddress: this.controls.mailboxAddress(),
+                mailboxAddress: effectiveMailboxAddress,
                 authorizationId: grant.authorizationId,
                 authorizationUse,
                 status: 'FAILED',
@@ -1024,15 +1339,24 @@ export class OutreachSendService {
     const approval =
       batch.approvals.find((row) => row.state === 'APPROVED') ?? batch.approvals[0] ?? null;
 
-    // P4-14 审计包扩展：发件资产、种子测试、熔断快照与授权消费（全部来自当前数据库事实）。
-    const senderAddress = this.config.OUTREACH_SMTP_FROM_ADDRESS?.toLowerCase();
-    const senderDomain = senderAddress?.split('@')[1];
-    const [mailboxAsset, domainRow, breakers] = await Promise.all([
-      senderAddress
-        ? tx.outreachMailbox.findFirst({
-            where: { workspaceId: tenant.workspaceId, address: senderAddress },
+    // P4-14 + M9 BYO 审计包扩展：优先读取批次绑定或租户 BYO 发信箱，回退旧 env 地址。
+    const preferredMailboxId = (batch as { mailboxId?: string | null }).mailboxId ?? null;
+    const senderAddressFromConfig = this.config.OUTREACH_SMTP_FROM_ADDRESS?.toLowerCase();
+    const mailboxAsset = preferredMailboxId
+      ? await tx.outreachMailbox.findFirst({
+          where: { workspaceId: tenant.workspaceId, id: preferredMailboxId },
+        })
+      : senderAddressFromConfig
+        ? await tx.outreachMailbox.findFirst({
+            where: { workspaceId: tenant.workspaceId, address: senderAddressFromConfig },
           })
-        : Promise.resolve(null),
+        : await tx.outreachMailbox.findFirst({
+            where: { workspaceId: tenant.workspaceId, state: 'ACTIVE' },
+            orderBy: { createdAt: 'asc' },
+          });
+    const senderAddress = mailboxAsset?.address ?? senderAddressFromConfig;
+    const senderDomain = senderAddress?.split('@')[1];
+    const [domainRow, breakers] = await Promise.all([
       senderDomain
         ? tx.outreachDomain.findFirst({
             where: { workspaceId: tenant.workspaceId, domain: senderDomain },
@@ -1114,10 +1438,11 @@ export class OutreachSendService {
       },
       drafts: batch.drafts.map((draft) => {
         const consent = latestConsent.get(draft.contactRef);
+        const decryptedEmail = this.decryptDraftEmail(tenant.workspaceId, draft.recipientEmail);
         return {
           draftId: draft.id,
           contactRef: draft.contactRef,
-          recipientEmail: draft.recipientEmail,
+          recipientEmail: decryptedEmail,
           countryCode: draft.countryCode,
           jurisdictionPolicy: outreachJurisdictionPolicy(draft.countryCode, {
             companyName: draft.companyName,

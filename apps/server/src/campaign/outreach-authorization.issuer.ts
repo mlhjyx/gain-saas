@@ -3,18 +3,21 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import {
   hashOutreachAudience,
   hashOutreachDraftSet,
   hashOutreachDrafts,
 } from '../outreach/outreach-content.js';
+import { OUTREACH_PII_PURPOSE } from '../outreach/outreach-pii.constants.js';
 import { CampaignTokenSigner } from './campaign-token.signer.js';
 
 const UUID_RE =
@@ -51,6 +54,7 @@ export class OutreachAuthorizationIssuer {
     private readonly signer: CampaignTokenSigner,
     private readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
 
   async issue(tenant: OutreachIssuerTenant, batchId: string) {
@@ -85,7 +89,17 @@ export class OutreachAuthorizationIssuer {
     if (approval.expiresAt.getTime() <= Date.now()) {
       conflict('OUTREACH_APPROVAL_EXPIRED', '批准已过期，需重新审批后才能签发授权');
     }
-    if (hashOutreachDrafts(batch.drafts) !== batch.contentHash) {
+    const decryptedDrafts = batch.drafts.map((draft) => ({
+      ...draft,
+      recipientEmail: this.crypto
+        ? this.crypto.decryptField(
+            tenant.workspaceId,
+            draft.recipientEmail,
+            OUTREACH_PII_PURPOSE.DRAFT_RECIPIENT_EMAIL,
+          )
+        : draft.recipientEmail,
+    }));
+    if (hashOutreachDrafts(decryptedDrafts) !== batch.contentHash) {
       conflict('OUTREACH_CONTENT_CHANGED', '批次内容与批准时不一致，不能签发授权');
     }
     if (batch.drafts.length === 0) {

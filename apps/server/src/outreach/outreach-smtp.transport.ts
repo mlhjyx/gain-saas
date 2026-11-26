@@ -6,6 +6,8 @@ import { connect as tlsConnect } from 'node:tls';
 import type { AppConfig } from '../config/configuration.js';
 import { APP_CONFIG } from '../shared/config.module.js';
 import { signDkimMessage, type DkimSigningOptions } from './outreach-dkim.js';
+import { resolveAndAssertSafeMailHost } from './outreach-host-guard.js';
+import type { MailboxAuthMode } from './outreach-pii.constants.js';
 
 export interface OutreachMailMessage {
   to: string;
@@ -15,10 +17,36 @@ export interface OutreachMailMessage {
   headers?: Record<string, string>;
 }
 
+/** 单租户 BYO 发信箱动态连接凭据（内存中解密后传入，绝不落日志）。 */
+export interface OutreachSmtpCredentials {
+  readonly host: string;
+  readonly port: number;
+  readonly secure: boolean;
+  readonly starttls?: boolean;
+  readonly fromAddress: string;
+  readonly fromName: string;
+  readonly authMode: MailboxAuthMode;
+  readonly user?: string;
+  readonly password?: string;
+  readonly accessToken?: string;
+  readonly timeoutMs?: number;
+  readonly rejectUnauthorized?: boolean;
+}
+
+export interface SmtpConnectionTestResult {
+  readonly ok: true;
+  readonly latencyMs: number;
+  readonly authMode: MailboxAuthMode;
+}
+
 export interface OutreachTransport {
   /** 配置缺失时抛错；调用方在写入任何失败台账前先调用，避免把配置问题记成逐封失败。 */
-  ensureConfigured(): void;
-  send(message: OutreachMailMessage): Promise<{ messageId: string }>;
+  ensureConfigured(credentials?: OutreachSmtpCredentials): void;
+  send(
+    message: OutreachMailMessage,
+    credentials?: OutreachSmtpCredentials,
+  ): Promise<{ messageId: string }>;
+  testConnection?(credentials: OutreachSmtpCredentials): Promise<SmtpConnectionTestResult>;
 }
 
 export const OUTREACH_TRANSPORT = Symbol('OUTREACH_TRANSPORT');
@@ -62,9 +90,13 @@ export function smtpFailureTelemetry(error: unknown): SmtpFailureTelemetry {
   };
 }
 
+/** 构造 RFC 7628 / Google / M365 标准 XOAUTH2 SASL 令牌。 */
+export function buildXoauth2Token(user: string, accessToken: string): string {
+  return Buffer.from(`user=${user}\x01auth=Bearer ${accessToken}\x01\x01`, 'utf8').toString('base64');
+}
+
 /**
- * 极简 SMTP 客户端：EHLO → STARTTLS（默认强制）→ AUTH（可选）→ MAIL/RCPT/DATA。
- * 只发纯文本单收件人邮件；不实现附件、HTML、批量。
+ * 极简 SMTP 客户端：EHLO → STARTTLS（默认强制）→ AUTH（PLAIN / LOGIN / XOAUTH2）→ MAIL/RCPT/DATA。
  */
 class SmtpSession {
   private buffer = '';
@@ -93,7 +125,8 @@ class SmtpSession {
   }
 
   static connect(
-    host: string,
+    connectHost: string,
+    tlsServername: string,
     port: number,
     secure: boolean,
     rejectUnauthorized: boolean,
@@ -101,8 +134,8 @@ class SmtpSession {
   ): Promise<SmtpSession> {
     return new Promise((resolve, reject) => {
       const socket = secure
-        ? tlsConnect({ host, port, servername: host, rejectUnauthorized })
-        : netConnect({ host, port });
+        ? tlsConnect({ host: connectHost, port, servername: tlsServername, rejectUnauthorized })
+        : netConnect({ host: connectHost, port });
       socket.setTimeout(timeoutMs);
       const readyEvent = secure ? 'secureConnect' : 'connect';
       socket.once(readyEvent, () => {
@@ -118,7 +151,7 @@ class SmtpSession {
   }
 
   async upgrade(
-    host: string,
+    tlsServername: string,
     rejectUnauthorized: boolean,
     timeoutMs: number,
   ): Promise<SmtpSession> {
@@ -127,7 +160,7 @@ class SmtpSession {
     raw.removeAllListeners('timeout');
     return new Promise((resolve, reject) => {
       const secureSocket = tlsConnect(
-        { socket: raw, servername: host, rejectUnauthorized },
+        { socket: raw, servername: tlsServername, rejectUnauthorized },
         () => {
           secureSocket.setTimeout(0);
           resolve(new SmtpSession(secureSocket, timeoutMs));
@@ -239,7 +272,6 @@ function resolveEhloFqdn(fromAddress: string): string {
 
 function encodeHeaderValue(value: string): string {
   const clean = sanitizeHeader(value);
-  // ASCII 可打印字符直接放；其余一律 RFC 2047 encoded-word，避免裸 UTF-8 头。
   return /^[\x20-\x7e]*$/.test(clean)
     ? clean
     : `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
@@ -281,14 +313,30 @@ export function buildMimeMessage(input: {
 }
 
 /**
- * SMTP 出口（M2 步 11-3）。默认配置下 host 为空 → ensureConfigured 抛错，执行器无法发送。
- * 发送总开关不在这里，而在 OutreachSendGate（OUTREACH_SEND_ENABLED=false 时根本不会到达本类）。
+ * 多租户 BYO + 兼容出口 SMTP 传输层（M9-PR2）：
+ * - 优先使用调用方传入的租户 BYO 解密凭据（支持密码 PLAIN/LOGIN 与 Google/M365 XOAUTH2）；
+ * - 强制 SSRF 校验（禁止连接内网/回环/元数据地址）与 STARTTLS/TLS；
+ * - 未传入 BYO 凭据时兼容旧 env 配置路径。
  */
 @Injectable()
 export class SmtpOutreachTransport implements OutreachTransport {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  ensureConfigured(): void {
+  ensureConfigured(credentials?: OutreachSmtpCredentials): void {
+    if (credentials) {
+      if (!credentials.host || !credentials.fromAddress) {
+        throw new Error('BYO 发信箱缺少 SMTP 主机或发件地址，拒绝发送');
+      }
+      if (credentials.authMode === 'password') {
+        if (!credentials.user || !credentials.password) {
+          throw new Error('BYO 发信箱密码模式缺少用户名或密码，拒绝发送');
+        }
+      } else if (!credentials.user || !credentials.accessToken) {
+        throw new Error('BYO 发信箱 OAuth2 令牌缺失或已失效，请重新授权');
+      }
+      return;
+    }
+
     if (!this.config.OUTREACH_SMTP_HOST || !this.config.OUTREACH_SMTP_FROM_ADDRESS) {
       throw new Error(
         'SMTP 出口未配置（OUTREACH_SMTP_HOST / OUTREACH_SMTP_FROM_ADDRESS），拒绝发送',
@@ -331,23 +379,56 @@ export class SmtpOutreachTransport implements OutreachTransport {
     };
   }
 
-  async send(message: OutreachMailMessage): Promise<{ messageId: string }> {
-    this.ensureConfigured();
-    const dkim = this.dkimOptions();
-    const config = this.config;
-    const host = config.OUTREACH_SMTP_HOST!;
-    const fromAddress = assertSafeEnvelopeAddress(config.OUTREACH_SMTP_FROM_ADDRESS!, 'MAIL FROM');
-    const toAddress = assertSafeEnvelopeAddress(message.to, 'RCPT TO');
-    const timeoutMs = config.OUTREACH_SMTP_TIMEOUT_MS;
+  private resolveEffectiveCredentials(override?: OutreachSmtpCredentials): {
+    effective: OutreachSmtpCredentials;
+    isByo: boolean;
+  } {
+    if (override) {
+      return { effective: override, isByo: true };
+    }
+    return {
+      isByo: false,
+      effective: {
+        host: this.config.OUTREACH_SMTP_HOST!,
+        port: this.config.OUTREACH_SMTP_PORT,
+        secure: this.config.OUTREACH_SMTP_SECURE,
+        starttls: this.config.OUTREACH_SMTP_STARTTLS,
+        fromAddress: this.config.OUTREACH_SMTP_FROM_ADDRESS!,
+        fromName: this.config.OUTREACH_SMTP_FROM_NAME,
+        authMode: 'password',
+        user: this.config.OUTREACH_SMTP_USER,
+        password: this.config.OUTREACH_SMTP_PASSWORD,
+        timeoutMs: this.config.OUTREACH_SMTP_TIMEOUT_MS,
+        rejectUnauthorized: this.config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED,
+      },
+    };
+  }
+
+  private async openAuthenticatedSession(
+    creds: OutreachSmtpCredentials,
+    isByo: boolean,
+  ): Promise<{ session: SmtpSession; fromAddress: string }> {
+    const fromAddress = assertSafeEnvelopeAddress(creds.fromAddress, 'MAIL FROM');
+    const timeoutMs = creds.timeoutMs ?? this.config.OUTREACH_SMTP_TIMEOUT_MS ?? 15_000;
+    const rejectUnauthorized =
+      creds.rejectUnauthorized ?? this.config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED ?? true;
+    const starttls = creds.starttls ?? true;
     const ehloHostname = resolveEhloFqdn(fromAddress);
-    // 与线上 Message-ID 头同形（uuid@发件域）：回信 In-Reply-To/References 按此值归因到发送台账。
-    const messageId = `${randomUUID()}@${fromAddress.split('@')[1] || 'localhost'}`;
+
+    let connectHost = creds.host;
+    if (isByo) {
+      const checked = await resolveAndAssertSafeMailHost(creds.host, creds.port, 'smtp', {
+        allowPrivate: this.config.OUTREACH_BYO_ALLOW_PRIVATE_HOSTS === true,
+      });
+      connectHost = checked.resolvedAddress ?? checked.host;
+    }
 
     let session = await SmtpSession.connect(
-      host,
-      config.OUTREACH_SMTP_PORT,
-      config.OUTREACH_SMTP_SECURE,
-      config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED,
+      connectHost,
+      creds.host,
+      creds.port,
+      creds.secure,
+      rejectUnauthorized,
       timeoutMs,
     );
     try {
@@ -355,41 +436,86 @@ export class SmtpOutreachTransport implements OutreachTransport {
       session.send(`EHLO ${ehloHostname}`);
       let extensions = (await session.expect([250], 'EHLO')).join('\n');
 
-      if (!config.OUTREACH_SMTP_SECURE && config.OUTREACH_SMTP_STARTTLS) {
+      if (!creds.secure && starttls) {
         if (!/STARTTLS/i.test(extensions)) {
           throw new Error('SMTP 服务器未提供 STARTTLS，拒绝明文发送');
         }
         session.send('STARTTLS');
         await session.expect([220], 'STARTTLS');
-        session = await session.upgrade(
-          host,
-          config.OUTREACH_SMTP_TLS_REJECT_UNAUTHORIZED,
-          timeoutMs,
-        );
+        session = await session.upgrade(creds.host, rejectUnauthorized, timeoutMs);
         session.send(`EHLO ${ehloHostname}`);
         extensions = (await session.expect([250], 'EHLO')).join('\n');
       }
 
-      if (config.OUTREACH_SMTP_USER && config.OUTREACH_SMTP_PASSWORD) {
+      if (creds.authMode === 'oauth_google' || creds.authMode === 'oauth_m365') {
+        if (!creds.user || !creds.accessToken) {
+          throw new Error('OAuth2 发信缺少用户名或访问令牌');
+        }
+        if (!/AUTH[^\n]*XOAUTH2/i.test(extensions)) {
+          throw new Error('SMTP 服务器未声明支持 AUTH XOAUTH2');
+        }
+        const xoauth2 = buildXoauth2Token(creds.user, creds.accessToken);
+        session.send(`AUTH XOAUTH2 ${xoauth2}`);
+        await session.expect([235], 'AUTH XOAUTH2');
+      } else if (creds.user && creds.password) {
         if (/AUTH[^\n]*PLAIN/i.test(extensions)) {
-          const token = Buffer.from(
-            `\0${config.OUTREACH_SMTP_USER}\0${config.OUTREACH_SMTP_PASSWORD}`,
-            'utf8',
-          ).toString('base64');
+          const token = Buffer.from(`\0${creds.user}\0${creds.password}`, 'utf8').toString('base64');
           session.send(`AUTH PLAIN ${token}`);
           await session.expect([235], 'AUTH');
         } else if (/AUTH/i.test(extensions)) {
           session.send('AUTH LOGIN');
           await session.expect([334], 'AUTH LOGIN');
-          session.send(Buffer.from(config.OUTREACH_SMTP_USER, 'utf8').toString('base64'));
+          session.send(Buffer.from(creds.user, 'utf8').toString('base64'));
           await session.expect([334], 'AUTH user');
-          session.send(Buffer.from(config.OUTREACH_SMTP_PASSWORD, 'utf8').toString('base64'));
+          session.send(Buffer.from(creds.password, 'utf8').toString('base64'));
           await session.expect([235], 'AUTH password');
         } else {
           throw new Error('SMTP 服务器不支持 AUTH，拒绝发送未认证邮件');
         }
       }
 
+      return { session, fromAddress };
+    } catch (err) {
+      session.close();
+      throw err;
+    }
+  }
+
+  /** 连通性与认证自检：执行 TCP/TLS/EHLO/STARTTLS/AUTH/QUIT，不发任何测试邮件。 */
+  async testConnection(credentials: OutreachSmtpCredentials): Promise<SmtpConnectionTestResult> {
+    this.ensureConfigured(credentials);
+    const startedAt = Date.now();
+    const { session } = await this.openAuthenticatedSession(credentials, true);
+    try {
+      try {
+        session.send('QUIT');
+        await session.expect([221], 'QUIT');
+      } catch {
+        // 忽略 QUIT 阶段对端提前断连
+      }
+      return {
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        authMode: credentials.authMode,
+      };
+    } finally {
+      session.close();
+    }
+  }
+
+  async send(
+    message: OutreachMailMessage,
+    credentials?: OutreachSmtpCredentials,
+  ): Promise<{ messageId: string }> {
+    this.ensureConfigured(credentials);
+    const { effective, isByo } = this.resolveEffectiveCredentials(credentials);
+    const dkim = isByo ? null : this.dkimOptions();
+    const toAddress = assertSafeEnvelopeAddress(message.to, 'RCPT TO');
+    const fromAddress = assertSafeEnvelopeAddress(effective.fromAddress, 'MAIL FROM');
+    const messageId = `${randomUUID()}@${fromAddress.split('@')[1] || 'localhost'}`;
+
+    const { session } = await this.openAuthenticatedSession(effective, isByo);
+    try {
       session.send(`MAIL FROM:<${fromAddress}>`);
       await session.expect([250], 'MAIL FROM');
       session.send(`RCPT TO:<${toAddress}>`);
@@ -399,7 +525,7 @@ export class SmtpOutreachTransport implements OutreachTransport {
 
       let mime = buildMimeMessage({
         fromAddress,
-        fromName: config.OUTREACH_SMTP_FROM_NAME,
+        fromName: effective.fromName,
         to: toAddress,
         subject: message.subject,
         body: message.body,

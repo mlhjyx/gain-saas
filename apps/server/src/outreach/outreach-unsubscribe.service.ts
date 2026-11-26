@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 
 /** 退订链接有效期 ≥90 天（CAN-SPAM / GDPR 最低 30 天以上留余，防延迟退订失效）。 */
 const TOKEN_TTL_MS = 90 * 24 * 3600_000;
@@ -27,6 +29,7 @@ export class OutreachUnsubscribeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
 
   async issue(tenant: OutreachTenant, contactRef: string, recipientEmail?: string | null) {
@@ -35,6 +38,13 @@ export class OutreachUnsubscribeService {
       typeof recipientEmail === 'string' && recipientEmail.includes('@')
         ? recipientEmail.trim().toLowerCase().slice(0, 320)
         : null;
+    const storedEmail = this.crypto
+      ? this.crypto.encryptNullableField(
+          tenant.workspaceId,
+          email,
+          OUTREACH_PII_PURPOSE.UNSUBSCRIBE_RECIPIENT_EMAIL,
+        )
+      : email;
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
@@ -43,7 +53,7 @@ export class OutreachUnsubscribeService {
         data: {
           workspaceId: tenant.workspaceId,
           contactRef,
-          recipientEmail: email,
+          recipientEmail: storedEmail,
           tokenHash,
           expiresAt,
         },
@@ -82,11 +92,18 @@ export class OutreachUnsubscribeService {
     >`SELECT id, workspace_id, contact_ref, recipient_email, expires_at, used_at FROM public.app_lookup_unsubscribe_token(${tokenHash}::char(64))`;
     const found = lookupRows[0];
     if (!found || found.expires_at.getTime() <= Date.now()) invalidToken();
+    const decryptedEmail = this.crypto
+      ? this.crypto.decryptNullableField(
+          found.workspace_id,
+          found.recipient_email,
+          OUTREACH_PII_PURPOSE.UNSUBSCRIBE_RECIPIENT_EMAIL,
+        )
+      : found.recipient_email;
     const row = {
       id: found.id,
       workspaceId: found.workspace_id,
       contactRef: found.contact_ref,
-      recipientEmail: found.recipient_email,
+      recipientEmail: decryptedEmail,
       usedAt: found.used_at,
     };
     if (row.usedAt) {
