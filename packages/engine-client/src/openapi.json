@@ -3845,6 +3845,69 @@
                     "additionalProperties": false,
                     "required": [
                       "operation",
+                      "icpId",
+                      "body"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "POST /icps/:icpId/rejudge"
+                        ]
+                      },
+                      "icpId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "body": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "attemptId"
+                        ],
+                        "properties": {
+                          "attemptId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "maxCompanies": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                          },
+                          "batchSize": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 25
+                          },
+                          "refreshCorroboration": {
+                            "type": "boolean"
+                          },
+                          "refreshWebsiteProfile": {
+                            "type": "boolean"
+                          },
+                          "includeFresh": {
+                            "type": "boolean"
+                          },
+                          "companyIds": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 100,
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "operation",
                       "planId"
                     ],
                     "properties": {
@@ -5459,7 +5522,7 @@
     },
     "/api/v1/outreach/dnc/suppress": {
       "post": {
-        "description": "规范化邮箱后只存 SHA-256；同一邮箱重复写入幂等。调用方必须已确认退订/投诉事实。",
+        "description": "规范化邮箱后只存带 pepper HMAC-SHA256；同一邮箱重复写入幂等。调用方必须已确认退订/投诉事实。",
         "operationId": "OutreachDncController_suppress_v1",
         "parameters": [],
         "requestBody": {
@@ -6388,6 +6451,19 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "websiteChannel": {
+                          "type": "string",
+                          "enum": [
+                            "official_website",
+                            "alibaba_1688",
+                            "alibaba_intl"
+                          ],
+                          "nullable": true
+                        },
+                        "summary": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -6537,6 +6613,89 @@
                               "sourceUrl": {
                                 "type": "string",
                                 "nullable": true
+                              }
+                            }
+                          }
+                        },
+                        "documents": {
+                          "type": "object",
+                          "required": [
+                            "total",
+                            "ready",
+                            "processing",
+                            "failed",
+                            "items",
+                            "extractedClaims"
+                          ],
+                          "properties": {
+                            "total": {
+                              "type": "integer"
+                            },
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "processing": {
+                              "type": "integer"
+                            },
+                            "failed": {
+                              "type": "integer"
+                            },
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "filename": {
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "type": "string"
+                                  },
+                                  "mime": {
+                                    "type": "string"
+                                  },
+                                  "chunkCount": {
+                                    "type": "integer"
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            },
+                            "extractedClaims": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "claimId": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  },
+                                  "statement": {
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "type": "string"
+                                  },
+                                  "documentId": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "nullable": true
+                                  },
+                                  "filename": {
+                                    "type": "string",
+                                    "nullable": true
+                                  }
+                                }
                               }
                             }
                           }
@@ -6861,6 +7020,212 @@
           "acquisition:read"
         ],
         "description": "理解阶段抽取出的结构化产品/服务，每条带来源页 URL 与原文片段。数组响应，不分页。"
+      }
+    },
+    "/api/v1/companies/{companyId}/market-recommendations": {
+      "get": {
+        "description": "根据显式传入的 4-6 位 HS 码，或按卖家已勾选产品与行业确定性反推的 HS 码，返回基于 UN Comtrade 贸易流基线的目标出口国排序建议（进口规模、同比增速、全球份额与业务理由）。本接口纯只读、零预算消耗，固定返回 isRecommendationOnly=true，绝不自动写入公司确认目标市场。",
+        "operationId": "MarketRecommendationsController_recommend_v1",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hsCodes",
+            "required": false,
+            "in": "query",
+            "description": "逗号分隔的 4-6 位 HS 码（如 854143,850440）；缺省时按公司产品与行业确定性反推",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "返回推荐国家上限（1..20，默认 8）",
+            "schema": {
+              "type": "integer",
+              "default": 8,
+              "minimum": 1,
+              "maximum": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "companyId",
+                        "isRecommendationOnly",
+                        "basis",
+                        "recommendations",
+                        "generatedAt"
+                      ],
+                      "properties": {
+                        "companyId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "isRecommendationOnly": {
+                          "type": "boolean"
+                        },
+                        "basis": {
+                          "type": "object",
+                          "required": [
+                            "hsCodes",
+                            "inferredFrom",
+                            "dataSource",
+                            "referenceYear"
+                          ],
+                          "properties": {
+                            "hsCodes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "code",
+                                  "label",
+                                  "labelZh",
+                                  "matchedFrom"
+                                ],
+                                "properties": {
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "labelZh": {
+                                    "type": "string"
+                                  },
+                                  "matchedFrom": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            },
+                            "inferredFrom": {
+                              "type": "string",
+                              "enum": [
+                                "query_hs",
+                                "offerings_and_industry",
+                                "fallback_general"
+                              ]
+                            },
+                            "dataSource": {
+                              "type": "string",
+                              "enum": [
+                                "un_comtrade_baseline_v1",
+                                "un_comtrade_live"
+                              ]
+                            },
+                            "referenceYear": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "recommendations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "name",
+                              "labelEn",
+                              "rank",
+                              "hsCodes",
+                              "importVolumeUsd",
+                              "yoyGrowthPct",
+                              "globalImportSharePct",
+                              "rationale",
+                              "confidence",
+                              "alreadySelected"
+                            ],
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "labelEn": {
+                                "type": "string"
+                              },
+                              "rank": {
+                                "type": "integer"
+                              },
+                              "hsCodes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "importVolumeUsd": {
+                                "type": "number"
+                              },
+                              "yoyGrowthPct": {
+                                "type": "number"
+                              },
+                              "globalImportSharePct": {
+                                "type": "number"
+                              },
+                              "rationale": {
+                                "type": "string"
+                              },
+                              "confidence": {
+                                "type": "string",
+                                "enum": [
+                                  "high",
+                                  "medium",
+                                  "low"
+                                ]
+                              },
+                              "alreadySelected": {
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "UN Comtrade / HS 贸易流目标国推荐（只读，不消费 Grant，不自动写入确认市场）",
+        "tags": [
+          "Company"
+        ],
+        "x-required-scopes": [
+          "acquisition:read"
+        ]
       }
     },
     "/api/v1/companies/{companyId}/seller-documents/presign": {
@@ -8598,6 +8963,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateIcpDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -8623,7 +8998,7 @@
             "bearer": []
           }
         ],
-        "summary": "激活 ICP（→ ACTIVE，同企业旧 ACTIVE → SUPERSEDED），发 ICPActivated 事件",
+        "summary": "激活 ICP（→ ACTIVE；默认同企业旧 ACTIVE → SUPERSEDED，keepExistingActive=true 支持多 ICP 并行），发 ICPActivated 事件",
         "tags": [
           "ICP"
         ],
@@ -9206,6 +9581,203 @@
         "description": "该 ICP 的查询计划列表（含状态：DRAFT / READY）。"
       }
     },
+    "/api/v1/icps/{icpId}/rejudge": {
+      "post": {
+        "description": "要求 JUDGE_CONTRACT_MODE=enforce 且 ICP 处于 ACTIVE 状态。先对 Grant 验签并做候选与预算预检（无候选返回 409 NO_REJUDGE_CANDIDATES、超帽返回 409 REJUDGE_COST_CAP_EXCEEDED，均不消耗 Grant），通过后在单事务内原子核销 Grant 并投递 LeadRejudgeRequested。",
+        "operationId": "IcpController_rejudgeLeads_v1",
+        "parameters": [
+          {
+            "name": "icpId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Execution-Budget-Grant",
+            "in": "header",
+            "description": "SaaS signed authority bound to this exact workspace mutation",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejudgeIcpLeadsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RejudgeIcpLeadsResponseDto"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH or EXECUTION_BUDGET_AUTHORITY_REVOKED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "EXECUTION_BUDGET_GRANT_REUSED, INVALID_STATE, NO_REJUDGE_CANDIDATES or REJUDGE_COST_CAP_EXCEEDED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "触发审计合规的存量 Lead 重判（走 WORKSPACE_GRANT + Outbox + rejudgeWorkflow，保护人工决策）",
+        "tags": [
+          "ICP"
+        ],
+        "x-required-scopes": [
+          "acquisition:write"
+        ]
+      }
+    },
     "/api/v1/icps/{icpId}/feedback": {
       "get": {
         "operationId": "IcpController_feedbackReport_v1",
@@ -9302,6 +9874,548 @@
           "acquisition:write"
         ],
         "description": "重算该 ICP 的反馈聚合（幂等；通常由接受/拒绝动作自动触发，这里是手动补偿入口）。"
+      }
+    },
+    "/api/v1/icps/{icpId}/feedback/record": {
+      "post": {
+        "description": "接收人工驳回（同行/行业不符/失效站点等）、退订、退信或正向回复反馈，自动将确认的排除域名、关键词与最多 5 条脱敏反例写入 ICP 的 peer_exclusions 与 fit_counter_examples，供后续发现与 fit-v3 自动避坑。",
+        "operationId": "IcpController_recordFeedbackLearning_v1",
+        "parameters": [
+          {
+            "name": "icpId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordIcpFeedbackDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "icpId",
+                        "icpVersion",
+                        "recorded",
+                        "appliedRules",
+                        "summary"
+                      ],
+                      "properties": {
+                        "icpId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "icpVersion": {
+                          "type": "integer"
+                        },
+                        "recorded": {
+                          "type": "object",
+                          "required": [
+                            "outcome",
+                            "rejectionReason",
+                            "domain",
+                            "companyId",
+                            "leadId",
+                            "recordedAt"
+                          ],
+                          "properties": {
+                            "outcome": {
+                              "type": "string",
+                              "enum": [
+                                "rejected",
+                                "replied_positive",
+                                "booked_meeting",
+                                "opt_out",
+                                "wrong_contact",
+                                "bounced"
+                              ]
+                            },
+                            "rejectionReason": {
+                              "type": "string",
+                              "enum": [
+                                "wrong_role_peer",
+                                "wrong_industry",
+                                "too_small",
+                                "wrong_country",
+                                "dead_company",
+                                "bounced_unreachable"
+                              ],
+                              "nullable": true
+                            },
+                            "domain": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "companyId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "nullable": true
+                            },
+                            "leadId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "nullable": true
+                            },
+                            "recordedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        "appliedRules": {
+                          "type": "object",
+                          "required": [
+                            "addedExcludedDomain",
+                            "addedExcludedKeywords",
+                            "addedCounterExample"
+                          ],
+                          "properties": {
+                            "addedExcludedDomain": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "addedExcludedKeywords": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "addedCounterExample": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "summary": {
+                          "type": "object",
+                          "required": [
+                            "icpId",
+                            "icpName",
+                            "icpVersion",
+                            "excludedDomains",
+                            "excludedKeywords",
+                            "excludedBusinessModels",
+                            "counterExamples",
+                            "positiveExamples",
+                            "stats"
+                          ],
+                          "properties": {
+                            "icpId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "icpName": {
+                              "type": "string"
+                            },
+                            "icpVersion": {
+                              "type": "integer"
+                            },
+                            "excludedDomains": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "excludedKeywords": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "excludedBusinessModels": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "counterExamples": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "domain",
+                                  "companyName",
+                                  "industry",
+                                  "outcome",
+                                  "reason",
+                                  "note",
+                                  "recordedAt"
+                                ],
+                                "properties": {
+                                  "domain": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "companyName": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "industry": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "outcome": {
+                                    "type": "string",
+                                    "enum": [
+                                      "rejected",
+                                      "replied_positive",
+                                      "booked_meeting",
+                                      "opt_out",
+                                      "wrong_contact",
+                                      "bounced"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "enum": [
+                                      "wrong_role_peer",
+                                      "wrong_industry",
+                                      "too_small",
+                                      "wrong_country",
+                                      "dead_company",
+                                      "bounced_unreachable",
+                                      "unspecified"
+                                    ]
+                                  },
+                                  "note": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "recordedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            },
+                            "positiveExamples": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "domain",
+                                  "companyName",
+                                  "industry",
+                                  "outcome",
+                                  "recordedAt"
+                                ],
+                                "properties": {
+                                  "domain": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "companyName": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "industry": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "outcome": {
+                                    "type": "string",
+                                    "enum": [
+                                      "replied_positive",
+                                      "booked_meeting"
+                                    ]
+                                  },
+                                  "recordedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            },
+                            "stats": {
+                              "type": "object",
+                              "required": [
+                                "totalRecorded",
+                                "outcomeCounts",
+                                "rejectionReasonCounts",
+                                "lastRecordedAt"
+                              ],
+                              "properties": {
+                                "totalRecorded": {
+                                  "type": "integer"
+                                },
+                                "outcomeCounts": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "rejectionReasonCounts": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "lastRecordedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "记录线索真实驳回或外联结果反馈，自动沉淀 ICP 排除规则与反例",
+        "tags": [
+          "ICP"
+        ],
+        "x-required-scopes": [
+          "acquisition:write"
+        ]
+      }
+    },
+    "/api/v1/icps/{icpId}/feedback/summary": {
+      "get": {
+        "description": "返回指定 ICP 当前累积的同行排除域名、排除关键词、最多 5 条高信息量反例、正向转化样例以及按结果与驳回原因分组的统计摘要，不触发模型调用或数据变更。",
+        "operationId": "IcpController_feedbackLearningSummary_v1",
+        "parameters": [
+          {
+            "name": "icpId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "icpId",
+                        "icpName",
+                        "icpVersion",
+                        "excludedDomains",
+                        "excludedKeywords",
+                        "excludedBusinessModels",
+                        "counterExamples",
+                        "positiveExamples",
+                        "stats"
+                      ],
+                      "properties": {
+                        "icpId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "icpName": {
+                          "type": "string"
+                        },
+                        "icpVersion": {
+                          "type": "integer"
+                        },
+                        "excludedDomains": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "excludedKeywords": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "excludedBusinessModels": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "counterExamples": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "domain",
+                              "companyName",
+                              "industry",
+                              "outcome",
+                              "reason",
+                              "note",
+                              "recordedAt"
+                            ],
+                            "properties": {
+                              "domain": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "companyName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "industry": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "rejected",
+                                  "replied_positive",
+                                  "booked_meeting",
+                                  "opt_out",
+                                  "wrong_contact",
+                                  "bounced"
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": [
+                                  "wrong_role_peer",
+                                  "wrong_industry",
+                                  "too_small",
+                                  "wrong_country",
+                                  "dead_company",
+                                  "bounced_unreachable",
+                                  "unspecified"
+                                ]
+                              },
+                              "note": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "recordedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        },
+                        "positiveExamples": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "domain",
+                              "companyName",
+                              "industry",
+                              "outcome",
+                              "recordedAt"
+                            ],
+                            "properties": {
+                              "domain": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "companyName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "industry": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "replied_positive",
+                                  "booked_meeting"
+                                ]
+                              },
+                              "recordedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        },
+                        "stats": {
+                          "type": "object",
+                          "required": [
+                            "totalRecorded",
+                            "outcomeCounts",
+                            "rejectionReasonCounts",
+                            "lastRecordedAt"
+                          ],
+                          "properties": {
+                            "totalRecorded": {
+                              "type": "integer"
+                            },
+                            "outcomeCounts": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer"
+                              }
+                            },
+                            "rejectionReasonCounts": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer"
+                              }
+                            },
+                            "lastRecordedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "只读查看该 ICP 已沉淀的排除规则、反例与真实反馈统计摘要",
+        "tags": [
+          "ICP"
+        ],
+        "x-required-scopes": [
+          "acquisition:read"
+        ]
       }
     },
     "/api/v1/query-plans/{planId}/confirm": {
@@ -11711,6 +12825,379 @@
           "ops:read"
         ],
         "description": "平台级数据源注册表（状态与成本）。DISABLED 相当于该数据源的 Kill Switch。需要 ops:read。"
+      }
+    },
+    "/api/v1/discovery-runs/{runId}/streaming-progress": {
+      "get": {
+        "description": "只读投影一次发现任务的流式三段漏斗进度（L0 召回入池、L1 Raw HTTP 优先单活动抓取与 fit-v3 买家判定、L2 Top-K 联系人补全与监控注册）以及最新处理的候选企业卡片；对历史非流式 discoveryWorkflow 任务自动返回 pipelineMode=legacy，零预算消耗。",
+        "operationId": "StreamingProgressController_getStreamingProgress_v1",
+        "parameters": [
+          {
+            "name": "runId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "runId",
+                        "pipelineMode",
+                        "runStatus",
+                        "currentStage",
+                        "updatedAt",
+                        "stages",
+                        "recentCandidates"
+                      ],
+                      "properties": {
+                        "runId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "pipelineMode": {
+                          "type": "string",
+                          "enum": [
+                            "streaming",
+                            "legacy"
+                          ]
+                        },
+                        "runStatus": {
+                          "type": "string"
+                        },
+                        "currentStage": {
+                          "type": "string",
+                          "enum": [
+                            "l0_recall",
+                            "l1_extract_fit",
+                            "l2_topk_enrich",
+                            "finalizing",
+                            "done",
+                            "cancelled",
+                            "failed"
+                          ]
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stages": {
+                          "type": "object",
+                          "required": [
+                            "l0Recall",
+                            "l1ExtractFit",
+                            "l2TopKEnrich"
+                          ],
+                          "properties": {
+                            "l0Recall": {
+                              "type": "object",
+                              "required": [
+                                "status",
+                                "queriesTotal",
+                                "queriesCompleted",
+                                "candidatesRecalled",
+                                "canonicalUpserted",
+                                "startedAt",
+                                "completedAt"
+                              ],
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "running",
+                                    "done",
+                                    "skipped",
+                                    "failed",
+                                    "cancelled"
+                                  ]
+                                },
+                                "queriesTotal": {
+                                  "type": "integer"
+                                },
+                                "queriesCompleted": {
+                                  "type": "integer"
+                                },
+                                "candidatesRecalled": {
+                                  "type": "integer"
+                                },
+                                "canonicalUpserted": {
+                                  "type": "integer"
+                                },
+                                "startedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                }
+                              }
+                            },
+                            "l1ExtractFit": {
+                              "type": "object",
+                              "required": [
+                                "status",
+                                "total",
+                                "processed",
+                                "rawHttpHits",
+                                "crawl4aiFallbacks",
+                                "pdfSkipped",
+                                "wwwRetries",
+                                "fitMatch",
+                                "fitWeak",
+                                "fitMismatch",
+                                "failed",
+                                "startedAt",
+                                "completedAt"
+                              ],
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "running",
+                                    "done",
+                                    "skipped",
+                                    "failed",
+                                    "cancelled"
+                                  ]
+                                },
+                                "total": {
+                                  "type": "integer"
+                                },
+                                "processed": {
+                                  "type": "integer"
+                                },
+                                "rawHttpHits": {
+                                  "type": "integer"
+                                },
+                                "crawl4aiFallbacks": {
+                                  "type": "integer"
+                                },
+                                "pdfSkipped": {
+                                  "type": "integer"
+                                },
+                                "wwwRetries": {
+                                  "type": "integer"
+                                },
+                                "fitMatch": {
+                                  "type": "integer"
+                                },
+                                "fitWeak": {
+                                  "type": "integer"
+                                },
+                                "fitMismatch": {
+                                  "type": "integer"
+                                },
+                                "failed": {
+                                  "type": "integer"
+                                },
+                                "startedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                }
+                              }
+                            },
+                            "l2TopKEnrich": {
+                              "type": "object",
+                              "required": [
+                                "status",
+                                "topKCap",
+                                "selected",
+                                "enriched",
+                                "contactsFound",
+                                "watchesRegistered",
+                                "failed",
+                                "startedAt",
+                                "completedAt"
+                              ],
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "running",
+                                    "done",
+                                    "skipped",
+                                    "failed",
+                                    "cancelled"
+                                  ]
+                                },
+                                "topKCap": {
+                                  "type": "integer"
+                                },
+                                "selected": {
+                                  "type": "integer"
+                                },
+                                "enriched": {
+                                  "type": "integer"
+                                },
+                                "contactsFound": {
+                                  "type": "integer"
+                                },
+                                "watchesRegistered": {
+                                  "type": "integer"
+                                },
+                                "failed": {
+                                  "type": "integer"
+                                },
+                                "startedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "recentCandidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "companyId",
+                              "name",
+                              "domain",
+                              "country",
+                              "stage",
+                              "fitVerdict",
+                              "fitScore",
+                              "fetchMethod",
+                              "channelsFound",
+                              "reasonSummary",
+                              "updatedAt"
+                            ],
+                            "properties": {
+                              "companyId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "domain": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "country": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "stage": {
+                                "type": "string",
+                                "enum": [
+                                  "l0_recalled",
+                                  "l1_extracting",
+                                  "l1_scored",
+                                  "l2_enriching",
+                                  "done",
+                                  "failed",
+                                  "skipped"
+                                ]
+                              },
+                              "fitVerdict": {
+                                "type": "string",
+                                "enum": [
+                                  "match",
+                                  "weak",
+                                  "mismatch"
+                                ],
+                                "nullable": true
+                              },
+                              "fitScore": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "fetchMethod": {
+                                "type": "string",
+                                "enum": [
+                                  "raw_http",
+                                  "crawl4ai",
+                                  "skipped"
+                                ],
+                                "nullable": true
+                              },
+                              "channelsFound": {
+                                "type": "object",
+                                "required": [
+                                  "emails",
+                                  "phones",
+                                  "forms",
+                                  "socials"
+                                ],
+                                "properties": {
+                                  "emails": {
+                                    "type": "integer"
+                                  },
+                                  "phones": {
+                                    "type": "integer"
+                                  },
+                                  "forms": {
+                                    "type": "integer"
+                                  },
+                                  "socials": {
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "reasonSummary": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "方案 B 流式三段进度（L0 召回 / L1 单活动抽取+fit-v3 / L2 Top-K 富集）；兼容历史非流式 run",
+        "tags": [
+          "Discovery"
+        ],
+        "x-required-scopes": [
+          "acquisition:read"
+        ]
       }
     },
     "/api/v1/judgment-reviews": {
@@ -15242,7 +16729,7 @@
             "bearer": []
           }
         ],
-        "summary": "查看渠道最近物化的抓取记录（含观察名单状态与计数；PII 按 OWNER-DECISION-2026-11-05 明文存储）",
+        "summary": "查看渠道最近物化的抓取记录（含观察名单状态与计数；联系人 PII 经平台密钥加密存储并在读路径解密）",
         "tags": [
           "Channels"
         ],
@@ -16179,6 +17666,43 @@
                           "additionalProperties": true,
                           "items": {
                             "type": "object"
+                          }
+                        },
+                        "icebreakerSuggestions": {
+                          "type": "array",
+                          "description": "基于真实企业公开信号生成的零捏造、零 PII 中英文外联破冰首句建议",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "signalType",
+                              "signalTitle",
+                              "signalUrl",
+                              "detectedAt",
+                              "openerZh",
+                              "openerEn"
+                            ],
+                            "properties": {
+                              "signalType": {
+                                "type": "string"
+                              },
+                              "signalTitle": {
+                                "type": "string"
+                              },
+                              "signalUrl": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "detectedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "openerZh": {
+                                "type": "string"
+                              },
+                              "openerEn": {
+                                "type": "string"
+                              }
+                            }
                           }
                         },
                         "scores": {
@@ -29231,6 +30755,7 @@
               "POST /companies",
               "POST /companies/:companyId/icps",
               "POST /icps/:icpId/query-plans",
+              "POST /icps/:icpId/rejudge",
               "POST /query-plans/:planId/execute",
               "POST /canonical-companies/:id/discover-contacts",
               "POST /canonical-companies/:id/enrich-contacts",
@@ -29253,6 +30778,7 @@
               "understanding.run",
               "icp.design",
               "icp.query_plan",
+              "icp.rejudge",
               "discovery.run",
               "contact.verify",
               "contact.enrich",
@@ -29393,7 +30919,7 @@
         "properties": {
           "email": {
             "type": "string",
-            "description": "需要平台级抑制的收件邮箱（服务端只落 SHA-256，不存明文）",
+            "description": "需要平台级抑制的收件邮箱（服务端只落带 pepper HMAC-SHA256，不存明文）",
             "maxLength": 320
           },
           "reason": {
@@ -29520,6 +31046,16 @@
             "nullable": true,
             "example": "https://acme-tech.com"
           },
+          "websiteChannel": {
+            "type": "string",
+            "enum": [
+              "official_website",
+              "alibaba_1688",
+              "alibaba_intl"
+            ],
+            "nullable": true,
+            "description": "卖家网站渠道类型（由 website 派生；仅卖家建档允许 1688 / 阿里国际站店铺链接）"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -29640,6 +31176,11 @@
             "type": "string",
             "example": "sales@acme-tech.com",
             "description": "业务邮箱（公司级询盘接收缺省值）"
+          },
+          "productDescription": {
+            "type": "string",
+            "example": "专业生产 HJT 700W+ 光伏组件与工商业储能系统，通过 IEC 61215 与 TÜV 认证，主要出口欧洲与拉美。",
+            "description": "可选：简短产品与工厂描述（1~2000 字；无官网冷启动或补充说明时落入档案简介并生成待审事实草稿）"
           }
         }
       },
@@ -29754,6 +31295,10 @@
             "type": "string",
             "example": "sales@acme-tech.com",
             "description": "业务邮箱（公司级询盘接收缺省值）"
+          },
+          "productDescription": {
+            "type": "string",
+            "description": "简短产品与工厂描述（1~2000 字；落入企业简介并生成待审 Claim 草稿）"
           }
         }
       },
@@ -29794,6 +31339,11 @@
             "format": "email",
             "maxLength": 320,
             "description": "业务邮箱"
+          },
+          "productDescription": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "简短产品与工厂描述（1~2000 字；写回企业简介）"
           }
         }
       },
@@ -30615,6 +32165,54 @@
             "items": {
               "type": "string"
             }
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "可选自定义 ICP 名称（1 公司多 ICP 场景）"
+          },
+          "productLines": {
+            "maxItems": 10,
+            "description": "可选：本 ICP 绑定的卖方产品线子集",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "buyerRoles": {
+            "maxItems": 5,
+            "description": "可选：本 ICP 聚焦的下游买家角色（如 distributor / epc_integrator）",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "procurementScenario": {
+            "type": "string",
+            "enum": [
+              "distribution",
+              "factory_direct",
+              "equipment_integration"
+            ],
+            "description": "可选：预选采购场景"
+          },
+          "peerExclusionNotes": {
+            "maxItems": 20,
+            "description": "可选：卖方补充的同行/竞品排除说明",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ActivateIcpDto": {
+        "type": "object",
+        "properties": {
+          "keepExistingActive": {
+            "type": "boolean",
+            "default": false,
+            "description": "为 true 时保留同公司其他已激活 ICP（支持 1 公司多 ICP 并行）；默认 false 保持旧单活语义。"
           }
         }
       },
@@ -31015,6 +32613,175 @@
             "description": "「重新生成」的幂等键（BFF 或客户端生成）。"
           }
         }
+      },
+      "RejudgeIcpLeadsResponseDto": {
+        "type": "object",
+        "properties": {
+          "rejudgeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "icpId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACCEPTED"
+            ]
+          },
+          "candidateCount": {
+            "type": "number",
+            "minimum": 1
+          },
+          "batchCount": {
+            "type": "number",
+            "minimum": 1
+          },
+          "estimatedCostMicros": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "refreshCorroboration": {
+            "type": "boolean"
+          },
+          "refreshWebsiteProfile": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rejudgeId",
+          "icpId",
+          "status",
+          "candidateCount",
+          "batchCount",
+          "estimatedCostMicros",
+          "refreshCorroboration",
+          "refreshWebsiteProfile"
+        ]
+      },
+      "RejudgeIcpLeadsDto": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "必填幂等键（每次触发生成新值，保证同 ICP 多次重判拥有独立预算账户与防重复扣账）"
+          },
+          "maxCompanies": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 100,
+            "description": "本次重判最大公司数（硬顶 100；越界直接 400 拒绝，不静默夹取）"
+          },
+          "batchSize": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 25,
+            "description": "每批公司数（1..25，默认 25，透传给 planRejudgeBatches）"
+          },
+          "refreshCorroboration": {
+            "type": "boolean",
+            "default": true,
+            "description": "重判前是否刷新缺失的 T1/T2 核验（VIES / GLEIF / Wikidata）"
+          },
+          "refreshWebsiteProfile": {
+            "type": "boolean",
+            "default": false,
+            "description": "为 true 时对尚未升级到 website-profile/v3 且缺 vat_id 的公司重抓首页与欧盟法律页"
+          },
+          "includeFresh": {
+            "type": "boolean",
+            "default": false,
+            "description": "仅允许与显式 companyIds 联用：强制重判当前 input_digest 已新鲜的指定公司"
+          },
+          "companyIds": {
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "可选定向公司 UUID v4 白名单（用于小批灰度；空数组直接 400 拒绝）",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "attemptId"
+        ]
+      },
+      "RecordIcpFeedbackDto": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "关联的线索 ID（可选，服务端可自动补齐公司信息）"
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "关联的规范公司 ID（可选）"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "公司域名或官网地址（服务端自动规范化去 www.）"
+          },
+          "companyName": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "公司名称（可选；若提供 companyId/leadId 可自动回填）"
+          },
+          "industry": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "公司所属行业（可选，用于反例上下文与排除沉淀）"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "rejected",
+              "replied_positive",
+              "booked_meeting",
+              "opt_out",
+              "wrong_contact",
+              "bounced"
+            ],
+            "description": "真实外联或人工审核结果类型"
+          },
+          "rejectionReason": {
+            "type": "string",
+            "enum": [
+              "wrong_role_peer",
+              "wrong_industry",
+              "too_small",
+              "wrong_country",
+              "dead_company",
+              "bounced_unreachable"
+            ],
+            "description": "当 outcome 为 rejected 时的结构化驳回原因"
+          },
+          "excludedKeywords": {
+            "maxItems": 10,
+            "description": "可选：补充沉淀到 peer_exclusions.excluded_keywords 的排除关键词",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "可选人工备注（写入反例前会自动脱敏去除个人邮箱与电话）"
+          }
+        },
+        "required": [
+          "outcome"
+        ]
       },
       "ExecuteTaskRefDto": {
         "type": "object",
