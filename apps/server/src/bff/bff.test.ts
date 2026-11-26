@@ -466,7 +466,7 @@ describe('资料库上传与文档转 Claim BFF 透传', () => {
     return { res, sent };
   }
 
-  it('PUT .../seller-documents/:documentId/content 以 binaryBody 与 180s timeoutMs 透传', async () => {
+  it('PUT .../seller-documents/:documentId/content 以 binaryBody 与 600s timeoutMs 透传', async () => {
     const call = vi.fn(async () => ({
       status: 200,
       body: { data: { id: 'd1', status: 'uploaded' } },
@@ -502,7 +502,7 @@ describe('资料库上传与文档转 Claim BFF 透传', () => {
       expect.objectContaining({
         binaryBody: bytes,
         binaryContentType: 'application/pdf',
-        timeoutMs: 180_000,
+        timeoutMs: 600_000,
       }),
     );
   });

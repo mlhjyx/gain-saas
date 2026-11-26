@@ -42,7 +42,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   // 完整缓冲进 51MB Buffer 后再调用 MinIO PutObjectCommand，单侧流式不仅无法降低端到端峰值内存，
   // 且在超过 51MB 引擎销毁连接时易触发 ECONNRESET（被 BFF 折算为 502 而非 413），故先补 180s 超时。
   { method: 'POST', saasPath: 'companies/:companyId/seller-documents/presign', enginePath: '/companies/:companyId/seller-documents/presign', access: 'member' },
-  { method: 'PUT', saasPath: 'companies/:companyId/seller-documents/:documentId/content', enginePath: '/companies/:companyId/seller-documents/:documentId/content', access: 'member', binary: true, timeoutMs: 180_000 },
+  { method: 'PUT', saasPath: 'companies/:companyId/seller-documents/:documentId/content', enginePath: '/companies/:companyId/seller-documents/:documentId/content', access: 'member', binary: true, timeoutMs: 600_000 },
   { method: 'POST', saasPath: 'companies/:companyId/seller-documents/:documentId/commit', enginePath: '/companies/:companyId/seller-documents/:documentId/commit', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents', enginePath: '/companies/:companyId/seller-documents', access: 'member' },
   { method: 'GET', saasPath: 'companies/:companyId/seller-documents/search', enginePath: '/companies/:companyId/seller-documents/search', access: 'member' },

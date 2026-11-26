@@ -84,7 +84,9 @@ async function bootstrap(): Promise<void> {
     new Logger('Bootstrap').warn(`SPA 产物不存在(${distDir}),仅提供 API —— 开发期属预期`);
   }
 
-  await app.listen(config.PORT, config.HOST);
+  const httpServer = await app.listen(config.PORT, config.HOST);
+  // 放宽单次 HTTP 请求总超时至 15 分钟，避免弱网/远程隧道上传 40-50MB 企业 PDF 画册撞上 Node 默认 5 分钟 requestTimeout。
+  httpServer.requestTimeout = 15 * 60 * 1000;
 
   // R4 内部 mTLS 监听：与主监听并存，未配置时不启动（P5b）。
   const r4Tls = await startR4TlsServers(app, config);
