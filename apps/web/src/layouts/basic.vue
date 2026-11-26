@@ -1,13 +1,14 @@
 <script lang="ts" setup>
 import type { NotificationItem } from '@vben/layouts';
 
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import { useTabs, useWatermark } from '@vben/hooks';
 import { useMediaQuery } from '@vueuse/core';
 import { BasicLayout, LockScreen } from '@vben/layouts';
+import { loadLocaleMessages, type SupportedLanguagesType } from '@vben/locales';
 import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useTabbarStore, useUserStore } from '@vben/stores';
 
@@ -17,7 +18,6 @@ import type { GainosUserInfo } from '#/api/core/user';
 import CommandPalette from '#/components/gainos/command-palette.vue';
 import FlowProgressBar from '#/components/gainos/flow-progress-bar.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
-import SettingsDialog from '#/components/gainos/settings-dialog.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { isFlowPath } from '#/composables/use-main-chain-progress';
 import { useAuthStore } from '#/store';
@@ -34,16 +34,20 @@ let notificationPending = false;
 
 const userStore = useUserStore();
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
-// 路由仍是扁平结构；只把 Vben 的菜单数据收进 6 个业务组（工作空间/获客/线索/活动/增长/设置）。
+// 路由仍是扁平结构；只把 Vben 的菜单数据收进业务组（总览/获客与筛选/触达与转化/设置）。
 useMenuGroups();
 
 // pass3 C1：命令面板（⌘K）。pass4：搜索入口移入 SDR 侧栏，顶栏不再承载搜索。
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
-// pass5：设置弹窗（SDR SettingsShell）——侧栏底部「设置」与账号菜单共享入口。
-const settingsOpen = ref(false);
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
+
+/** Wave B3：退役双轨设置弹窗，侧栏与账号菜单「设置」统一导航至整页 /settings/account。 */
+function openSettings(): void {
+  void router.push('/settings/account');
+}
 
 // pass4：主题 / 语言切换从顶栏移入侧栏品牌行（AgentSDR 同款位置）。
 const themeToggleLabel = computed(() => (isDark.value ? 'light' : 'dark'));
@@ -53,9 +57,21 @@ function toggleTheme(): void {
 const langToggleLabel = computed(() =>
   isEnglish.value ? 'Switch to Chinese' : '切换到 English',
 );
-function toggleLocale(): void {
-  void preferences.app.locale;
-  updatePreferences({ app: { locale: isEnglish.value ? 'zh-CN' : 'en-US' } });
+let suppressLocaleRefresh = false;
+async function applyLocaleHotSwitch(next: SupportedLanguagesType): Promise<void> {
+  suppressLocaleRefresh = true;
+  try {
+    await loadLocaleMessages(next);
+    await nextTick();
+    await nextTick();
+  } finally {
+    suppressLocaleRefresh = false;
+  }
+}
+async function toggleLocale(): Promise<void> {
+  const next: SupportedLanguagesType = isEnglish.value ? 'zh-CN' : 'en-US';
+  await applyLocaleHotSwitch(next);
+  updatePreferences({ app: { locale: next } });
 }
 
 // pass5：折叠开关也在品牌行（Vben 侧栏左下角按钮已通过 sidebar.collapsedButton=false 关闭）。
@@ -80,6 +96,15 @@ const { destroyWatermark, updateWatermark } = useWatermark();
 // 这里在文档级监听 auxclick（中键释放）→ 按 data-index 找到页签 → 关闭。
 const tabbarStore = useTabbarStore();
 const { closeTabByKey } = useTabs();
+
+// Vben BasicLayout 内置 watch(i18n.global.locale, refreshAll) 会在切换语言时调用
+// tabbarStore.refresh() 卸载并重建当前路由组件，导致页面未保存表单草稿丢失。
+// 在语言热切换窗口内屏蔽该自动 remount（不影响标签栏手动刷新按钮），实现真正零刷新/零重建。
+const originalTabbarRefresh = tabbarStore.refresh.bind(tabbarStore);
+tabbarStore.refresh = (async (target: Parameters<typeof originalTabbarRefresh>[0]) => {
+  if (suppressLocaleRefresh) return;
+  return await originalTabbarRefresh(target);
+}) as typeof tabbarStore.refresh;
 
 function closeByMiddle(event: MouseEvent): void {
   if (event.button !== 1) return;
@@ -199,17 +224,14 @@ const companyName = computed(
     '',
 );
 
-// 侧栏/菜单标题在路由模块加载时求值一次，切语言后不会热更新（审计 二-06）。
-// 语言切换后整页重载一次，保证导航、页面与通知全部即时切换（URL 与登录态保留）。
-// 2026-11-22：reload 必须等偏好持久化落盘——updatePreferences 的保存是 150ms
-// debounce，立即 reload 会在定时器触发前卸载页面，缓存仍是旧语言，重载后回退
-// （用户实测：切语言整页刷新且切换失败）。延迟 300ms（2×debounce）先存后刷。
+// Wave B3：4 环节零刷新双语热切换（彻底移除 window.location.reload()）。
+// 任何入口切换 preferences.app.locale 时异步加载语言包并刷新通知文案，保留表单草稿与当前页面状态。
 watch(
   () => preferences.app.locale,
-  (next, prev) => {
-    if (prev && next !== prev) {
-      window.setTimeout(() => window.location.reload(), 300);
-    }
+  async (next, prev) => {
+    if (!next || next === prev) return;
+    await applyLocaleHotSwitch(next);
+    void loadNotifications();
   },
 );
 
@@ -352,6 +374,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  tabbarStore.refresh = originalTabbarRefresh;
   window.removeEventListener('gainos:notifications-changed', onNotificationsChanged);
   document.removeEventListener('mousedown', guardMiddleDown, true);
   document.removeEventListener('auxclick', closeByMiddle, true);
@@ -444,12 +467,11 @@ onUnmounted(() => {
     :workspace-name="companyName"
     @logout="handleLogout"
     @open-search="paletteRef?.open()"
-    @open-settings="settingsOpen = true"
+    @open-settings="openSettings"
     @toggle-collapse="toggleSidebarCollapse"
     @toggle-locale="toggleLocale"
     @toggle-theme="toggleTheme"
   />
-  <SettingsDialog v-model:open="settingsOpen" />
   <!-- 主链路进度浮窗：只在主流程页面挂载（公司档案、买家画像、挖掘任务、运行页、买家线索）。 -->
   <FlowProgressBar v-if="isFlowPath(route.path)" />
   <CommandPalette ref="paletteRef" />
@@ -561,5 +583,15 @@ onUnmounted(() => {
 :deep(.vben-sub-menu-content.is-active) {
   color: var(--gs-fg-subtle);
   background: transparent;
+}
+</style>
+
+<style>
+/* 暗色顶栏：Vben 把 .dark 单独挂在隐藏的 <header class="dark ... bg-header"> 容器上，
+   --header 在元素自身解析，默认是 Vben 带蓝调的 222.34deg 10.43% 12.27%（rgb(28, 30, 35)）。
+   此前被退役的 settings-dialog.vue 里的错误全局 .dark 规则掩盖，删除弹窗后暴露。
+   按 gainos.css .dark .dark { --sidebar: 0 0% 12%; } 同原则在布局级收敛为纯中性灰。 */
+.dark [data-layout-region='header'] > header.dark.bg-header {
+  --header: 0 0% 12%;
 }
 </style>

@@ -1,7 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { $t } from '#/locales';
-
 import { navTitle } from '../nav';
 
 const routes: RouteRecordRaw[] = [
@@ -13,15 +11,24 @@ const routes: RouteRecordRaw[] = [
     },
     name: 'Settings',
     path: '/settings',
-    redirect: '/settings/members',
+    redirect: '/settings/account',
     children: [
+      {
+        name: 'SettingsAccount',
+        path: 'account',
+        component: () => import('#/views/settings/account.vue'),
+        meta: {
+          icon: 'lucide:user-cog',
+          title: 'gainosB3.menu.account',
+        },
+      },
       {
         name: 'SettingsMembers',
         path: 'members',
         component: () => import('#/views/settings/members.vue'),
         meta: {
           icon: 'lucide:users-round',
-          title: $t('gainos.menu.members'),
+          title: 'gainos.menu.members',
         },
       },
       {
@@ -31,7 +38,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           authority: ['admin'],
           icon: 'lucide:ban',
-          title: $t('gainos.menu.suppressions'),
+          title: 'gainos.menu.suppressions',
         },
       },
       {
@@ -41,7 +48,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           authority: ['admin'],
           icon: 'lucide:database',
-          title: $t('gainos.menu.sources'),
+          title: 'gainos.menu.sources',
         },
       },
       {
@@ -51,7 +58,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           authority: ['admin'],
           icon: 'lucide:shield-check',
-          title: $t('gainos.menu.privacy'),
+          title: 'gainos.menu.privacy',
         },
       },
       {
@@ -61,7 +68,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           authority: ['admin'],
           icon: 'lucide:scroll-text',
-          title: $t('gainos.menu.audit'),
+          title: 'gainos.menu.audit',
         },
       },
     ],

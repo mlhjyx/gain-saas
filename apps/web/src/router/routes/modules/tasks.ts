@@ -1,7 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { $t } from '#/locales';
-
 import { navTitle } from '../nav';
 
 /**
@@ -23,7 +21,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       activePath: '/tasks',
       hideInMenu: true,
-      title: $t('gainos.tasks.detailTitle'),
+      title: 'gainos.tasks.detailTitle',
     },
     name: 'TaskDetail',
     path: '/tasks/:taskId',

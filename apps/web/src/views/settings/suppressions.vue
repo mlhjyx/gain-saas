@@ -6,7 +6,7 @@
  * 注意引擎语义：DELETE 是「解除申请」（append-only release request），不会物理删除——
  * 页面文案如实呈现，不给「删除成功」的假象。
  */
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 
 import { Alert, Button, Form, Input, Select, Skeleton, Table } from 'ant-design-vue';
 
@@ -15,8 +15,11 @@ import { $t } from '#/locales';
 
 import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
+import GsDrawer from '#/components/gainos/ui/gs-drawer.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
 
-import { formatDate } from '@gain-saas/shared';
+import { formatDate, formatDateTime } from '@gain-saas/shared';
 
 import {
   failureText,
@@ -25,6 +28,10 @@ import {
   type SuppressionRecordView,
   type SuppressionType,
 } from '#/api/gainos';
+import {
+  fetchSuppressionDecisions,
+  type SuppressionDecisionView,
+} from '#/api/settings-account';
 
 defineOptions({ name: 'SettingsSuppressions' });
 
@@ -132,17 +139,110 @@ function release(row: SuppressionRecordView): void {
   });
 }
 
-const typeOptions = TYPES.map((type) => ({ value: type, label: typeLabel(type) }));
-const reasonOptions = REASONS.map((reason) => ({ value: reason, label: reasonLabel(reason) }));
+const typeOptions = computed(() =>
+  TYPES.map((type) => ({ value: type, label: typeLabel(type) })),
+);
+const reasonOptions = computed(() =>
+  REASONS.map((reason) => ({ value: reason, label: reasonLabel(reason) })),
+);
 
-const columns = [
+const columns = computed(() => [
   { key: 'value', dataIndex: 'value', title: $t('gainos.suppressions.colValue') },
   { key: 'type', dataIndex: 'type', title: $t('gainos.suppressions.colType'), width: 130 },
   { key: 'reason', dataIndex: 'reason', title: $t('gainos.suppressions.colReason'), width: 130 },
   { key: 'protectionClass', dataIndex: 'protectionClass', title: $t('gainos.suppressions.colProtection'), width: 140 },
   { key: 'createdAt', dataIndex: 'createdAt', title: $t('gainos.suppressions.colCreated'), width: 130 },
-  { key: 'actions', dataIndex: 'actions', title: '', width: 110 },
-];
+  { key: 'actions', dataIndex: 'actions', title: '', width: 190 },
+]);
+
+// ── 解除/更正审批决策历史抽屉（GET /api/suppressions/:id/decisions）──
+const decisionsOpen = ref(false);
+const decisionsTarget = ref<SuppressionRecordView | null>(null);
+const decisionsRows = ref<SuppressionDecisionView[]>([]);
+const decisionsLoading = ref(false);
+const decisionsLoadingMore = ref(false);
+const decisionsError = ref<string | null>(null);
+const decisionsCursor = ref<string | null>(null);
+const decisionsHasMore = ref(false);
+
+const KNOWN_DECISIONS = new Set([
+  'RELEASE_REQUESTED',
+  'RELEASE_REQUEST_DENIED',
+  'IDENTITY_CORRECTION_REQUESTED',
+]);
+
+const KNOWN_DECISION_REASONS = new Set([
+  'PREFERENCE_RELEASE',
+  'LEGAL_SUPPRESSION_PROTECTED',
+  'LEGAL_PROTECTED',
+  'IDENTITY_MISMATCH',
+  'DUPLICATE_IDENTITY',
+  'OPERATOR_REQUEST',
+  'ADMIN_REVIEW',
+  'MANUAL',
+]);
+
+function decisionLabel(decision?: string | null): string {
+  const code = decision && KNOWN_DECISIONS.has(decision) ? decision : 'UNKNOWN';
+  return $t(`gainosB3.suppressions.decisions.decisionLabel.${code}` as Parameters<typeof $t>[0]);
+}
+
+function decisionTone(decision?: string | null): 'danger' | 'info' | 'neutral' | 'warning' {
+  if (decision === 'RELEASE_REQUEST_DENIED') return 'danger';
+  if (decision === 'RELEASE_REQUESTED') return 'info';
+  if (decision === 'IDENTITY_CORRECTION_REQUESTED') return 'warning';
+  return 'neutral';
+}
+
+function decisionReasonLabel(reasonCode?: string | null): string {
+  if (!reasonCode) return $t('gainosB3.suppressions.decisions.reasonLabel.UNKNOWN');
+  const normalized = reasonCode.trim().toUpperCase();
+  const code = KNOWN_DECISION_REASONS.has(normalized) ? normalized : 'UNKNOWN';
+  return $t(`gainosB3.suppressions.decisions.reasonLabel.${code}` as Parameters<typeof $t>[0]);
+}
+
+async function loadDecisions(reset = true): Promise<void> {
+  const target = decisionsTarget.value;
+  if (!target) return;
+  if (reset) {
+    decisionsLoading.value = true;
+    decisionsCursor.value = null;
+    decisionsHasMore.value = false;
+  } else {
+    decisionsLoadingMore.value = true;
+  }
+  decisionsError.value = null;
+  try {
+    const page = await fetchSuppressionDecisions(target.id, {
+      limit: 50,
+      ...(!reset && decisionsCursor.value ? { cursor: decisionsCursor.value } : {}),
+    });
+    const nextRows = page.data ?? [];
+    if (reset) {
+      decisionsRows.value = nextRows;
+    } else {
+      const seen = new Set(decisionsRows.value.map((item) => item.id));
+      decisionsRows.value = [
+        ...decisionsRows.value,
+        ...nextRows.filter((item) => !seen.has(item.id)),
+      ];
+    }
+    decisionsCursor.value = page.page?.next_cursor ?? null;
+    decisionsHasMore.value = Boolean(page.page?.has_more && page.page?.next_cursor);
+  } catch (err) {
+    decisionsError.value = failureText(err).title;
+  } finally {
+    decisionsLoading.value = false;
+    decisionsLoadingMore.value = false;
+  }
+}
+
+function openDecisions(row: SuppressionRecordView): void {
+  decisionsTarget.value = row;
+  decisionsRows.value = [];
+  decisionsOpen.value = true;
+  void loadDecisions(true);
+}
 
 onMounted(load);
 </script>
@@ -219,16 +319,26 @@ onMounted(load);
           </template>
           <template v-else-if="column.key === 'createdAt'">{{ formatDate(record.createdAt) }}</template>
           <template v-else-if="column.key === 'actions'">
-            <Button
-              danger
-              type="link"
-              size="small"
-              :disabled="releasing === record.id"
-              :loading="releasing === record.id"
-              @click="release(record as SuppressionRecordView)"
-            >
-              {{ $t('gainos.suppressions.release') }}
-            </Button>
+            <div class="flex flex-wrap items-center gap-1">
+              <Button
+                data-gs="suppression-decisions-btn"
+                size="small"
+                type="link"
+                @click="openDecisions(record as SuppressionRecordView)"
+              >
+                {{ $t('gainosB3.suppressions.decisions.button') }}
+              </Button>
+              <Button
+                danger
+                type="link"
+                size="small"
+                :disabled="releasing === record.id"
+                :loading="releasing === record.id"
+                @click="release(record as SuppressionRecordView)"
+              >
+                {{ $t('gainos.suppressions.release') }}
+              </Button>
+            </div>
           </template>
         </template>
       </Table>
@@ -237,6 +347,88 @@ onMounted(load);
       </p>
       <p class="sp__hint">{{ $t('gainos.suppressions.releaseHint') }}</p>
     </section>
+
+    <GsDrawer
+      v-model:open="decisionsOpen"
+      :subtitle="
+        decisionsTarget
+          ? $t('gainosB3.suppressions.decisions.drawerSubtitle', { value: decisionsTarget.value })
+          : undefined
+      "
+      :title="$t('gainosB3.suppressions.decisions.drawerTitle')"
+      size="md"
+    >
+      <div class="grid gap-3" data-gs="suppression-decisions-drawer">
+        <p class="m-0 text-xs leading-relaxed text-[var(--gs-fg-muted)]">
+          {{ $t('gainosB3.suppressions.decisions.note') }}
+        </p>
+
+        <Skeleton v-if="decisionsLoading" active :paragraph="{ rows: 4 }" :title="false" />
+
+        <Alert
+          v-else-if="decisionsError"
+          :message="decisionsError"
+          role="alert"
+          show-icon
+          type="warning"
+        >
+          <template #action>
+            <Button size="small" @click="loadDecisions(true)">{{ $t('gainos.common.retry') }}</Button>
+          </template>
+        </Alert>
+
+        <GsEmpty
+          v-else-if="decisionsRows.length === 0"
+          :title="$t('gainosB3.suppressions.decisions.empty')"
+          data-gs="suppression-decisions-empty"
+          simple
+        />
+
+        <ul v-else class="m-0 grid list-none gap-2.5 p-0" data-gs="suppression-decisions-list">
+          <li
+            v-for="item in decisionsRows"
+            :key="item.id"
+            class="grid gap-1.5 rounded-xl border border-[var(--gs-border)] bg-[var(--gs-surface-2)] p-3"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <GsTag :tone="decisionTone(item.decision)">
+                {{ decisionLabel(item.decision) }}
+              </GsTag>
+              <span class="text-xs text-[var(--gs-fg-muted)]">
+                {{ formatDateTime(item.createdAt) || '—' }}
+              </span>
+            </div>
+            <div class="text-xs text-[var(--gs-fg)]">
+              {{ $t('gainosB3.suppressions.decisions.colReason') }}：{{
+                decisionReasonLabel(item.reasonCode ?? item.requestedReasonCode)
+              }}
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--gs-fg-muted)]">
+              <span>
+                {{ $t('gainosB3.suppressions.decisions.colActor') }}：{{
+                  $t('gainosB3.suppressions.decisions.actorAdmin')
+                }}
+              </span>
+              <span v-if="item.requestedDecision && item.requestedDecision !== item.decision">
+                {{ $t('gainosB3.suppressions.decisions.colRequested') }}：{{
+                  decisionLabel(item.requestedDecision)
+                }}
+              </span>
+            </div>
+          </li>
+        </ul>
+
+        <Button
+          v-if="decisionsHasMore"
+          :loading="decisionsLoadingMore"
+          block
+          data-gs="suppression-decisions-load-more"
+          @click="loadDecisions(false)"
+        >
+          {{ $t('gainosB3.suppressions.decisions.loadMore') }}
+        </Button>
+      </div>
+    </GsDrawer>
   </SettingsShell>
 </template>
 

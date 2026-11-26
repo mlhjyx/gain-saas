@@ -10,9 +10,12 @@ import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { failureText, gainosApi, type MembersResponse } from '#/api/gainos';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { copyText } from '#/utils/clipboard';
 
 defineOptions({ name: 'SettingsMembers' });
+
+const { ensureLoaded, isAdmin, loaded: accessLoaded } = useWorkspaceAccess();
 
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -38,6 +41,7 @@ async function load(): Promise<void> {
 }
 
 function openInvite(): void {
+  if (!isAdmin.value) return;
   inviteLink.value = null;
   inviteForm.email = '';
   inviteForm.role = 'member';
@@ -46,6 +50,7 @@ function openInvite(): void {
 }
 
 async function invite(): Promise<void> {
+  if (!isAdmin.value) return;
   inviteError.value = null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteForm.email.trim())) {
     inviteError.value = $t('gainos.members.errEmail');
@@ -78,6 +83,7 @@ async function copyLink(): Promise<void> {
 }
 
 async function changeRole(id: string, role: 'admin' | 'member'): Promise<void> {
+  if (!isAdmin.value) return;
   try {
     await gainosApi.changeRole(id, role);
     await load();
@@ -87,6 +93,7 @@ async function changeRole(id: string, role: 'admin' | 'member'): Promise<void> {
 }
 
 function remove(id: string): void {
+  if (!isAdmin.value) return;
   feedback.confirm({
     cancelText: $t('gainos.common.cancel'),
     content: $t('gainos.members.confirmRemove'),
@@ -103,20 +110,30 @@ function remove(id: string): void {
   });
 }
 
-onMounted(load);
+onMounted(() => {
+  void Promise.all([ensureLoaded(), load()]);
+});
 </script>
 
 <template>
   <SettingsShell :subtitle="$t('gainos.members.subtitle')" :title="$t('gainos.members.title')">
     <template #actions>
-      <Button type="primary" @click="openInvite">
+      <Button v-if="isAdmin" data-gs="members-invite-btn" type="primary" @click="openInvite">
         {{ $t('gainos.members.invite') }}
       </Button>
     </template>
 
+    <Alert
+      v-if="accessLoaded && !isAdmin"
+      :message="$t('gainosB3.members.readonlyHint')"
+      data-gs="members-readonly-hint"
+      show-icon
+      type="info"
+    />
+
     <div v-if="loading" class="mb__state" role="status">
       <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
-      <span class="mb__state-sr">{ $t('gainos.common.loading') }</span>
+      <span class="mb__state-sr">{{ $t('gainos.common.loading') }}</span>
     </div>
     <Alert
       v-else-if="error"
@@ -147,7 +164,7 @@ onMounted(load);
           :title="$t('gainos.members.emptyTitle')"
         >
           <template #actions>
-            <Button type="primary" @click="openInvite">{{ $t('gainos.members.invite') }}</Button>
+            <Button v-if="isAdmin" type="primary" @click="openInvite">{{ $t('gainos.members.invite') }}</Button>
             <Button @click="$router.push('/workspace')">{{ $t('gainos.menu.groupWorkspace') }}</Button>
           </template>
         </EmptyState>
@@ -157,7 +174,7 @@ onMounted(load);
               <strong>{{ m.email }}</strong>
               <small>{{ m.role === 'admin' ? $t('gainos.members.roleAdmin') : $t('gainos.members.roleMember') }} · {{ $t('gainos.members.joinedAt', { date: m.joinedAt.slice(0, 10) }) }}</small>
             </div>
-            <div class="mb__acts">
+            <div v-if="isAdmin" class="mb__acts">
               <Button
                 size="small"
                 :type="m.role === 'member' ? 'primary' : 'default'"

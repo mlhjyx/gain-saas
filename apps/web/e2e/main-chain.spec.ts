@@ -711,11 +711,14 @@ test('主链路 9：设置 → 禁联名单增删与线索联动文案', async (
   ]);
 
   await loginAs(page);
-  // 设置 → 禁联名单（pass5：底部「设置」打开设置弹窗，分区在弹窗内切换）
+  // 设置 → 禁联名单（Wave B3：底部「设置」直达整页 /settings/account，左侧子导航切至禁联名单）
   await page.locator('.sdr-footer__row', { hasText: '设置' }).click();
-  await page.locator('.gs-settings__row', { hasText: '禁联名单' }).click();
-  await expect(page.locator('.gs-settings__panel')).toBeVisible();
+  await page.waitForURL((url) => url.pathname === '/settings/account');
+  await page.locator('[data-gs="settings-nav-item"]', { hasText: '禁联名单' }).click();
+  await page.waitForURL((url) => url.pathname === '/settings/suppressions');
   await expect(page.getByRole('heading', { name: '禁联名单', exact: true })).toBeVisible();
+  await expect(page.locator('[data-gs="settings-shell"]').last()).toBeVisible();
+  await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
   await expect(page.getByText('名单还是空的')).toBeVisible();
 
   // 新增：邮箱 + 手动原因

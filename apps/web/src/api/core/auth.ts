@@ -5,6 +5,8 @@
  * 真实鉴权一律由 Cookie 完成(同源请求自动携带)。
  * 术语与文案见 packages/shared(PRD §14.2)。
  */
+import { preferences } from '@vben/preferences';
+
 import { baseRequestClient, requestClient } from '#/api/request';
 
 export namespace AuthApi {
@@ -52,9 +54,16 @@ export async function logoutApi() {
   return baseRequestClient.post('/auth/logout');
 }
 
-/** 改密：校验旧密码，保留当前会话并撤销其他设备会话 */
+/**
+ * 改密：校验旧密码，保留当前会话并撤销其他设备会话。
+ * 必须走 baseRequestClient：输错旧密码时服务端返回 HTTP 401，不能经过 requestClient
+ * 的会话过期拦截器，否则会把用户直接踢回登录页（Review Focus #7）。
+ */
 export async function changePasswordApi(data: { currentPassword: string; newPassword: string }) {
-  return requestClient.post('/auth/password', data);
+  return baseRequestClient.post('/auth/password', data, {
+    headers: { 'Accept-Language': preferences.app.locale },
+    withCredentials: true,
+  });
 }
 
 /**

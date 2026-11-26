@@ -148,12 +148,12 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
   await expect(leadsMenu).toHaveAttribute('aria-current', 'page');
   await expect(leadsMenu).toHaveClass(/\bis-active\b/);
 
-  // 设置：底部入口仍打开设置弹窗（Wave B3 统一退役）。
+  // 设置：Wave B3 已退役双轨设置弹窗，底部入口直达整页 /settings/account。
   await page.locator('.sdr-footer__row', { hasText: '设置' }).click();
-  await expect(page.locator('.gs-settings__panel')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: '成员与角色' })).toBeVisible();
-  await page.keyboard.press('Escape');
+  await page.waitForURL((url) => url.pathname === '/settings/account');
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
+  await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
 
   // 周报已重定向至成效复盘 /analytics（无周报内容渲染）
   await page.goto('/reports');

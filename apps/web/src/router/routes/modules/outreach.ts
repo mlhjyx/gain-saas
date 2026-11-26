@@ -1,7 +1,6 @@
 import type { RouteRecordRaw } from 'vue-router';
 
 import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
-import { $t } from '#/locales';
 
 import { navTitle } from '../nav';
 
@@ -29,7 +28,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       activePath: '/outreach',
       hideInMenu: true,
-      title: $t('gainos.menu.campaigns'),
+      title: 'gainos.menu.campaigns',
     },
     name: 'CampaignDetail',
     path: '/outreach/campaigns/:campaignId',

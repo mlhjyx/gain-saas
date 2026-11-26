@@ -20,6 +20,10 @@ import WorkspaceOffboardingCard from './components/workspace-offboarding-card.vu
 import { formatDateTime } from '@gain-saas/shared';
 
 import { failureText, gainosApi, type DeletionRequestView } from '#/api/gainos';
+import {
+  fetchDeletionMirrors,
+  type DeletionMirrorReceiptView,
+} from '#/api/settings-account';
 
 defineOptions({ name: 'SettingsPrivacy' });
 
@@ -48,6 +52,89 @@ const lookupError = ref<{ title: string; next?: string } | null>(null);
 const workspaceId = ref('');
 const workspaceName = ref('');
 const isAdmin = ref(false);
+
+// ── B1 级联清理回执（GET /api/deletion-mirrors，仅管理员只读）──
+const mirrors = ref<DeletionMirrorReceiptView[]>([]);
+const mirrorsTotal = ref(0);
+const mirrorsNextCursor = ref<string | null>(null);
+const mirrorsHasMore = ref(false);
+const mirrorsStatusFilter = ref<string>('ALL');
+const loadingMirrors = ref(false);
+const loadingMoreMirrors = ref(false);
+const mirrorsError = ref<{ title: string; next?: string } | null>(null);
+
+async function loadMirrors(reset = true): Promise<void> {
+  if (!isAdmin.value) return;
+  if (reset) {
+    loadingMirrors.value = true;
+  } else {
+    loadingMoreMirrors.value = true;
+  }
+  mirrorsError.value = null;
+  try {
+    const res = await fetchDeletionMirrors({
+      limit: 20,
+      ...(mirrorsStatusFilter.value !== 'ALL' ? { status: mirrorsStatusFilter.value } : {}),
+      ...(!reset && mirrorsNextCursor.value ? { cursor: mirrorsNextCursor.value } : {}),
+    });
+    const rows = res.items ?? [];
+    if (reset) {
+      mirrors.value = rows;
+    } else {
+      const seen = new Set(mirrors.value.map((item) => item.id));
+      mirrors.value = [...mirrors.value, ...rows.filter((item) => !seen.has(item.id))];
+    }
+    mirrorsTotal.value = res.total;
+    mirrorsNextCursor.value = res.nextCursor;
+    mirrorsHasMore.value = Boolean(res.hasMore && res.nextCursor);
+  } catch (err) {
+    mirrorsError.value = failureText(err);
+  } finally {
+    loadingMirrors.value = false;
+    loadingMoreMirrors.value = false;
+  }
+}
+
+function onMirrorsStatusChange(): void {
+  mirrorsNextCursor.value = null;
+  mirrorsHasMore.value = false;
+  void loadMirrors(true);
+}
+
+function mirrorStatusLabel(status?: string): string {
+  const normalized = (status ?? '').toUpperCase();
+  if (normalized === 'COMPLETED') return $t('gainosB3.privacy.mirrors.statusCompleted');
+  if (normalized === 'FAILED') return $t('gainosB3.privacy.mirrors.statusFailed');
+  if (normalized === 'ERASING') return $t('gainosB3.privacy.mirrors.statusErasing');
+  if (normalized === 'FROZEN') return $t('gainosB3.privacy.mirrors.statusFrozen');
+  if (normalized === 'RECEIVED' || normalized === 'PENDING') {
+    return $t('gainosB3.privacy.mirrors.statusReceived');
+  }
+  return $t('gainosB3.privacy.mirrors.statusUnknown');
+}
+
+const mirrorStatusOptions = computed(() => [
+  { value: 'ALL', label: $t('gainosB3.privacy.mirrors.statusAll') },
+  { value: 'COMPLETED', label: $t('gainosB3.privacy.mirrors.statusCompleted') },
+  { value: 'ERASING', label: $t('gainosB3.privacy.mirrors.statusErasing') },
+  { value: 'FROZEN', label: $t('gainosB3.privacy.mirrors.statusFrozen') },
+  { value: 'RECEIVED', label: $t('gainosB3.privacy.mirrors.statusReceived') },
+  { value: 'FAILED', label: $t('gainosB3.privacy.mirrors.statusFailed') },
+]);
+
+const mirrorColumns = computed(() => [
+  { key: 'id', dataIndex: 'id', title: $t('gainosB3.privacy.mirrors.colId'), width: 130 },
+  { key: 'engineRequestId', dataIndex: 'engineRequestId', title: $t('gainosB3.privacy.mirrors.colRequest'), width: 150 },
+  { key: 'status', dataIndex: 'status', title: $t('gainosB3.privacy.mirrors.colStatus'), width: 130 },
+  { key: 'saasDeleted', dataIndex: 'saasDeleted', title: $t('gainosB3.privacy.mirrors.colDeleted'), width: 150 },
+  { key: 'at', dataIndex: 'at', title: $t('gainosB3.privacy.mirrors.colAt'), width: 180 },
+]);
+
+watch(isAdmin, (admin) => {
+  if (admin) {
+    void loadMirrors(true);
+  }
+});
 
 async function loadWorkspaceMeta(): Promise<void> {
   try {
@@ -439,6 +526,7 @@ onMounted(() => {
             :columns="columns"
             :data-source="requests"
             :loading="loadingList"
+            :pagination="false"
             :scroll="{ x: 760 }"
             row-key="id"
           >
@@ -475,6 +563,97 @@ onMounted(() => {
             {{ $t('gainos.privacy.loadMore') }}
           </Button>
           <p class="m-0 text-xs leading-relaxed text-[var(--gs-fg-subtle)]">{{ $t('gainos.privacy.trackedNote') }}</p>
+        </div>
+      </GsCard>
+
+      <GsCard
+        v-if="isAdmin"
+        :title="$t('gainosB3.privacy.mirrors.title')"
+        data-gs="deletion-mirrors-card"
+      >
+        <template #extra>
+          <div class="flex flex-wrap items-center gap-2">
+            <GsTag v-if="mirrorsTotal > 0" tone="neutral" data-gs="deletion-mirrors-total">
+              {{ $t('gainosB3.privacy.mirrors.totalCount', { count: mirrorsTotal }) }}
+            </GsTag>
+            <div class="w-[150px]" data-gs="deletion-mirrors-status-filter">
+              <GsSelect
+                v-model="mirrorsStatusFilter"
+                :aria-label="$t('gainosB3.privacy.mirrors.filterLabel')"
+                :options="mirrorStatusOptions"
+                @change="onMirrorsStatusChange"
+              />
+            </div>
+            <Button
+              :disabled="loadingMirrors"
+              :loading="loadingMirrors"
+              data-gs="deletion-mirrors-refresh"
+              size="small"
+              @click="loadMirrors(true)"
+            >
+              {{ $t('gainos.common.refresh') }}
+            </Button>
+          </div>
+        </template>
+
+        <div class="grid gap-3">
+          <p class="m-0 text-sm text-[var(--gs-fg-muted)]">
+            {{ $t('gainosB3.privacy.mirrors.desc') }}
+          </p>
+          <Alert v-if="mirrorsError" role="alert" show-icon type="warning">
+            <template #message>{{ mirrorsError.title }}</template>
+            <template v-if="mirrorsError.next" #description>{{ mirrorsError.next }}</template>
+          </Alert>
+
+          <GsEmpty
+            v-if="!loadingMirrors && mirrors.length === 0"
+            :title="$t('gainosB3.privacy.mirrors.empty')"
+            data-gs="deletion-mirrors-empty"
+            simple
+          />
+          <GsTable
+            v-else
+            :columns="mirrorColumns"
+            :data-source="mirrors"
+            :loading="loadingMirrors"
+            :pagination="false"
+            :scroll="{ x: 720 }"
+            data-gs="deletion-mirrors-table"
+            row-key="id"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'id'">
+                <span class="font-mono text-xs text-[var(--gs-fg-2)]">{{ shortId(record.id) }}</span>
+              </template>
+              <template v-else-if="column.key === 'engineRequestId'">
+                <span class="font-mono text-xs text-[var(--gs-fg-2)]">{{ shortId(record.engineRequestId) }}</span>
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <GsTag :tone="statusTone(record.status)">{{ mirrorStatusLabel(record.status) }}</GsTag>
+              </template>
+              <template v-else-if="column.key === 'saasDeleted'">
+                <span class="text-xs font-medium text-[var(--gs-fg)]">
+                  {{ $t('gainosB3.privacy.mirrors.deletedCount', { count: record.saasDeleted }) }}
+                </span>
+              </template>
+              <template v-else-if="column.key === 'at'">
+                <span class="text-xs text-[var(--gs-fg-muted)]">{{ fmtTime(record.at) }}</span>
+              </template>
+            </template>
+          </GsTable>
+
+          <Button
+            v-if="mirrorsHasMore"
+            :loading="loadingMoreMirrors"
+            block
+            data-gs="deletion-mirrors-load-more"
+            @click="loadMirrors(false)"
+          >
+            {{ $t('gainosB3.privacy.mirrors.loadMore') }}
+          </Button>
+          <p class="m-0 text-xs leading-relaxed text-[var(--gs-fg-subtle)]">
+            {{ $t('gainosB3.privacy.mirrors.note') }}
+          </p>
         </div>
       </GsCard>
 
