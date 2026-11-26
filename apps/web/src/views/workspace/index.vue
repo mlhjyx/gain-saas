@@ -5,17 +5,21 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from
 import { useRoute, useRouter } from 'vue-router';
 
 
-import { formatDateTime, glossaryStatus } from '@gain-saas/shared';
+import { formatCredits, formatDateTime, glossaryStatus } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
+import { Button } from 'ant-design-vue';
 
+import { walletApi, type WalletSummaryView } from '#/api/wallet';
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 import { useCountUp } from '#/composables/use-count-up';
+import { regionName } from '#/utils/region-name';
 
 import {
   failureText,
   gainosApi,
+  type AcquisitionTaskView,
   type AppNotification,
   type CompanyCompleteness,
   type CompanyProfile,
@@ -96,6 +100,10 @@ const latestRun = ref<DiscoveryRun | null>(null);
 const completenessByCompany = ref<Record<string, CompanyCompleteness>>({});
 const allLeads = ref<Lead[]>([]);
 const queueCounts = ref<LeadQueueCounts | null>(null);
+const workspaceTasks = ref<AcquisitionTaskView[] | null>(null);
+const workspaceTasksLoading = ref(true);
+const walletSummary = ref<WalletSummaryView | null>(null);
+let dashboardExtrasRequest = 0;
 
 const notifications = ref<AppNotification[]>([]);
 const unreadCount = ref(0);
@@ -244,6 +252,112 @@ const latestRunLink = computed(() => {
     (a, b) => timeValue(b.startedAt) - timeValue(a.startedAt),
   )[0] ?? null;
 });
+
+const todayDate = computed(() =>
+  new Intl.DateTimeFormat(preferences.app.locale, {
+    day: 'numeric',
+    month: 'long',
+    weekday: 'short',
+  }).format(new Date()),
+);
+
+const reviewTo = computed(() => ({
+  path: '/leads',
+  query: { icp: activeIcp.value?.id, queue: 'needs_review' },
+}));
+const findBuyersTo = computed(() => ({
+  path: '/find-buyers',
+  query: { icp: activeIcp.value?.id },
+}));
+const walletTo = { path: '/settings/account', hash: '#wallet' };
+const reviewCount = computed(() => queueCounts.value?.needs_review);
+const reviewRows = computed(() =>
+  recentLeadRows.value.filter((lead) => lead.queue === 'needs_review').slice(0, 3),
+);
+const hasReview = computed(() =>
+  !loading.value && (reviewCount.value ?? reviewRows.value.length) > 0,
+);
+
+// 有同一轮执行的任务记录时，状态以任务为准。尚无执行详情时链接到任务。
+const workspaceTaskRuns = computed(() =>
+  (workspaceTasks.value ?? [])
+    .flatMap((task) => (task.runs ?? []).map((run) => ({
+      name: task.name,
+      runId: run.runId,
+      startedAt: run.startedAt,
+      status: run.status,
+      to: run.runId ? '/runs/' + encodeURIComponent(run.runId) : '/tasks/' + encodeURIComponent(task.id),
+    }))),
+);
+const runningTaskRuns = computed(() =>
+  workspaceTaskRuns.value.filter((run) => run.status === 'RUNNING')
+    .sort((a, b) => timeValue(b.startedAt) - timeValue(a.startedAt)),
+);
+const runningDisplay = computed(() => {
+  const tasks = workspaceTasks.value;
+  if (!tasks) return '—';
+  // /tasks 每空间最多 50 条、每条最近 20 次。命中上限时不能把下界当成全量。
+  const limited = tasks.length >= 50 || tasks.some((task) =>
+    (task.runCount ?? 0) > (task.runs?.length ?? 0),
+  );
+  const engineRun = latestRun.value;
+  const activeLegacyRun = engineRun?.status === 'RUNNING' &&
+    !workspaceTaskRuns.value.some((run) => run.runId === engineRun.id);
+  const count = runningTaskRuns.value.length + Number(activeLegacyRun);
+  return limited ? (count ? count + '+' : '—') : String(count);
+});
+const currentSourcing = computed(() => {
+  if (runningTaskRuns.value[0]) return runningTaskRuns.value[0];
+  const run = latestRun.value;
+  if (run?.id) {
+    return workspaceTaskRuns.value.find((taskRun) => taskRun.runId === run.id) ?? {
+      name: activeIcp.value?.name ?? $t('gainosUi1.dashboard.currentSourcing'),
+      startedAt: run.createdAt,
+      status: run.status,
+      to: '/runs/' + encodeURIComponent(run.id),
+    };
+  }
+  return null;
+});
+const walletDisplay = computed(() => {
+  const wallet = walletSummary.value;
+  if (wallet?.billingEnabled === false) return $t('gainosUi1.dashboard.walletDisabled');
+  if (wallet?.account.status === 'FROZEN') return $t('gainosB3.account.wallet.statusFrozen');
+  const available = wallet?.account.availableCredits;
+  return typeof available === 'string' && /^\d+$/.test(available)
+    ? formatCredits(available)
+    : '—';
+});
+const dashboardSummary = computed(() => [
+  {
+    key: 'pending',
+    label: $t('gainosUi1.dashboard.pending'),
+    to: reviewTo.value,
+    value: reviewCount.value,
+    unit: $t('gainosUi1.dashboard.companyUnit'),
+  },
+  {
+    key: 'accepted',
+    label: $t('gainosUi1.dashboard.accepted'),
+    to: { path: '/leads', query: { icp: activeIcp.value?.id, queue: 'recommended', status: 'QUALIFIED' } },
+    value: queueCounts.value?.queueBasis?.human_accept,
+    unit: $t('gainosUi1.dashboard.companyUnit'),
+  },
+  {
+    key: 'running',
+    label: $t('gainosUi1.dashboard.running'),
+    to: '/tasks',
+    value: runningDisplay.value,
+    unit: runningDisplay.value === '—' ? '' : $t('gainosUi1.dashboard.runUnit'),
+  },
+  {
+    key: 'wallet',
+    label: $t('gainosB3.account.wallet.statAvailable'),
+    to: walletTo,
+    value: walletDisplay.value,
+    unit: /^\d/.test(walletDisplay.value) ? $t('gainosB3.account.wallet.unitCredits') : '',
+  },
+]);
 
 const activeCompanyCompleteness = computed(() => {
   const companyId = activeIcp.value?.companyId;
@@ -991,8 +1105,7 @@ const recentLeadRows = computed(() => {
       (a, b) =>
         timeValue(b.updatedAt ?? b.createdAt) -
         timeValue(a.updatedAt ?? a.createdAt),
-    )
-    .slice(0, 4);
+    );
 });
 
 function timeValue(value?: string | null): number {
@@ -1029,6 +1142,19 @@ function leadCompanyName(lead: Lead): string {
 }
 function leadInitial(lead: Lead): string {
   return leadCompanyName(lead).slice(0, 1).toUpperCase();
+}
+function leadDescription(lead: Lead): string {
+  const country = lead.company?.country;
+  return [country ? regionName(country) : null, lead.company?.industry]
+    .filter(Boolean)
+    .join(' · ') || lead.company?.domain || '';
+}
+function leadDetailTo(lead: Lead) {
+  return {
+    name: 'LeadDetail',
+    params: { leadId: lead.id },
+    query: { icp: lead.icpId ?? activeIcp.value?.id },
+  };
 }
 function leadScoreText(lead: Lead): string {
   if (typeof lead.totalScore !== 'number') return '';
@@ -1234,6 +1360,30 @@ function applyNotifications(value: unknown): void {
   );
 }
 
+function loadDashboardExtras(): void {
+  const request = ++dashboardExtrasRequest;
+  workspaceTasksLoading.value = true;
+  workspaceTasks.value = null;
+  walletSummary.value = null;
+
+  void gainosApi.acquisitionTasks().then(
+    (result) => {
+      if (request !== dashboardExtrasRequest) return;
+      workspaceTasks.value = Array.isArray(result) ? result : null;
+      workspaceTasksLoading.value = false;
+    },
+    () => {
+      if (request === dashboardExtrasRequest) workspaceTasksLoading.value = false;
+    },
+  );
+  void walletApi.summary().then(
+    (result) => {
+      if (request === dashboardExtrasRequest && result?.account) walletSummary.value = result;
+    },
+    () => { /* 余额不可用时，入口仍可打开钱包。 */ },
+  );
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   setupCompaniesStatus.value = 'loading';
@@ -1243,6 +1393,7 @@ async function load(): Promise<void> {
   loadError.value = null;
 
   try {
+    loadDashboardExtras();
     const [sessionRes, companyRes, icpRes, notificationsRes, membersRes] =
       await Promise.allSettled([
         gainosApi.session(),
@@ -1446,6 +1597,8 @@ async function focusNotifications(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 80));
   const element = document.getElementById('workspace-notifications');
   if (!element) return;
+  const details = element.closest('details');
+  if (details) details.open = true;
   element.scrollIntoView({ behavior: 'auto', block: 'start' });
   highlightNotifications.value = true;
   if (highlightTimer) clearTimeout(highlightTimer);
@@ -1468,6 +1621,7 @@ watch(() => route.path, (path, prior) => {
   if (path === '/workspace' && prior !== '/workspace') void load();
 });
 onUnmounted(() => {
+  dashboardExtrasRequest += 1;
   if (highlightTimer) clearTimeout(highlightTimer);
 });
 </script>
@@ -1497,11 +1651,119 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <div class="wk__dashboard" data-gs="workspace-dashboard">
+      <section class="wk__hero" :aria-label="$t('gainos.workspace.cockpitSuggestion')">
+        <p class="wk__hero-date">{{ todayDate }}</p>
+        <h1 class="wk__hero-title">
+          {{ hasReview ? $t('gainosUi1.dashboard.reviewTitle') : nextAction.title }}
+        </h1>
+        <p class="wk__hero-desc">
+          {{
+            hasReview
+              ? reviewCount === undefined
+                ? $t('gainosUi1.dashboard.reviewWithoutCount')
+                : $t('gainosUi1.dashboard.reviewDesc', { count: reviewCount })
+              : nextAction.desc
+          }}
+        </p>
+        <div class="wk__hero-actions">
+          <Button
+            class="wk__cta"
+            shape="round"
+            type="primary"
+            :disabled="loading"
+            @click="router.push(hasReview ? reviewTo : nextAction.to)"
+          >
+            <span aria-hidden="true">→</span>
+            {{ hasReview ? $t('gainosUi1.dashboard.startReview') : actNowLabel }}
+          </Button>
+          <RouterLink class="wk__hero-link" :to="hasReview ? findBuyersTo : heroSecondary.to">
+            {{ hasReview ? $t('gainosUi1.dashboard.startSourcing') : heroSecondary.label }}
+          </RouterLink>
+        </div>
+      </section>
+
+      <section class="wk__overview-stats" data-gs="workspace-summary" :aria-label="$t('gainos.workspace.cockpitToday')">
+        <RouterLink
+          v-for="metric in dashboardSummary"
+          :key="metric.key"
+          :data-gs="'workspace-' + metric.key"
+          :to="metric.to"
+          class="wk__overview-stat"
+        >
+          <span>{{ metric.label }}</span>
+          <strong>{{ loading ? '—' : (metric.value ?? '—') }}</strong>
+          <small v-if="!loading && metric.value !== undefined">{{ metric.unit }}</small>
+        </RouterLink>
+      </section>
+
+      <div class="wk__overview-grid">
+        <section class="wk__overview-recent" data-gs="workspace-recent-review">
+          <header class="wk__overview-head">
+            <div>
+              <h2>{{ $t('gainosUi1.dashboard.recentReview') }}</h2>
+              <span v-if="activeIcp" class="wk__overview-scope">{{ activeIcp.name }}</span>
+            </div>
+            <RouterLink class="wk__overview-link" :to="reviewTo">
+              {{ $t('gainos.workspace.viewAllLeads') }} <span aria-hidden="true">→</span>
+            </RouterLink>
+          </header>
+          <p v-if="loading" class="wk__overview-empty">{{ $t('gainos.common.loading') }}</p>
+          <ul v-else-if="reviewRows.length" class="wk__overview-list">
+            <li v-for="lead in reviewRows" :key="lead.id">
+              <RouterLink class="wk__overview-lead" :to="leadDetailTo(lead)">
+                <span class="wk__overview-avatar" aria-hidden="true">{{ leadInitial(lead) }}</span>
+                <span class="wk__lead-body">
+                  <strong>{{ leadCompanyName(lead) }}</strong>
+                  <small v-if="leadDescription(lead)">{{ leadDescription(lead) }}</small>
+                </span>
+                <span v-if="leadScoreText(lead)" class="wk__overview-score">{{ leadScoreText(lead) }}</span>
+                <span aria-hidden="true" class="wk__overview-arrow">›</span>
+              </RouterLink>
+            </li>
+          </ul>
+          <p v-else class="wk__overview-empty">
+            {{ reviewCount === 0 || !activeIcp ? $t('gainosUi1.dashboard.noReview') : $t('gainosUi1.dashboard.noPreview') }}
+          </p>
+        </section>
+
+        <section class="wk__overview-run" data-gs="workspace-current-run">
+          <h2>{{ $t('gainosUi1.dashboard.currentSourcing') }}</h2>
+          <p v-if="loading" class="wk__overview-empty">{{ $t('gainos.common.loading') }}</p>
+          <template v-else-if="currentSourcing">
+            <span class="gs-badge" :class="currentSourcing.status === 'RUNNING' ? 'gs-badge--processing' : 'gs-badge--neutral'">
+              {{ currentSourcing.status === 'RUNNING' ? $t('gainosUi1.dashboard.running') : runStatusLabel(currentSourcing.status) }}
+            </span>
+            <strong>{{ currentSourcing.name }}</strong>
+            <small v-if="formatTime(currentSourcing.startedAt)">
+              {{ $t('gainosUi1.dashboard.startedAt', { time: formatTime(currentSourcing.startedAt) }) }}
+            </small>
+            <RouterLink class="wk__overview-link" :to="currentSourcing.to">
+              {{ $t('gainosUi1.dashboard.viewProgress') }} <span aria-hidden="true">→</span>
+            </RouterLink>
+          </template>
+          <template v-else>
+            <p v-if="workspaceTasksLoading" class="wk__overview-empty">
+              {{ $t('gainos.common.loading') }}
+            </p>
+            <p v-else class="wk__overview-empty">
+              {{ workspaceTasks === null ? $t('gainosUi1.dashboard.runUnavailable') : $t('gainosUi1.dashboard.noRunning') }}
+            </p>
+            <RouterLink class="wk__overview-link" to="/tasks">
+              {{ $t('gainos.tasks.title') }} <span aria-hidden="true">→</span>
+            </RouterLink>
+          </template>
+        </section>
+      </div>
+    </div>
+
+    <details class="wk__activity" data-gs="workspace-activity">
+      <summary>{{ $t('gainosUi1.dashboard.moreActivity') }}</summary>
     <header class="wk__head">
       <div class="wk__identity">
-        <h1 class="wk__title">
+        <h2 class="wk__title">
           {{ workspaceName || $t('gainos.workspace.title', { greeting }) }}
-        </h1>
+        </h2>
         <div class="wk__meta">
           <span v-if="roleLabel" class="gs-badge gs-badge--neutral">{{ roleLabel }}</span>
           <span v-if="displayName" class="wk__person">{{ displayName }}</span>
@@ -1519,28 +1781,6 @@ onUnmounted(() => {
         {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
       </button>
     </header>
-
-    <!-- pass3 C5：今日建议 hero 大卡（工作台最上方，区别于普通卡）。 -->
-    <section class="wk__hero" :aria-label="$t('gainos.workspace.cockpitSuggestion')">
-      <div class="wk__hero-main">
-        <p class="wk__hero-kicker">{{ $t('gainos.workspace.cockpitSuggestion') }}</p>
-        <h2 class="wk__hero-title">{{ nextAction.title }}</h2>
-        <p v-if="nextAction.desc" class="wk__hero-desc">{{ nextAction.desc }}</p>
-      </div>
-      <div class="wk__hero-actions">
-        <button
-          type="button"
-          class="wk__cta"
-          :disabled="loading"
-          @click="router.push(nextAction.to)"
-        >
-          {{ actNowLabel }} <span aria-hidden="true">→</span>
-        </button>
-        <RouterLink class="wk__hero-link" :to="heroSecondary.to">
-          {{ heroSecondary.label }} <span aria-hidden="true">→</span>
-        </RouterLink>
-      </div>
-    </section>
 
     <div class="wk__grid">
       <div class="wk__main">
@@ -1764,7 +2004,7 @@ onUnmounted(() => {
             {{ $t('gainos.workspace.recentLeadsEmpty') }}
           </p>
           <ul v-else class="wk__lead-list">
-            <li v-for="lead in recentLeadRows" :key="lead.id">
+            <li v-for="lead in recentLeadRows.slice(0, 4)" :key="lead.id">
               <button type="button" class="wk__lead" @click="openLead(lead)">
                 <span class="wk__lead-avatar" aria-hidden="true">{{ leadInitial(lead) }}</span>
                 <span class="wk__lead-body">
@@ -1781,6 +2021,7 @@ onUnmounted(() => {
         </section>
       </aside>
     </div>
+    </details>
   </div>
 </template>
 
@@ -2201,25 +2442,6 @@ onUnmounted(() => {
   box-shadow: 0 0 0 4px var(--gs-accent-soft);
 }
 
-.wk__cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 40px;
-  border: 0;
-  border-radius: var(--gs-radius-btn);
-  background: var(--gs-accent-cta);
-  color: var(--gs-accent-cta-fg);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: var(--gs-shadow-xs);
-}
-.wk__cta:hover { background: var(--gs-accent-cta-hover); }
-.wk__cta:disabled { cursor: default; opacity: 0.6; }
-
 .wk__lead-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .wk__lead {
   display: flex;
@@ -2306,54 +2528,186 @@ onUnmounted(() => {
   .wk__alerts { scroll-margin-top: 16px; }
 }
 
-/* ── pass3 C5：今日建议 hero 大卡 ── */
-.wk__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-  padding: 24px 28px;
-  border: 1px solid var(--gs-accent-soft-border);
-  border-radius: var(--gs-radius-20);
-  background: var(--gs-accent-soft);
-  box-shadow: var(--gs-shadow-card);
+.wk__dashboard {
+  container: workspace-dashboard / inline-size;
+  width: 100%;
+  max-width: 965px;
+  margin-inline: auto;
 }
-.wk__hero-main { min-width: 0; flex: 1; }
-.wk__hero-kicker {
-  margin: 0 0 6px;
-  color: var(--gs-accent-strong);
+
+.wk__hero {
+  padding: 70px 10px 50px;
+  text-align: center;
+}
+.wk__hero-date {
+  margin: 0 0 14px;
+  color: var(--gs-fg-muted);
   font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-weight: 600;
 }
 .wk__hero-title {
   margin: 0;
   color: var(--gs-fg);
-  font-size: 22px;
-  line-height: 30px;
-  font-weight: 500;
+  font-size: clamp(32px, 5.8cqi, 56px);
+  line-height: 1.23;
+  font-weight: 720;
+  letter-spacing: -0.045em;
   overflow-wrap: anywhere;
 }
 .wk__hero-desc {
-  margin: 6px 0 0;
   max-width: 640px;
+  margin: 12px auto 0;
   color: var(--gs-fg-muted);
-  font-size: 13.5px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 1.55;
 }
-.wk__hero-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.wk__hero-link {
+.wk__hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 23px;
+}
+.wk__cta.ant-btn {
+  width: auto;
+  min-height: 42px;
+  padding-inline: 16px;
+  border-color: #285a47;
+  background: #285a47;
+  color: #fff;
+  font-weight: 650;
+  box-shadow: none;
+}
+.wk__cta.ant-btn:not(:disabled):hover {
+  border-color: #204636;
+  background: #204636;
+}
+.wk__cta.ant-btn:disabled { opacity: 0.55; }
+.wk__hero-link,
+.wk__overview-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: var(--gs-accent-strong);
-  font-size: 13.5px;
-  font-weight: 500;
+  gap: 5px;
+  min-height: 34px;
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 650;
   text-decoration: none;
 }
-.wk__hero-link:hover { color: var(--gs-accent); text-decoration: underline; }
+.wk__hero-link { padding: 4px 10px; }
+.wk__hero-link:hover,
+.wk__overview-link:hover { text-decoration: underline; }
+.wk__overview-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 13px 0;
+  border-block: 1px solid var(--gs-divider);
+}
+.wk__overview-stat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px 8px;
+  min-height: 44px;
+  padding: 6px 8px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+.wk__overview-stat + .wk__overview-stat { border-left: 1px solid var(--gs-divider); }
+.wk__overview-stat:hover { background: var(--gs-bg-soft); }
+.wk__overview-stat strong {
+  color: var(--gs-fg);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+.wk__overview-stat small { font-size: 11px; }
+.wk__overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(240px, 1fr);
+  align-items: start;
+  gap: 28px;
+  margin-top: 23px;
+}
+.wk__overview-head { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.wk__overview-head h2,
+.wk__overview-run h2 {
+  margin: 9px 0 5px;
+  color: var(--gs-fg);
+  font-size: 16px;
+  font-weight: 680;
+}
+.wk__overview-scope,
+.wk__overview-empty {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+}
+.wk__overview-list { margin: 9px 0 0; padding: 0; list-style: none; }
+.wk__overview-list li { border-bottom: 1px solid var(--gs-divider); }
+.wk__overview-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  color: var(--gs-fg);
+  text-decoration: none;
+}
+.wk__overview-lead:hover { background: var(--gs-bg-soft); }
+.wk__overview-avatar {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--gs-success-bg);
+  color: var(--gs-success-fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+.wk__overview-score,
+.wk__overview-arrow { color: var(--gs-fg-muted); }
+.wk__overview-run {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px 17px;
+  border-radius: 14px;
+  background: var(--gs-bg-soft);
+  overflow-wrap: anywhere;
+}
+.wk__overview-run small { color: var(--gs-fg-muted); }
+.wk__activity {
+  width: 100%;
+  max-width: 965px;
+  margin: 6px auto 0;
+}
+.wk__activity summary {
+  width: fit-content;
+  margin-bottom: 15px;
+  padding-block: 5px;
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wk__activity .wk__head { margin-bottom: 15px; }
+.wk__hero-link:focus-visible,
+.wk__overview-link:focus-visible,
+.wk__overview-stat:focus-visible,
+.wk__overview-lead:focus-visible {
+  outline: 2px solid var(--gs-accent);
+  outline-offset: 2px;
+}
+@container workspace-dashboard (max-width: 640px) {
+  .wk__hero { padding-block: 34px 29px; }
+  .wk__overview-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 0; }
+  .wk__overview-stat:nth-child(odd) { border-left: 0; }
+  .wk__overview-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
 
 /* ── pass3 C4：漏斗阶段 hover 抬升 ── */
 .wk__stage {

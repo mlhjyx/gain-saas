@@ -32,6 +32,7 @@ test('pass2 cockpit actions: suggestion, alert go, read-only note', async ({ pag
   await page.goto('/workspace');
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(500);
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   const alertGo = page.getByRole('button', { name: /去处理/ });
   await expect(alertGo).toBeVisible();
   await alertGo.click();
@@ -41,5 +42,6 @@ test('pass2 cockpit actions: suggestion, alert go, read-only note', async ({ pag
   await page.goto('/workspace');
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(500);
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   await expect(page.getByText('在目标页完成').first()).toBeVisible();
 });

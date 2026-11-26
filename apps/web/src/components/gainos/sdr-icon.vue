@@ -85,6 +85,23 @@ const vbenComponent = computed(() => VBEN_MAP[normalized.value] ?? null);
   />
   <!-- 标准 Lucide 24×24 静态路径（0ms 同步渲染） -->
   <svg
+    v-else-if="normalized === 'lucide:wallet'"
+    :height="size"
+    :width="size"
+    aria-hidden="true"
+    class="sdr-icon"
+    fill="none"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="1.85"
+    viewBox="0 0 24 24"
+  >
+    <path d="M20 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2" />
+    <path d="M3 6a2 2 0 0 0 2 2h15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-5a4 4 0 0 1 0-8" />
+    <path d="M16 12h.01" />
+  </svg>
+  <svg
     v-else-if="normalized === 'lucide:building-2'"
     :height="size"
     :width="size"

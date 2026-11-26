@@ -26,7 +26,7 @@ import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 // 侧栏标记显式传入：覆盖 localStorage 里可能残留的旧 logo
-const logoGainos = '/logo-gainos.svg?v=pass3';
+const logoGainos = '/logo-gainos.svg?v=workspace';
 
 const notifications = ref<NotificationItem[]>([]);
 const notificationLoading = ref(false);

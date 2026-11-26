@@ -57,6 +57,7 @@ test('C5 hero 卡 + C6 行动完成反馈', async ({ page }) => {
   await expect(hero.getByRole('link').first()).toBeVisible();
 
   // C6：行动清单有「完成」按钮；点击后划线 → 归档 → toast
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   const done = page.getByRole('button', { name: /^完成：/ }).first();
   await expect(done).toBeVisible();
   const itemCount = await page.locator('.wk__action').count();

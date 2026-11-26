@@ -99,8 +99,10 @@ test('深色模式：tokens 生效、关键与新增路由（含 /ops）无横�
   }> = [];
 
   for (const path of PAGES) {
-    await page.goto(path);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.goto(path, { waitUntil: 'domcontentloaded' });
+    // 轮询和传输连接可能保持活跃，页面可用后仍要执行所有对比度检查。
+    await page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {});
+    await expect(page.locator('main').first(), path + ' 应渲染主要区域').toBeVisible({ timeout: 12000 });
     await page.locator('.loading').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(350);
 

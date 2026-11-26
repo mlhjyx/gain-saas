@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
   Alert,
@@ -43,6 +43,7 @@ interface ErrorBanner {
 const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{10,}$/;
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const { ensureLoaded, isAdmin, loaded: accessLoaded } = useWorkspaceAccess();
@@ -218,6 +219,14 @@ const usageSummary = ref<WorkspaceUsageSummaryView | null>(null);
 const usageError = ref<ErrorBanner | null>(null);
 const walletSummary = ref<WalletSummaryView | null>(null);
 const walletUnavailable = ref(false);
+const walletSection = ref<HTMLElement | null>(null);
+
+watch([() => route.hash, walletSection], ([hash, section]) => {
+  if (route.path === '/settings/account' && hash === '#wallet' && section) {
+    section.focus({ preventScroll: true });
+    section.scrollIntoView({ block: 'start' });
+  }
+}, { flush: 'post' });
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -703,8 +712,11 @@ onMounted(() => {
 
             <!-- 3b. 积分钱包摘要（直接复用 GET /api/wallet/summary，不另造旧预算接口） -->
             <section
-              class="grid gap-3 border-t border-[var(--gs-divider)] pt-4"
+              id="wallet"
+              ref="walletSection"
+              class="grid scroll-mt-4 gap-3 border-t border-[var(--gs-divider)] pt-4"
               data-gs="account-wallet-section"
+              tabindex="-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-2">

@@ -29,9 +29,9 @@
 
   /* 表面与背景（PR-UI1：浅色微冷灰侧栏 #F7F8FA 衬出纯白主画布 #FFFFFF） */
   --gs-bg: #ffffff;
-  --gs-sidebar-bg: #f7f8fa;
-  --gs-sidebar-hover: rgba(23, 23, 23, 0.045);
-  --gs-sidebar-active: rgba(23, 23, 23, 0.08);
+  --gs-sidebar-bg: #f2f4f0;
+  --gs-sidebar-hover: #ecf0eb;
+  --gs-sidebar-active: #e3ebe3;
   --gs-surface: #ffffff;
   --gs-surface-2: #f5f5f5;
   --gs-surface-3: #fafafa;

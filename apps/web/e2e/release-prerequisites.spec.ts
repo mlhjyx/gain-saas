@@ -120,6 +120,7 @@ test('workspace retains its empty KPI values and company navigation', async ({ p
   const errors = observeErrors(page);
   await installMockBackend(page);
   await loginAs(page);
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   await expect(page.locator('.wk__kpi--companies .wk__kpi-value')).toHaveText('0');
   await expect(page.locator('.wk__kpi--run .wk__kpi-value')).toHaveText('尚未发起');
   await page.locator('.wk__kpi--companies').click();
@@ -136,6 +137,7 @@ test('English workspace loads after changing the application language', async ({
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
   await page.waitForURL(/\/workspace/);
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   await expect(page.locator('.wk__kpi--companies .wk__kpi-value')).toHaveText('0');
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.locator('.wk__kpi--run .wk__kpi-value')).toHaveText('Not started');

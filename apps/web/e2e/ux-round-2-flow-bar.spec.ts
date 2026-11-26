@@ -179,7 +179,7 @@ test('站内离开主流程页面再回来：芯片自动隐藏与恢复，底�
   await expect(wrap(page)).toHaveCount(0);
   await expect.poll(viewPad).toBe('0px');
 
-  await expect(nav.getByText('获客主线', { exact: true })).toBeVisible();
+  await expect(nav.getByText('获客与筛选', { exact: true })).toBeVisible();
   await nav.getByRole('menuitem', { name: '买家线索' }).click();
   await page.waitForURL(/\/leads$/);
   await expect(chip(page)).toBeVisible();
