@@ -571,6 +571,9 @@ export async function setup(page: Page, cell: Cell) {
   const open = async (second = false) => {
     if (actionStart === null) actionStart = backend.calls.length;
     // 主档案卡与关联公司卡各自有「更多」菜单，市场候选收在菜单里。
+    // 先等上一次「更多」菜单的关闭过渡（ant-slide-up-leave，~200ms）彻底退场，
+    // 否则窄屏下紧接着 open(true) 会误点到第一家公司仍在淡出的菜单项。
+    await expect(page.locator(".ant-dropdown:visible")).toHaveCount(0);
     const scope = second
       ? page.locator('[data-gs="related-company"]').first()
       : page.locator('[data-gs="primary-company"]');
@@ -580,11 +583,11 @@ export async function setup(page: Page, cell: Cell) {
         exact: true,
       })
       .click();
-    // 先开过的「更多」菜单会留在 DOM 里；只点当前展开的那层菜单项。
+    // 先开过的「更多」菜单会留在 DOM 里；只点当前展开且未处于退场过渡的那层菜单项。
     // 窄屏下 antd 的定位层会被 Playwright 判为不可见（但实际已画出），
     // 所以这里等节点挂载后用 DOM click 触发，仍然走真实的菜单事件链。
     const item = page
-      .locator(".ant-dropdown:visible")
+      .locator(".ant-dropdown:visible:not(.ant-dropdown-hidden):not(.ant-slide-up-leave)")
       .last()
       .locator(".ant-dropdown-menu-item")
       .filter({ hasText: cell.lang === "zh-CN" ? "市场候选" : "Market candidates" })
