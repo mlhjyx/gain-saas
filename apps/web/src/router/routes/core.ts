@@ -56,7 +56,6 @@ const coreRoutes: RouteRecordRaw[] = [
     meta: {
       hideInMenu: true,
       hideInTab: true,
-      ignoreAccess: true,
       noBasicLayout: true,
       title: $t('gainos.onboarding.title'),
     },

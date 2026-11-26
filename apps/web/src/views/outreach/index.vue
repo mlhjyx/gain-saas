@@ -7,6 +7,7 @@
  * - 支持读取 route.query.lead 预选线索，一键预填到当前草稿批次或引导先建批次。
  */
 import type {
+  CampaignSummary,
   CanonicalContact,
   Lead,
   OutreachBatchDetail,
@@ -38,6 +39,7 @@ import {
 } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import PageContainer from '#/components/gainos/page-container.vue';
@@ -64,6 +66,15 @@ const busy = ref<string | null>(null);
 
 const showCreate = ref(false);
 const batchName = ref('');
+const selectedCampaignId = ref<string | undefined>(undefined);
+const campaigns = ref<CampaignSummary[]>([]);
+
+const campaignOptions = computed(() =>
+  campaigns.value.map((campaign) => ({
+    value: campaign.id,
+    label: campaign.name,
+  })),
+);
 
 interface DraftForm {
   contactRef: string;
@@ -257,6 +268,95 @@ async function executeSendBatch(): Promise<void> {
   }
 }
 
+const auditSummary = computed(() => {
+  const raw = auditPackageData.value;
+  if (!raw || typeof raw !== 'object') return null;
+  const nested =
+    raw.package && typeof raw.package === 'object'
+      ? (raw.package as Record<string, unknown>)
+      : null;
+  const batchObj =
+    nested?.batch && typeof nested.batch === 'object'
+      ? (nested.batch as Record<string, unknown>)
+      : null;
+  const approvalObj =
+    nested?.approval && typeof nested.approval === 'object'
+      ? (nested.approval as Record<string, unknown>)
+      : null;
+  const authObj =
+    nested?.authorization && typeof nested.authorization === 'object'
+      ? (nested.authorization as Record<string, unknown>)
+      : null;
+  const draftsList = Array.isArray(nested?.drafts)
+    ? (nested.drafts as Array<Record<string, unknown>>)
+    : null;
+
+  const statusCounts = new Map<string, number>();
+  if (draftsList) {
+    for (const item of draftsList) {
+      const st = typeof item.status === 'string' && item.status ? item.status : 'DRAFT';
+      statusCounts.set(st, (statusCounts.get(st) ?? 0) + 1);
+    }
+  }
+  const statusBreakdown = [...statusCounts.entries()]
+    .map(([st, count]) => `${label('outreachDraft', st)} ${count}`)
+    .join(' · ');
+
+  const batchStatusRaw =
+    (typeof batchObj?.status === 'string' && batchObj.status) || detail.value?.status || null;
+  const approvalStateRaw =
+    typeof approvalObj?.state === 'string' && approvalObj.state ? approvalObj.state : null;
+  const approvalStateText = approvalStateRaw
+    ? (glossaryStatus('approval', approvalStateRaw, preferences.app.locale)?.label ??
+        approvalStateRaw)
+    : null;
+  const approvalAt =
+    typeof approvalObj?.decidedAt === 'string' && approvalObj.decidedAt
+      ? when(approvalObj.decidedAt)
+      : '';
+  const approvalText = approvalStateText
+    ? approvalAt
+      ? `${approvalStateText} · ${approvalAt}`
+      : approvalStateText
+    : $t('gainosP0.outreach.auditSummaryApprovalNone');
+
+  const draftTotal = draftsList
+    ? draftsList.length
+    : typeof raw.draftsCount === 'number'
+      ? raw.draftsCount
+      : (detail.value?.drafts.length ?? 0);
+
+  const digest =
+    (typeof raw.contentHash === 'string' && raw.contentHash) ||
+    (typeof batchObj?.contentHash === 'string' && batchObj.contentHash) ||
+    (typeof raw.packageHash === 'string' && raw.packageHash) ||
+    '—';
+
+  return {
+    batchName:
+      (typeof batchObj?.name === 'string' && batchObj.name) || detail.value?.name || '—',
+    batchStatus: batchStatusRaw ? label('outreachBatch', batchStatusRaw) : '—',
+    approvalText,
+    draftTotal,
+    statusBreakdown,
+    consumedUses: typeof authObj?.consumedUses === 'number' ? authObj.consumedUses : null,
+    generatedAt:
+      typeof nested?.generatedAt === 'string' && nested.generatedAt
+        ? when(nested.generatedAt)
+        : '—',
+    digest,
+  };
+});
+
+async function loadCampaigns(): Promise<void> {
+  try {
+    const rows = await gainosApi.campaigns();
+    campaigns.value = Array.isArray(rows) ? rows : [];
+  } catch {
+    campaigns.value = [];
+  }
+}
+
 async function openAuditPackage(): Promise<void> {
   if (!detail.value || busy.value) return;
   busy.value = 'audit';
@@ -393,9 +493,14 @@ async function createBatch(): Promise<void> {
   busy.value = 'create';
   error.value = null;
   try {
-    const created = await gainosApi.createOutreachBatch({ name: batchName.value.trim() });
+    const campaignId = selectedCampaignId.value?.trim() || undefined;
+    const created = await gainosApi.createOutreachBatch({
+      name: batchName.value.trim(),
+      ...(campaignId ? { campaignId } : {}),
+    });
     showCreate.value = false;
     batchName.value = '';
+    selectedCampaignId.value = undefined;
     await loadBatches();
     await selectBatch(created.id);
     if (autoOpenAfterCreate.value && preselectedLead.value) {
@@ -605,17 +710,30 @@ async function saveDraft(): Promise<void> {
   }
 }
 
-async function removeDraft(draft: OutreachDraftView): Promise<void> {
+function removeDraft(draft: OutreachDraftView): void {
   if (!detail.value) return;
-  busy.value = `remove:${draft.id}`;
-  try {
-    await gainosApi.removeOutreachDraft(detail.value.id, draft.id);
-    await selectBatch(detail.value.id);
-  } catch (err) {
-    error.value = failureText(err);
-  } finally {
-    busy.value = null;
-  }
+  const batchId = detail.value.id;
+  feedback.confirm({
+    title: $t('gainosP0.outreach.removeDraftTitle'),
+    content: $t('gainosP0.outreach.removeDraftConfirm', {
+      recipient: draft.recipientEmail,
+      subject: draft.subject,
+    }),
+    okText: $t('gainosP0.outreach.removeDraftOk'),
+    cancelText: $t('gainos.outreach.cancel'),
+    okType: 'danger',
+    onOk: async () => {
+      busy.value = `remove:${draft.id}`;
+      try {
+        await gainosApi.removeOutreachDraft(batchId, draft.id);
+        await selectBatch(batchId);
+      } catch (err) {
+        error.value = failureText(err);
+      } finally {
+        busy.value = null;
+      }
+    },
+  });
 }
 
 async function submitBatch(): Promise<void> {
@@ -732,7 +850,12 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([loadBatches(), hydrateLeadFromRoute(), loadReadinessAndBrochures()]);
+  await Promise.all([
+    loadBatches(),
+    hydrateLeadFromRoute(),
+    loadReadinessAndBrochures(),
+    loadCampaigns(),
+  ]);
 });
 </script>
 
@@ -786,10 +909,22 @@ onMounted(async () => {
       <Form.Item :label="$t('gainos.outreach.nameLabel')">
         <Input v-model:value="batchName" :maxlength="200" :placeholder="$t('gainos.outreach.namePlaceholder')" style="width: 280px" />
       </Form.Item>
+      <Form.Item :label="$t('gainosP0.outreach.campaignLabel')">
+        <div class="w-[240px]">
+          <Select
+            v-model:value="selectedCampaignId"
+            :options="campaignOptions"
+            :placeholder="$t('gainosP0.outreach.campaignPlaceholder')"
+            allow-clear
+            data-gs="batch-campaign-select"
+            style="width: 100%"
+          />
+        </div>
+      </Form.Item>
       <Button type="primary" :disabled="busy === 'create' || !batchName.trim()" :loading="busy === 'create'" @click="createBatch">
         {{ $t('gainos.outreach.create') }}
       </Button>
-      <Button @click="showCreate = false">
+      <Button @click="showCreate = false; selectedCampaignId = undefined">
         {{ $t('gainos.outreach.cancel') }}
       </Button>
     </Form>
@@ -973,7 +1108,33 @@ onMounted(async () => {
       data-gs="audit-package-modal"
       @cancel="auditModalOpen = false"
     >
-      <pre class="ob__audit-pre">{{ JSON.stringify(auditPackageData, null, 2) }}</pre>
+      <dl v-if="auditSummary" class="ob__audit-summary" data-gs="audit-package-summary">
+        <dt>{{ $t('gainosP0.outreach.auditSummaryBatch') }}</dt>
+        <dd>{{ auditSummary.batchName }}</dd>
+        <dt>{{ $t('gainosP0.outreach.auditSummaryStatus') }}</dt>
+        <dd>{{ auditSummary.batchStatus }}</dd>
+        <dt>{{ $t('gainosP0.outreach.auditSummaryApproval') }}</dt>
+        <dd>{{ auditSummary.approvalText }}</dd>
+        <dt>{{ $t('gainosP0.outreach.auditSummaryDrafts') }}</dt>
+        <dd>
+          {{ $t('gainosP0.outreach.auditSummaryDraftTotal', { count: auditSummary.draftTotal }) }}
+          <span v-if="auditSummary.statusBreakdown" class="ob__muted">
+            · {{ auditSummary.statusBreakdown }}
+          </span>
+        </dd>
+        <template v-if="auditSummary.consumedUses !== null">
+          <dt>{{ $t('gainosP0.outreach.auditSummaryAuth') }}</dt>
+          <dd class="tabular-nums">{{ auditSummary.consumedUses }}</dd>
+        </template>
+        <dt>{{ $t('gainosP0.outreach.auditSummaryExportedAt') }}</dt>
+        <dd>{{ auditSummary.generatedAt }}</dd>
+        <dt>{{ $t('gainosP0.outreach.auditSummaryDigest') }}</dt>
+        <dd><code class="ob__audit-digest">{{ auditSummary.digest }}</code></dd>
+      </dl>
+      <details class="error-notice__details ob__audit-raw">
+        <summary>{{ $t('gainosP0.outreach.auditRawToggle') }}</summary>
+        <pre class="ob__audit-pre">{{ JSON.stringify(auditPackageData, null, 2) }}</pre>
+      </details>
     </Modal>
 
     <Modal
@@ -1135,7 +1296,13 @@ onMounted(async () => {
 }
 .ob__secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .ob__error { color: var(--gs-danger); margin: 0; }
-.ob__audit-pre { margin: 0; max-height: 420px; overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--gs-fg-2); }
+.ob__audit-summary { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 14px; margin: 0 0 14px; font-size: 13px; }
+.ob__audit-summary dt { color: var(--gs-fg-muted); }
+.ob__audit-summary dd { margin: 0; color: var(--gs-fg); overflow-wrap: anywhere; }
+.ob__audit-digest { font-family: var(--gs-font-mono); font-size: 12px; color: var(--gs-fg-2); }
+.ob__audit-raw { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--gs-divider); font-size: 12.5px; color: var(--gs-fg-muted); }
+.ob__audit-raw summary { cursor: pointer; }
+.ob__audit-pre { margin: 8px 0 0; max-height: 360px; overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--gs-fg-2); background: var(--gs-surface-2); padding: 10px; border-radius: 8px; }
 .ob__icebreakers { border: 1px solid var(--gs-divider); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 6px; background: var(--gs-surface-2); }
 .ob__icebreakers-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--gs-fg); }
 .ob__icebreaker-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 12.5px; }

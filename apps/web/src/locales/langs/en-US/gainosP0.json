@@ -1,0 +1,107 @@
+{
+  "campaigns": {
+    "backToList": "Back to campaigns",
+    "draftSucceeded": "Plan draft generated. Review it before submitting for approval.",
+    "draftPollingTimeout": "Drafting is still in progress in the background. Refresh later or author a plan version manually.",
+    "needsHumanTitle": "Automatic planning paused — manual revision needed",
+    "needsHumanDesc": "Automatic replanning reached its limit without a ready plan. Review the issues below or create a draft version manually.",
+    "manualRevisionBtn": "Create manual revision",
+    "manualRevisionTitle": "Create plan version manually",
+    "manualRevisionSaved": "Manual revision saved as a draft. Review it before submitting for approval.",
+    "manualObjectiveLabel": "Objective",
+    "manualObjectivePlaceholder": "e.g. Discover German industrial pump distributors",
+    "manualMetricLabel": "Success metric (optional)",
+    "manualMetricPlaceholder": "e.g. Qualify 30 matching distributors",
+    "manualAudienceLabel": "Target customer profiles (select at least one)",
+    "manualAudiencePlaceholder": "Select target customer profiles",
+    "manualSizeCapLabel": "Max companies per profile",
+    "manualBudgetLabel": "Budget cap (USD, optional)",
+    "manualMaxReplansLabel": "Auto-replan limit (0–2)",
+    "manualSubmit": "Save as draft version",
+    "manualRequiredError": "Enter an objective, select at least one target customer profile, and set a valid cap (1–1000).",
+    "conclusion": "{objective} (Audience: {audience}; up to {sizeCap} companies per profile)",
+    "conclusionWithBudget": "{objective} (Audience: {audience}; up to {sizeCap} companies per profile; budget cap {budget})",
+    "motionType": {
+      "discovery": "Discover buyers (search only, no outreach)",
+      "outreach": "Controlled outreach",
+      "enrichment": "Enrich company & contact details",
+      "other": "Planned motion"
+    },
+    "motionItem": "{action} ({audience})",
+    "actorType": {
+      "user": "Member",
+      "service": "System service",
+      "system": "System",
+      "engine": "Engine",
+      "unknown": "System"
+    }
+  },
+  "t0Compliance": {
+    "consentRequired": "{country} · Prior opt-in required for cold e-mail",
+    "reviewRequired": "{country} · Regional compliance review required",
+    "ukCorporate": "UK · Corporate B2B outreach allowed (PECR)",
+    "gdprLi": "{country} · EU B2B outreach (privacy & opt-out notice required)",
+    "usCanSpam": "US · Commercial e-mail footer & opt-out required",
+    "warmWhatsapp": "{country} · E-mail & compliant manual WhatsApp available",
+    "b2bFooter": "{country} · B2B outreach with opt-out footer",
+    "suppressed": "{country} · Suppressed, all outreach blocked",
+    "sanctionsHold": "{country} · Sanctions hold, all outreach blocked",
+    "dncUnavailable": "{country} · Compliance check unavailable, paused",
+    "unknownRegion": "Unknown region",
+    "fallback": "Checked against regional compliance rules"
+  },
+  "outreach": {
+    "removeDraftTitle": "Remove this draft?",
+    "removeDraftConfirm": "Remove the draft to \"{recipient}\" (Subject: {subject}) from this batch. This cannot be undone.",
+    "removeDraftOk": "Remove",
+    "campaignLabel": "Linked campaign (optional)",
+    "campaignPlaceholder": "Optionally link a campaign for attribution",
+    "auditSummaryBatch": "Batch",
+    "auditSummaryStatus": "Status",
+    "auditSummaryApproval": "Approval",
+    "auditSummaryApprovalNone": "No approval record",
+    "auditSummaryDrafts": "Draft & delivery summary",
+    "auditSummaryDraftTotal": "{count} draft(s) total",
+    "auditSummaryExportedAt": "Generated at",
+    "auditSummaryDigest": "Verification digest",
+    "auditSummaryAuth": "Authorization uses",
+    "auditRawToggle": "Technical details: raw audit package"
+  },
+  "qgos": {
+    "source": {
+      "MANUAL": "Manual entry",
+      "SYSTEM": "System sync",
+      "AUTO": "Automatic sync",
+      "REPLY": "Synced from reply",
+      "OUTREACH": "Synced from outreach",
+      "IMPORT": "Imported",
+      "UNKNOWN": "Recorded"
+    }
+  },
+  "audit": {
+    "actionPlaceholder": "All actions",
+    "actionName": {
+      "authLogin": "Sign in",
+      "bffRequest": "Business request",
+      "memberInvite": "Invite member",
+      "roleChange": "Role change",
+      "memberRemove": "Remove member",
+      "outreachBatchCreate": "Create outreach batch",
+      "outreachBatchApprove": "Approve outreach batch",
+      "outreachDraftCreate": "Create outreach draft",
+      "outreachSend": "Execute outreach send",
+      "channelCreate": "Create data channel",
+      "channelProbe": "Probe data channel",
+      "deletionRequest": "Submit privacy deletion request",
+      "claimApprove": "Approve company fact",
+      "claimReject": "Reject company fact"
+    }
+  },
+  "tasks": {
+    "unnamedProfile": "Unlinked profile",
+    "profileFallback": "Target customer profile"
+  },
+  "access": {
+    "readonlyAdminHint": "Your account has member access (view only). Ask a workspace admin to make changes or approve."
+  }
+}

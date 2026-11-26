@@ -62,6 +62,9 @@ function setupAccessGuard(router: Router) {
             preferences.app.defaultHomePath,
         );
       }
+      if (to.path === ONBOARDING_PATH && !accessStore.accessToken) {
+        return { path: LOGIN_PATH, replace: true };
+      }
       // 已完成引导时不允许再停留在引导页
       if (to.path === ONBOARDING_PATH && accessStore.accessToken) {
         const completed = await authStore

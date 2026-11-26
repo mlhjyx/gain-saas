@@ -179,7 +179,7 @@ onMounted(load);
 
     <div v-if="loading" class="sp__state" role="status">
       <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
-      <span class="sp__state-sr">{ $t('gainos.common.loading') }</span>
+      <span class="sp__state-sr">{{ $t('gainos.common.loading') }}</span>
     </div>
     <Alert
       v-else-if="error"

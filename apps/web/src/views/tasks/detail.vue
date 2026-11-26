@@ -4,7 +4,7 @@
  * 回答三件事：这个任务在挖谁、历史每次跑成什么样、失败后怎么重试。
  * 数据来自 /tasks 列表（引擎暂无单任务端点），重试走任务级 attempt 语义。
  */
-import type { AcquisitionTaskView, TaskRunView } from '#/api/gainos';
+import type { AcquisitionTaskView, Icp, TaskRunView } from '#/api/gainos';
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -30,10 +30,18 @@ const router = useRouter();
 const taskId = computed(() => String(route.params.taskId ?? ''));
 
 const task = ref<AcquisitionTaskView | null>(null);
+const icps = ref<Icp[]>([]);
 const loading = ref(true);
 const error = ref<{ next?: string; title: string } | null>(null);
 const notice = ref<string | null>(null);
 const retrying = ref(false);
+
+const icpNameMap = computed(() => new Map(icps.value.map((icp) => [icp.id, icp.name])));
+const taskIcpName = computed(() => {
+  const id = task.value?.icpId;
+  if (!id) return '';
+  return icpNameMap.value.get(id) || $t('gainosP0.tasks.profileFallback');
+});
 
 const runs = computed<TaskRunView[]>(() =>
   [...(task.value?.runs ?? [])].sort((a, b) =>
@@ -83,7 +91,11 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const tasks = await gainosApi.acquisitionTasks();
+    const [tasks, icpList] = await Promise.all([
+      gainosApi.acquisitionTasks(),
+      gainosApi.icps().catch(() => [] as Icp[]),
+    ]);
+    icps.value = Array.isArray(icpList) ? icpList : [];
     task.value = (tasks ?? []).find((row) => row.id === taskId.value) ?? null;
     if (!task.value) {
       error.value = {
@@ -176,7 +188,7 @@ const runColumns = [
             <dt>{{ $t('gainos.tasks.icp') }}</dt>
             <dd>
               <RouterLink v-if="task.icpId" class="tkd__link" to="/find-buyers">
-                {{ task.icpId.slice(0, 8) }}
+                {{ taskIcpName }}
               </RouterLink>
               <span v-else>—</span>
             </dd>

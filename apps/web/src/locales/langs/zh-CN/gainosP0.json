@@ -1,0 +1,107 @@
+{
+  "campaigns": {
+    "backToList": "返回战役列表",
+    "draftSucceeded": "计划草稿已生成，请核对后提交审批。",
+    "draftPollingTimeout": "起草仍在进行中，系统会在后台继续处理，可稍后刷新查看或直接手动修订计划。",
+    "needsHumanTitle": "自动规划已暂停，需要人工修订计划",
+    "needsHumanDesc": "系统自动重规划已达上限，仍未产出可直接提交审批的方案。请查看下方提示，或直接手动创建一版计划草稿。",
+    "manualRevisionBtn": "手动修订计划",
+    "manualRevisionTitle": "手动创建计划版本",
+    "manualRevisionSaved": "人工修订版本已保存为草稿，请核对后提交审批。",
+    "manualObjectiveLabel": "计划目标",
+    "manualObjectivePlaceholder": "例如：针对德国工业泵分销商发起首批买家发现",
+    "manualMetricLabel": "成功度量（可选）",
+    "manualMetricPlaceholder": "例如：筛选出 30 家匹配分销商",
+    "manualAudienceLabel": "目标客户画像（至少选择一项）",
+    "manualAudiencePlaceholder": "请选择目标客户画像",
+    "manualSizeCapLabel": "每个画像最多处理（家）",
+    "manualBudgetLabel": "预算上限（USD，可选）",
+    "manualMaxReplansLabel": "自动重规划上限（0–2 次）",
+    "manualSubmit": "保存为草稿版本",
+    "manualRequiredError": "请填写计划目标、至少选择一个目标客户画像，并设置有效的数量上限（1–1000）。",
+    "conclusion": "{objective}（受众：{audience}；每个画像最多 {sizeCap} 家）",
+    "conclusionWithBudget": "{objective}（受众：{audience}；每个画像最多 {sizeCap} 家；预算上限 {budget}）",
+    "motionType": {
+      "discovery": "发现潜在买家（只检索，不联系）",
+      "outreach": "受控外联触达",
+      "enrichment": "补全企业与联系人资料",
+      "other": "计划动作"
+    },
+    "motionItem": "{action}（{audience}）",
+    "actorType": {
+      "user": "成员",
+      "service": "系统服务",
+      "system": "系统",
+      "engine": "引擎",
+      "unknown": "系统"
+    }
+  },
+  "t0Compliance": {
+    "consentRequired": "{country} · 需先获同意才可冷邮",
+    "reviewRequired": "{country} · 需先人工复核地区合规",
+    "ukCorporate": "英国 · 法人实体可合规商务联络",
+    "gdprLi": "{country} · 欧盟 B2B 合规触达（须附隐私与退订说明）",
+    "usCanSpam": "美国 · 商务外联须附退订与地址页脚",
+    "warmWhatsapp": "{country} · 邮箱与合规人工 WhatsApp 均开放",
+    "b2bFooter": "{country} · 商务外联须附退订页脚",
+    "suppressed": "{country} · 已禁联，禁止全部触达",
+    "sanctionsHold": "{country} · 制裁/禁运冻结，禁止触达",
+    "dncUnavailable": "{country} · 合规校验暂不可用，已暂停触达",
+    "unknownRegion": "地区未明",
+    "fallback": "按法域合规策略校验"
+  },
+  "outreach": {
+    "removeDraftTitle": "确认移除这封草稿？",
+    "removeDraftConfirm": "将从当前批次移除发往「{recipient}」（主题：{subject}）的草稿，移除后无法恢复。",
+    "removeDraftOk": "确认移除",
+    "campaignLabel": "关联战役（可选）",
+    "campaignPlaceholder": "可选择关联战役以便归因",
+    "auditSummaryBatch": "批次名称",
+    "auditSummaryStatus": "批次状态",
+    "auditSummaryApproval": "审批结论",
+    "auditSummaryApprovalNone": "暂无审批记录",
+    "auditSummaryDrafts": "草稿与投递分布",
+    "auditSummaryDraftTotal": "共 {count} 封草稿",
+    "auditSummaryExportedAt": "生成时间",
+    "auditSummaryDigest": "校验摘要",
+    "auditSummaryAuth": "授权使用次数",
+    "auditRawToggle": "技术详情：原始审计包数据"
+  },
+  "qgos": {
+    "source": {
+      "MANUAL": "人工登记",
+      "SYSTEM": "系统自动回写",
+      "AUTO": "系统自动同步",
+      "REPLY": "买家回信同步",
+      "OUTREACH": "外联自动回写",
+      "IMPORT": "批量导入",
+      "UNKNOWN": "系统记录"
+    }
+  },
+  "audit": {
+    "actionPlaceholder": "全部动作",
+    "actionName": {
+      "authLogin": "登录",
+      "bffRequest": "业务请求",
+      "memberInvite": "邀请成员",
+      "roleChange": "角色变更",
+      "memberRemove": "移除成员",
+      "outreachBatchCreate": "创建触达批次",
+      "outreachBatchApprove": "审批触达批次",
+      "outreachDraftCreate": "创建触达草稿",
+      "outreachSend": "执行外发投递",
+      "channelCreate": "新增数据渠道",
+      "channelProbe": "探测数据渠道",
+      "deletionRequest": "提交隐私删除申请",
+      "claimApprove": "审批通过企业事实",
+      "claimReject": "驳回企业事实"
+    }
+  },
+  "tasks": {
+    "unnamedProfile": "未关联画像",
+    "profileFallback": "目标客户画像"
+  },
+  "access": {
+    "readonlyAdminHint": "当前账号为成员角色，仅可查看；如需修改或审批，请联系工作空间管理员。"
+  }
+}

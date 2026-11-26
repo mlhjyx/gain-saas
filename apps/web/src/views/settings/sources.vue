@@ -207,7 +207,7 @@ onMounted(load);
     <Alert v-if="notice" :message="notice.text" show-icon :type="notice.tone === 'ok' ? 'success' : 'warning'" />
     <div v-if="loading" class="src__state" role="status">
       <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
-      <span class="src__state-sr">{ $t('gainos.common.loading') }</span>
+      <span class="src__state-sr">{{ $t('gainos.common.loading') }}</span>
     </div>
     <Alert v-else-if="error" :message="error.title" :description="error.next" role="alert" show-icon type="warning" />
 

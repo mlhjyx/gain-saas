@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
+import { feedback } from "#/feedback";
 import { $t } from "#/locales";
 import { formatDateTime } from '@gain-saas/shared';
 import CandidateCard from "./candidate-card.vue";
@@ -96,7 +97,7 @@ watch(
   },
 );
 watch([loading, busy, historyBusy, feedbackBusy, feedbackCandidate, activeCandidate, () => props.hidden], async () => {
-  if (props.hidden) return;
+  if (props.hidden || leaveConfirmOpen.value) return;
   await nextTick();
   const modal =
     root.value?.querySelector<HTMLElement>('[data-testid="mc-feedback-dialog"]') ?? root.value;
@@ -119,26 +120,54 @@ const phaseNames = {
 const phaseName = computed(() =>
   generation.value ? $t(`gainos.marketCandidates.${phaseNames[generation.value.phase]}`) : "",
 );
-function canLeave() {
-  if (feedbackBusy.value) return false;
-  return (
-    !(draftDirty.value || frozen.value) ||
-    window.confirm($t("gainos.marketCandidates.leaveWarning"))
-  );
+const leaveConfirmOpen = ref(false);
+function confirmLeave(): Promise<boolean> {
+  if (feedbackBusy.value) return Promise.resolve(false);
+  if (!(draftDirty.value || frozen.value)) return Promise.resolve(true);
+  if (leaveConfirmOpen.value) return Promise.resolve(false);
+  leaveConfirmOpen.value = true;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (allowed: boolean) => {
+      if (settled) return;
+      settled = true;
+      leaveConfirmOpen.value = false;
+      if (!allowed) {
+        void nextTick(() => restoreFocus());
+      }
+      resolve(allowed);
+    };
+    feedback.confirm({
+      content: $t("gainos.marketCandidates.leaveWarning"),
+      okText: $t("gainos.marketCandidates.close"),
+      cancelText: $t("gainos.marketCandidates.cancel"),
+      okType: "danger",
+      zIndex: 1400,
+      onOk: () => finish(true),
+      onCancel: () => finish(false),
+    });
+  });
 }
 function close() {
-  if (!canLeave()) return;
-  emit("close");
+  if (feedbackBusy.value) return;
+  if (!(draftDirty.value || frozen.value)) {
+    emit("close");
+    return;
+  }
+  void confirmLeave().then((allowed) => {
+    if (allowed) emit("close");
+  });
 }
 let recoveryTrigger: HTMLElement | null = null;
-function requestRecovery(destination: "facts" | "documents", event: MouseEvent) {
+async function requestRecovery(destination: "facts" | "documents", event: MouseEvent) {
   if (busy.value || feedbackBusy.value || historyBusy.value) return;
-  if (!canLeave()) return;
-  if (event.currentTarget instanceof HTMLElement) recoveryTrigger = event.currentTarget;
+  const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  if (!(await confirmLeave())) return;
+  if (trigger) recoveryTrigger = trigger;
   emit("recover", { companyId: props.companyId, destination });
 }
 async function cancelFeedback() {
-  if (!canLeave()) return;
+  if (!(await confirmLeave())) return;
   state.closeFeedback();
   await returnFocus(feedbackFocus);
 }
@@ -157,22 +186,22 @@ function restoreFocus() {
   target.focus();
 }
 function focusout(event: FocusEvent) {
-  if (props.hidden) return;
+  if (props.hidden || leaveConfirmOpen.value) return;
   const related = event.relatedTarget;
   const boundary = focusBoundary();
   if (boundary && related instanceof Node && boundary.contains(related)) return;
   void nextTick(() => {
-    if (!props.hidden) restoreFocus();
+    if (!props.hidden && !leaveConfirmOpen.value) restoreFocus();
   });
 }
 function keydown(event: KeyboardEvent) {
   // 面板是模态目标，键盘事件不向全局命令面板/布局冒泡；否则全局 Enter 会触发无关导航。
   event.stopPropagation();
-  if (feedbackCandidate.value) return;
+  if (leaveConfirmOpen.value || feedbackCandidate.value) return;
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();
-    close();
+    void close();
   }
   if (event.key === "Tab") {
     const nodes = root.value?.querySelectorAll<HTMLElement>(
@@ -198,7 +227,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
     event.returnValue = "";
   }
 }
-onBeforeRouteLeave(() => canLeave());
+onBeforeRouteLeave(() => confirmLeave());
 onMounted(async () => {
   window.addEventListener("beforeunload", beforeUnload);
   await nextTick();
