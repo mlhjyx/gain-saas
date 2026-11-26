@@ -4,8 +4,11 @@ import type { PrismaService } from '../shared/prisma.service.js';
 import { SESSION_COOKIE, type SessionService } from './session.service.js';
 import { TenantGuard } from './tenant.guard.js';
 
-function makeContext(overrides: { path?: string; originalUrl?: string; url?: string } = {}) {
+function makeContext(
+  overrides: { method?: string; path?: string; originalUrl?: string; url?: string } = {},
+) {
   const req: Record<string, unknown> = {
+    method: overrides.method ?? 'GET',
     cookies: { [SESSION_COOKIE]: 'session-token' },
     path: overrides.path ?? '/api/campaigns',
     originalUrl: overrides.originalUrl ?? overrides.path ?? '/api/campaigns',
@@ -25,6 +28,7 @@ function makeGuard(
   workspaceStatus: string | null,
   onboardingCompletedAt: Date | null = new Date(),
   needsRefresh = false,
+  onboardingCompanyId: string | null = null,
 ) {
   const clearOpts = { httpOnly: true, sameSite: 'lax' as const, path: '/', secure: true };
   const sessions = {
@@ -52,7 +56,7 @@ function makeGuard(
               workspace: {
                 status: workspaceStatus,
                 onboardingCompletedAt,
-                onboardingCompanyId: null,
+                onboardingCompanyId,
               },
             },
       ),
@@ -183,6 +187,72 @@ describe('TenantGuard workspace status', () => {
       });
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
       expect((req as { tenant?: { onboardingCompleted?: boolean } }).tenant?.onboardingCompleted).toBe(false);
+    }
+  });
+
+  it('onboardingCompleted=false allows the 7 draft-company brochure and market-recommendation routes bound to onboardingCompanyId', async () => {
+    const draftId = '6020b505-2bee-40e5-908c-708a270b7b3e';
+    const docId = '99999999-9999-4999-8999-999999999999';
+    const allowedDraftRequests = [
+      { method: 'GET', path: `/api/companies/${draftId}/seller-documents` },
+      { method: 'GET', path: `/api/companies/${draftId}/market-recommendations`, originalUrl: `/api/companies/${draftId}/market-recommendations?limit=8` },
+      { method: 'POST', path: `/api/companies/${draftId}/seller-documents/presign` },
+      { method: 'PUT', path: `/api/companies/${draftId}/seller-documents/${docId}/content` },
+      { method: 'POST', path: `/api/companies/${draftId}/seller-documents/${docId}/commit` },
+      { method: 'POST', path: `/api/companies/${draftId}/seller-documents/${docId}/claim-previews` },
+      { method: 'POST', path: `/api/companies/${draftId}/seller-documents/${docId}/claim-drafts` },
+    ];
+    for (const target of allowedDraftRequests) {
+      const { guard } = makeGuard('ACTIVE', null, false, draftId);
+      const { ctx, req } = makeContext({
+        method: target.method,
+        path: target.path,
+        originalUrl: target.originalUrl ?? target.path,
+        url: target.originalUrl ?? target.path,
+      });
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect((req as { tenant?: { onboardingCompanyId?: string | null } }).tenant?.onboardingCompanyId).toBe(draftId);
+    }
+  });
+
+  it('onboardingCompleted=false rejects cross-company, missing-draft, wrong-method, extra-segment, and traversal paths on draft routes with 409', async () => {
+    const draftId = '6020b505-2bee-40e5-908c-708a270b7b3e';
+    const otherId = '77777777-7777-4777-8777-777777777777';
+    const docId = '99999999-9999-4999-8999-999999999999';
+    const blockedCases = [
+      // 尚未建立草稿公司时拒绝一切 /api/companies/*
+      { companyId: null, method: 'POST', path: `/api/companies/${draftId}/seller-documents/presign` },
+      { companyId: null, method: 'GET', path: `/api/companies/${draftId}/market-recommendations` },
+      // 跨公司 ID
+      { companyId: draftId, method: 'POST', path: `/api/companies/${otherId}/seller-documents/presign` },
+      { companyId: draftId, method: 'GET', path: `/api/companies/${otherId}/market-recommendations` },
+      { companyId: draftId, method: 'PUT', path: `/api/companies/${otherId}/seller-documents/${docId}/content` },
+      // 方法不匹配
+      { companyId: draftId, method: 'GET', path: `/api/companies/${draftId}/seller-documents/presign` },
+      { companyId: draftId, method: 'POST', path: `/api/companies/${draftId}/market-recommendations` },
+      { companyId: draftId, method: 'DELETE', path: `/api/companies/${draftId}/seller-documents` },
+      { companyId: draftId, method: 'GET', path: `/api/companies/${draftId}/seller-documents/${docId}/content` },
+      // 同草稿公司但不在 7 条白名单内
+      { companyId: draftId, method: 'GET', path: `/api/companies/${draftId}` },
+      { companyId: draftId, method: 'PATCH', path: `/api/companies/${draftId}` },
+      { companyId: draftId, method: 'GET', path: `/api/companies/${draftId}/claims` },
+      { companyId: draftId, method: 'POST', path: `/api/companies/${draftId}/icps` },
+      { companyId: draftId, method: 'GET', path: `/api/companies/${draftId}/seller-documents/search` },
+      // 路径遍历/非法参数段
+      { companyId: draftId, method: 'PUT', path: `/api/companies/${draftId}/seller-documents/../content` },
+      { companyId: draftId, method: 'PUT', path: `/api/companies/${draftId}/seller-documents/%2e%2e/content` },
+      { companyId: draftId, method: 'POST', path: `/api/companies/${draftId}/seller-documents/a%2Fb/commit` },
+    ];
+    for (const c of blockedCases) {
+      const { guard, sessions } = makeGuard('ACTIVE', null, true, c.companyId);
+      const { ctx, res } = makeContext({ method: c.method, path: c.path });
+      const err = await guard.canActivate(ctx).catch((e: unknown) => e);
+      expect(err, `${c.method} ${c.path}`).toBeInstanceOf(HttpException);
+      expect((err as HttpException).getStatus(), `${c.method} ${c.path}`).toBe(409);
+      const body = (err as HttpException).getResponse() as { error?: { code?: string } };
+      expect(body.error?.code).toBe('ONBOARDING_INCOMPLETE');
+      expect(sessions.issue).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
     }
   });
 });

@@ -13,7 +13,11 @@ import { OnboardingController } from './onboarding.controller.js';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { BFF_ROUTES, PLATFORM_LAWFUL_BASIS, budgetQuoteRequest, engineRequestBody, injectPlatformLawfulBasis, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
-import { TenantGuard } from '../tenant/tenant.guard.js';
+import {
+  ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES,
+  ONBOARDING_COMPANY_READ_ROUTES,
+  TenantGuard,
+} from '../tenant/tenant.guard.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { ServiceModule } from '../service/service.module.js';
 import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
@@ -60,22 +64,6 @@ function matchRoute(method: string, path: string): { route: BffRoute; params: Re
 function fillParams(enginePath: string, params: Record<string, string>): string {
   return enginePath.replace(/:([A-Za-z]+)/g, (_, name: string) => encodeURIComponent(params[name] ?? ''));
 }
-
-/**
- * Phase 2 多模态冷启动与选国推荐：未完成引导前仅允许访问绑定到本工作空间草稿公司
- * (`onboardingCompanyId`) 的 PDF 画册上传/读取与 UN Comtrade 选国推荐路由，其余业务路由继续 409 拦截。
- */
-const ONBOARDING_COMPANY_READ_ROUTES: ReadonlySet<string> = new Set([
-  'GET companies/:companyId/seller-documents',
-  'GET companies/:companyId/market-recommendations',
-]);
-const ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES: ReadonlySet<string> = new Set([
-  'POST companies/:companyId/seller-documents/presign',
-  'PUT companies/:companyId/seller-documents/:documentId/content',
-  'POST companies/:companyId/seller-documents/:documentId/commit',
-  'POST companies/:companyId/seller-documents/:documentId/claim-previews',
-  'POST companies/:companyId/seller-documents/:documentId/claim-drafts',
-]);
 
 @Injectable()
 export class BffGuard implements CanActivate {
