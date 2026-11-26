@@ -87,7 +87,7 @@
       "unitCredits": "credits",
       "statusActive": "Active",
       "statusFrozen": "Frozen",
-      "balanceNote": "Paid balance {paid} credits (~${usd}) with {holds} active holds.",
+      "balanceNote": "Includes {paid} paid credits; available balance is ~{usd} reference value; {holds} active hold(s).",
       "gotoFullBilling": "Open full billing & ledger",
       "unavailable": "Wallet summary is temporarily unavailable."
     },

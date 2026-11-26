@@ -1,7 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { $t } from '#/locales';
-
 import { navTitle } from '../nav';
 
 /** 获客与筛选域（Wave B2「3 组 8 项」）：买家画像 / 买家线索；详情与运行记录为隐藏路由并挂靠主菜单高亮。 */
@@ -20,7 +18,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       activePath: '/tasks',
       hideInMenu: true,
-      title: $t('gainos.runs.title'),
+      title: 'gainos.runs.title',
     },
     name: 'DiscoveryRun',
     path: '/runs/:runId',
@@ -45,7 +43,7 @@ const routes: RouteRecordRaw[] = [
       activePath: '/leads',
       fullPathKey: false,
       hideInMenu: true,
-      title: $t('gainos.leads.packageTitle'),
+      title: 'gainos.leads.packageTitle',
     },
     name: 'LeadDetail',
     path: '/leads/:leadId',

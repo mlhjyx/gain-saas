@@ -3,8 +3,6 @@ import type { RouteRecordRaw } from 'vue-router';
 import { LOGIN_PATH } from '@vben/constants';
 import { preferences } from '@vben/preferences';
 
-import { $t } from '#/locales';
-
 const BasicLayout = () => import('#/layouts/basic.vue');
 const AuthPageLayout = () => import('#/layouts/auth.vue');
 /** 全局404页面 */
@@ -57,7 +55,7 @@ const coreRoutes: RouteRecordRaw[] = [
       hideInMenu: true,
       hideInTab: true,
       noBasicLayout: true,
-      title: $t('gainos.onboarding.title'),
+      title: 'gainos.onboarding.title',
     },
   },
   {
@@ -75,7 +73,7 @@ const coreRoutes: RouteRecordRaw[] = [
         path: 'login',
         component: () => import('#/views/_core/authentication/login.vue'),
         meta: {
-          title: $t('page.auth.login'),
+          title: 'page.auth.login',
         },
       },
       { name: 'CodeLogin', path: 'code-login', redirect: LOGIN_PATH },
@@ -86,7 +84,7 @@ const coreRoutes: RouteRecordRaw[] = [
         path: 'register',
         component: () => import('#/views/_core/authentication/register.vue'),
         meta: {
-          title: $t('page.auth.register'),
+          title: 'page.auth.register',
         },
       },
     ],

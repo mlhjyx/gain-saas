@@ -319,6 +319,9 @@ test('admin 全链路：整页设置导航、Review Focus #7 改密 401 不登�
   await expect(page.locator('[data-gs="account-usage-docs"]')).toContainText('420 / 500');
   await expect(page.locator('[data-gs="usage-stat-buyers"]')).toContainText('148');
   await expect(page.locator('[data-gs="account-wallet-available"]')).toContainText('1,250');
+  const walletSection = page.locator('[data-gs="account-wallet-section"]');
+  await expect(walletSection).toContainText('$12.50');
+  await expect(walletSection).not.toContainText('$$');
 
   // 零术语与零裸 UUID 检查（/settings/account）
   const accountText = await page.locator('body').innerText();

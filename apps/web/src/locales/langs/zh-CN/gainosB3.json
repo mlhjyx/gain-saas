@@ -87,7 +87,7 @@
       "unitCredits": "积分",
       "statusActive": "账户正常",
       "statusFrozen": "账户已冻结",
-      "balanceNote": "付费余额 {paid} 积分（约合 ${usd}），当前有 {holds} 笔进行中预占。",
+      "balanceNote": "含付费余额 {paid} 积分；可用余额按标准口径约合 {usd}；当前有 {holds} 笔进行中预占。",
       "gotoFullBilling": "查看完整账单与流水",
       "unavailable": "暂未获取到钱包摘要信息。"
     },
