@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
@@ -22,6 +22,7 @@ import {
 } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
+import GsAlert from '#/components/gainos/ui/gs-alert.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
@@ -30,6 +31,18 @@ import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import MarketCandidatesPanel from './market-candidates/market-candidates-panel.vue';
+
+import {
+  formatBytes,
+  formatSpeed,
+  normalizeParsedMeta,
+  type SellerDocumentParsedMeta,
+} from '#/api/seller-documents-upload';
+import {
+  useUploadQueueStore,
+  type RejectedUploadFile,
+  type UploadQueueItem,
+} from '#/stores/upload-queue';
 
 import {
   failureText,
@@ -49,15 +62,21 @@ import {
 
 defineOptions({ name: 'Companies' });
 
+const route = useRoute();
 const router = useRouter();
+const uploadQueue = useUploadQueueStore();
 const marketCompany = ref<CompanyProfile | null>(null);
 const factsPanel = ref<HTMLElement | null>(null);
 const docsPanel = ref<HTMLElement | null>(null);
+const marketsPanel = ref<HTMLElement | null>(null);
 const marketContext = ref('');
+const marketInlineRefreshKey = ref(0);
+const inlineMarket = ref<InstanceType<typeof MarketCandidatesPanel> | null>(null);
 let marketFocus: HTMLElement | null = null;
-function openMarketCandidates(company: CompanyProfile, event?: MouseEvent) {
+async function openMarketCandidates(company: CompanyProfile, event?: MouseEvent) {
   if (!marketContext.value || !company.id) return;
   const target = (event?.currentTarget as HTMLElement | undefined) ?? null;
+  if (!(await confirmInlineMarketLeave())) return;
   const details = target?.closest('details') ?? null;
   marketFocus = details?.querySelector('summary') ?? target;
   if (details) details.open = false;
@@ -73,6 +92,25 @@ function recoverMarketView(payload: { companyId: string; destination: 'facts' | 
   if (payload.destination === 'facts') void openClaims(company, { readOnly: true });
   else void openDocuments(company, { readOnly: true });
   void scrollToWorkspace();
+}
+function recoverInlineMarketView(payload: { companyId: string; destination: 'facts' | 'documents' }) {
+  const company =
+    companies.value.find((row) => row.id === payload.companyId) ??
+    panelCompany.value;
+  if (!company) return;
+  if (payload.destination === 'facts') void openClaims(company, { readOnly: true });
+  else void openDocuments(company, { readOnly: true });
+  void scrollToWorkspace();
+}
+function goCreateBuyerProfileWithMarkets(): void {
+  const companyId = panelCompany.value?.id ?? primaryCompany.value?.id;
+  void router.push({
+    path: '/find-buyers',
+    query: {
+      action: 'create',
+      ...(companyId ? { companyId } : {}),
+    },
+  });
 }
 onDeactivated(() => { marketCompany.value = null; });
 
@@ -142,15 +180,47 @@ const filteredRelated = computed(() =>
   filteredCompanies.value.filter((company) => company.id !== primaryCompany.value?.id),
 );
 
-// ── 档案工作台（页内，不用弹窗）───────────────────────────────────────────
-// 企业事实与资料库是每天都要看、要批的东西；放在页内可以同时看到公司身份、
-// KPI 和明细，切换公司/视图也不会丢掉页面上下文。
-type PanelTab = 'facts' | 'docs';
-const panelTab = ref<PanelTab>('facts');
+// ── 档案工作台（页内三一等分段，同步 URL ?tab=facts|documents|markets）────────
+// 企业事实、企业资料库、目标市场统一在页内平级切换，不再把目标市场藏进二级菜单。
+type PanelTab = 'documents' | 'facts' | 'markets';
+
+function parseQueryTab(raw: unknown): PanelTab {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === 'documents' || value === 'docs') return 'documents';
+  if (value === 'markets') return 'markets';
+  return 'facts';
+}
+
+const panelTab = ref<PanelTab>(parseQueryTab(route.query.tab));
 const panelCompanyId = ref<string | null>(null);
 const panelInitialized = ref(false);
 const claimsStale = ref(false);
 const workspaceRef = ref<HTMLElement | null>(null);
+
+function syncTabToUrl(tab: PanelTab): void {
+  const current = Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab;
+  const companyId = panelCompanyId.value && panelCompanyId.value !== primaryCompany.value?.id
+    ? panelCompanyId.value
+    : undefined;
+  if (current === tab && route.query.companyId === companyId) return;
+  void router.replace({ query: { ...route.query, companyId, tab } });
+}
+
+function companyFromUrl(id: unknown = route.query.companyId): CompanyProfile | null {
+  return companies.value.find((company) => company.id === id) ?? primaryCompany.value;
+}
+
+function confirmInlineMarketLeave(): Promise<boolean> {
+  return inlineMarket.value?.confirmLeave() ?? Promise.resolve(true);
+}
+
+onBeforeRouteUpdate((to, from) => {
+  const fromId = companyFromUrl(from.query.companyId)?.id;
+  if (panelTab.value !== 'markets' || parseQueryTab(from.query.tab) !== 'markets' ||
+    panelCompanyId.value !== fromId) return true;
+  if (parseQueryTab(to.query.tab) === 'markets' && companyFromUrl(to.query.companyId)?.id === fromId) return true;
+  return confirmInlineMarketLeave();
+});
 
 const panelCompany = computed(
   () =>
@@ -172,45 +242,70 @@ const panelCompanyOptions = computed(() =>
 // 页签不带计数：「企业事实 0」会被读成「没有事实」，其实那个 0 是待确认数。
 // 各状态的数量放在清单自己的页签上（待确认 / 已通过 / 未采用）。
 const panelTabs = computed(() => [
-  { label: $t('gainos.companies.workspaceFacts'), value: 'facts' },
-  { label: $t('gainos.companies.workspaceDocs'), value: 'docs' },
+  { label: $t('gainosOb.companies.tabFacts'), value: 'facts' },
+  { label: $t('gainosOb.companies.tabDocuments'), value: 'documents' },
+  { label: $t('gainosOb.companies.tabMarkets'), value: 'markets' },
 ]);
 const panelLoading = computed(() =>
   panelTab.value === 'facts'
     ? claimsLoading.value || overviewLoading.value
-    : docsLoading.value,
+    : panelTab.value === 'documents'
+      ? docsLoading.value
+      : false,
 );
 
 async function scrollToWorkspace(): Promise<void> {
   await nextTick();
   workspaceRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-/** 页面上所有「看事实/看资料」的入口：切到对应视图并滚到工作台。 */
-function showFacts(company: CompanyProfile): void {
+/** 页面上所有「看事实/看资料/看目标市场」的入口：切到对应视图并滚到工作台。 */
+async function showFacts(company: CompanyProfile): Promise<void> {
+  if (!(await confirmInlineMarketLeave())) return;
   void openClaims(company);
   void scrollToWorkspace();
 }
-function showDocs(company: CompanyProfile): void {
+async function showDocs(company: CompanyProfile): Promise<void> {
+  if (!(await confirmInlineMarketLeave())) return;
   void openDocuments(company);
   void scrollToWorkspace();
 }
-function refreshPanel(): void {
+function openMarkets(company: CompanyProfile, syncUrl = true): void {
+  if (!company.id) return;
+  panelTab.value = 'markets';
+  panelCompanyId.value = company.id;
+  if (syncUrl) syncTabToUrl('markets');
+  docsOpen.value = false;
+  docsEpoch += 1;
+  if (docsTimer) {
+    clearInterval(docsTimer);
+    docsTimer = null;
+  }
+  claimsOpen.value = false;
+  void nextTick(() => {
+    marketsPanel.value?.focus({ preventScroll: true });
+  });
+}
+async function refreshPanel(): Promise<void> {
   const company = panelCompany.value;
   if (!company) return;
   if (panelTab.value === 'facts') void openClaims(company);
-  else void openDocuments(company);
+  else if (panelTab.value === 'documents') void openDocuments(company);
+  else if (await confirmInlineMarketLeave()) marketInlineRefreshKey.value += 1;
 }
-function onPanelCompanyChange(value: unknown): void {
+async function onPanelCompanyChange(value: unknown): Promise<void> {
   const id = typeof value === 'string' ? value : String(value ?? '');
   const company = companies.value.find((row) => row.id === id);
-  if (!company) return;
+  if (!company || id === panelCompanyId.value || !(await confirmInlineMarketLeave())) return;
   panelCompanyId.value = id;
   if (panelTab.value === 'facts') void openClaims(company);
-  else void openDocuments(company);
+  else if (panelTab.value === 'documents') void openDocuments(company);
+  else openMarkets(company);
 }
-function onPanelTabChange(value: string): void {
-  if (value !== 'facts' && value !== 'docs') return;
+async function onPanelTabChange(value: string): Promise<void> {
+  if (value !== 'facts' && value !== 'documents' && value !== 'markets') return;
+  if (value === panelTab.value || !(await confirmInlineMarketLeave())) return;
   panelTab.value = value;
+  syncTabToUrl(value);
   const company = panelCompany.value;
   if (!company) return;
   if (value === 'facts') {
@@ -221,6 +316,7 @@ function onPanelTabChange(value: string): void {
       docsTimer = null;
     }
     claimsOpen.value = true;
+    claimsRecoveryReadOnly.value = false;
     // 资料库切换期间作废了事实请求：回来后重取，避免停在半截的 loading/空列表。
     if (claimsCompany.value?.id !== company.id || claimsStale.value) {
       void openClaims(company);
@@ -229,26 +325,50 @@ function onPanelTabChange(value: string): void {
     factsPanel.value?.focus({ preventScroll: true });
     return;
   }
-  // 资料库切回来时总是重取一次：解析状态可能刚变化，顺便恢复轮询。
-  void openDocuments(company);
+  if (value === 'documents') {
+    // 资料库切回来时总是重取一次：解析状态可能刚变化，顺便恢复轮询。
+    void openDocuments(company);
+    return;
+  }
+  openMarkets(company, false);
 }
-/** 首次拿到公司列表时把工作台落到主档案，并自动拉一次事实。 */
+/** 首次拿到公司列表时按 URL ?tab= 把工作台落到主档案并拉取对应数据。 */
 function syncPanelState(): void {
-  const primary = primaryCompany.value;
-  if (!primary) {
+  const requested = companyFromUrl();
+  if (!requested) {
     panelCompanyId.value = null;
     panelInitialized.value = false;
     return;
   }
   if (panelCompanyId.value && !companies.value.some((row) => row.id === panelCompanyId.value)) {
-    panelCompanyId.value = primary.id ?? null;
+    panelCompanyId.value = requested.id ?? null;
     panelInitialized.value = false;
   }
   if (panelInitialized.value) return;
   panelInitialized.value = true;
-  panelCompanyId.value = primary.id ?? null;
-  if (primary.id) void openClaims(primary);
+  panelCompanyId.value = requested.id ?? null;
+  const initialTab = parseQueryTab(route.query.tab);
+  panelTab.value = initialTab;
+  if (!requested.id) return;
+  if (initialTab === 'documents') void openDocuments(requested, { syncUrl: false });
+  else if (initialTab === 'markets') openMarkets(requested, false);
+  else void openClaims(requested, { syncUrl: false });
 }
+
+watch(
+  [() => route.query.tab, () => route.query.companyId],
+  ([raw]) => {
+    if (route.path !== '/companies') return;
+    const nextTab = parseQueryTab(raw);
+    const company = companyFromUrl();
+    if (nextTab === panelTab.value && company?.id === panelCompanyId.value) return;
+    panelTab.value = nextTab;
+    if (!company) return;
+    if (nextTab === 'facts') void openClaims(company, { syncUrl: false });
+    else if (nextTab === 'documents') void openDocuments(company, { syncUrl: false });
+    else openMarkets(company, false);
+  },
+);
 
 const hasOnboardingCompany = computed(() =>
   companies.value.some((company) => company.id === primaryCompanyId.value),
@@ -620,10 +740,14 @@ function claimTypeLabel(type: string): string {
   return label === key ? type : label;
 }
 
-async function openClaims(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
+async function openClaims(
+  company: CompanyProfile,
+  options: { readOnly?: boolean; syncUrl?: boolean } = {},
+): Promise<void> {
   if (!company.id) return;
   panelTab.value = 'facts';
   panelCompanyId.value = company.id;
+  if (options.syncUrl !== false) syncTabToUrl('facts');
   docsOpen.value = false;
   docsEpoch += 1;
   if (docsTimer) {
@@ -1125,7 +1249,6 @@ const docsCursor = ref<string | undefined>(undefined);
 const docsHasMore = ref(false);
 const docsLoading = ref(false);
 const docsError = ref<string | null>(null);
-const docsUploading = ref(false);
 const docsNotice = ref<string | null>(null);
 const docsQuery = ref('');
 const docsHits = ref<Array<{ documentId: string; filename: string; seq: number; text: string; score: number }>>([]);
@@ -1304,18 +1427,7 @@ async function saveExtractDraft(): Promise<void> {
   }
 }
 
-const DOC_MIME_BY_EXT: Record<string, string> = {
-  pdf: 'application/pdf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  doc: 'application/msword',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  txt: 'text/plain',
-  md: 'text/markdown',
-};
-
 const DOC_STATUS_KEY: Record<string, string> = {
-  pending_upload: 'gainos.companies.documentStatusPending',
   committing: 'gainos.companies.documentStatusQueued',
   queued: 'gainos.companies.documentStatusQueued',
   processing: 'gainos.companies.documentStatusProcessing',
@@ -1324,24 +1436,89 @@ const DOC_STATUS_KEY: Record<string, string> = {
   rejected: 'gainos.companies.documentStatusRejected',
 };
 
-function docMime(file: File): string | null {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return DOC_MIME_BY_EXT[ext] ?? (file.type && file.type in Object.fromEntries(Object.values(DOC_MIME_BY_EXT).map((m) => [m, 1])) ? file.type : null);
+const largePdfAlert = ref<{ filename: string; sizeBytes: number } | null>(null);
+const rejectedUploadAlerts = ref<RejectedUploadFile[]>([]);
+const dropzoneActive = ref(false);
+const assetUpdateNotice = ref<string | null>(null);
+
+// 过滤远端孤儿 pending_upload 噪声，不再误显示成「已上传，排队解析」；
+// 本会话中的在途/中断上传项由全局上传队列实时呈现。
+const visibleDocs = computed(() =>
+  docs.value.filter((row) => row.status !== 'pending_upload'),
+);
+
+const companyTransfers = computed<UploadQueueItem[]>(() => {
+  const id = docsCompany.value?.id;
+  if (!id) return [];
+  return uploadQueue.tasksForCompany(id).filter((item) => item.status !== 'ready');
+});
+
+function docParsedMeta(row: SellerDocument): SellerDocumentParsedMeta | null {
+  return normalizeParsedMeta((row as SellerDocument & { parsedMeta?: unknown }).parsedMeta);
 }
 
 function docSizeLabel(row: SellerDocument): string {
   const bytes = Number(row.sizeBytes ?? 0);
   if (!bytes) return '';
-  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
+  return formatBytes(bytes);
 }
 
 function docStatusLabel(status: string): string {
   return $t(DOC_STATUS_KEY[status] ?? 'gainos.companies.documentStatusQueued');
 }
 
-async function openDocuments(company: CompanyProfile, options: { readOnly?: boolean } = {}): Promise<void> {
-  panelTab.value = 'docs';
+function transferStatusText(item: UploadQueueItem): string {
+  switch (item.status) {
+    case 'queued':
+      return $t('gainosOb.uploadQueue.statusQueued');
+    case 'uploading': {
+      const base = $t('gainosOb.uploadQueue.statusUploading', { percent: item.percent });
+      if (item.uploadMode === 'multipart' && item.totalParts > 1) {
+        return `${base} · ${$t('gainosOb.uploadQueue.statusUploadingMeta', {
+          current: Math.max(1, item.currentPartNumber),
+          speed: formatSpeed(item.speedBytesPerSec),
+          total: item.totalParts,
+        })}`;
+      }
+      return `${base} · ${formatSpeed(item.speedBytesPerSec)}`;
+    }
+    case 'paused':
+      return $t('gainosOb.uploadQueue.statusPaused');
+    case 'interrupted':
+      return $t('gainosOb.uploadQueue.statusInterrupted');
+    case 'committing':
+      return $t('gainosOb.uploadQueue.statusCommitting');
+    case 'parsing_priority':
+      return $t('gainosOb.uploadQueue.statusParsingPriority');
+    case 'priority_ready': {
+      const parsed = item.parsedMeta?.parsedPages ?? 15;
+      const total = item.parsedMeta?.totalPages ?? parsed;
+      return $t('gainosOb.uploadQueue.statusPriorityReady', { parsed, total });
+    }
+    case 'failed':
+      return $t('gainosOb.uploadQueue.statusFailed');
+    default:
+      return '';
+  }
+}
+
+function rejectedUploadMessage(item: RejectedUploadFile): string {
+  if (item.code === 'FILE_TOO_LARGE') {
+    return `${item.filename}（${formatBytes(item.sizeBytes)}）：${$t('gainosOb.uploadQueue.errTooLargeTitle')}。${$t('gainosOb.uploadQueue.errTooLargeNext')}`;
+  }
+  if (item.code === 'TEXT_TOO_LARGE') {
+    return `${item.filename}（${formatBytes(item.sizeBytes)}）：${$t('gainosOb.uploadQueue.errTextTooLargeTitle')}。${$t('gainosOb.uploadQueue.errTextTooLargeNext')}`;
+  }
+  return `${item.filename}：${$t('gainosOb.uploadQueue.errUnsupportedTitle')}。${$t('gainosOb.uploadQueue.errUnsupportedNext')}`;
+}
+
+async function openDocuments(
+  company: CompanyProfile,
+  options: { readOnly?: boolean; syncUrl?: boolean } = {},
+): Promise<void> {
+  panelTab.value = 'documents';
   panelCompanyId.value = company.id ?? null;
+  if (options.syncUrl !== false) syncTabToUrl('documents');
   claimsOpen.value = false;
   claimsEpoch += 1;
   claimsStale.value = true;
@@ -1363,7 +1540,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
   docsHits.value = [];
   docsCursor.value = undefined;
   docsHasMore.value = false;
-  await loadDocuments(true, true);
+  await loadDocuments();
   // 一次打开只安装自己的轮询；迟到初始化不得在关闭/切换后留下 interval。
   if (!docsOpen.value || docsEpoch !== epoch || docsCompany.value?.id !== company.id) return;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -1373,7 +1550,7 @@ async function openDocuments(company: CompanyProfile, options: { readOnly?: bool
       if (docsTimer === timer) docsTimer = null;
       return;
     }
-    const busy = docs.value.some((row) => ['pending_upload', 'committing', 'queued', 'processing'].includes(row.status));
+    const busy = visibleDocs.value.some((row) => ['committing', 'queued', 'processing'].includes(row.status));
     if (busy) {
       void loadDocuments(true);
       return;
@@ -1393,10 +1570,11 @@ async function loadDocuments(silent = false, reset = true): Promise<void> {
   if (!silent) docsLoading.value = true;
   try {
     // P5b-09：资料库改游标分页；reset 拉第一页，否则按 docsCursor 追加。
-    const page = await gainosApi.sellerDocuments(companyId, reset ? undefined : docsCursor.value);
+    const page = await gainosApi.sellerDocumentPage(companyId, reset ? undefined : docsCursor.value);
     if (!current()) return;
     const rows = page?.data ?? [];
     docs.value = reset ? rows : [...docs.value, ...rows];
+    uploadQueue.restoreProcessing(companyId, rows, docsCompany.value ? companyTitle(docsCompany.value) : undefined);
     docsCursor.value = page?.page?.next_cursor ?? undefined;
     docsHasMore.value = Boolean(page?.page?.has_more && page?.page?.next_cursor);
     docsError.value = null;
@@ -1407,40 +1585,65 @@ async function loadDocuments(silent = false, reset = true): Promise<void> {
   }
 }
 
-async function uploadDocument(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  const companyId = docsCompany.value?.id;
-  input.value = '';
-  if (!file || !companyId) return;
-  const mime = docMime(file);
-  if (!mime) {
-    docsNotice.value = $t('gainos.companies.uploadFailed', { reason: $t('gainos.companies.uploadFormats') });
+function enqueueCompanyFiles(files: File[] | FileList): void {
+  const company = docsCompany.value ?? panelCompany.value;
+  const companyId = company?.id;
+  if (!companyId || files.length === 0) return;
+  docsNotice.value = null;
+  docsError.value = null;
+  const result = uploadQueue.enqueueFiles(companyId, files, {
+    companyName: company ? companyTitle(company) : undefined,
+  });
+  if (result.sessionChanged) {
+    docsError.value = $t('gainosOb.companies.uploadSessionChanged');
     return;
   }
-  docsUploading.value = true;
-  docsNotice.value = null;
-  try {
-    const signed = await gainosApi.presignSellerDocument(companyId, {
-      filename: file.name,
-      mime,
-      size: file.size,
-    });
-    const put = await fetch(`/api/companies/${companyId}/seller-documents/${signed.documentId}/content`, {
-      method: 'PUT',
-      headers: { 'content-type': mime },
-      body: file,
-    });
-    if (!put.ok) throw new Error(`upload ${put.status}`);
-    await gainosApi.commitSellerDocument(companyId, signed.documentId);
-    docsNotice.value = $t('gainos.companies.uploadDone');
-    await loadDocuments();
-  } catch (err) {
-    docsNotice.value = $t('gainos.companies.uploadFailed', { reason: failureText(err).title });
-  } finally {
-    docsUploading.value = false;
+  rejectedUploadAlerts.value = result.rejected;
+  if (result.largePdfFiles.length > 0) {
+    largePdfAlert.value = result.largePdfFiles[0] ?? null;
+  }
+  if (result.skippedCount > 0) {
+    docsNotice.value = $t('gainosOb.companies.uploadMaxBatchHint');
   }
 }
+
+function onSelectDocuments(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  if (input.files && input.files.length > 0) {
+    enqueueCompanyFiles(input.files);
+  }
+  input.value = '';
+}
+
+function onDropDocuments(event: DragEvent): void {
+  dropzoneActive.value = false;
+  if (docsRecoveryReadOnly.value) return;
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    enqueueCompanyFiles(files);
+  }
+}
+
+// 监听全局上传队列的资产刷新事件：前 15 页优先解析或全量解析完成时静默刷新资料与事实（绝不清空未保存编辑）
+watch(
+  () => uploadQueue.assetVersion,
+  () => {
+    const update = uploadQueue.lastAssetUpdate;
+    if (!update) return;
+    const activeCompanyId = panelCompany.value?.id ?? primaryCompany.value?.id;
+    if (activeCompanyId && update.companyId !== activeCompanyId) return;
+    assetUpdateNotice.value = $t('gainosOb.companies.assetUpdatedNotice');
+    void loadSummaries();
+    if (docsCompany.value?.id === update.companyId) {
+      void loadDocuments(true, true);
+    }
+    if (claimsCompany.value?.id === update.companyId) {
+      void Promise.all([loadClaims(true), loadCompanyOverview(true)]);
+    } else {
+      claimsStale.value = true;
+    }
+  },
+);
 
 async function searchDocuments(): Promise<void> {
   const companyId = docsCompany.value?.id;
@@ -1617,7 +1820,7 @@ onUnmounted(() => {
     <GsPage
       art="company"
       :subtitle="$t('gainos.companies.subtitle')"
-      :title="$t('gainos.companies.title')"
+      :title="$t('gainosOb.companies.pageTitle')"
     />
 
     <!-- 内容自然衔接 56px 紧凑页头 -->
@@ -1664,174 +1867,126 @@ onUnmounted(() => {
     </GsCard>
 
     <template v-else>
-      <!-- 主档案：注册时填写的公司。所有寻源都基于这份档案。 -->
-      <GsCard class="co-primary" data-gs="primary-company" padding="0">
-        <div class="co-primary__body">
-          <div class="co-primary__grid">
-            <div class="co-primary__identity">
-              <span aria-hidden="true" class="co-logo">
-                {{ companyInitial(primaryCompany) }}
-              </span>
-              <div class="min-w-0">
-                <div class="co-primary__title">
-                  <h2>{{ companyTitle(primaryCompany) }}</h2>
-                  <Tag :bordered="false" class="co-badge">
-                    {{ primaryBadgeLabel }}
-                  </Tag>
-                  <GsTag :tone="companyTone(primaryCompany)">
-                    {{ companyStatus(primaryCompany) }}
-                  </GsTag>
-                </div>
-                <p class="co-muted">
-                  {{ primaryCompany.website || primaryCompany.domain || $t('gainos.companies.noWebsite') }}
-                </p>
-                <div v-if="companyTags(primaryCompany).length" class="co-tags">
-                  <Tag
-                    v-for="tag in companyTags(primaryCompany)"
-                    :key="tag"
-                    :bordered="false"
-                    class="co-chip"
-                  >
-                    {{ tag }}
-                  </Tag>
-                </div>
+      <!-- 主档案：72px 紧凑企业身份头（去重删除与下方概览重复的 4 块数字方块与重复刷新键） -->
+      <GsCard class="co-primary" data-gs="primary-company" padding="14px 20px">
+        <div class="co-identity-strip">
+          <div class="co-identity-main">
+            <span aria-hidden="true" class="co-logo co-logo--compact">
+              {{ companyInitial(primaryCompany) }}
+            </span>
+            <div class="co-identity-copy">
+              <div class="co-identity-title">
+                <h2>{{ companyTitle(primaryCompany) }}</h2>
+                <Tag :bordered="false" class="co-badge">
+                  {{ primaryBadgeLabel }}
+                </Tag>
+                <span :data-tone="companyTone(primaryCompany)" class="co-status-indicator">
+                  <span aria-hidden="true" class="co-status-dot"></span>
+                  {{ companyStatus(primaryCompany) }}
+                </span>
               </div>
-            </div>
-
-            <div class="co-primary__kpis">
-              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
-                <strong>{{ summaryOf(primaryCompany)?.approvedClaims ?? '—' }}</strong>
-                <span>{{ $t('gainos.companies.statApproved') }}</span>
-              </button>
-              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
-                <strong>{{ summaryOf(primaryCompany)?.pendingClaims ?? '—' }}</strong>
-                <span>{{ $t('gainos.companies.statPending') }}</span>
-              </button>
-              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
-                <strong>{{ summaryOf(primaryCompany)?.offerings ?? '—' }}</strong>
-                <span>{{ $t('gainos.companies.statOfferings') }}</span>
-              </button>
-              <button class="co-kpi" type="button" @click="showFacts(primaryCompany)">
-                <strong>{{ summaryOf(primaryCompany)?.conflictsOpen ?? '—' }}</strong>
-                <span>{{ $t('gainos.companies.statConflicts') }}</span>
-              </button>
-            </div>
-
-            <!-- 档案已就绪时不再显示「下一步」引导，只留一个去设定画像的按钮。 -->
-            <div v-if="nextStep.action === 'go'" class="co-next co-next--ready" data-gs="next-step">
-              <p class="co-next__title">{{ nextStep.title }}</p>
-              <Button data-gs="primary-next" type="primary" @click="runNextStep">
-                {{ nextStep.label }}
-              </Button>
-            </div>
-            <div v-else class="co-next" data-gs="next-step">
-              <p class="co-label">{{ $t('gainos.companies.nextStep') }}</p>
-              <p class="co-next__title">{{ nextStep.title }}</p>
-              <p class="co-next__desc">{{ nextStep.desc }}</p>
-              <Button data-gs="primary-next" type="primary" @click="runNextStep">
-                {{ nextStep.label }}
-              </Button>
+              <div class="co-identity-meta">
+                <span class="co-identity-site">
+                  {{ primaryCompany.website || primaryCompany.domain || $t('gainos.companies.noWebsite') }}
+                </span>
+                <template v-if="companyTags(primaryCompany).length">
+                  <span aria-hidden="true" class="co-meta-sep">·</span>
+                  <div class="co-tags co-tags--inline">
+                    <Tag
+                      v-for="tag in companyTags(primaryCompany)"
+                      :key="tag"
+                      :bordered="false"
+                      class="co-chip"
+                    >
+                      {{ tag }}
+                    </Tag>
+                  </div>
+                </template>
+                <span aria-hidden="true" class="co-meta-sep">·</span>
+                <span class="co-identity-icp">
+                  {{ $t('gainos.companies.icpTitle') }}：{{
+                    activePrimaryIcp
+                      ? $t('gainos.companies.icpActive', { name: activePrimaryIcp.name })
+                      : primaryIcps.length > 0
+                        ? $t('gainos.companies.icpCount', { count: primaryIcps.length })
+                        : $t('gainos.companies.icpNone')
+                  }}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div class="co-primary__foot">
-            <Space :size="8" wrap>
-              <Button :loading="loading" data-gs="refresh" @click="load()">
-                <template v-if="!loading" #icon><RotateCw :size="14" /></template>
-                {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+          <div class="co-identity-actions">
+            <div class="co-identity-next" data-gs="next-step">
+              <Button data-gs="primary-next" type="primary" @click="runNextStep">
+                {{ nextStep.label }}
               </Button>
-              <Button data-gs="primary-facts" @click="showFacts(primaryCompany)">
-                {{ $t('gainos.companies.openFacts') }}
-              </Button>
-              <Button data-gs="primary-docs" @click="showDocs(primaryCompany)">
-                {{ $t('gainos.companies.documents') }}
-              </Button>
-              <Button
-                v-if="primaryCompany.status === 'DRAFT'"
-                data-gs="primary-edit"
-                @click="openEdit(primaryCompany)"
-              >
-                {{ $t('gainos.companies.edit') }}
-              </Button>
-              <Button data-gs="add-related" @click="addRelatedCompany">
-                <template #icon><Plus :size="14" /></template>
-                {{ $t('gainos.companies.addRelated') }}
-              </Button>
-              <Dropdown
-                v-if="primaryMenuItems.length > 0"
-                :trigger="['click']"
-                placement="bottomRight"
-              >
-                <Button>{{ $t('gainos.companies.more') }}</Button>
-                <template #overlay>
-                  <Menu :items="primaryMenuItems" @click="onPrimaryMenu" />
-                </template>
-              </Dropdown>
-            </Space>
-            <div class="co-icp">
-              <p class="co-label">{{ $t('gainos.companies.icpTitle') }}</p>
-              <p class="co-icp__value">
-                <template v-if="primaryIcps.length > 0">
-                  <strong>{{ $t('gainos.companies.icpCount', { count: primaryIcps.length }) }}</strong>
-                  <span v-if="activePrimaryIcp" class="co-muted">
-                    · {{ $t('gainos.companies.icpActive', { name: activePrimaryIcp.name }) }}
-                  </span>
-                </template>
-                <span v-else class="co-muted">{{ $t('gainos.companies.icpNone') }}</span>
-              </p>
             </div>
+            <Button
+              v-if="primaryCompany.status === 'DRAFT'"
+              data-gs="primary-edit"
+              @click="openEdit(primaryCompany)"
+            >
+              {{ $t('gainos.companies.edit') }}
+            </Button>
+            <Button data-gs="add-related" @click="addRelatedCompany">
+              <template #icon><Plus :size="14" /></template>
+              {{ $t('gainos.companies.addRelated') }}
+            </Button>
+            <Dropdown
+              v-if="primaryMenuItems.length > 0"
+              :trigger="['click']"
+              placement="bottomRight"
+            >
+              <Button>{{ $t('gainos.companies.more') }}</Button>
+              <template #overlay>
+                <Menu :items="primaryMenuItems" @click="onPrimaryMenu" />
+              </template>
+            </Dropdown>
           </div>
         </div>
       </GsCard>
 
-      <!-- 档案工作台：企业事实与资料库都在页内完成，不再用弹窗打断阅读 -->
+      <GsAlert
+        v-if="assetUpdateNotice"
+        closable
+        data-gs="company-assets-refreshed"
+        :title="assetUpdateNotice"
+        tone="info"
+        @close="assetUpdateNotice = null"
+      />
+
+      <!-- 档案工作台：企业事实 | 企业资料库 | 目标市场 三一等分段，同步 URL ?tab= -->
       <div ref="workspaceRef" class="co-workspace__anchor scroll-mt-24">
       <GsCard class="co-workspace" data-gs="company-workspace" padding="0">
-        <header class="co-workspace__head">
-          <div class="min-w-0">
-            <p class="co-workspace__eyebrow">{{ $t('gainos.companies.workspaceEyebrow') }}</p>
-            <h2 class="co-workspace__title">{{ $t('gainos.companies.workspaceTitle') }}</h2>
-            <p class="co-workspace__hint">{{ $t('gainos.companies.workspaceHint') }}</p>
-          </div>
+        <div class="co-workspace__bar">
+          <GsSegmented
+            :ariaLabel="$t('gainosOb.companies.workspaceViewLabel')"
+            :model-value="panelTab"
+            :options="panelTabs"
+            @update:model-value="onPanelTabChange"
+          />
           <div class="co-workspace__tools">
-            <label class="co-workspace__field">
-              <span>{{ $t('gainos.companies.workspaceCompany') }}</span>
+            <div v-if="companies.length > 1" class="co-workspace__switcher">
               <GsSelect
-                :ariaLabel="$t('gainos.companies.workspaceCompany')"
+                :aria-label="$t('gainos.companies.workspaceCompany')"
                 class="co-workspace__select"
                 :options="panelCompanyOptions"
                 :value="panelCompanyId ?? undefined"
                 @change="onPanelCompanyChange"
               />
-            </label>
+              <Button
+                v-if="panelCompany && primaryCompany && panelCompany.id !== primaryCompany.id"
+                size="small"
+                type="link"
+                @click="showFacts(primaryCompany)"
+              >
+                {{ $t('gainos.companies.workspaceBackPrimary') }}
+              </Button>
+            </div>
             <Button :loading="panelLoading" data-gs="workspace-refresh" @click="refreshPanel">
               <template v-if="!panelLoading" #icon><RotateCw :size="14" /></template>
               {{ $t('gainos.companies.workspaceRefresh') }}
-            </Button>
-          </div>
-        </header>
-
-        <div class="co-workspace__bar">
-          <GsSegmented
-            :ariaLabel="$t('gainos.companies.workspaceViewLabel')"
-            :model-value="panelTab"
-            :options="panelTabs"
-            @update:model-value="onPanelTabChange"
-          />
-          <div class="co-workspace__context">
-            <GsTag v-if="panelCompany" :tone="companyTone(panelCompany)">
-              {{ companyStatus(panelCompany) }}
-            </GsTag>
-            <span class="co-muted">
-              {{ panelCompany?.website || panelCompany?.domain || $t('gainos.companies.noWebsite') }}
-            </span>
-            <Button
-              v-if="panelCompany && primaryCompany && panelCompany.id !== primaryCompany.id"
-              size="small"
-              type="link"
-              @click="showFacts(primaryCompany)"
-            >
-              {{ $t('gainos.companies.workspaceBackPrimary') }}
             </Button>
           </div>
         </div>
@@ -2187,9 +2342,9 @@ onUnmounted(() => {
           </footer>
         </div>
 
-        <!-- 资料库：左侧上传与文件清单，右侧检索，适合边看边查 -->
+        <!-- 资料库：接入全局 5 MiB 动态分片队列，支持拖拽/多选最多 5 份与过滤 pending_upload 孤儿噪声 -->
         <div
-          v-else
+          v-else-if="panelTab === 'documents'"
           ref="docsPanel"
           class="co-workspace__body co-docs"
           :data-readonly="docsRecoveryReadOnly"
@@ -2203,34 +2358,130 @@ onUnmounted(() => {
                 <p class="co-muted">{{ $t('gainos.companies.documentsHint') }}</p>
               </div>
               <div v-if="!docsRecoveryReadOnly" class="co-docs__upload">
-                <Button
-                  :disabled="docsUploading"
-                  type="primary"
-                  @click="docsFileInput?.click()"
-                >
-                  {{ docsUploading ? $t('gainos.companies.uploading') : $t('gainos.companies.upload') }}
+                <Button type="primary" @click="docsFileInput?.click()">
+                  {{ $t('gainos.companies.upload') }}
                 </Button>
                 <input
                   ref="docsFileInput"
                   accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md"
                   class="co-docs__file"
+                  multiple
                   type="file"
-                  @change="uploadDocument"
+                  @change="onSelectDocuments"
                 />
-                <span class="cp__docs-formats">{{ $t('gainos.companies.uploadFormats') }}</span>
               </div>
             </header>
+
+            <div
+              v-if="!docsRecoveryReadOnly"
+              :class="{ 'is-active': dropzoneActive }"
+              class="co-docs__dropzone"
+              data-gs="docs-dropzone"
+              @click="docsFileInput?.click()"
+              @dragenter.prevent="dropzoneActive = true"
+              @dragleave.prevent="dropzoneActive = false"
+              @dragover.prevent="dropzoneActive = true"
+              @drop.prevent="onDropDocuments"
+            >
+              <span class="co-docs__drop-title">{{ $t('gainosOb.companies.uploadDropTitle') }}</span>
+              <span class="co-docs__drop-hint">{{ $t('gainosOb.companies.uploadDropHint') }}</span>
+            </div>
+
+            <GsAlert
+              v-if="largePdfAlert"
+              closable
+              data-gs="large-pdf-alert"
+              :description="$t('gainosOb.companies.largePdfAlertDesc')"
+              :title="$t('gainosOb.companies.largePdfAlertTitle', { size: formatBytes(largePdfAlert.sizeBytes) })"
+              tone="warning"
+              @close="largePdfAlert = null"
+            />
+
+            <GsAlert
+              v-for="item in rejectedUploadAlerts"
+              :key="`${item.filename}-${item.sizeBytes}`"
+              closable
+              :title="rejectedUploadMessage(item)"
+              tone="danger"
+              @close="rejectedUploadAlerts = rejectedUploadAlerts.filter((row) => row !== item)"
+            />
 
             <p v-if="docsNotice" class="cp__claim-notice" role="status">{{ docsNotice }}</p>
             <p v-if="docsError" class="cp__form-err" role="alert">{{ docsError }}</p>
 
-            <div v-if="docsLoading && docs.length === 0" class="co-panel__state">
+            <!-- 与全局右下角浮窗 100% 同步的在途传输条目 -->
+            <section
+              v-if="companyTransfers.length > 0"
+              class="co-docs__transfers"
+              data-gs="docs-active-transfers"
+            >
+              <h4 class="co-docs__subhead">{{ $t('gainosOb.companies.activeTransfersTitle') }}</h4>
+              <ul class="co-docs__transfer-list">
+                <li
+                  v-for="task in companyTransfers"
+                  :key="task.id"
+                  :data-status="task.status"
+                  class="co-docs__transfer-row"
+                >
+                  <div class="cp__docs-main">
+                    <strong>{{ task.filename }}</strong>
+                    <span>{{ formatBytes(task.sizeBytes) }} · {{ transferStatusText(task) }}</span>
+                  </div>
+                  <div class="cp__docs-side">
+                    <Button
+                      v-if="task.status === 'uploading'"
+                      size="small"
+                      @click="uploadQueue.pauseTask(task.id)"
+                    >
+                      {{ $t('gainosOb.uploadQueue.actionPause') }}
+                    </Button>
+                    <Button
+                      v-if="task.status === 'paused' || task.status === 'interrupted'"
+                      size="small"
+                      type="primary"
+                      @click="uploadQueue.resumeTask(task.id)"
+                    >
+                      {{
+                        task.status === 'interrupted'
+                          ? $t('gainosOb.uploadQueue.actionResumeInterrupted')
+                          : $t('gainosOb.uploadQueue.actionResume')
+                      }}
+                    </Button>
+                    <Button
+                      v-if="task.status === 'failed'"
+                      size="small"
+                      @click="uploadQueue.retryTask(task.id)"
+                    >
+                      {{ $t('gainosOb.uploadQueue.actionRetry') }}
+                    </Button>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <div v-if="docsLoading && visibleDocs.length === 0" class="co-panel__state">
               {{ $t('gainos.companies.loading') }}
             </div>
-            <ul v-else-if="docs.length > 0" class="cp__docs-list co-docs__list">
-              <li v-for="row in docs" :key="row.id" class="cp__docs-item">
+            <ul v-else-if="visibleDocs.length > 0" class="cp__docs-list co-docs__list">
+              <li v-for="row in visibleDocs" :key="row.id" class="cp__docs-item">
                 <div class="cp__docs-main">
-                  <strong>{{ row.filename }}</strong>
+                  <div class="co-docs__name-row">
+                    <strong>{{ row.filename }}</strong>
+                    <GsTag
+                      v-if="docParsedMeta(row)?.mode === 'priority_pages' || docParsedMeta(row)?.fullParsePending"
+                      tone="info"
+                    >
+                      {{
+                        $t('gainosOb.companies.priorityReadyBadge', {
+                          parsed: docParsedMeta(row)?.parsedPages ?? 15,
+                          total: docParsedMeta(row)?.totalPages ?? (docParsedMeta(row)?.parsedPages ?? 15),
+                        })
+                      }}
+                    </GsTag>
+                    <GsTag v-if="docParsedMeta(row)?.visionUsed" tone="neutral">
+                      {{ $t('gainosOb.companies.visionBadge') }}
+                    </GsTag>
+                  </div>
                   <span>
                     {{ docSizeLabel(row) }} · {{ docStatusLabel(row.status) }}
                     <template v-if="row.status === 'ready'">
@@ -2271,13 +2522,13 @@ onUnmounted(() => {
                 </div>
               </li>
             </ul>
-            <p v-else class="co-panel__state">{{ $t('gainos.companies.documentsEmpty') }}</p>
+            <p v-else-if="companyTransfers.length === 0" class="co-panel__state">{{ $t('gainos.companies.documentsEmpty') }}</p>
 
             <Button
               v-if="docsHasMore"
               :loading="docsLoading"
               block
-              @click="loadDocuments(true, false)"
+              @click="loadDocuments(false, false)"
             >
               {{ $t('gainos.companies.loadMoreDocuments') }}
             </Button>
@@ -2315,6 +2566,54 @@ onUnmounted(() => {
               </li>
             </ul>
           </aside>
+        </div>
+
+        <!-- 目标市场：从「更多」下拉菜单提拔为第三一等分段，页内直接评审并直通新建买家画像 -->
+        <div
+          v-else
+          ref="marketsPanel"
+          class="co-workspace__body co-markets"
+          data-gs="company-markets"
+          tabindex="-1"
+        >
+          <header class="co-markets__head">
+            <div class="min-w-0">
+              <h3 class="co-pane__title">{{ $t('gainosOb.companies.marketsIntroTitle') }}</h3>
+              <p class="co-muted">{{ $t('gainosOb.companies.marketsIntroDesc') }}</p>
+              <div class="co-markets__current">
+                <span class="co-label">{{ $t('gainosOb.companies.marketsCurrentLabel') }}：</span>
+                <template v-if="panelCompany?.targetMarkets?.length">
+                  <Tag
+                    v-for="market in panelCompany.targetMarkets"
+                    :key="market"
+                    :bordered="false"
+                    class="co-chip"
+                  >
+                    {{ market }}
+                  </Tag>
+                </template>
+                <span v-else class="co-muted">{{ $t('gainosOb.companies.marketsCurrentEmpty') }}</span>
+              </div>
+            </div>
+            <Button
+              data-gs="markets-create-buyer-profile"
+              type="primary"
+              @click="goCreateBuyerProfileWithMarkets"
+            >
+              {{ $t('gainosOb.companies.marketsCreateBuyerProfile') }}
+            </Button>
+          </header>
+
+          <MarketCandidatesPanel
+            v-if="panelCompany?.id && marketContext && !marketCompany"
+            ref="inlineMarket"
+            :key="`${panelCompany.id}-${marketInlineRefreshKey}`"
+            :company-id="panelCompany.id"
+            :company-name="companyTitle(panelCompany)"
+            :context="marketContext"
+            inline
+            @recover="recoverInlineMarketView"
+          />
         </div>
       </GsCard>
       </div>
@@ -3062,137 +3361,118 @@ onUnmounted(() => {
   border-radius: 10px;
   font-size: 16px;
 }
+.co-logo--compact {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 16px;
+}
 
-/* 主档案卡 */
-.co-primary__body {
-  display: grid;
-}
-.co-primary__grid {
-  display: grid;
-  grid-template-areas:
-    'identity'
-    'kpis'
-    'next';
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  padding: 20px 24px;
-}
-.co-primary__identity {
-  grid-area: identity;
+/* 72px 紧凑企业身份头（PR-OB1 去重：删除与下方概览重复的 4 块数字与重复刷新键） */
+.co-identity-strip {
   display: flex;
-  min-width: 0;
-  gap: 14px;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-height: 44px;
 }
-.co-primary__title {
+.co-identity-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.co-identity-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.co-identity-title {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
-.co-primary__title h2 {
+.co-identity-title h2 {
   margin: 0;
   color: var(--gs-fg);
-  font-size: 18px;
-  line-height: 26px;
+  font-size: 16px;
+  line-height: 22px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.co-primary__kpis {
-  grid-area: kpis;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.co-kpi {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--gs-surface-2);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.co-kpi:hover {
-  background: var(--gs-accent-soft);
-}
-.co-kpi:focus-visible {
-  outline: 2px solid var(--gs-accent);
-  outline-offset: 1px;
-}
-.co-kpi strong {
-  color: var(--gs-fg);
-  font-size: 20px;
-  line-height: 26px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.co-kpi span {
-  color: var(--gs-fg-muted);
+.co-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gs-fg-2);
   font-size: 12px;
   line-height: 18px;
+  font-weight: 500;
 }
-.co-next {
-  grid-area: next;
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--gs-accent-soft-border);
-  border-radius: 10px;
-  background: var(--gs-accent-soft);
+.co-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gs-fg-subtle);
 }
-.co-next .co-label {
+.co-status-indicator[data-tone='success'] {
+  color: var(--gs-success-fg);
+}
+.co-status-indicator[data-tone='success'] .co-status-dot {
+  background: var(--gs-success-fg);
+}
+.co-status-indicator[data-tone='info'] {
   color: var(--gs-accent-fg);
 }
-.co-next__title {
-  margin: 0;
-  color: var(--gs-fg);
-  font-size: 14px;
-  line-height: 22px;
-  font-weight: 600;
+.co-status-indicator[data-tone='info'] .co-status-dot {
+  background: var(--gs-accent-fg);
 }
-.co-next__desc {
-  margin: 0 0 6px;
+.co-status-indicator[data-tone='warning'] {
+  color: var(--gs-warn-fg);
+}
+.co-status-indicator[data-tone='warning'] .co-status-dot {
+  background: var(--gs-warn-fg);
+}
+.co-status-indicator[data-tone='danger'] {
+  color: var(--gs-danger-fg);
+}
+.co-status-indicator[data-tone='danger'] .co-status-dot {
+  background: var(--gs-danger-fg);
+}
+.co-identity-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   color: var(--gs-fg-muted);
   font-size: 12.5px;
-  line-height: 20px;
+  line-height: 18px;
 }
-.co-next :deep(.ant-btn) {
-  justify-self: start;
+.co-identity-site {
+  overflow-wrap: anywhere;
 }
-.co-next--ready {
-  gap: 10px;
+.co-meta-sep {
+  color: var(--gs-fg-placeholder);
 }
-.co-primary__foot {
+.co-tags--inline {
+  margin-top: 0;
+}
+.co-identity-icp {
+  color: var(--gs-fg-muted);
+}
+.co-identity-actions {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
   flex-wrap: wrap;
-  padding: 14px 24px 18px;
-  border-top: 1px solid var(--gs-divider);
+  gap: 8px;
+  flex: none;
 }
-.co-icp {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.co-icp__value {
-  margin: 0;
-  color: var(--gs-fg);
-  font-size: 13px;
-  line-height: 20px;
-}
-.co-icp__value strong {
-  font-weight: 600;
+.co-identity-next {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* 关联公司 */
@@ -3298,69 +3578,16 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 
-/* 内容区变宽后：主档案三列，关联公司两列 */
+/* 内容区变宽后：关联公司两列 */
 @container (min-width: 960px) {
-  .co-primary__grid {
-    grid-template-areas: 'identity kpis next';
-    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr) minmax(260px, 0.9fr);
-    align-items: start;
-  }
-  .co-primary__kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .co-related__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-/* ── 2026-11-25：页内档案工作台（企业事实 + 资料库，不再用弹窗） ────────── */
+/* ── 页内档案工作台（三一等分段：企业事实 | 企业资料库 | 目标市场） ────────── */
 .co-workspace {
   overflow: hidden;
-}
-.co-workspace__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 20px 24px 0;
-}
-.co-workspace__eyebrow {
-  margin: 0 0 2px;
-  color: var(--gs-accent-strong);
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 600;
-}
-.co-workspace__title {
-  margin: 0;
-  color: var(--gs-fg);
-  font-size: 17px;
-  line-height: 26px;
-  font-weight: 600;
-}
-.co-workspace__hint {
-  margin: 4px 0 0;
-  max-width: 640px;
-  color: var(--gs-fg-muted);
-  font-size: 12.5px;
-  line-height: 20px;
-}
-.co-workspace__tools {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.co-workspace__field {
-  display: grid;
-  gap: 4px;
-  color: var(--gs-fg-muted);
-  font-size: 12px;
-  line-height: 18px;
-}
-.co-workspace__select {
-  width: 280px;
 }
 .co-workspace__bar {
   display: flex;
@@ -3368,24 +3595,116 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 12px;
-  padding: 8px 24px 12px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--gs-divider);
 }
-.co-workspace__context {
+.co-workspace__tools {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  min-width: 0;
+}
+.co-workspace__switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.co-workspace__select {
+  width: 240px;
 }
 .co-workspace__body {
-  padding: 16px 24px 20px;
+  padding: 16px 20px 20px;
   outline: none;
 }
 .co-workspace__body:focus-visible {
   outline: 2px solid var(--gs-accent);
   outline-offset: -2px;
+}
+.co-docs__dropzone {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px dashed var(--gs-border-strong);
+  border-radius: 10px;
+  background: var(--gs-surface-3);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.co-docs__dropzone:hover,
+.co-docs__dropzone.is-active {
+  border-color: var(--gs-accent);
+  background: var(--gs-accent-soft);
+}
+.co-docs__drop-title {
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.co-docs__drop-hint {
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.co-docs__transfers {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.co-docs__subhead {
+  margin: 0;
+  color: var(--gs-fg-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.co-docs__transfer-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.co-docs__transfer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-surface);
+}
+.co-docs__name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.co-markets {
+  display: grid;
+  gap: 16px;
+}
+.co-markets__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--gs-divider);
+}
+.co-markets__current {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .co-pane__title {

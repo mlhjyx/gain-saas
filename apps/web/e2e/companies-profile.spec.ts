@@ -65,18 +65,24 @@ test('公司档案：主档案、关联公司与页内工作台', async ({ page 
       version: 1,
     },
   ]);
-  backend.set('GET', '/companies/c1/seller-documents', {
-    data: [
-      {
+  backend.set('GET', '/companies/c1/seller-documents', async ({ route, url }) => {
+    const nextPage = url.searchParams.get('cursor') === 'doc-1';
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 200,
+      body: JSON.stringify({
+        data: [{
         chunkCount: 12,
         createdAt: NOW,
-        filename: '公司介绍.pdf',
-        id: 'doc-1',
+        filename: nextPage ? '历史产品目录.pdf' : '公司介绍.pdf',
+        id: nextPage ? 'doc-2' : 'doc-1',
         sizeBytes: 1024,
         status: 'ready',
-      },
-    ],
-    page: { has_more: false },
+        }],
+        page: { has_more: !nextPage, next_cursor: nextPage ? null : 'doc-1' },
+      }),
+    });
+    return true;
   });
 
   await loginAs(page);
@@ -97,11 +103,14 @@ test('公司档案：主档案、关联公司与页内工作台', async ({ page 
 
   // 资料库是同一工作台里的第二个视图
   await page
-    .getByRole('group', { name: '企业事实与资料库视图' })
-    .getByRole('button', { name: '资料库' })
+    .getByRole('group', { name: '企业档案工作台视图' })
+    .getByRole('button', { name: '企业资料库' })
     .click();
   await expect(page.locator('[data-gs="company-docs"]')).toContainText('公司介绍.pdf');
   await expect(page.getByRole('button', { name: '上传资料' })).toBeVisible();
+  await page.getByRole('button', { name: '加载更多资料' }).click();
+  await expect(page.locator('[data-gs="company-docs"]')).toContainText('历史产品目录.pdf');
+  await expect(page.getByRole('button', { name: '加载更多资料' })).toHaveCount(0);
 
   // 关联公司入口会切换工作台上下文，并允许返回主档案
   await page
@@ -113,9 +122,14 @@ test('公司档案：主档案、关联公司与页内工作台', async ({ page 
   await workspace.getByRole('button', { name: '返回主档案' }).click();
   await expect(workspace).toContainText('Muster Metallbau GmbH');
 
-  // KPI 是事实工作台的快捷入口
-  await primary.locator('.co-kpi').nth(1).click();
+  // PR-OB1 去重：主档案紧凑身份头不再重复展示 4 块 KPI 方块，数字只在事实概览中呈现一次
+  await expect(primary.locator('.co-kpi')).toHaveCount(0);
   await expect(page.locator('[data-gs="company-facts"]')).toBeVisible();
+
+  // 全局上传浮窗可以直接回到关联公司的资料库。
+  await page.goto('/companies?tab=documents&companyId=c2');
+  await expect(workspace).toContainText('Nordlicht Handel AG');
+  await expect.poll(() => backend.callsTo('GET', '/companies/c2/seller-documents').length).toBeGreaterThan(0);
 });
 
 test('资料库流式下载（Content-Disposition + 错误提示）与分段提炼企业事实草稿', async ({ page }) => {
@@ -280,8 +294,8 @@ test('资料库流式下载（Content-Disposition + 错误提示）与分段提�
   await loginAs(page);
   await page.goto('/companies');
   await page
-    .getByRole('group', { name: '企业事实与资料库视图' })
-    .getByRole('button', { name: '资料库' })
+    .getByRole('group', { name: '企业档案工作台视图' })
+    .getByRole('button', { name: '企业资料库' })
     .click();
 
   const docRows = page.locator('.co-docs__list li');
@@ -333,7 +347,7 @@ test('资料库流式下载（Content-Disposition + 错误提示）与分段提�
 
   // 切回企业事实验证列表已刷新
   await page
-    .getByRole('group', { name: '企业事实与资料库视图' })
+    .getByRole('group', { name: '企业档案工作台视图' })
     .getByRole('button', { name: '企业事实' })
     .click();
   await expect(page.locator('[data-gs="company-facts"]')).toContainText('已通过 ISO 13485 医疗器械质量体系认证');

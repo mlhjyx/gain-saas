@@ -18,6 +18,7 @@ import type { GainosUserInfo } from '#/api/core/user';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import CommandPalette from '#/components/gainos/command-palette.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
+import UploadQueueTray from '#/components/gainos/upload-queue-tray.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { $t } from '#/locales';
 import { resolveNavTitle } from '#/router/routes/nav';
@@ -510,6 +511,7 @@ onUnmounted(() => {
     @toggle-theme="toggleTheme"
   />
   <CommandPalette ref="paletteRef" />
+  <UploadQueueTray />
 </template>
 
 <style scoped>

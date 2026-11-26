@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { copyForError } from "@gain-saas/shared";
 import {
   captureState,
@@ -24,6 +24,40 @@ const apiRoute = (path: string) =>
       .replace(/^\//, "")
       .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\?.*)?$`,
   );
+
+function companyWorkspaceViews(page: Page, lang: string) {
+  return page.getByRole("group", {
+    name: lang === "zh-CN" ? "企业档案工作台视图" : "Company profile workspace views",
+  });
+}
+
+async function openCompanyDocuments(page: Page, which: "primary" | "related", lang: string) {
+  const isChinese = lang === "zh-CN";
+  const workspace = page.locator('[data-gs="company-workspace"]');
+  await expect(workspace).toBeVisible();
+  if (which === "related") {
+    const button = page.locator('[data-gs="related-company"]').first().getByRole("button", {
+      name: isChinese ? "资料库" : "Documents",
+      exact: true,
+    });
+    await expect(button).toBeVisible();
+    await button.click();
+  } else {
+    const mainProfile = workspace.getByRole("button", {
+      name: isChinese ? "返回主档案" : "Back to main profile",
+      exact: true,
+    });
+    if (await mainProfile.isVisible()) await mainProfile.click();
+    const button = companyWorkspaceViews(page, lang).getByRole("button", {
+      name: isChinese ? "企业资料库" : "Documents",
+      exact: true,
+    });
+    await expect(button).toBeVisible();
+    await button.click();
+  }
+  await expect(page.locator('[data-gs="company-docs"]')).toBeVisible();
+}
+
 for (const cell of matrix) {
   test.describe(cell.label, () => {
     test.afterEach(async ({ page }, info) => {
@@ -506,18 +540,12 @@ for (const cell of matrix) {
         await fulfill(route, [hit(q === "solar" ? "A-SOLAR-ONLY" : "A-WIND-ONLY")]);
       });
       const docsPanel = page.locator('[data-gs="company-docs"]');
-      const docsLabel = cell.lang === "zh-CN" ? "资料库" : "Documents";
       const searchLabel = cell.lang === "zh-CN" ? "在资料里检索" : "Search documents";
       const openDocs = async (
         which: "primary" | "related",
         query: string,
       ): Promise<import("@playwright/test").Locator> => {
-        const scope =
-          which === "primary"
-            ? page.locator('[data-gs="primary-company"]')
-            : page.locator('[data-gs="related-company"]').first();
-        await scope.getByRole("button", { name: docsLabel, exact: true }).click();
-        await expect(docsPanel).toBeVisible();
+        await openCompanyDocuments(page, which, cell.lang);
         const input = docsPanel.locator('input[type="search"]');
         await input.fill(query);
         await docsPanel.getByRole("button", { name: searchLabel, exact: true }).click();
@@ -789,27 +817,9 @@ test.describe("late document initialization must not survive switching away", ()
   const openDocuments = async (
     page: import("@playwright/test").Page,
     which: "primary" | "related",
-  ) => {
-    const scope =
-      which === "primary"
-        ? page.locator('[data-gs="primary-company"]')
-        : page.locator('[data-gs="related-company"]').first();
-    await scope
-      .getByRole("button", {
-        name: singleCell.lang === "zh-CN" ? "资料库" : "Documents",
-        exact: true,
-      })
-      .click();
-    await expect(docsPanel(page)).toBeVisible();
-  };
+  ) => openCompanyDocuments(page, which, singleCell.lang);
   const showFacts = async (page: import("@playwright/test").Page) => {
-    await page
-      .getByRole("group", {
-        name:
-          singleCell.lang === "zh-CN"
-            ? "企业事实与资料库视图"
-            : "Company facts and documents view",
-      })
+    await companyWorkspaceViews(page, singleCell.lang)
       .getByRole("button", {
         // 药丸页签会带上待确认计数（如「企业事实 0」），不能按精确名称匹配。
         name: singleCell.lang === "zh-CN" ? "企业事实" : "Company facts",

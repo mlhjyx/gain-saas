@@ -8,6 +8,7 @@ import type { UserInfo } from '@vben/types';
 import { requestClient } from '#/api/request';
 
 export interface GainosUserInfo extends UserInfo {
+  workspaceId?: string;
   /** 当前公司显示名；顶栏与头像用。 */
   workspaceName?: string;
 }
@@ -39,6 +40,7 @@ export async function getUserInfoApi(): Promise<GainosUserInfo> {
     userId: session.user.id,
     username: session.user.email,
     realName: session.user.name?.trim() || personName(session.user.email),
+    workspaceId: session.workspace.id,
     workspaceName: company,
     roles: [session.workspace.role],
     avatar: initialAvatar(company),
