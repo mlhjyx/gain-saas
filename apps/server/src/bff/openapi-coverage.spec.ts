@@ -66,6 +66,6 @@ describe('BFF ↔ engine OpenAPI coverage (PR-12)', () => {
       bffRoutes: BFF_ROUTES.length,
       covered: covered.length,
       uncovered: uncovered.length,
-    }).toEqual({ bffRoutes: 102, covered: 100, uncovered: 2 });
+    }).toEqual({ bffRoutes: 104, covered: 100, uncovered: 4 });
   });
 });

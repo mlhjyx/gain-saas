@@ -136,6 +136,10 @@ export class OutreachSendService {
     private readonly experiments: OutreachExperimentsService,
   ) {}
 
+  isShadowMode(): boolean {
+    return this.config.CAMPAIGN_EXECUTION_SHADOW !== false;
+  }
+
   async sendBatch(tenant: OutreachTenant, batchId: string): Promise<OutreachSendSummary> {
     if (!UUID_RE.test(batchId)) notFound();
 

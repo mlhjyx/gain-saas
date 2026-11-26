@@ -148,6 +148,23 @@ describe('seller documents BFF routes', () => {
       expect(route?.grant).toBeUndefined();
     }
   });
+
+  it('registers Phase 3B ICP feedback record & summary routes as member passthroughs without grants', () => {
+    const expected: Array<[string, string]> = [
+      ['POST', 'icps/:icpId/feedback/record'],
+      ['GET', 'icps/:icpId/feedback/summary'],
+    ];
+    for (const [method, saasPath] of expected) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toMatchObject({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
+  });
 });
 
 describe('P1 attempt 维度：三类写路由的 attemptId 透传与剥离', () => {

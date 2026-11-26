@@ -13,7 +13,10 @@ import type {
   OutreachBatchSummary,
   OutreachDraftInput,
   OutreachDraftView,
+  OutreachT1ReadinessView,
+  SellerDocument,
 } from '#/api/gainos';
+import type { SignalIcebreakerSuggestion, T1AttachmentRef } from '@gain-saas/shared';
 
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -24,8 +27,14 @@ import {
   deriveOutreachActions,
   formatDateTime,
   glossaryStatus,
+  insertIcebreakerIntoBody,
+  normalizeIcebreakerSuggestions,
   resolveD3JurisdictionPolicy,
   statusClass,
+  T1_ALLOWED_ATTACHMENT_MIMES,
+  T1_MAX_ATTACHMENT_BYTES,
+  T1_MAX_ATTACHMENTS,
+  validateT1Attachments,
 } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
@@ -35,6 +44,8 @@ import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
+
+import T1OperationsPanel from './T1OperationsPanel.vue';
 
 defineOptions({ name: 'OutreachBatches' });
 
@@ -62,6 +73,7 @@ interface DraftForm {
   countryCode: string;
   subject: string;
   body: string;
+  attachmentIds: string[];
 }
 
 interface PickerCandidate {
@@ -80,9 +92,21 @@ interface PreselectedLeadContext {
   companyName: string;
   countryCode: string;
   candidates: PickerCandidate[];
+  icebreakers: SignalIcebreakerSuggestion[];
   draftSubject: string;
   draftBody: string;
 }
+
+const readiness = ref<OutreachT1ReadinessView>({
+  sendEnabled: false,
+  shadowMode: true,
+  smtpConfigured: false,
+  fromDomain: null,
+});
+const readyBrochures = ref<T1AttachmentRef[]>([]);
+const auditModalOpen = ref(false);
+const auditPackageData = ref<Record<string, unknown> | null>(null);
+const pickerIcebreakers = ref<SignalIcebreakerSuggestion[]>([]);
 
 const draftDialog = ref<{
   mode: 'create' | 'edit';
@@ -108,6 +132,7 @@ function emptyDraft(): DraftForm {
     countryCode: '',
     subject: '',
     body: '',
+    attachmentIds: [],
   };
 }
 
@@ -133,6 +158,118 @@ const canDecide = computed(() => flowActions.value.canApprove && latestApproval.
 const canReopen = computed(
   () => detail.value?.status === 'DECLINED' || detail.value?.status === 'EXPIRED',
 );
+const canAuthorize = computed(
+  () => detail.value?.status === 'APPROVED' || detail.value?.status === 'QUEUED',
+);
+const canSendBatch = computed(
+  () =>
+    readiness.value.sendEnabled &&
+    (detail.value?.status === 'APPROVED' || detail.value?.status === 'QUEUED'),
+);
+
+const brochureOptions = computed(() =>
+  readyBrochures.value.map((doc) => ({
+    value: doc.documentId,
+    label: `${doc.filename} (${Math.max(1, Math.round(doc.sizeBytes / 1024))} KB)`,
+  })),
+);
+
+function insertIcebreakerOption(item: SignalIcebreakerSuggestion): void {
+  const isZh = String(preferences.app.locale || '').startsWith('zh');
+  const opener = isZh ? item.openerZh : item.openerEn;
+  draftForm.value.body = insertIcebreakerIntoBody(opener, draftForm.value.body);
+}
+
+async function loadReadinessAndBrochures(): Promise<void> {
+  try {
+    const r = await gainosApi.outreachT1Readiness();
+    if (r && typeof r === 'object' && typeof r.sendEnabled === 'boolean') {
+      readiness.value = r;
+    }
+  } catch {
+    readiness.value = { sendEnabled: false, shadowMode: true, smtpConfigured: false, fromDomain: null };
+  }
+  try {
+    const companies = await gainosApi.companies();
+    const companyId = Array.isArray(companies) ? companies[0]?.id : undefined;
+    if (!companyId) return;
+    const docs = await gainosApi.sellerDocuments(companyId);
+    const list: SellerDocument[] = Array.isArray(docs) ? docs : [];
+    readyBrochures.value = list
+      .filter((doc) => {
+        const rawMime = doc.mime ?? (doc as { mimeType?: string }).mimeType ?? '';
+        const mime = String(rawMime).toLowerCase().split(';')[0] ?? '';
+        const size = Number(doc.sizeBytes ?? 0);
+        return (
+          String(doc.status ?? '').toLowerCase() === 'ready' &&
+          T1_ALLOWED_ATTACHMENT_MIMES.has(mime) &&
+          size > 0 &&
+          size <= T1_MAX_ATTACHMENT_BYTES
+        );
+      })
+      .map((doc) => ({
+        documentId: doc.id,
+        filename: doc.filename,
+        mimeType: String(doc.mime ?? (doc as { mimeType?: string }).mimeType ?? 'application/pdf')
+          .toLowerCase()
+          .split(';')[0]!,
+        sizeBytes: Number(doc.sizeBytes ?? 0),
+        status: 'ready',
+      }));
+  } catch {
+    readyBrochures.value = [];
+  }
+}
+
+async function authorizeBatch(): Promise<void> {
+  if (!detail.value || busy.value) return;
+  busy.value = 'authorize';
+  error.value = null;
+  try {
+    await gainosApi.authorizeOutreachBatch(detail.value.id);
+    notice.value = $t('gainos.outreach.authorizedNotice');
+    await selectBatch(detail.value.id);
+  } catch (err) {
+    error.value = failureText(err);
+  } finally {
+    busy.value = null;
+  }
+}
+
+async function executeSendBatch(): Promise<void> {
+  if (!detail.value || !canSendBatch.value || busy.value) return;
+  busy.value = 'send';
+  error.value = null;
+  try {
+    const summary = await gainosApi.sendOutreachBatch(detail.value.id);
+    notice.value = $t('gainos.outreach.sendResultNotice', {
+      sent: summary.sent,
+      skipped: summary.skipped,
+      deferred: summary.deferred,
+      shadowed: summary.shadowed,
+      failed: summary.failed,
+    });
+    await Promise.all([selectBatch(detail.value.id), loadBatches()]);
+  } catch (err) {
+    error.value = failureText(err);
+  } finally {
+    busy.value = null;
+  }
+}
+
+async function openAuditPackage(): Promise<void> {
+  if (!detail.value || busy.value) return;
+  busy.value = 'audit';
+  error.value = null;
+  try {
+    auditPackageData.value = await gainosApi.outreachAuditPackage(detail.value.id);
+    auditModalOpen.value = true;
+  } catch (err) {
+    error.value = failureText(err);
+  } finally {
+    busy.value = null;
+  }
+}
 
 const draftJurisdictionPolicy = computed(() => {
   const cc = draftForm.value.countryCode.trim().toUpperCase();
@@ -215,6 +352,7 @@ async function resolveLeadCandidates(leadId: string): Promise<PreselectedLeadCon
     companyName: pkg.company?.name ?? '',
     countryCode: (pkg.company?.country ?? '').trim().toUpperCase(),
     candidates,
+    icebreakers: normalizeIcebreakerSuggestions(pkg),
     draftSubject,
     draftBody,
   };
@@ -287,11 +425,13 @@ function openPrefilledDraftFromLead(ctx: PreselectedLeadContext): void {
     countryCode: ctx.countryCode,
     subject: ctx.draftSubject,
     body: ctx.draftBody,
+    attachmentIds: [],
   };
   pickerLeadId.value = ctx.leadId;
   pickerLeadName.value = ctx.companyName;
   pickerLeadCountry.value = ctx.countryCode;
   pickerCandidates.value = ctx.candidates;
+  pickerIcebreakers.value = ctx.icebreakers;
   draftError.value = null;
   draftDialog.value = { mode: 'create' };
 }
@@ -359,11 +499,13 @@ async function loadPickerContacts(): Promise<void> {
   try {
     const ctx = await resolveLeadCandidates(pickerLeadId.value);
     pickerCandidates.value = ctx.candidates;
+    pickerIcebreakers.value = ctx.icebreakers;
     pickerLeadName.value = ctx.companyName;
     pickerLeadCountry.value = ctx.countryCode;
   } catch (err) {
     pickerError.value = failureText(err).title;
     pickerCandidates.value = [];
+    pickerIcebreakers.value = [];
   } finally {
     pickerBusy.value = false;
   }
@@ -388,6 +530,7 @@ function openEditDraft(draft: OutreachDraftView): void {
     countryCode: (draft.countryCode ?? '').trim().toUpperCase(),
     subject: draft.subject,
     body: draft.body,
+    attachmentIds: (draft.attachments ?? []).map((item) => item.documentId),
   };
   draftError.value = null;
   draftDialog.value = {
@@ -419,6 +562,17 @@ async function saveDraft(): Promise<void> {
     effectivePointId = '';
   }
 
+  const selectedAttachments = draftForm.value.attachmentIds
+    .map((id) => readyBrochures.value.find((doc) => doc.documentId === id))
+    .filter((doc): doc is T1AttachmentRef => Boolean(doc));
+  if (selectedAttachments.length > 0) {
+    const check = validateT1Attachments(selectedAttachments);
+    if (!check.ok) {
+      draftError.value = check.errors[0]?.message ?? $t('gainos.outreach.draftRequired');
+      return;
+    }
+  }
+
   const input: OutreachDraftInput = {
     contactRef: draftForm.value.contactRef.trim(),
     ...(effectivePointId ? { contactPointId: effectivePointId } : {}),
@@ -427,6 +581,9 @@ async function saveDraft(): Promise<void> {
     ...(countryNormalized ? { countryCode: countryNormalized } : {}),
     subject: draftForm.value.subject.trim(),
     body: draftForm.value.body.trim(),
+    ...(selectedAttachments.length > 0 || draftDialog.value.mode === 'edit'
+      ? { attachments: selectedAttachments }
+      : {}),
   };
   if (!input.contactRef || !input.recipientEmail || !input.subject || !input.body) {
     draftError.value = $t('gainos.outreach.draftRequired');
@@ -561,6 +718,7 @@ async function hydrateLeadFromRoute(): Promise<void> {
     pickerLeadName.value = ctx.companyName;
     pickerLeadCountry.value = ctx.countryCode;
     pickerCandidates.value = ctx.candidates;
+    pickerIcebreakers.value = ctx.icebreakers;
   } catch {
     preselectedLead.value = null;
   } finally {
@@ -574,7 +732,7 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([loadBatches(), hydrateLeadFromRoute()]);
+  await Promise.all([loadBatches(), hydrateLeadFromRoute(), loadReadinessAndBrochures()]);
 });
 </script>
 
@@ -689,8 +847,46 @@ onMounted(async () => {
             <Button v-if="canReopen" :loading="busy === 'reopen'" @click="reopen">
               {{ $t('gainos.outreach.reopen') }}
             </Button>
+            <Button
+              v-if="canAuthorize"
+              :loading="busy === 'authorize'"
+              data-gs="authorize-batch"
+              @click="authorizeBatch"
+            >
+              {{ $t('gainos.outreach.authorizeBtn') }}
+            </Button>
+            <Button
+              v-if="canAuthorize"
+              :loading="busy === 'audit'"
+              data-gs="audit-package-btn"
+              @click="openAuditPackage"
+            >
+              {{ $t('gainos.outreach.auditPackageBtn') }}
+            </Button>
+            <Button
+              v-if="canSendBatch"
+              :loading="busy === 'send'"
+              data-gs="send-batch"
+              type="primary"
+              @click="executeSendBatch"
+            >
+              {{ $t('gainos.outreach.sendBatchBtn') }}
+            </Button>
           </div>
         </header>
+
+        <Alert
+          v-if="canAuthorize && !readiness.sendEnabled"
+          :message="$t('gainos.outreach.readinessClosedHint')"
+          show-icon
+          type="info"
+        />
+        <Alert
+          v-else-if="canSendBatch && readiness.shadowMode"
+          :message="$t('gainos.outreach.readinessShadowHint')"
+          show-icon
+          type="warning"
+        />
 
         <p v-if="detailLoading" class="ob__muted">{{ $t('gainos.outreach.loading') }}</p>
 
@@ -723,6 +919,17 @@ onMounted(async () => {
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'company'">{{ record.companyName || '—' }}</template>
             <template v-else-if="column.key === 'country'">{{ record.countryCode || '—' }}</template>
+            <template v-else-if="column.key === 'subject'">
+              <span>{{ record.subject }}</span>
+              <Tag
+                v-if="Array.isArray(record.attachments) && record.attachments.length > 0"
+                :bordered="false"
+                class="ml-2 text-xs"
+                data-gs="draft-attachments-badge"
+              >
+                {{ $t('gainos.outreach.attachmentsBadge', { count: record.attachments.length }) }}
+              </Tag>
+            </template>
             <template v-else-if="column.key === 'status'">
               <span class="gs-badge" :class="tone('outreachDraft', record.status)">
                 {{ label('outreachDraft', record.status) }}
@@ -752,6 +959,22 @@ onMounted(async () => {
 
       <section v-else class="ob__detail ob__muted">{{ $t('gainos.outreach.selectHint') }}</section>
     </div>
+
+    <T1OperationsPanel
+      :from-domain="readiness.fromDomain"
+      :initial-draft="detail?.drafts?.[0] ?? null"
+    />
+
+    <Modal
+      :footer="null"
+      :open="auditModalOpen"
+      :title="$t('gainos.outreach.auditPackageTitle')"
+      :width="640"
+      data-gs="audit-package-modal"
+      @cancel="auditModalOpen = false"
+    >
+      <pre class="ob__audit-pre">{{ JSON.stringify(auditPackageData, null, 2) }}</pre>
+    </Modal>
 
     <Modal
       :open="Boolean(draftDialog)"
@@ -834,8 +1057,41 @@ onMounted(async () => {
         <Form.Item :label="$t('gainos.outreach.subject')">
           <Input v-model:value="draftForm.subject" :maxlength="300" data-gs="draft-subject" />
         </Form.Item>
+        <div
+          v-if="pickerIcebreakers.length > 0"
+          class="ob__icebreakers"
+          data-gs="draft-signal-icebreakers"
+        >
+          <p class="ob__icebreakers-title">{{ $t('gainos.leads.signalIcebreaker.title') }}</p>
+          <div v-for="(sig, idx) in pickerIcebreakers" :key="`${sig.signalType}-${idx}`" class="ob__icebreaker-row">
+            <span class="ob__icebreaker-text">
+              {{ String(preferences.app.locale || '').startsWith('zh') ? sig.openerZh : sig.openerEn }}
+            </span>
+            <Button
+              data-gs="draft-insert-icebreaker"
+              size="small"
+              type="link"
+              @click="insertIcebreakerOption(sig)"
+            >
+              {{ $t('gainos.leads.signalIcebreaker.insert') }}
+            </Button>
+          </div>
+        </div>
         <Form.Item :label="$t('gainos.outreach.body')">
           <Input.TextArea v-model:value="draftForm.body" :maxlength="20000" :rows="6" data-gs="draft-body" />
+        </Form.Item>
+        <Form.Item :label="$t('gainos.outreach.attachmentsLabel')">
+          <Select
+            v-if="brochureOptions.length > 0"
+            v-model:value="draftForm.attachmentIds"
+            :max-tag-count="T1_MAX_ATTACHMENTS"
+            :options="brochureOptions"
+            :placeholder="$t('gainos.outreach.attachmentsPlaceholder')"
+            data-gs="draft-attachments-select"
+            mode="multiple"
+            style="width: 100%"
+          />
+          <p v-else class="ob__muted">{{ $t('gainos.outreach.attachmentsEmpty') }}</p>
         </Form.Item>
       </Form>
       <Alert v-if="draftError" :message="draftError" role="alert" show-icon type="error" />
@@ -879,6 +1135,11 @@ onMounted(async () => {
 }
 .ob__secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
 .ob__error { color: var(--gs-danger); margin: 0; }
+.ob__audit-pre { margin: 0; max-height: 420px; overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--gs-fg-2); }
+.ob__icebreakers { border: 1px solid var(--gs-divider); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 6px; background: var(--gs-surface-2); }
+.ob__icebreakers-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--gs-fg); }
+.ob__icebreaker-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 12.5px; }
+.ob__icebreaker-text { color: var(--gs-fg-2); flex: 1; }
 @media (max-width: 860px) {
   .ob__grid { grid-template-columns: 1fr; }
   .ob__row-2 { grid-template-columns: 1fr; }

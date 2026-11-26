@@ -1,9 +1,11 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
   "pinnedAt": "2026-11-26",
-  "reason": "固定到mlhjyx/global-backend@1e3ecf04（PR #1114 & #1115 MT-P1）的完整code-first合同（175路径，新增workspace、usage-summary、understanding/recompute、internal purge与data-exports端点）；100条BFF薄透传全部覆盖，另保留 PR #210 的 2 条 Phase 2A 只读 BFF 透传（待后端 PR #1111 合入并重导 openapi.json 后清零 uncovered）。",
+  "reason": "固定到mlhjyx/global-backend@1e3ecf04（PR #1114 & #1115 MT-P1）的完整code-first合同（175路径，新增workspace、usage-summary、understanding/recompute、internal purge与data-exports端点）；100条BFF薄透传全部覆盖，另保留 PR #210 的 2 条 Phase 2A 只读透传与 PR #214 的 2 条 Phase 3B 结构化反馈学习透传（待后端 Track 3B PR #1118 合入并同步引擎 openapi.json 后清零 uncovered）。",
   "uncovered": [
     "GET /companies/:companyId/market-recommendations",
-    "GET /discovery-runs/:runId/streaming-progress"
+    "GET /discovery-runs/:runId/streaming-progress",
+    "GET /icps/:icpId/feedback/summary",
+    "POST /icps/:icpId/feedback/record"
   ]
 }

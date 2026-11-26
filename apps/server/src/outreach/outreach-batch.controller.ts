@@ -22,6 +22,14 @@ const createBatchBody = z.object({
   campaignId: z.string().uuid().optional(),
 });
 
+const attachmentRefBody = z.object({
+  documentId: z.string().uuid(),
+  filename: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().min(1).max(120),
+  sizeBytes: z.coerce.number().int().positive(),
+  status: z.string().trim().min(1).max(32),
+});
+
 const draftBody = z.object({
   contactRef: z.string().uuid(),
   contactPointId: z.string().uuid().nullish(),
@@ -36,6 +44,8 @@ const draftBody = z.object({
     .regex(/^[A-Za-z]{2}$/)
     .transform((value) => value.toUpperCase())
     .optional(),
+  /** Phase 3 T1：关联的公司已就绪 PDF / HTML 产品画册引用（最多 3 份，每份 ≤10MB）。 */
+  attachments: z.array(attachmentRefBody).max(5).optional(),
 });
 
 const decideBody = z.object({

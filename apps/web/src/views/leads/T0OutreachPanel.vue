@@ -15,6 +15,7 @@ import type {
   T0TouchRecord,
 } from '#/api/gainos';
 import type {
+  SignalIcebreakerSuggestion,
   T0EvaluationResult,
   T0ChannelKey,
 } from '@gain-saas/shared';
@@ -27,9 +28,12 @@ import {
   buildWhatsappHref,
   evaluateT0Channels,
   formatDateTime,
+  insertIcebreakerIntoBody,
   isSafeHttpUrl,
   isSafeLinkedinUrl,
+  normalizeIcebreakerSuggestions,
 } from '@gain-saas/shared';
+import { preferences } from '@vben/preferences';
 import { Alert, Button, Input, Space, Tag } from 'ant-design-vue';
 
 import GsCard from '#/components/gainos/ui/gs-card.vue';
@@ -78,6 +82,25 @@ const recordingTouch = ref(false);
 
 const companyName = computed(() => props.pkg.company.name || '');
 const countryCode = computed(() => props.pkg.company.country ?? '');
+const signalIcebreakers = computed<SignalIcebreakerSuggestion[]>(() =>
+  normalizeIcebreakerSuggestions(props.pkg),
+);
+const signalLang = ref<'en' | 'zh'>(String(preferences.app.locale || '').startsWith('zh') ? 'zh' : 'en');
+
+function signalTypeLabel(signalType: string): string {
+  const key = `gainos.leads.signalIcebreaker.type.${signalType}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? $t('gainos.leads.signalIcebreaker.type.DEFAULT') : translated;
+}
+
+function insertSignalOpener(item: SignalIcebreakerSuggestion): void {
+  if (interactionBlocked.value) return;
+  const opener = signalLang.value === 'zh' ? item.openerZh : item.openerEn;
+  body.value = insertIcebreakerIntoBody(opener, body.value);
+  icebreaker.value = insertIcebreakerIntoBody(opener, icebreaker.value).slice(0, 300);
+  copyDirty.value = true;
+  feedback.message.success($t('gainos.leads.signalIcebreaker.inserted'));
+}
 const sanctionsHold = computed(() => {
   const value = props.pkg.sanctions?.status;
   return value === 'potential_match' || value === 'confirmed_true_hit';
@@ -563,6 +586,83 @@ onMounted(async () => {
         />
       </div>
 
+      <!-- Phase 3B：真实信号驱动的零捏造破冰首句 -->
+      <div
+        v-if="signalIcebreakers.length > 0"
+        class="t0-signals"
+        data-gs="t0-signal-icebreakers"
+      >
+        <div class="t0-signals__head">
+          <div>
+            <span class="text-xs font-semibold text-[var(--gs-fg)]">
+              {{ $t('gainos.leads.signalIcebreaker.title') }}
+            </span>
+            <p class="m-0 text-xs text-[var(--gs-fg-subtle)]">
+              {{ $t('gainos.leads.signalIcebreaker.hint') }}
+            </p>
+          </div>
+          <Space :size="4">
+            <Button
+              :type="signalLang === 'zh' ? 'primary' : 'default'"
+              data-gs="t0-signal-lang-zh"
+              size="small"
+              @click="signalLang = 'zh'"
+            >
+              {{ $t('gainos.leads.signalIcebreaker.langZh') }}
+            </Button>
+            <Button
+              :type="signalLang === 'en' ? 'primary' : 'default'"
+              data-gs="t0-signal-lang-en"
+              size="small"
+              @click="signalLang = 'en'"
+            >
+              {{ $t('gainos.leads.signalIcebreaker.langEn') }}
+            </Button>
+          </Space>
+        </div>
+        <ul class="t0-signals__list">
+          <li
+            v-for="(sig, idx) in signalIcebreakers"
+            :key="`${sig.signalType}-${idx}`"
+            class="t0-signals__item"
+            data-gs="t0-signal-item"
+          >
+            <div class="grid gap-1">
+              <Space :size="6" wrap>
+                <Tag :bordered="false" class="m-0 text-xs" color="blue">
+                  {{ signalTypeLabel(sig.signalType) }}
+                </Tag>
+                <span class="text-xs font-medium text-[var(--gs-fg)]">{{ sig.signalTitle }}</span>
+                <span v-if="sig.detectedAt" class="text-xs text-[var(--gs-fg-subtle)]">
+                  {{ formatDateTime(sig.detectedAt) }}
+                </span>
+                <a
+                  v-if="sig.signalUrl"
+                  :href="sig.signalUrl"
+                  class="text-xs text-[var(--gs-accent)] underline"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {{ $t('gainos.leads.signalIcebreaker.sourceLink') }}
+                </a>
+              </Space>
+              <p class="m-0 text-xs text-[var(--gs-fg-2)]" data-gs="t0-signal-opener-text">
+                {{ signalLang === 'zh' ? sig.openerZh : sig.openerEn }}
+              </p>
+            </div>
+            <Button
+              :disabled="interactionBlocked"
+              data-gs="t0-insert-icebreaker"
+              size="small"
+              type="primary"
+              @click="insertSignalOpener(sig)"
+            >
+              {{ $t('gainos.leads.signalIcebreaker.insert') }}
+            </Button>
+          </li>
+        </ul>
+      </div>
+
       <!-- 可编辑外联话术 -->
       <div class="grid gap-3 @min-[760px]:grid-cols-2">
         <div class="grid gap-2">
@@ -832,6 +932,39 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--gs-fg-muted);
+}
+.t0-signals {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--gs-divider);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.t0-signals__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.t0-signals__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.t0-signals__item {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--gs-divider);
+  background: var(--gs-surface);
 }
 .t0-log {
   display: grid;
