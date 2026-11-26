@@ -1,0 +1,165 @@
+{
+  "menu": {
+    "account": "账号与空间",
+    "members": "成员与角色",
+    "suppressions": "禁联名单",
+    "sources": "数据来源",
+    "privacy": "隐私与数据",
+    "audit": "审计日志",
+    "outreachMailboxes": "发信邮箱"
+  },
+  "shell": {
+    "navLabel": "设置子导航",
+    "groupAccount": "账号与团队",
+    "groupAdmin": "空间治理与外联"
+  },
+  "account": {
+    "title": "账号与空间",
+    "subtitle": "管理登录密码、当前企业空间信息、存储用量与积分钱包概览。",
+    "password": {
+      "title": "登录密码",
+      "desc": "修改后将保持当前设备登录态，并自动退出其他设备的会话。",
+      "currentLabel": "当前密码",
+      "currentPlaceholder": "请输入当前使用的登录密码",
+      "newLabel": "新密码",
+      "newPlaceholder": "至少 10 位，同时包含字母与数字",
+      "newHint": "密码至少 10 位，且需同时包含英文字母与数字。",
+      "confirmLabel": "确认新密码",
+      "confirmPlaceholder": "请再次输入新密码",
+      "submit": "更新密码",
+      "submitting": "正在更新…",
+      "success": "密码已更新，当前会话保持有效，其他设备已自动退出。",
+      "errCurrentRequired": "请先输入当前密码。",
+      "errNewFormat": "新密码至少 10 位，且必须同时包含字母与数字。",
+      "errSameAsCurrent": "新密码不能与当前密码相同。",
+      "errConfirmMismatch": "两次输入的新密码不一致。",
+      "wrongCurrent": "当前密码不正确，未修改登录密码",
+      "wrongCurrentNext": "请核对当前密码后重新提交，你的登录状态仍然保持有效。"
+    },
+    "workspace": {
+      "title": "企业空间信息",
+      "desc": "查看当前登录账号与所属企业空间；管理员可直接修改空间名称。",
+      "emailLabel": "登录账号",
+      "nameLabel": "空间名称",
+      "namePlaceholder": "请输入企业或工作空间名称",
+      "roleLabel": "当前角色",
+      "roleAdmin": "管理员",
+      "roleMember": "成员",
+      "editName": "编辑名称",
+      "saveName": "保存名称",
+      "savingName": "正在保存…",
+      "cancelEdit": "取消",
+      "renameSuccess": "工作空间名称已更新。",
+      "errNameRequired": "工作空间名称不能为空。",
+      "memberReadonlyHint": "空间名称仅工作空间管理员可修改。"
+    },
+    "usage": {
+      "title": "空间用量与钱包概览",
+      "desc": "查看当前工作空间的文档存储配额、业务对象计数与积分余额摘要。",
+      "refresh": "刷新用量",
+      "storageTitle": "企业资料存储配额",
+      "storageBytes": "已用容量 {used} / {max}",
+      "storageDocs": "企业文档 {used} / {max} 份",
+      "storageQuotaDefault": "默认配额",
+      "storageQuotaCustom": "自定义配额",
+      "alertOk": "用量充裕",
+      "alertWarning": "接近上限",
+      "alertCritical": "即将耗尽",
+      "statMembers": "活跃成员",
+      "statCompanies": "公司档案",
+      "statProfiles": "买家画像",
+      "statProfilesHint": "生效中 {active} 个",
+      "statBuyerCompanies": "买家企业库",
+      "statBuyerContacts": "买家联系人",
+      "statOutreach30d": "近 30 天外发",
+      "statCampaigns": "战役计划",
+      "statOpportunities": "商机总数",
+      "unavailableTitle": "空间用量暂未拉取成功",
+      "unavailableNext": "可稍后点击刷新重试，不影响当前页面其他操作。"
+    },
+    "wallet": {
+      "title": "积分钱包摘要",
+      "desc": "实时展示当前工作空间的可用积分、预占积分与赠点余额。",
+      "statAvailable": "可用积分",
+      "statHeld": "预占中",
+      "statBonus": "赠点余额",
+      "statSpent": "累计消耗",
+      "unitCredits": "积分",
+      "statusActive": "账户正常",
+      "statusFrozen": "账户已冻结",
+      "balanceNote": "付费余额 {paid} 积分（约合 ${usd}），当前有 {holds} 笔进行中预占。",
+      "gotoFullBilling": "查看完整账单与流水",
+      "unavailable": "暂未获取到钱包摘要信息。"
+    },
+    "leave": {
+      "title": "退出当前工作空间",
+      "desc": "退出后你将无法继续访问该空间内的线索、战役与历史记录，当前会话也将随之结束。",
+      "button": "退出工作空间",
+      "leaving": "正在退出…",
+      "confirmTitle": "确认退出当前工作空间？",
+      "confirmContent": "退出「{name}」后，你需要重新被管理员邀请才能再次进入该工作空间。",
+      "confirmOk": "确认退出",
+      "success": "已退出当前工作空间。"
+    }
+  },
+  "members": {
+    "readonlyHint": "你当前是普通成员，可浏览团队成员清单；邀请成员、调整角色与移除操作仅工作空间管理员可用。"
+  },
+  "suppressions": {
+    "decisions": {
+      "button": "审批历史",
+      "drawerTitle": "解除与更正决策历史",
+      "drawerSubtitle": "禁联对象：{value}",
+      "empty": "这条禁联记录还没有解除或更正审批历史。",
+      "loadMore": "加载更多记录",
+      "colTime": "记录时间",
+      "colDecision": "决策结果",
+      "colRequested": "申请类型",
+      "colReason": "原因说明",
+      "colActor": "操作人",
+      "actorAdmin": "空间管理员",
+      "note": "禁联决策采用只追加留痕机制，法定保护项的解除申请会被自动拦截并永久保留审计记录。",
+      "decisionLabel": {
+        "RELEASE_REQUESTED": "已受理解除申请",
+        "RELEASE_REQUEST_DENIED": "已拒绝解除（法定保护）",
+        "IDENTITY_CORRECTION_REQUESTED": "已登记主体更正",
+        "UNKNOWN": "已登记决策"
+      },
+      "reasonLabel": {
+        "PREFERENCE_RELEASE": "偏好类禁联解除申请",
+        "LEGAL_SUPPRESSION_PROTECTED": "受法定合规保护，不可解除",
+        "LEGAL_PROTECTED": "受法定合规保护，不可解除",
+        "IDENTITY_MISMATCH": "主体信息不匹配",
+        "DUPLICATE_IDENTITY": "重复主体归并",
+        "OPERATOR_REQUEST": "管理员发起申请",
+        "ADMIN_REVIEW": "管理员复核",
+        "MANUAL": "人工操作",
+        "UNKNOWN": "常规审批记录"
+      }
+    }
+  },
+  "privacy": {
+    "mirrors": {
+      "title": "级联清理回执",
+      "desc": "记录每笔删除请求在本端工作空间完成的级联清理结果与清理条数（仅管理员只读查看）。",
+      "totalCount": "共 {count} 条回执",
+      "empty": "还没有级联清理回执记录。",
+      "loadMore": "加载更多回执",
+      "filterLabel": "按清理状态筛选",
+      "statusAll": "全部状态",
+      "statusCompleted": "清理完成",
+      "statusFrozen": "已冻结禁联",
+      "statusErasing": "正在清理",
+      "statusReceived": "已受理",
+      "statusFailed": "未完成",
+      "statusUnknown": "处理中",
+      "colId": "回执编号",
+      "colRequest": "关联删除单",
+      "colStatus": "清理状态",
+      "colDeleted": "本端清理条数",
+      "colAt": "回执时间",
+      "deletedCount": "清理 {count} 条",
+      "note": "回执仅展示清理结果与计数，不包含任何已删除的个人联系信息。"
+    }
+  }
+}

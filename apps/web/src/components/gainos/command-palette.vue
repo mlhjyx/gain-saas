@@ -20,6 +20,7 @@ import { useMagicKeys, whenever } from '@vueuse/core';
 
 import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 import { $t } from '#/locales';
+import { resolveNavTitle } from '#/router/routes/nav';
 
 defineOptions({ name: 'CommandPalette' });
 
@@ -105,23 +106,24 @@ const actionItems = computed<PaletteItem[]>(() => {
     : items;
 });
 
-/** 页面：拍平 accessMenus（分组名作为 hint），与侧边栏同源。 */
+/** 页面：拍平 accessMenus（分组名作为 hint），与侧边栏同源并随语言实时刷新。 */
 const pageItems = computed<PaletteItem[]>(() => {
+  const locale = preferences.app.locale;
   const rows: PaletteItem[] = [];
   const walk = (menus: MenuRecordRaw[], hint: string) => {
     for (const menu of menus) {
       if (menu.children?.length) {
-        walk(menu.children, menu.name || hint);
+        const nextHint = menu.name ? $t(resolveNavTitle(menu.name, locale)) : hint;
+        walk(menu.children, nextHint);
         continue;
       }
       if (!menu.path || menu.path.startsWith('__')) continue;
-      // 菜单 name 可能是 i18n key（路由 meta 在 i18n 初始化前求值），
-      // 统一过 $t 再展示/匹配——与侧边栏同款，避免出现 gainos.menu.* 原文。
+      const resolvedLabel = $t(resolveNavTitle(menu.name, locale));
       rows.push({
-        hint: hint || $t(menu.name),
+        hint: hint || resolvedLabel,
         id: `page-${menu.path}`,
         kind: 'page',
-        label: $t(menu.name),
+        label: resolvedLabel,
         path: menu.path,
         query: menu.query as Record<string, string> | undefined,
       });

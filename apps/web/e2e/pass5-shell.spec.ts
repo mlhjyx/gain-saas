@@ -149,17 +149,17 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
     'e2e@gainos.local',
   );
 
-  // 侧栏不再列设置子页；「设置」行打开设置弹窗（SDR 同款）。
+  // 侧栏不再列设置子页；「设置」行直达整页 /settings/account（Wave B3 退役设置弹窗）。
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' }),
   ).toHaveCount(0);
   await footer.getByText('设置', { exact: true }).click();
-  await expect(page.locator('.gs-settings__panel')).toBeVisible();
-  await expect(
-    page.getByRole('heading', { level: 1, name: '成员与角色' }),
-  ).toBeVisible();
-  await page.keyboard.press('Escape');
+  await page.waitForURL((url) => url.pathname === '/settings/account');
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
+  await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: '账号与空间' }),
+  ).toBeVisible();
 
   // 通知行直达通知页。
   await footer.getByText('通知', { exact: true }).click();
@@ -196,16 +196,11 @@ test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }
   await page.keyboard.press('Escape');
   await expect(page.locator('.cmdk__list')).toHaveCount(0);
 
-  // 「设置」同样打开设置弹窗，遮罩带 SDR 同款模糊。
+  // 账号菜单「设置」同样直达整页 /settings/account，无设置弹窗。
   await page.locator('.sdr-account').click();
   await menu.getByRole('menuitem', { name: '设置' }).click();
-  await expect(page.locator('.gs-settings__panel')).toBeVisible();
-  expect(
-    await page
-      .locator('.gs-settings')
-      .evaluate((el) => getComputedStyle(el).backdropFilter),
-  ).toContain('blur');
-  await page.keyboard.press('Escape');
+  await page.waitForURL((url) => url.pathname === '/settings/account');
+  await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
 });
 

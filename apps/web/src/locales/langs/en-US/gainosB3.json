@@ -1,0 +1,165 @@
+{
+  "menu": {
+    "account": "Account & workspace",
+    "members": "Members & roles",
+    "suppressions": "Do-not-contact list",
+    "sources": "Data sources",
+    "privacy": "Privacy & data",
+    "audit": "Audit log",
+    "outreachMailboxes": "Outreach mailboxes"
+  },
+  "shell": {
+    "navLabel": "Settings navigation",
+    "groupAccount": "Account & team",
+    "groupAdmin": "Governance & outreach"
+  },
+  "account": {
+    "title": "Account & workspace",
+    "subtitle": "Manage your password, workspace profile, storage usage and credit wallet summary.",
+    "password": {
+      "title": "Sign-in password",
+      "desc": "Your current session stays active after updating; all other signed-in devices are signed out.",
+      "currentLabel": "Current password",
+      "currentPlaceholder": "Enter your current password",
+      "newLabel": "New password",
+      "newPlaceholder": "At least 10 characters with letters and digits",
+      "newHint": "Use at least 10 characters with both letters and numbers.",
+      "confirmLabel": "Confirm new password",
+      "confirmPlaceholder": "Re-enter your new password",
+      "submit": "Update password",
+      "submitting": "Updating…",
+      "success": "Password updated. Your current session stays signed in and other devices were signed out.",
+      "errCurrentRequired": "Please enter your current password.",
+      "errNewFormat": "The new password must be at least 10 characters and include both letters and digits.",
+      "errSameAsCurrent": "The new password cannot be the same as your current password.",
+      "errConfirmMismatch": "The two new passwords do not match.",
+      "wrongCurrent": "Current password is incorrect; password was not changed",
+      "wrongCurrentNext": "Check your current password and try again. Your session remains active."
+    },
+    "workspace": {
+      "title": "Workspace profile",
+      "desc": "View your account email, workspace name and role; admins can rename the workspace inline.",
+      "emailLabel": "Account email",
+      "nameLabel": "Workspace name",
+      "namePlaceholder": "Enter company or workspace name",
+      "roleLabel": "Your role",
+      "roleAdmin": "Admin",
+      "roleMember": "Member",
+      "editName": "Rename",
+      "saveName": "Save name",
+      "savingName": "Saving…",
+      "cancelEdit": "Cancel",
+      "renameSuccess": "Workspace name updated.",
+      "errNameRequired": "Workspace name cannot be empty.",
+      "memberReadonlyHint": "Only workspace admins can rename the workspace."
+    },
+    "usage": {
+      "title": "Workspace usage & wallet overview",
+      "desc": "Review document storage quota, workspace object counts and current credit balance.",
+      "refresh": "Refresh usage",
+      "storageTitle": "Company document storage quota",
+      "storageBytes": "Storage used {used} / {max}",
+      "storageDocs": "Documents {used} / {max}",
+      "storageQuotaDefault": "Default quota",
+      "storageQuotaCustom": "Custom quota",
+      "alertOk": "Healthy",
+      "alertWarning": "Near limit",
+      "alertCritical": "Critical",
+      "statMembers": "Active members",
+      "statCompanies": "Company profiles",
+      "statProfiles": "Buyer profiles",
+      "statProfilesHint": "{active} active",
+      "statBuyerCompanies": "Buyer companies",
+      "statBuyerContacts": "Buyer contacts",
+      "statOutreach30d": "Sent in 30 days",
+      "statCampaigns": "Campaign plans",
+      "statOpportunities": "Opportunities",
+      "unavailableTitle": "Could not load workspace usage right now",
+      "unavailableNext": "Try refreshing in a moment; other actions on this page remain available."
+    },
+    "wallet": {
+      "title": "Credit wallet summary",
+      "desc": "Live snapshot of available credits, held balance and bonus credits.",
+      "statAvailable": "Available credits",
+      "statHeld": "Held credits",
+      "statBonus": "Bonus credits",
+      "statSpent": "Lifetime spent",
+      "unitCredits": "credits",
+      "statusActive": "Active",
+      "statusFrozen": "Frozen",
+      "balanceNote": "Paid balance {paid} credits (~${usd}) with {holds} active holds.",
+      "gotoFullBilling": "Open full billing & ledger",
+      "unavailable": "Wallet summary is temporarily unavailable."
+    },
+    "leave": {
+      "title": "Leave current workspace",
+      "desc": "After leaving, you will lose access to leads, campaigns and history in this workspace and your current session will end.",
+      "button": "Leave workspace",
+      "leaving": "Leaving…",
+      "confirmTitle": "Leave this workspace?",
+      "confirmContent": "After leaving \"{name}\", an admin must invite you again before you can rejoin.",
+      "confirmOk": "Leave workspace",
+      "success": "You have left the current workspace."
+    }
+  },
+  "members": {
+    "readonlyHint": "You are signed in as a member and can browse the team roster; inviting, role changes and removal require an admin."
+  },
+  "suppressions": {
+    "decisions": {
+      "button": "Decision history",
+      "drawerTitle": "Release & correction decision history",
+      "drawerSubtitle": "Entry: {value}",
+      "empty": "No release or correction decisions have been recorded for this entry yet.",
+      "loadMore": "Load more records",
+      "colTime": "Recorded at",
+      "colDecision": "Outcome",
+      "colRequested": "Requested action",
+      "colReason": "Reason",
+      "colActor": "Actor",
+      "actorAdmin": "Workspace admin",
+      "note": "Suppression decisions are append-only. Release requests for legally protected entries are blocked automatically and kept in the audit trail.",
+      "decisionLabel": {
+        "RELEASE_REQUESTED": "Release requested",
+        "RELEASE_REQUEST_DENIED": "Release denied (legal protection)",
+        "IDENTITY_CORRECTION_REQUESTED": "Identity correction requested",
+        "UNKNOWN": "Decision recorded"
+      },
+      "reasonLabel": {
+        "PREFERENCE_RELEASE": "Preference-based release request",
+        "LEGAL_SUPPRESSION_PROTECTED": "Legally protected and cannot be released",
+        "LEGAL_PROTECTED": "Legally protected and cannot be released",
+        "IDENTITY_MISMATCH": "Identity mismatch",
+        "DUPLICATE_IDENTITY": "Duplicate identity merge",
+        "OPERATOR_REQUEST": "Admin request",
+        "ADMIN_REVIEW": "Admin review",
+        "MANUAL": "Manual action",
+        "UNKNOWN": "Standard review entry"
+      }
+    }
+  },
+  "privacy": {
+    "mirrors": {
+      "title": "Cascade cleanup receipts",
+      "desc": "Read-only log of local workspace cleanup receipts generated for data deletion requests (admins only).",
+      "totalCount": "{count} receipts",
+      "empty": "No cascade cleanup receipts have been recorded yet.",
+      "loadMore": "Load more receipts",
+      "filterLabel": "Filter by cleanup status",
+      "statusAll": "All statuses",
+      "statusCompleted": "Completed",
+      "statusFrozen": "Frozen",
+      "statusErasing": "Cleaning up",
+      "statusReceived": "Received",
+      "statusFailed": "Did not finish",
+      "statusUnknown": "Processing",
+      "colId": "Receipt",
+      "colRequest": "Deletion request",
+      "colStatus": "Status",
+      "colDeleted": "Local records cleared",
+      "colAt": "Recorded at",
+      "deletedCount": "{count} cleared",
+      "note": "Receipts record cleanup counts and status only; no erased personal contact details are retained."
+    }
+  }
+}

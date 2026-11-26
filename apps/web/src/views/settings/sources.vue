@@ -188,12 +188,12 @@ const headerOptions = computed(() =>
   headers.value.map((header) => ({ value: header, label: header })),
 );
 
-const previewColumns = [
+const previewColumns = computed(() => [
   { key: 'rowNumber', dataIndex: 'rowNumber', title: '#', width: 70 },
   { key: 'name', dataIndex: 'name', title: $t('gainos.sources.mapName') },
   { key: 'domain', dataIndex: 'domain', title: $t('gainos.sources.mapWebsite') },
   { key: 'country', dataIndex: 'country', title: $t('gainos.sources.mapCountry'), width: 120 },
-];
+]);
 
 onMounted(load);
 </script>

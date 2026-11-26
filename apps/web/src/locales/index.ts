@@ -6,6 +6,7 @@ import type { LocaleSetupOptions, SupportedLanguagesType } from '@vben/locales';
 
 import { ref } from 'vue';
 
+import { NAV, navLabel, type NavKey } from '@gain-saas/shared';
 import {
   $t,
   setupI18n as coreSetup,
@@ -30,12 +31,18 @@ const localesMap = loadLocalesMapFromDir(
  * 这里也可以改造为从服务端获取翻译数据
  * @param lang
  */
-async function loadMessages(lang: SupportedLanguagesType) {
+async function loadMessages(lang: SupportedLanguagesType): Promise<Record<string, any>> {
   const [appLocaleMessages] = await Promise.all([
     localesMap[lang]?.(),
     loadThirdPartyMessage(lang),
   ]);
-  return appLocaleMessages?.default;
+  const gainosNav = Object.fromEntries(
+    (Object.keys(NAV) as NavKey[]).map((key) => [key, navLabel(key, lang)]),
+  );
+  return {
+    ...(appLocaleMessages?.default ?? {}),
+    gainosNav,
+  };
 }
 
 /**

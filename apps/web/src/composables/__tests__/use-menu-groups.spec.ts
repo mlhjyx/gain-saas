@@ -1,19 +1,77 @@
 import type { MenuRecordRaw } from '@vben/types';
 
-import { describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('#/locales', () => ({
-  $t: (key: string) => key,
+const { localeState, translations } = vi.hoisted(() => ({
+  localeState: { current: 'zh-CN' },
+  translations: {
+    'en-US': {
+      'gainos.menu.groupAcquisition': 'Acquisition',
+      'gainos.menu.groupEngagement': 'Engagement',
+      'gainos.menu.groupOverview': 'Overview',
+      'gainos.menu.groupSettings': 'Settings',
+      'gainos.menu.members': 'Members & Roles',
+      'gainosB3.menu.account': 'Account & workspace',
+    },
+    'zh-CN': {
+      'gainos.menu.groupAcquisition': '获客与筛选',
+      'gainos.menu.groupEngagement': '触达与转化',
+      'gainos.menu.groupOverview': '总览',
+      'gainos.menu.groupSettings': '设置',
+      'gainos.menu.members': '成员与角色',
+      'gainosB3.menu.account': '账号与空间',
+    },
+  } as Record<string, Record<string, string>>,
 }));
 
+vi.mock('@vben/preferences', async () => {
+  const { reactive } = await import('vue');
+  return {
+    preferences: reactive({
+      app: {
+        locale: 'zh-CN',
+      },
+    }),
+  };
+});
+
+vi.mock('@vben/locales', async () => {
+  const { ref } = await import('vue');
+  return {
+    i18n: {
+      global: {
+        locale: ref('zh-CN'),
+      },
+    },
+  };
+});
+
+vi.mock('#/locales', () => ({
+  $t: (key: string) => translations[localeState.current]?.[key] ?? key,
+}));
+
+import { i18n } from '@vben/locales';
+import { preferences } from '@vben/preferences';
+import { useAccessStore } from '@vben/stores';
+
 import { isNavPathActive } from '#/components/gainos/use-sdr-nav';
-import { groupMenus } from '#/composables/use-menu-groups';
+import { groupMenus, useMenuGroups } from '#/composables/use-menu-groups';
+import { navTitle } from '#/router/routes/nav';
 
 function menu(path: string, name: string): MenuRecordRaw {
   return { name, path } as MenuRecordRaw;
 }
 
-describe('use-menu-groups（3 组 8 项信息架构）', () => {
+describe('use-menu-groups（3 组 8 项信息架构与零刷新语言热切换）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    localeState.current = 'zh-CN';
+    preferences.app.locale = 'zh-CN';
+    i18n.global.locale.value = 'zh-CN';
+  });
+
   const baseMenus: MenuRecordRaw[] = [
     menu('/workspace', '工作台'),
     menu('/analytics', '成效复盘'),
@@ -22,7 +80,10 @@ describe('use-menu-groups（3 组 8 项信息架构）', () => {
     menu('/tasks', '挖掘任务'),
     menu('/leads', '买家线索'),
     {
-      children: [menu('/settings/members', '成员与角色')],
+      children: [
+        menu('/settings/account', 'gainosB3.menu.account'),
+        menu('/settings/members', 'gainos.menu.members'),
+      ],
       name: '设置',
       path: '/settings',
     } as MenuRecordRaw,
@@ -87,5 +148,75 @@ describe('use-menu-groups（3 组 8 项信息架构）', () => {
     expect(isNavPathActive('/outreach', '/outreach/campaigns/camp-1', '/outreach')).toBe(true);
     expect(isNavPathActive('/opportunities', '/outreach/campaigns/camp-1', '/outreach')).toBe(false);
     expect(isNavPathActive('/leads', '/leads/lead-1')).toBe(true);
+  });
+
+  it('navTitle 返回可热切换键，切语言时 useMenuGroups 突破 alreadyGrouped 实时刷新分组与子菜单名', async () => {
+    expect(navTitle('workspace')).toBe('gainosNav.workspace');
+
+    const accessStore = useAccessStore();
+    accessStore.setAccessMenus([
+      menu('/workspace', navTitle('workspace')),
+      menu('/analytics', navTitle('analytics')),
+      menu('/companies', navTitle('companies')),
+      menu('/find-buyers', navTitle('findBuyers')),
+      menu('/tasks', navTitle('tasks')),
+      menu('/leads', navTitle('leads')),
+      {
+        children: [
+          menu('/settings/account', 'gainosB3.menu.account'),
+          menu('/settings/members', 'gainos.menu.members'),
+        ],
+        name: navTitle('settings'),
+        path: '/settings',
+      } as MenuRecordRaw,
+    ]);
+
+    useMenuGroups();
+    await nextTick();
+
+    // 初始中文态
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['总览', '获客与筛选', '设置']);
+    expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual(['工作台', '成效复盘']);
+    expect(accessStore.accessMenus[1]?.children?.map((c) => c.name)).toEqual([
+      '公司档案',
+      '买家画像',
+      '挖掘任务',
+      '买家线索',
+    ]);
+    expect(accessStore.accessMenus[2]?.children?.map((c) => c.name)).toEqual([
+      '账号与空间',
+      '成员与角色',
+    ]);
+
+    // 切换为 en-US（零刷新）
+    localeState.current = 'en-US';
+    i18n.global.locale.value = 'en-US';
+    preferences.app.locale = 'en-US';
+    await nextTick();
+
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['Overview', 'Acquisition', 'Settings']);
+    expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual([
+      'Workspace',
+      'Analytics',
+    ]);
+    expect(accessStore.accessMenus[1]?.children?.map((c) => c.name)).toEqual([
+      'Companies',
+      'Buyer profiles',
+      'Tasks',
+      'Buyer leads',
+    ]);
+    expect(accessStore.accessMenus[2]?.children?.map((c) => c.name)).toEqual([
+      'Account & workspace',
+      'Members & Roles',
+    ]);
+
+    // 切回 zh-CN（反复切换不锁死）
+    localeState.current = 'zh-CN';
+    i18n.global.locale.value = 'zh-CN';
+    preferences.app.locale = 'zh-CN';
+    await nextTick();
+
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['总览', '获客与筛选', '设置']);
+    expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual(['工作台', '成效复盘']);
   });
 });

@@ -96,7 +96,7 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
     <div class="sdr-panel__scroll">
       <div
         v-for="section in sections"
-        :key="section.label + section.items[0]?.path"
+        :key="section.items[0]?.path ?? section.label"
         class="sdr-section"
       >
         <p v-if="section.label" class="sdr-section__label">{{ $t(section.label) }}</p>
@@ -134,7 +134,7 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
             aria-hidden="true"
           ></span>
         </RouterLink>
-        <!-- pass5：设置打开设置弹窗（SDR 的 SettingsShell），不再占导航分组。 -->
+        <!-- Wave B3：设置直达整页 /settings/account（单轨整页模式，不再弹弹窗）。 -->
         <button
           type="button"
           class="sdr-row sdr-footer__row"
