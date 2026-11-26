@@ -250,14 +250,6 @@ const schema = z.object({
     (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
     z.string().trim().min(16).optional(),
   ),
-  // 内嵌模型网关:运营台管理上游厂商;引擎用这个 Bearer Key 调 /v1/chat/completions
-  MODEL_GATEWAY_API_KEY: z.string().min(16).optional(),
-  // 上游 API Key 落库加密材料;缺失时从 SESSION_SECRET 派生(轮换 SESSION_SECRET 会要求重录上游 Key)
-  MODEL_GATEWAY_ENC_KEY: z.string().min(32).optional(),
-  MODEL_GATEWAY_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(120_000),
-  // 站点构建 settled 调用与读回仍由 new-api 提供;通过内嵌网关透明代理,避免客户 worker 启动检查失败
-  MODEL_GATEWAY_SETTLEMENT_ORIGIN: z.string().url().optional(),
-  MODEL_GATEWAY_SETTLEMENT_API_KEY: z.string().min(1).optional(),
   SPA_DIST_DIR: z.string().default('../web/dist'),
   // R4 平台权威密钥族(P1)。与身份钥、预算钥完全分离;生产缺失时对应 JWKS 端点 503,
   // 开发/测试缺失时生成临时密钥(仅进程内有效,重启即换)。
