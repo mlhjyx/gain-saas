@@ -388,7 +388,7 @@ onBeforeUnmount(() => {
         <p class="rv__muted">{{ $t('gainos.reviews.emptyDesc') }}</p>
       </template>
       <div class="rv__empty-actions">
-        <RouterLink class="rv__empty-link is-primary" to="/growth?tab=metrics">{{ $t('gainos.metrics.tab') }}</RouterLink>
+        <RouterLink class="rv__empty-link is-primary" to="/analytics">{{ $t('gainos.metrics.tab') }}</RouterLink>
         <RouterLink class="rv__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
       </div>
     </div>

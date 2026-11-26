@@ -273,7 +273,7 @@ test('campaigns detail stops polling on NEEDS_HUMAN and submits schema-valid man
   });
 
   await loginAs(page);
-  await page.goto(`/campaigns/${CAMPAIGN_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_ID}`);
 
   // Back button copy & translated actorType
   await expect(page.getByRole('button', { name: /返回战役列表/ })).toBeVisible();
@@ -435,7 +435,7 @@ test('campaigns detail shows draftSucceeded notice on SUCCEEDED and renders moti
   });
 
   await loginAs(page);
-  await page.goto(`/campaigns/${CAMPAIGN_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_ID}`);
 
   await page.getByRole('button', { name: '让系统起草计划' }).click();
   await page.locator('.ant-modal-content').last().locator('.ant-modal-footer .ant-btn-primary').click();
@@ -606,7 +606,7 @@ test('outreach removeDraft requires confirm modal and createBatch sends campaign
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
   await expect(page.getByText('buyer@muster.de')).toBeVisible();
 
   // 1. Click remove -> Cancel must NOT call DELETE
@@ -690,7 +690,7 @@ test('outreach auditPackage renders structured summary with raw JSON folded in d
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
   await page.locator('[data-gs="audit-package-btn"]').click();
 
   const modal = page.locator('.ant-modal-content').filter({ hasText: '批次发送前审计包' });
@@ -750,7 +750,7 @@ test('qgos translates outcome source, uses green badge for CONVERTED, and suppor
   backend.set('GET', `/qgos/${QGO_ID}`, qgoRecord);
 
   await loginAs(page);
-  await page.goto('/qgos');
+  await page.goto('/opportunities');
 
   const rowButton = page.locator('.qg__list').getByRole('button', { name: /Muster Pumpen 采购商机/ });
   await expect(rowButton).toBeVisible();

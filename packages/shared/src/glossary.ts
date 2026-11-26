@@ -97,17 +97,16 @@ export const GLOSSARY = {
 
 export type GlossaryKey = keyof typeof GLOSSARY;
 
-/** 一级导航六项（M2 步 14 · D-14-a）。顺序即菜单顺序。 */
+/** 一级导航（3 组 8 项 + 设置）。顺序即菜单顺序。 */
 export const NAV = {
   workspace: { zh: '工作台', en: 'Workspace' },
+  analytics: { zh: '成效复盘', en: 'Analytics' },
   companies: { zh: '公司档案', en: 'Companies' },
   findBuyers: { zh: '买家画像', en: 'Buyer profiles' },
+  tasks: { zh: '挖掘任务', en: 'Tasks' },
   leads: { zh: '买家线索', en: 'Buyer leads' },
-  growth: {
-    zh: '商机与触达',
-    en: 'Opportunities & outreach',
-    note: '合并入口：Campaign / 商机 / 触达 三 tab（D-14-a）。',
-  },
+  outreach: { zh: '外发与战役', en: 'Outreach & campaigns' },
+  opportunities: { zh: '商机管线', en: 'Opportunities' },
   settings: { zh: '设置', en: 'Settings' },
 } as const satisfies Record<string, GlossaryTerm>;
 

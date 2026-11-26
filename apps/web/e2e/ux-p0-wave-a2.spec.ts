@@ -476,14 +476,14 @@ test('member gets transparent read-only campaigns/outreach views with 0 HTTP 403
   await loginAs(page);
 
   // 1. /campaigns list: read-only hint shown, create button hidden.
-  await page.goto('/campaigns');
+  await page.goto('/outreach?tab=campaigns');
   await expect(page.getByText('德国工业泵 Q4 战役')).toBeVisible();
   await expect(page.locator('[data-gs="campaigns-readonly-hint"]')).toBeVisible();
   await expect(page.getByRole('button', { name: '新建计划' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '继续起草' })).toHaveCount(0);
 
   // 2. /campaigns/:id (DRAFT revision): plan visible, drafting/manual/submit buttons hidden.
-  await page.goto(`/campaigns/${CAMPAIGN_DRAFT_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_DRAFT_ID}`);
   await expect(page.getByText('德国工业泵 Q4 战役')).toBeVisible();
   await expect(page.locator('[data-gs="campaigns-readonly-hint"]')).toBeVisible();
   await expect(page.getByRole('button', { name: /返回战役列表/ })).toBeVisible();
@@ -492,14 +492,14 @@ test('member gets transparent read-only campaigns/outreach views with 0 HTTP 403
   await expect(page.getByRole('button', { name: '提交审批' })).toHaveCount(0);
 
   // 3. /campaigns/:id (SUBMITTED pending approval): card visible for transparency, approve/decline hidden.
-  await page.goto(`/campaigns/${CAMPAIGN_PENDING_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_PENDING_ID}`);
   await expect(page.getByText('意大利光伏 Q4 审批中战役')).toBeVisible();
   await expect(page.locator('[data-gs="campaigns-readonly-hint"]')).toBeVisible();
   await expect(page.getByRole('button', { name: '批准', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '拒绝', exact: true })).toHaveCount(0);
 
   // 4. /growth?tab=outreach: read-only hint shown, write buttons hidden across DRAFT / APPROVED / PENDING batches.
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
   await expect(page.locator('[data-gs="outreach-readonly-hint"]')).toBeVisible();
   await expect(page.getByText('德国泵业首批外发').first()).toBeVisible();
   await expect(page.getByRole('button', { name: '新建批次' })).toHaveCount(0);
@@ -555,7 +555,7 @@ test('member gets transparent read-only campaigns/outreach views with 0 HTTP 403
   await expect(page.locator('[data-gs="t1-seq-create-btn"]')).toHaveCount(0);
 
   // 6. /growth?tab=replies: referral contact visible for transparency, referral-create-draft hidden.
-  await page.goto('/growth?tab=replies');
+  await page.goto('/outreach?tab=replies');
   await expect(page.locator('[data-gs="outreach-readonly-hint"]')).toBeVisible();
   await expect(page.locator('[data-gs="referral-leads-card"]')).toContainText('purchasing@memodo.it');
   await expect(page.locator('[data-gs="referral-create-draft"]')).toHaveCount(0);
@@ -576,23 +576,23 @@ test('admin retains full write actions across campaigns, outreach, T1 warmup, an
   await loginAs(page);
 
   // 1. /campaigns list
-  await page.goto('/campaigns');
+  await page.goto('/outreach?tab=campaigns');
   await expect(page.getByRole('button', { name: '新建计划' })).toBeVisible();
   await expect(page.locator('[data-gs="campaigns-readonly-hint"]')).toHaveCount(0);
 
   // 2. /campaigns/:id (DRAFT + SUBMITTED)
-  await page.goto(`/campaigns/${CAMPAIGN_DRAFT_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_DRAFT_ID}`);
   await expect(page.locator('[data-gs="campaign-manual-revision-btn"]')).toBeVisible();
   await expect(page.getByRole('button', { name: '让系统起草计划' })).toBeVisible();
   await expect(page.getByRole('button', { name: '提交审批' })).toBeVisible();
   await expect(page.locator('[data-gs="campaigns-readonly-hint"]')).toHaveCount(0);
 
-  await page.goto(`/campaigns/${CAMPAIGN_PENDING_ID}`);
+  await page.goto(`/outreach/campaigns/${CAMPAIGN_PENDING_ID}`);
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '拒绝', exact: true })).toBeVisible();
 
   // 3. /growth?tab=outreach + T1 panel (including warmup checklist)
-  await page.goto('/growth?tab=outreach');
+  await page.goto('/outreach?tab=batches');
   await expect(page.getByRole('button', { name: '新建批次' })).toBeVisible();
   await expect(page.locator('[data-gs="add-draft"]')).toBeVisible();
   await expect(page.locator('[data-gs="edit-draft"]').first()).toBeVisible();
@@ -619,7 +619,7 @@ test('admin retains full write actions across campaigns, outreach, T1 warmup, an
   await expect(page.locator('[data-gs="t1-seq-create-btn"]')).toBeVisible();
 
   // 4. /growth?tab=replies
-  await page.goto('/growth?tab=replies');
+  await page.goto('/outreach?tab=replies');
   await expect(page.locator('[data-gs="referral-create-draft"]')).toBeVisible();
   await expect(page.locator('[data-gs="outreach-readonly-hint"]')).toHaveCount(0);
 });

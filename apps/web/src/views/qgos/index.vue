@@ -206,7 +206,7 @@ onMounted(load);
       :title="$t('gainos.qgos.title')"
     >
       <template #actions>
-        <Button @click="$router.push('/growth?tab=campaigns')">{{ $t('gainos.qgos.goCampaigns') }}</Button>
+        <Button @click="$router.push('/outreach?tab=campaigns')">{{ $t('gainos.qgos.goCampaigns') }}</Button>
         <Button @click="$router.push('/leads')">{{ $t('gainos.qgos.backToLeads') }}</Button>
         <Button :loading="loading" @click="load">
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
@@ -239,8 +239,8 @@ onMounted(load);
       <p class="qg__empty-desc">{{ $t('gainos.qgos.emptyDesc') }}</p>
       <div class="qg__empty-actions">
         <RouterLink class="qg__cta-link" to="/leads">{{ $t('gainos.qgos.emptyCta') }}</RouterLink>
-        <RouterLink class="qg__cta-secondary" to="/growth?tab=campaigns">{{ $t('gainos.campaigns.title') }}</RouterLink>
-        <RouterLink class="qg__cta-secondary" to="/growth?tab=outreach">{{ $t('gainos.growth.outreachTitle') }}</RouterLink>
+        <RouterLink class="qg__cta-secondary" to="/outreach?tab=campaigns">{{ $t('gainos.campaigns.title') }}</RouterLink>
+        <RouterLink class="qg__cta-secondary" to="/outreach?tab=batches">{{ $t('gainos.growth.outreachTitle') }}</RouterLink>
       </div>
     </section>
 

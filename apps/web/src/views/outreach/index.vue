@@ -966,7 +966,7 @@ onMounted(async () => {
         <div v-if="batches.length === 0" class="ob__empty">
           <p class="ob__muted">{{ $t('gainos.outreach.empty') }}</p>
           <div class="ob__empty-actions">
-            <RouterLink class="ob__secondary" to="/growth?tab=replies">{{ $t('gainos.replies.tab') }}</RouterLink>
+            <RouterLink class="ob__secondary" to="/outreach?tab=replies">{{ $t('gainos.replies.tab') }}</RouterLink>
             <RouterLink class="ob__secondary" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
           </div>
         </div>

@@ -169,7 +169,7 @@ test('判定复核：列表 → 详情 → 认领 → 结论', async ({ page }) 
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=reviews');
+  await page.goto('/leads?view=reviews');
 
   await expect(page.getByRole('heading', { level: 2, name: '判定复核' })).toBeVisible();
   const row = page.locator('.rv__table tbody tr').first();
@@ -225,7 +225,7 @@ test('判定复核：空态与筛选参数', async ({ page }) => {
   });
 
   await loginAs(page);
-  await page.goto('/growth?tab=reviews');
+  await page.goto('/leads?view=reviews');
 
   await expect(page.getByText('队列已清空')).toBeVisible();
   await page.getByLabel('状态').selectOption('queued');
@@ -254,9 +254,9 @@ test('度量：VRIC 成对趋势、指标目录与观测/聚合表', async ({ pa
   );
 
   await loginAs(page);
-  await page.goto('/growth?tab=metrics');
+  await page.goto('/analytics');
 
-  await expect(page.getByRole('heading', { level: 2, name: '度量' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '度量' })).toBeVisible();
   // 最新桶摘要：缺侧（PLUS=null）显示 —，不以 0 冒充
   const summary = page.locator('.mt__summary');
   await expect(summary).toContainText('最新桶：2026-11-09');

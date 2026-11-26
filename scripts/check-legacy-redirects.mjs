@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * P5b-24：历史深链 redirect 表的静态核对。
+ * P5b-24 / Wave B2：历史深链 redirect 表的静态核对。
  *
  * 规则（P5b-17/G10）：被删除/合并的路由保留 redirect ≥2 个发布版本；redirect 的
- * 目标必须仍是已定义的路由路径，否则深链会跳到 404。
+ * 目标必须仍是已定义的真实路由路径（忽略 legacy.ts 自身），否则深链会跳到 404。
  *
- * 做法：从 router/routes/modules 下提取所有 `path: '...'` 与 legacy 表的
- * `{ path, to }` 条目；每个 to 必须命中某个静态路径（动态段按模式前缀匹配）。
+ * 支持形态：
+ * - `LEGACY_REDIRECTS` 中的 `{ name, path, to }`（含多行、带 `?query` 目标、动态段 `:param`）
+ * - `LEGACY_GROWTH_TAB_REDIRECTS` 中的 `/growth?tab=<key>` 分流表
  * 解析刻意保持轻量（正则），不引入 vite 依赖；漏网形态由 test 的变异用例兜底。
  */
 import { readFileSync, readdirSync } from 'node:fs';
@@ -15,10 +16,13 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
-const modulesDir = join(repoRoot, 'apps/web/src/router/routes/modules');
 
 const PATH_LINE_RE = /^\s*path:\s*'([^']+)'/u;
-const LEGACY_ENTRY_RE = /\{\s*name:\s*'[^']+',\s*path:\s*'([^']+)',\s*to:\s*'([^']+)'\s*\}/gu;
+const LEGACY_ENTRY_RE =
+  /\{\s*name:\s*'[^']+',\s*path:\s*'([^']+)',\s*to:\s*'([^']+)',?\s*\}/gu;
+const GROWTH_TAB_BLOCK_RE =
+  /LEGACY_GROWTH_TAB_REDIRECTS(?:\s*:\s*[^=]+)?\s*=\s*\{([\s\S]*?)\};/u;
+const TAB_KV_RE = /(?:['"]([^'"]+)['"]|([A-Za-z0-9_-]+))\s*:\s*'([^']+)'/gu;
 
 /**
  * 提取已定义路径：绝对路径（'/x'）作为父级记入，紧跟其后的相对子路径
@@ -43,19 +47,55 @@ export function extractPaths(source) {
 }
 
 export function extractLegacyRedirects(source) {
-  return [...source.matchAll(LEGACY_ENTRY_RE)].map((match) => ({
+  const entries = [...source.matchAll(LEGACY_ENTRY_RE)].map((match) => ({
     path: match[1],
     to: match[2],
   }));
+
+  const growthBlock = GROWTH_TAB_BLOCK_RE.exec(source);
+  if (growthBlock) {
+    for (const match of growthBlock[1].matchAll(TAB_KV_RE)) {
+      const tabKey = match[1] ?? match[2];
+      const target = match[3];
+      entries.push({
+        path: `/growth?tab=${tabKey}`,
+        to: target,
+      });
+    }
+  }
+
+  return entries;
 }
 
-/** 目标是否命中已定义路径：静态相等，或目标是动态路由模式的前缀实例（/x/:id → /x/123）。 */
+/**
+ * 去掉目标路径的 `?query` / `#hash`，只保留 pathname 用于路由表核对。
+ */
+export function stripQueryAndHash(target) {
+  return target.split(/[?#]/u)[0] ?? '';
+}
+
+/**
+ * 判断单条动态路由模板是否与目标 pathname 逐段匹配：
+ * - 段数必须一致（避免 `/outreach/campaigns` 误命中 `/outreach/campaigns/:campaignId`）
+ * - 静态段精确相等；`:param` 段匹配任意非空段（无论实值 `123` 或占位符 `:campaignId`）。
+ */
+function matchesDynamicPattern(pathname, defined) {
+  if (!defined.includes(':')) return false;
+  const targetSegs = pathname.split('/').filter(Boolean);
+  const definedSegs = defined.split('/').filter(Boolean);
+  if (targetSegs.length !== definedSegs.length) return false;
+  return definedSegs.every((seg, idx) =>
+    seg.startsWith(':') ? targetSegs[idx].length > 0 : seg === targetSegs[idx],
+  );
+}
+
+/** 目标是否命中已定义路径（支持 `?query` 目标与动态段匹配）。 */
 export function targetExists(target, definedPaths) {
-  if (definedPaths.includes(target)) return true;
+  const pathname = stripQueryAndHash(target);
+  if (!pathname) return false;
+  if (definedPaths.includes(pathname)) return true;
   for (const defined of definedPaths) {
-    if (!defined.includes(':')) continue;
-    const prefix = defined.split('/:')[0];
-    if (prefix && (target === prefix || target.startsWith(`${prefix}/`))) return true;
+    if (matchesDynamicPattern(pathname, defined)) return true;
   }
   return false;
 }
@@ -81,8 +121,11 @@ export function run(rootDir = repoRoot) {
   let redirects = [];
   for (const file of files) {
     const source = readFileSync(join(modulesPath, file), 'utf8');
+    if (file === 'legacy.ts') {
+      redirects = extractLegacyRedirects(source);
+      continue;
+    }
     definedPaths.push(...extractPaths(source));
-    if (file === 'legacy.ts') redirects = extractLegacyRedirects(source);
   }
   const result = checkRedirects({ definedPaths, redirects });
   return { ...result, redirectCount: redirects.length, definedCount: definedPaths.length };

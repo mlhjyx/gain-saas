@@ -14,7 +14,7 @@ test('切语言：整页重载后语言保持为新选择', async ({ page }) => 
   await loginAs(page);
   await page.goto('/workspace');
   await expect(page.locator('.sdr-brandtools__lang')).toHaveText('中');
-  await expect(page.locator('.sdr-section__label').first()).toHaveText(/工作空间|Workspace/);
+  await expect(page.locator('.sdr-section__label').first()).toHaveText(/总览|Overview/);
 
   // 记号用于确认确实发生了整页重载（重载后 window 是全新对象）。
   await page.evaluate(() => {

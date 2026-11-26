@@ -385,7 +385,8 @@ onMounted(() => {
   <div class="mt" :class="{ 'is-embedded': embedded }">
     <header class="mt__head">
       <div>
-        <h2>{{ $t('gainos.metrics.title') }}</h2>
+        <h1 v-if="!embedded">{{ $t('gainos.metrics.title') }}</h1>
+        <h2 v-else>{{ $t('gainos.metrics.title') }}</h2>
         <p class="mt__sub">{{ $t('gainos.metrics.subtitle') }}</p>
       </div>
       <button class="mt__ghost" type="button" :disabled="vricLoading" @click="loadVric">
@@ -428,7 +429,7 @@ onMounted(() => {
         <p class="mt__empty-title">{{ $t('gainos.metrics.vricEmpty') }}</p>
         <p class="mt__muted">{{ $t('gainos.metrics.vricEmptyHint') }}</p>
         <div class="mt__empty-actions">
-          <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+          <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
           <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
         </div>
       </div>
@@ -514,7 +515,7 @@ onMounted(() => {
           <p class="mt__empty-title">{{ $t('gainos.metrics.catalogEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.catalogEmptyHint') }}</p>
           <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
             <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
           </div>
         </div>
@@ -592,7 +593,7 @@ onMounted(() => {
           <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
           <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
             <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
           </div>
         </div>
@@ -686,7 +687,7 @@ onMounted(() => {
           <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
           <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
           <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/growth?tab=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
+            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
             <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
           </div>
         </div>
@@ -744,7 +745,8 @@ onMounted(() => {
 }
 .mt.is-embedded { padding: 0; max-width: none; margin: 0; }
 .mt__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.mt__head h2 { margin: 0 0 4px; font-size: 22px; }
+.mt__head h1,
+.mt__head h2 { margin: 0 0 4px; font-size: 22px; color: var(--gs-fg); }
 .mt__sub { margin: 0; color: var(--gs-fg-muted); font-size: 13px; line-height: 1.6; max-width: 720px; }
 .mt__card { border: 1px solid var(--gs-border-strong); border-radius: 16px; background: var(--gs-surface); padding: 18px 20px; display: grid; gap: 12px; min-width: 0; }
 .mt__card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }

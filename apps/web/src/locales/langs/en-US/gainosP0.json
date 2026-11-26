@@ -107,5 +107,18 @@
     "outreachReadonlyHint": "Your account has member access (view only). Creating batches, editing drafts, approving, or sending outreach requires a workspace admin.",
     "warmupAdminOnly": "The warmup checklist is only visible to workspace admins. Contact an admin to check domain warmup status.",
     "adminApprovalRequired": "Waiting for a workspace admin to approve."
+  },
+  "outreachHub": {
+    "title": "Outreach & campaigns",
+    "subtitle": "Manage campaign plans, outreach batches, and buyer replies together; execution gates are shown per section.",
+    "tabsLabel": "Outreach & campaigns views",
+    "tabCampaigns": "Campaign plans",
+    "tabBatches": "Outreach batches",
+    "tabReplies": "Replies"
+  },
+  "leadsView": {
+    "ariaLabel": "Buyer leads view switch",
+    "list": "Lead list",
+    "reviews": "Judgment reviews"
   }
 }

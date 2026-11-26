@@ -316,7 +316,7 @@ test('触达批次页：支持 route.query.lead 预选、读取真实联系人/�
   });
 
   await loginAs(page);
-  await page.goto(`/growth?tab=outreach&lead=${LEAD_IT}`);
+  await page.goto(`/outreach?tab=batches&lead=${LEAD_IT}`);
 
   await expect(page.locator('[data-gs="preselected-lead-banner"]')).toBeVisible();
   await page.locator('[data-gs="apply-preselected-lead"]').click();

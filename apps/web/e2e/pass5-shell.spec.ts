@@ -303,7 +303,7 @@ test('移动端：汉堡按钮打开新版侧栏抽屉（导航 + 通知/设置/
   await expect(burger).toHaveAttribute('aria-expanded', 'true');
 
   // 与桌面侧栏同一份内容：分组导航 + 底部三行。
-  for (const name of ['工作台', '公司档案', '买家画像', '买家线索', '通知', '设置', '帮助']) {
+  for (const name of ['工作台', '成效复盘', '公司档案', '买家画像', '挖掘任务', '买家线索', '通知', '设置', '帮助']) {
     await expect(drawer.getByRole('menuitem', { name })).toBeVisible();
   }
   // Vben 自带的旧菜单抽屉不再出现（它的菜单项是浅色字落在白底上，也没有底部账号区）

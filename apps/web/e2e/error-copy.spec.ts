@@ -26,7 +26,7 @@ test('错误三层文案 + 技术详情折叠（402 执行预算已用完）', a
   });
 
   await loginAs(page);
-  await page.goto('/qgos');
+  await page.goto('/opportunities');
 
   // 发生了什么 / 为什么 / 怎么办
   await expect(page.getByRole('heading', { name: '执行预算已用完' })).toBeVisible();

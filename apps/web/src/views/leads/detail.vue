@@ -569,7 +569,7 @@ async function submitPromote(): Promise<void> {
     await gainosApi.promoteQgo(input);
     promoteOpen.value = false;
     feedback.message.success($t('gainos.leads.promoteDone'));
-    void router.push('/qgos');
+    void router.push('/opportunities');
   } catch (err) {
     promoteError.value = failureText(err);
   } finally {
@@ -592,7 +592,7 @@ async function reviewSanctions(kind: 'cleared_false_positive' | 'confirmed_true_
 }
 
 function goOutreach(): void {
-  void router.push({ path: '/growth', query: { tab: 'outreach', lead: leadId.value } });
+  void router.push({ path: '/outreach', query: { tab: 'batches', lead: leadId.value } });
 }
 
 onMounted(load);
@@ -1085,7 +1085,7 @@ watch(tab, (next) => {
               {{ $t('gainos.leads.outcomesDesc') }}
             </p>
             <Space class="mt-4" :size="8" wrap>
-              <Button @click="router.push('/qgos')">
+              <Button @click="router.push('/opportunities')">
                 {{ $t('gainos.leads.outcomesQgos') }}
               </Button>
               <Button v-if="!GROWTH_PAGE_HIDDEN" @click="goOutreach">

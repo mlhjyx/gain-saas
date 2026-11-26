@@ -64,17 +64,26 @@ describe('glossary 词表（M2 步 14 §4）', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('一级导航是设计钉死的六项且顺序固定', () => {
+  it('一级导航按 3 组 8 项 + 设置固定顺序', () => {
     expect(Object.keys(NAV)).toEqual([
       'workspace',
+      'analytics',
       'companies',
       'findBuyers',
+      'tasks',
       'leads',
-      'growth',
+      'outreach',
+      'opportunities',
       'settings',
     ]);
-    expect(navLabel('growth')).toBe('商机与触达');
-    expect(navLabel('growth', 'en-US')).toBe('Opportunities & outreach');
+    expect(navLabel('analytics')).toBe('成效复盘');
+    expect(navLabel('analytics', 'en-US')).toBe('Analytics');
+    expect(navLabel('findBuyers')).toBe('买家画像');
+    expect(navLabel('findBuyers', 'en-US')).toBe('Buyer profiles');
+    expect(navLabel('outreach')).toBe('外发与战役');
+    expect(navLabel('outreach', 'en-US')).toBe('Outreach & campaigns');
+    expect(navLabel('opportunities')).toBe('商机管线');
+    expect(navLabel('opportunities', 'en-US')).toBe('Opportunities');
   });
 
   it('取词按语言切换，未登记状态返回 null（不得把裸枚举写上界面）', () => {
