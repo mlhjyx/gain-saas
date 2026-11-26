@@ -80,24 +80,30 @@ export class CampaignPlanEngineClient {
       });
     }
 
-    let grant: string;
-    try {
-      grant = await this.budget.issue(tenant, {
-        operation: 'POST /campaigns/:campaignId/plan-drafts',
-        campaignId: input.campaignId,
-        body: { jobId: input.jobId },
-      });
-    } catch (error) {
-      if (error instanceof EngineBudgetQuoteError) {
-        throw new BadGatewayException({
-          error: {
-            code: 'CAMPAIGN_PLAN_QUOTE_FAILED',
-            message: '执行预算 quote 失败',
-            meta: { engineStatus: error.status },
-          },
+    // W2 旁路模式（LEGACY_EXECUTION_BUDGET_MODE=bypass）：跳过二次 /quote 与旧 RS256 Grant 签发，
+    // 引擎侧 CampaignPlanInternalController.requestDraft 在 bypass 模式下允许不带 X-Execution-Budget-Grant。
+    const legacyBudgetBypass =
+      this.config.LEGACY_EXECUTION_BUDGET_MODE === 'bypass' || this.budget.isBypassed === true;
+    let grant: string | null = null;
+    if (!legacyBudgetBypass) {
+      try {
+        grant = await this.budget.issue(tenant, {
+          operation: 'POST /campaigns/:campaignId/plan-drafts',
+          campaignId: input.campaignId,
+          body: { jobId: input.jobId },
         });
+      } catch (error) {
+        if (error instanceof EngineBudgetQuoteError) {
+          throw new BadGatewayException({
+            error: {
+              code: 'CAMPAIGN_PLAN_QUOTE_FAILED',
+              message: '执行预算 quote 失败',
+              meta: { engineStatus: error.status },
+            },
+          });
+        }
+        throw error;
       }
-      throw error;
     }
 
     let response: Response;
@@ -107,7 +113,7 @@ export class CampaignPlanEngineClient {
         headers: {
           'content-type': 'application/json',
           'x-service-token': serviceToken,
-          'X-Execution-Budget-Grant': grant,
+          ...(grant ? { 'X-Execution-Budget-Grant': grant } : {}),
         },
         body: JSON.stringify({
           workspaceId: input.workspaceId,

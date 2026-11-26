@@ -546,7 +546,7 @@ export class OnboardingController {
     tenant: TenantRequestContext,
     quoteRequest: Record<string, unknown>,
   ): Promise<string | null> {
-    if (this.config?.LEGACY_EXECUTION_BUDGET_MODE === 'bypass') {
+    if (this.config?.LEGACY_EXECUTION_BUDGET_MODE === 'bypass' || this.budget.isBypassed === true) {
       return null;
     }
     try {

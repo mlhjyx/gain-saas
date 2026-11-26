@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
+import { CampaignPlanEngineClient } from '../campaign/campaign-plan-engine.client.js';
 import type { ComplianceDeclarationService } from '../service/compliance-declaration.service.js';
 import { EngineBudgetGrantSigner, type WorkspaceTechnicalQuote } from '../service/engine-budget-grant.signer.js';
 import { JwksController } from '../service/service.module.js';
@@ -37,6 +38,10 @@ function mockRes() {
 }
 
 describe('LEGACY_EXECUTION_BUDGET_MODE=bypass 旁路开关', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
   const wsId = randomUUID();
   const userId = randomUUID();
 
@@ -390,5 +395,91 @@ describe('LEGACY_EXECUTION_BUDGET_MODE=bypass 旁路开关', () => {
       authorities: [],
     });
     expect(String(result.note)).toContain('LEGACY_EXECUTION_BUDGET_MODE=bypass');
+  });
+
+  it('CampaignPlanEngineClient.trigger() 在 bypass 跳过 quote/Grant 且不发 X-Execution-Budget-Grant；enforce 回归正常签发并带头', async () => {
+    const campaignId = randomUUID();
+    const jobId = randomUUID();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { accepted: true } }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // 1. bypass 模式：0 次 budget.issue、省略 X-Execution-Budget-Grant、保留 content-type 与 x-service-token
+    const bypassBudget = { issue: vi.fn(async () => 'should-not-mint'), isBypassed: true };
+    const bypassClient = new CampaignPlanEngineClient(
+      {
+        LEGACY_EXECUTION_BUDGET_MODE: 'bypass',
+        CAMPAIGN_PLAN_JOB_ENABLED: true,
+        CAMPAIGN_PLAN_ENGINE_SERVICE_TOKEN: 'svc-token-123456',
+        ENGINE_ORIGIN: 'http://engine.local',
+      } as AppConfig,
+      bypassBudget as unknown as EngineBudgetGrantService,
+    );
+    await bypassClient.trigger(
+      { userId, workspaceId: wsId, role: 'admin' },
+      { workspaceId: wsId, campaignId, jobId, objective: 'Find industrial distributors' },
+    );
+    expect(bypassBudget.issue).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const bypassHeaders = (fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> })?.headers;
+    expect(bypassHeaders).toEqual({
+      'content-type': 'application/json',
+      'x-service-token': 'svc-token-123456',
+    });
+
+    // 2. enforce 模式：正常调用 budget.issue 并携带 X-Execution-Budget-Grant
+    const enforceBudget = { issue: vi.fn(async () => 'campaign-grant-jws'), isBypassed: false };
+    const enforceClient = new CampaignPlanEngineClient(
+      {
+        LEGACY_EXECUTION_BUDGET_MODE: 'enforce',
+        CAMPAIGN_PLAN_JOB_ENABLED: true,
+        CAMPAIGN_PLAN_ENGINE_SERVICE_TOKEN: 'svc-token-123456',
+        ENGINE_ORIGIN: 'http://engine.local',
+      } as AppConfig,
+      enforceBudget as unknown as EngineBudgetGrantService,
+    );
+    await enforceClient.trigger(
+      { userId, workspaceId: wsId, role: 'admin' },
+      { workspaceId: wsId, campaignId, jobId, objective: 'Find industrial distributors' },
+    );
+    expect(enforceBudget.issue).toHaveBeenCalledWith(
+      { userId, workspaceId: wsId, role: 'admin' },
+      { operation: 'POST /campaigns/:campaignId/plan-drafts', campaignId, body: { jobId } },
+    );
+    const enforceHeaders = (fetchMock.mock.calls[1]?.[1] as { headers?: Record<string, string> })?.headers;
+    expect(enforceHeaders).toEqual({
+      'content-type': 'application/json',
+      'x-service-token': 'svc-token-123456',
+      'X-Execution-Budget-Grant': 'campaign-grant-jws',
+    });
+  });
+
+  it('OnboardingController 缺省 config 时也能通过 budget.isBypassed 兜底跳过 quote/Grant', async () => {
+    const engine = new EngineHttp({} as never, {} as never);
+    const call = vi.fn(async () => ({ status: 201, body: { data: { id: 'co-fallback' } }, contentType: 'application/json', headers: {} }));
+    engine.call = call as unknown as EngineHttp['call'];
+    const budget = { issue: vi.fn(async () => 'should-not-mint'), isBypassed: true };
+    const controller = new OnboardingController(
+      { workspace: { update: vi.fn(async () => ({})) } } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      engine,
+      budget as never,
+    );
+    const req = {
+      tenant: {
+        userId,
+        workspaceId: wsId,
+        role: 'admin',
+        jti: 'j-1',
+        exp: 0,
+        onboardingCompleted: false,
+        onboardingCompanyId: null,
+      },
+    } as unknown as Request;
+    const res = { status: vi.fn() } as unknown as Response;
+
+    await controller.createCompany(req, res, { name: 'Acme' }, 'idem-onb');
+    expect(budget.issue).not.toHaveBeenCalled();
+    const callOpts = call.mock.calls[0]?.[3] as { headers?: Record<string, string> };
+    expect(callOpts.headers).toEqual({ 'idempotency-key': 'idem-onb' });
   });
 });
