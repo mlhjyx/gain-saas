@@ -656,6 +656,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/multipart/init": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 初始化资料分片上传（S3 Multipart，推荐 >5 MiB 文件走分片断点续传）
+         * @description 初始化资料 S3 Multipart 分片上传（仅 pending_upload 可用），返回 uploadId 与推荐分片大小 partSizeBytes（默认 5 MiB，符合对象存储非末片最小体积要求）。
+         */
+        post: operations["SellerCompanyDocumentsController_initMultipart_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/parts/{partNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 上传资料单个分片（单片上限 6 MiB，失败仅重传该分片）
+         * @description 需在查询参数传入 multipart/init 返回的 uploadId；返回 partNumber 与 etag 供后续合并。
+         */
+        put: operations["SellerCompanyDocumentsController_uploadPart_v1"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/multipart/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 合并资料全部分片至暂存对象（随后调用 commit 完成校验与入队解析）
+         * @description 按分片清单合并所有已上传分片为完整 staging 对象（仅 pending_upload 可用）；合并完成后客户端照常调用 commit 完成魔数/SHA-256 核验与入队解析。
+         */
+        post: operations["SellerCompanyDocumentsController_completeMultipart_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/companies/{companyId}/seller-documents/search": {
         parameters: {
             query?: never;
@@ -2353,8 +2413,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 19 列受审计多通道作战清表 CSV：含决策委员会轨道、S/A/B/C 通道分层、D3 法域合规标签、Art.14/LIA 状态与 C 级转交信，复用 DataRights EXPORT 审计、制裁与隔离闸门
-         * @description 导出 19 列受审计多通道作战清表 CSV：按 ICP 与可选 ISO 周汇总已交付线索的买方决策委员会轨道、S/A/B/C 通道分层、D3 法域合规标签、GDPR Art.14/LIA 告知状态与 C 级转交话术，支持 maskEmails 前缀脱敏；每行复用 DataRights EXPORT 审计、制裁拦截、合成隔离与抑制过滤。需要 acquisition:export。
+         * 21 列受审计多通道作战清表 CSV：含决策委员会轨道、S/A/B/C 通道分层、真实 Trigger 破冰钩子、60 词同事内推转介包、当地工作时区与拨号提示、D3 法域合规标签、Art.14/LIA 状态与 C 级转交信，复用 DataRights EXPORT 审计、制裁与隔离闸门
+         * @description 导出 21 列受审计多通道作战清表 CSV：按 ICP 与可选 ISO 周汇总已交付线索的买方决策委员会轨道、S/A/B/C 通道分层、真实 Trigger 破冰钩子、60 词同事内推转介包、当地工作时区与拨号提示、D3 法域合规标签、GDPR Art.14/LIA 告知状态与 C 级转交话术，支持 maskEmails 前缀脱敏；每行复用 DataRights EXPORT 审计、制裁拦截、合成隔离与抑制过滤。需要 acquisition:export。
          */
         get: operations["ReportController_battleCsv_v1"];
         put?: never;
@@ -3981,6 +4041,18 @@ export interface components {
             uploadUrl: string;
             /** Format: date-time */
             expiresAt: string;
+            /**
+             * @description 推荐上传通道：配置独立公网对象存储时为 direct，其余环境推荐 multipart 分片上传
+             * @enum {string}
+             */
+            uploadMode?: "direct" | "multipart";
+            /** @description 是否支持浏览器直传 presigned uploadUrl（本地/内网穿透环境为 false） */
+            directUploadSupported?: boolean;
+            /**
+             * @description 推荐分片大小（字节，S3/MinIO 协议下限 5 MiB）
+             * @example 5242880
+             */
+            partSizeBytes?: number;
         };
         PresignSellerDocumentDto: {
             /** @example 产品目录-2026.pdf */
@@ -4008,10 +4080,40 @@ export interface components {
             status: "pending_upload" | "committing" | "queued" | "processing" | "ready" | "failed_terminal" | "rejected" | "deleted";
             processingErrorCode?: string | null;
             chunkCount: number;
+            parsedMeta?: {
+                [key: string]: unknown;
+            } | null;
             /** Format: date-time */
             factsExtractedAt?: string | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        InitSellerDocumentMultipartResponseDto: {
+            /** Format: uuid */
+            documentId: string;
+            /** @description S3 Multipart UploadId，供后续分片上传与合并使用 */
+            uploadId: string;
+            /**
+             * @description 推荐分片大小（字节，默认 5 MiB）
+             * @example 5242880
+             */
+            partSizeBytes: number;
+        };
+        UploadSellerDocumentPartResponseDto: {
+            partNumber: number;
+            /** @description 对象存储返回的分片 ETag */
+            etag: string;
+        };
+        MultipartCompletedPartDto: {
+            partNumber: number;
+            /** @description 分片上传返回的 ETag */
+            etag: string;
+        };
+        CompleteSellerDocumentMultipartDto: {
+            /** @description multipart/init 返回的 uploadId */
+            uploadId: string;
+            /** @description 已上传分片清单 */
+            parts: components["schemas"]["MultipartCompletedPartDto"][];
         };
         DocumentChunkViewDto: {
             /** Format: uuid */
@@ -7559,6 +7661,85 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_initMultipart_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["InitSellerDocumentMultipartResponseDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_uploadPart_v1: {
+        parameters: {
+            query: {
+                uploadId: string;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+                partNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UploadSellerDocumentPartResponseDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_completeMultipart_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteSellerDocumentMultipartDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -12024,7 +12205,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description UTF-8（带 BOM）19 列作战 CSV，带 CWE-1236 公式注入防护 */
+            /** @description UTF-8（带 BOM）21 列作战 CSV，带 CWE-1236 公式注入防护 */
             200: {
                 headers: {
                     /** @description 附件文件名 */
