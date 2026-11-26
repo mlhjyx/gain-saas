@@ -24,9 +24,11 @@ import { $t } from '#/locales';
 
 import JudgeDimensions from './judge-dimensions.vue';
 import {
+  displayLeadScore,
   isMachineAggregate,
   judgeCounts,
   keyDimension,
+  leadScoreDimension,
   parseJudge,
   scoreGrade,
   shortRationale,
@@ -111,10 +113,7 @@ const summary = computed(() => {
     .join(' · ');
 });
 
-const score = computed<null | number>(() => {
-  const total = props.lead.totalScore;
-  return typeof total === 'number' && Number.isFinite(total) ? Math.round(total) : null;
-});
+const score = computed(() => displayLeadScore(props.lead.totalScore));
 const grade = computed(() => scoreGrade(score.value));
 
 /** 没有 logo 数据时用首字母牌位：3 个语义色按公司名散列（不用红，避免读成告警）。 */
@@ -199,7 +198,7 @@ const scoreRows = computed(() => {
   const scores = props.lead.scores;
   if (!scores || typeof scores !== 'object') return [];
   const record = scores as Record<string, unknown>;
-  return SCORE_FALLBACK_DIMS.map((dim) => ({ dim, value: record[dim] }))
+  return SCORE_FALLBACK_DIMS.map((dim) => ({ dim, value: leadScoreDimension(record, dim) }))
     .filter(
       (row): row is { dim: (typeof SCORE_FALLBACK_DIMS)[number]; value: number } =>
         typeof row.value === 'number' && Number.isFinite(row.value),

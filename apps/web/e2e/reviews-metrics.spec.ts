@@ -234,7 +234,7 @@ test('判定复核：空态与筛选参数', async ({ page }) => {
     .toBe('queued');
 });
 
-test('度量：VRIC 成对趋势、指标目录与观测/聚合表', async ({ page }) => {
+test('成效复盘：寻源可达趋势、指标口径与周期明细/汇总表', async ({ page }) => {
   const backend = await installMockBackend(page);
   backend.set(
     'GET',
@@ -256,38 +256,54 @@ test('度量：VRIC 成对趋势、指标目录与观测/聚合表', async ({ pa
   await loginAs(page);
   await page.goto('/analytics');
 
-  await expect(page.getByRole('heading', { level: 1, name: '度量' })).toBeVisible();
-  // 最新桶摘要：缺侧（PLUS=null）显示 —，不以 0 冒充
-  const summary = page.locator('.mt__summary');
-  await expect(summary).toContainText('最新桶：2026-11-09');
-  await expect(summary).toContainText('严格口径（STRICT） 1.500');
-  await expect(summary).toContainText('放宽口径（PLUS） —');
-  await expect(page.getByText('某侧没有数据时折线断开——空白代表缺数据，不代表 0。')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '成效复盘' })).toBeVisible();
+  await expect(page.locator('select')).toHaveCount(0);
+  // 最新周期摘要：缺侧（PLUS=null）显示 —，不以 0 冒充
+  const summary = page.locator('[data-gs="analytics-summary"]');
+  await expect(summary).toContainText('2026-11-09');
+  await expect(summary).toContainText('严格可达（仅有效邮箱）');
+  await expect(summary).toContainText('1.500');
+  await expect(summary).toContainText('综合可达（邮箱或电话）');
+  await expect(summary).toContainText('—');
   await expect(page.locator('.mt__chart canvas').first()).toBeVisible({ timeout: 15_000 });
 
-  // 指标目录
+  // 折叠口径说明可展开查看缺数据断线规则
+  const methodology = page.locator('[data-gs="analytics-methodology"]');
+  await methodology.locator('summary').click();
+  await expect(methodology).toContainText('不代表数值为 0');
+
+  // 指标口径
   await expect(page.getByRole('cell', { name: 'T0-001' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'T0 北极星' }).first()).toBeVisible();
-  await expect(page.locator('.mt__badge, .gs-badge', { hasText: '生效中' }).first()).toBeVisible();
+  await expect(page.locator('[data-gs="tag"]', { hasText: '生效中' }).first()).toBeVisible();
 
-  // 观测：切 tab 才拉数据；行与游标入口可见
-  await page.getByRole('tab', { name: '观测' }).click();
+  // 周期明细（观测）：切 tab 才拉数据；行与游标入口可见
+  await page.getByRole('tab', { name: '周期明细' }).click();
   await expect.poll(() => backend.callsTo('GET', '/metrics/observations').length).toBe(1);
-  const observationRow = page.locator('table tbody tr').filter({ hasText: 'T0-001' }).first();
+  const observationRow = page.getByRole('tabpanel').getByRole('row').filter({ hasText: 'T0-001' }).first();
   await expect(observationRow).toContainText('1.500');
   await expect(page.getByRole('button', { name: '加载更多' })).toBeVisible();
   expect(backend.callsTo('GET', '/metrics/observations')[0]?.query.limit).toBe('50');
 
-  // 聚合：按周重新拉取
-  await page.getByRole('tab', { name: '聚合' }).click();
+  // 汇总报表（聚合）：按周重新拉取（通过 GsSelect）
+  await page.getByRole('tab', { name: '汇总报表' }).click();
   await expect.poll(() => backend.callsTo('GET', '/metrics/rollups').length).toBe(1);
-  await page.getByLabel('粒度').last().selectOption('weekly');
+  await page.locator('[data-gs="analytics-rollup-granularity"] .ant-select-selector').click();
+  await page
+    .locator('.ant-select-dropdown:visible .ant-select-item-option')
+    .filter({ hasText: '按周' })
+    .click();
   await expect
     .poll(() => backend.callsTo('GET', '/metrics/rollups').at(-1)?.query.granularity)
     .toBe('weekly');
+  await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
 
-  // VRIC 粒度切换
-  await page.getByLabel('粒度').first().selectOption('weekly');
+  // 趋势图粒度切换（通过 GsSelect）
+  await page.locator('[data-gs="analytics-granularity"] .ant-select-selector').click();
+  await page
+    .locator('.ant-select-dropdown:visible .ant-select-item-option')
+    .filter({ hasText: '按周' })
+    .click();
   await expect
     .poll(() => backend.callsTo('GET', '/metrics/vric').at(-1)?.query.granularity)
     .toBe('weekly');

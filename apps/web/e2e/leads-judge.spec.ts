@@ -189,6 +189,20 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
     page.locator("[data-gs='queue-switch'] [aria-pressed='true']"),
   ).toHaveText(/待我判断\s*2/);
 
+  await page.locator("[data-gs='leads-display-table']").click();
+  // 紧凑表格同样保留五项判据，并使用业务文案。
+  const tableRow = page.locator("[data-gs='lead-row']").filter({ hasText: 'Alpen Solar Technik' });
+  await expect(tableRow).toBeVisible();
+  await expect(tableRow.locator("[data-gs='lead-dims-micro']")).toBeVisible();
+  const tableRowText = await tableRow.innerText();
+  expect(tableRowText).not.toContain('C1_MATERIAL');
+  expect(tableRowText).not.toContain('judge-aggregate');
+  expect(tableRowText).not.toContain('EVIDENCE_GATE_UNKNOWN');
+  expect(tableRowText).not.toMatch(/\bICP\b/);
+
+  // 切换到卡片视图验证五维明文、评分降级、展开区与技术详情
+  await page.locator("[data-gs='leads-display-card']").click();
+
   const low = page.locator("[data-gs='lead-card']").filter({ hasText: 'Alpen Solar Technik' });
   await expect(low).toBeVisible();
   await expect(low.getByRole('button', { name: '跟进', exact: true })).toBeVisible();
@@ -252,7 +266,9 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   const radar = page.getByRole('img', { name: /五维匹配图/ });
   await expect(radar).toBeVisible();
   await expect(page.locator("[data-gs='judge-dimensions']")).toBeVisible();
-  await expect(page.locator("[data-gs='judge-dimensions']").getByText('买家角色')).toBeVisible();
+  await expect(
+    page.locator("[data-gs='judge-dimensions']").getByRole('listitem').getByText('买家角色', { exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     fullPage: true,
     path: 'docs/evidence/ui-restyle/antd-system/leads-detail-judge-light.png',
@@ -269,6 +285,7 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   });
   await page.goto('/leads');
   await page.waitForLoadState('networkidle').catch(() => {});
+  await page.locator("[data-gs='leads-display-card']").click();
   await page.screenshot({
     fullPage: true,
     path: 'docs/evidence/ui-restyle/antd-system/leads-judge-dark.png',

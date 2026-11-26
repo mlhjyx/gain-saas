@@ -1,10 +1,8 @@
 <script lang="ts" setup>
 /**
- * 买家画像卡（买家画像页的列表）。与买家线索卡同一套语言：
- * 五列对齐（画像 / 目标市场 / 寻源方案 / 最近寻源 / 操作），无边框白卡 + 柔和投影。
- *
- * 「寻源方案」「最近寻源」直接摆在卡片上：这一页的目的是发起寻源，
- * 之前要点开弹层才知道某个画像有没有方案、跑没跑过。
+ * 买家画像卡（PR-UI2：支持左侧 240px 窄栏模式与单画像轻量摘要行模式）。
+ * - 严格遵守「全屏唯一 1 个蓝色主按钮」：卡片内操作降级为清晰的描边次按钮；
+ * - 修复空版本号穿帮：仅当 version 为有效正数时才拼接「· 第 N 版」。
  */
 import type { IcpCardRow, SummaryState } from './icp-card-types';
 
@@ -12,7 +10,6 @@ import { computed } from 'vue';
 
 import { Button, Tag } from 'ant-design-vue';
 
-import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import { ICP_ADVANCED_HIDDEN } from '#/feature-flags';
 import { $t } from '#/locales';
@@ -20,11 +17,17 @@ import { regionName } from '#/utils/region-name';
 
 defineOptions({ name: 'IcpCard' });
 
-const props = defineProps<{ row: IcpCardRow; selected?: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    rail?: boolean;
+    row: IcpCardRow;
+    selected?: boolean;
+  }>(),
+  { rail: false, selected: false },
+);
 
 const emit = defineEmits<{ open: [] }>();
 
-/** 首字母色块：3 个语义色按画像名散列（不用红，避免读成告警）。 */
 const LOGO_TONES = ['brand', 'success', 'warning'] as const;
 const tileTone = computed(() => {
   let hash = 0;
@@ -33,7 +36,20 @@ const tileTone = computed(() => {
 });
 const initial = computed(() => Array.from(props.row.name || '?')[0]?.toUpperCase() ?? '?');
 
-/** 摘要列的兜底文案：没取到显示「—」，确实没有才显示「还没有」。 */
+const validVersion = computed<null | number>(() => {
+  const raw = props.row.version;
+  if (raw === null || raw === undefined) return null;
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(num) && num > 0 ? Math.trunc(num) : null;
+});
+
+const companyVersionMeta = computed(() => {
+  if (validVersion.value !== null) {
+    return `${props.row.company} · ${$t('gainos.findBuyers.version', { version: validVersion.value })}`;
+  }
+  return props.row.company;
+});
+
 function fallbackText(state: SummaryState, noneKey: string): string {
   if (state === 'loading') return $t('gainos.common.loading');
   if (state === 'none') return $t(noneKey);
@@ -41,22 +57,64 @@ function fallbackText(state: SummaryState, noneKey: string): string {
 }
 const planFallback = computed(() => fallbackText(props.row.planState, 'gainos.findBuyers.noPlans'));
 const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.findBuyers.noRuns'));
-/**
- * 还没生效的画像谈不上方案和寻源：不写「还没有寻源方案」（会让人以为该去生成），直接说要先激活。
- * 已被取代、已归档的画像没有下一步，显示「—」。
- */
+
 const inactiveText = computed(() => {
   const status = props.row.icp.status;
   if (status === 'ACTIVE') return '';
-  return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(status) ? $t('gainos.findBuyers.planNeedsActive') : '—';
+  return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(status)
+    ? $t('gainos.findBuyers.planNeedsActive')
+    : '—';
 });
 const planText = computed(() => inactiveText.value || planFallback.value);
 const runText = computed(() => inactiveText.value || runFallback.value);
 </script>
 
 <template>
-  <GsCard class="icp-card" :class="{ 'icp-card--selected': selected }" data-gs="icp-card" padding="18px 24px">
-    <div class="icp-card__grid">
+  <!-- 多份画像时的左侧 240px 紧凑窄栏项 -->
+  <div
+    v-if="rail"
+    :class="{ 'icp-card--selected': selected }"
+    class="icp-rail-item"
+    data-gs="icp-card"
+    @click="emit('open')"
+  >
+    <div class="icp-rail-item__top">
+      <button class="icp-rail-item__name" type="button" @click.stop="emit('open')">
+        {{ row.name }}
+      </button>
+      <GsTag :tone="row.statusTone">{{ row.statusLabel }}</GsTag>
+    </div>
+    <p class="icp-rail-item__meta">{{ companyVersionMeta }}</p>
+    <div v-if="row.markets.length > 0" class="icp-card__tags icp-card__tags--tight">
+      <Tag
+        v-for="market in row.markets.slice(0, 3)"
+        :key="market"
+        :bordered="false"
+        class="icp-chip"
+        :title="market"
+      >
+        {{ regionName(market) }}
+      </Tag>
+    </div>
+    <div class="icp-rail-item__foot">
+      <span class="icp-rail-item__stat">
+        {{ $t('gainos.findBuyers.personasCount', { count: row.personas }) }}
+      </span>
+      <span v-if="row.plan" class="icp-rail-item__stat">
+        {{ row.plan.label }} · {{ $t('gainos.findBuyers.planSearchCount', { count: row.plan.queries }) }}
+      </span>
+      <span v-else class="icp-rail-item__stat">{{ planText }}</span>
+    </div>
+  </div>
+
+  <!-- 单份画像时的轻量单行细线概览条（非蓝色主按钮） -->
+  <div
+    v-else
+    :class="{ 'icp-card--selected': selected }"
+    class="icp-strip"
+    data-gs="icp-card"
+  >
+    <div class="icp-strip__grid">
       <!-- 画像 -->
       <div class="icp-card__identity">
         <span aria-hidden="true" class="icp-tile" :class="`icp-tile--${tileTone}`">
@@ -68,12 +126,9 @@ const runText = computed(() => inactiveText.value || runFallback.value);
               {{ row.name }}
             </button>
           </h3>
-          <p class="icp-card__meta">
-            {{ row.company }} · {{ $t('gainos.findBuyers.version', { version: row.version }) }}
-          </p>
+          <p class="icp-card__meta">{{ companyVersionMeta }}</p>
           <div class="icp-card__tags">
             <GsTag :tone="row.statusTone">{{ row.statusLabel }}</GsTag>
-            <!-- 「资格规则与回测」隐藏期间，规则数一并隐藏，免得用户去找一个不存在的入口。 -->
             <Tag v-if="!ICP_ADVANCED_HIDDEN" :bordered="false" class="icp-chip">
               {{ $t('gainos.findBuyers.rulesCount', { count: row.rules }) }}
             </Tag>
@@ -88,7 +143,13 @@ const runText = computed(() => inactiveText.value || runFallback.value);
       <div class="icp-card__cell icp-card__cell--markets">
         <p class="icp-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
         <div v-if="row.markets.length > 0" class="icp-card__tags icp-card__tags--tight">
-          <Tag v-for="market in row.markets" :key="market" :bordered="false" class="icp-chip" :title="market">
+          <Tag
+            v-for="market in row.markets"
+            :key="market"
+            :bordered="false"
+            class="icp-chip"
+            :title="market"
+          >
             {{ regionName(market) }}
           </Tag>
         </div>
@@ -117,26 +178,96 @@ const runText = computed(() => inactiveText.value || runFallback.value);
         <p v-else class="icp-card__meta">{{ runText }}</p>
       </div>
 
-      <!-- 操作 -->
+      <!-- 操作：降级为清晰描边次按钮，不与主 CTA 抢焦点 -->
       <div class="icp-card__actions">
-        <Button type="primary" @click="emit('open')">{{ $t('gainos.findBuyers.view') }}</Button>
+        <Button size="small" @click="emit('open')">{{ $t('gainos.findBuyers.view') }}</Button>
       </div>
     </div>
-  </GsCard>
+  </div>
 </template>
 
 <style scoped>
-/*
- * 窄屏优先：按「内容区实际宽度」分级（容器查询，容器是页面根节点）。
- *   < 560px   单列堆叠
- *   ≥ 560px   两列：画像 + 操作 / 目标市场 + 寻源方案 / 最近寻源
- *   ≥ 1120px  五列并排（卡片内边距 48 + 五列最小 1066）
- */
-/* 当前在工作区里展示的画像 */
-.icp-card--selected {
-  box-shadow: 0 0 0 2px var(--gs-accent-soft-border), var(--gs-shadow-float);
+/* 左侧 240px 窄栏模式 */
+.icp-rail-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background-color 0.14s ease;
 }
-.icp-card__grid {
+
+.icp-rail-item:hover {
+  border-color: var(--gs-border-strong);
+  background: var(--gs-surface-3);
+}
+
+.icp-rail-item.icp-card--selected {
+  border-color: var(--gs-accent);
+  background: var(--gs-accent-soft);
+}
+
+.icp-rail-item__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.icp-rail-item__name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gs-fg);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 19px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.icp-rail-item__meta {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+
+.icp-rail-item__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--gs-divider);
+}
+
+.icp-rail-item__stat {
+  color: var(--gs-fg-muted);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+/* 单画像轻量单行细线概览条 */
+.icp-strip {
+  padding: 14px 18px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+}
+
+.icp-strip.icp-card--selected {
+  border-color: var(--gs-border-strong);
+}
+
+.icp-strip__grid {
   display: grid;
   grid-template-areas:
     'identity'
@@ -148,19 +279,22 @@ const runText = computed(() => inactiveText.value || runFallback.value);
   gap: 12px;
   align-items: start;
 }
+
 .icp-card__identity {
   grid-area: identity;
   display: flex;
   min-width: 0;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-start;
 }
+
 .icp-card__title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 22px;
 }
+
 .icp-card__link {
   display: inline;
   max-width: 100%;
@@ -173,90 +307,106 @@ const runText = computed(() => inactiveText.value || runFallback.value);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
+
 .icp-card__link:hover {
   color: var(--gs-accent-fg);
 }
+
 .icp-card__link:focus-visible {
   outline: 2px solid var(--gs-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
+
 .icp-card__meta {
   margin: 2px 0 0;
   color: var(--gs-fg-muted);
-  font-size: 12.5px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
 }
+
 .icp-card__tags {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
+
 .icp-card__tags--tight {
-  margin-top: 4px;
+  margin-top: 2px;
 }
+
 .icp-tile {
   display: grid;
   flex: none;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  font-size: 18px;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1;
 }
+
 .icp-tile--brand {
   background: var(--gs-accent-soft);
   color: var(--gs-accent-fg);
 }
+
 .icp-tile--success {
   background: var(--gs-success-bg);
   color: var(--gs-success-fg);
 }
+
 .icp-tile--warning {
   background: var(--gs-warn-bg);
   color: var(--gs-warn-fg);
 }
+
 .icp-chip {
   margin: 0;
-  padding-inline: 8px;
-  border-radius: 6px;
+  padding-inline: 7px;
+  border-radius: 5px;
   background: var(--gs-surface-2);
   color: var(--gs-fg-muted);
-  font-size: 12px;
-  line-height: 22px;
+  font-size: 11.5px;
+  line-height: 20px;
 }
 
 .icp-card__cell {
   min-width: 0;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--gs-divider);
 }
+
 .icp-card__cell--markets {
   grid-area: markets;
 }
+
 .icp-card__cell--plan {
   grid-area: plan;
 }
+
 .icp-card__cell--run {
   grid-area: run;
 }
+
 .icp-label {
   margin: 0;
   color: var(--gs-fg-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 11.5px;
+  line-height: 16px;
 }
+
 .icp-card__summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 26px;
+  min-height: 24px;
   margin-top: 4px;
 }
+
 .icp-card__summary .icp-card__meta {
   margin-top: 0;
   white-space: nowrap;
@@ -266,29 +416,15 @@ const runText = computed(() => inactiveText.value || runFallback.value);
   grid-area: actions;
   display: grid;
 }
-.icp-card__actions :deep(.ant-btn) {
-  width: 100%;
-}
 
-/* ≥ 560px：两列（画像 + 操作 / 目标市场 + 寻源方案 / 最近寻源） */
 @container (min-width: 560px) {
-  .icp-card__grid {
+  .icp-strip__grid {
     grid-template-areas:
       'identity actions'
       'markets plan'
       'run run';
     grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 0;
-  }
-  .icp-card__identity {
-    padding-right: 24px;
-  }
-  .icp-card__cell {
-    padding-top: 10px;
-    border-top: 1px solid var(--gs-divider);
-  }
-  .icp-card__cell--plan {
-    padding-left: 24px;
+    column-gap: 16px;
   }
   .icp-card__actions {
     display: block;
@@ -296,24 +432,16 @@ const runText = computed(() => inactiveText.value || runFallback.value);
   }
 }
 
-@container (min-width: 1120px) {
-  .icp-card__grid {
+@container (min-width: 1020px) {
+  .icp-strip__grid {
     grid-template-areas: 'identity markets plan run actions';
-    grid-template-columns: minmax(360px, 1.4fr) minmax(140px, 0.8fr) minmax(170px, 0.9fr) minmax(200px, 1fr) auto;
-    column-gap: 24px;
-  }
-  .icp-card__identity {
-    padding-right: 0;
+    grid-template-columns: minmax(280px, 1.4fr) minmax(120px, 0.8fr) minmax(150px, 0.9fr) minmax(160px, 1fr) auto;
+    column-gap: 20px;
+    align-items: center;
   }
   .icp-card__cell {
     padding-top: 0;
     border-top: 0;
-  }
-  .icp-card__cell--plan {
-    padding-left: 0;
-  }
-  .icp-card__actions {
-    align-self: center;
   }
 }
 </style>
