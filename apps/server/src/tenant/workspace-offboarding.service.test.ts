@@ -35,6 +35,7 @@ function makeHarness(options: {
 } = {}) {
   const createdRows: Array<Record<string, unknown>> = [];
   const tx = {
+    $executeRaw: vi.fn(async () => 0),
     membership: {
       findFirst: vi.fn(async () => ({
         id: 'm-1',
@@ -226,6 +227,27 @@ describe('WorkspaceOffboardingService (7-day cooling-off)', () => {
       status: 'SCHEDULED',
       canCancel: true,
       remainingDays: 5,
+    });
+  });
+
+  it('acquires workspace-offboarding advisory lock and translates concurrent P2002 unique violation to 409 ConflictException', async () => {
+    const h = makeHarness({ role: 'admin', workspaceName: 'Acme Export Co' });
+    h.tx.workspaceOffboardingRequest.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+
+    const err = await h.service
+      .requestOffboarding(
+        { userId: USER_ADMIN, workspaceId: WS_ID, role: 'admin' },
+        WS_ID,
+        { confirmName: 'Acme Export Co' },
+      )
+      .catch((e: unknown) => e);
+
+    expect(h.tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      error: { code: 'OFFBOARDING_ALREADY_SCHEDULED' },
     });
   });
 });

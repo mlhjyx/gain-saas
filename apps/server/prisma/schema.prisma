@@ -1008,6 +1008,7 @@ model WorkspacePurgeReceipt {
   forced               Boolean   @default(false)
   revokedSessions      Int       @default(0) @map("revoked_sessions")
   deletedCounts        Json      @map("deleted_counts")
+  campaignPlanJobIds   Json      @default("[]") @map("campaign_plan_job_ids")
   enginePurgeReceiptId String?   @map("engine_purge_receipt_id") @db.Uuid
   enginePurgeStatus    String?   @map("engine_purge_status") @db.VarChar(32)
   errorCode            String?   @map("error_code") @db.VarChar(64)

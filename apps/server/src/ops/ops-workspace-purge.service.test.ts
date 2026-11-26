@@ -24,6 +24,7 @@ function makeTx(options: {
   const del = () => ({ deleteMany: vi.fn(async () => ({ count: 1 })) });
   let createdReceipt: Record<string, unknown> | null = options.existingReceipt ?? null;
   return {
+    $executeRaw: vi.fn(async () => 0),
     workspace: {
       findUnique: vi.fn(async () =>
         options.workspaceExists === false ? null : { id: WS_ID, name: 'Acme Co', status: 'ACTIVE' },
@@ -353,5 +354,103 @@ describe('OpsWorkspacePurgeService (POST /api/ops/workspaces/:id/purge)', () => 
     const refreshed = await replayH.service.getPurgeReceipt(WS_ID);
     expect(refreshed?.enginePurgeStatus).toBe('COMPLETED');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects idempotencyKey containing ASCII control characters with 400 BEFORE touching DB, and translates P2002 to 409', async () => {
+    const h = makeService({ token: 'purge-secret-token-123456' });
+    await expect(
+      h.service.purgeWorkspace(WS_ID, { idempotencyKey: 'bad\nkey' }, OPS_ACTOR),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      h.service.purgeWorkspace(WS_ID, { idempotencyKey: '\tbad-key' }, OPS_ACTOR),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.tx.workspace.update).not.toHaveBeenCalled();
+
+    const p2002H = makeService({
+      token: 'purge-secret-token-123456',
+      txOptions: {
+        offboarding: {
+          id: OFFBOARD_ID,
+          status: 'SCHEDULED',
+          coolOffEndsAt: new Date('2026-12-03T00:00:00Z'),
+        },
+      },
+    });
+    p2002H.tx.workspacePurgeReceipt.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+    await expect(
+      p2002H.service.purgeWorkspace(WS_ID, { idempotencyKey: 'race-k1' }, OPS_ACTOR, new Date('2026-12-04T00:00:00Z')),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(p2002H.tx.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows FAILED receipt retry with same idempotencyKey (force=false), preserves campaignPlanJobIds and original deletion/session counts', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ data: { id: ENGINE_RECEIPT_ID, status: 'PENDING' } }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const retryH = makeService({
+      token: 'purge-secret-token-123456',
+      txOptions: {
+        offboarding: null,
+        existingReceipt: {
+          id: '99999999-9999-4999-8999-999999999999',
+          workspaceId: WS_ID,
+          idempotencyKey: 'retry-k1',
+          status: 'FAILED',
+          requestedBy: OPS_ACTOR,
+          offboardingRequestId: OFFBOARD_ID,
+          forced: false,
+          revokedSessions: 2,
+          deletedCounts: { session: 2, outreach_draft: 5, campaign_plan_job: 1 },
+          campaignPlanJobIds: [JOB_1],
+          enginePurgeReceiptId: null,
+          enginePurgeStatus: null,
+          errorCode: 'TEMPORAL_UNAVAILABLE',
+          startedAt: new Date('2026-12-04T00:00:00Z'),
+          completedAt: null,
+        },
+      },
+    });
+    // Subsequent local deletes return 0 since first attempt already wiped gain_saas tables
+    retryH.tx.campaignPlanJob.findMany.mockResolvedValueOnce([]);
+    retryH.tx.session.updateMany.mockResolvedValueOnce({ count: 0 });
+    retryH.tx.session.deleteMany.mockResolvedValueOnce({ count: 0 });
+    retryH.tx.outreachDraft.deleteMany.mockResolvedValueOnce({ count: 0 });
+    retryH.tx.campaignPlanJob.deleteMany.mockResolvedValueOnce({ count: 0 });
+
+    const completed = await retryH.service.purgeWorkspace(
+      WS_ID,
+      { idempotencyKey: 'retry-k1' },
+      OPS_ACTOR,
+      new Date('2026-12-04T00:05:00Z'),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [URL | string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      idempotencyKey: 'retry-k1',
+      requestedBy: OPS_ACTOR,
+      campaignPlanJobIds: [JOB_1],
+    });
+    expect(completed).toMatchObject({
+      status: 'COMPLETED',
+      revokedSessions: 2,
+      offboardingRequestId: OFFBOARD_ID,
+      enginePurgeReceiptId: ENGINE_RECEIPT_ID,
+    });
+    expect(completed.deletedCounts.outreach_draft).toBe(5);
+    expect(completed.deletedCounts.campaign_plan_job).toBe(1);
+    expect(retryH.tx.workspaceOffboardingRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: OFFBOARD_ID },
+        data: expect.objectContaining({ status: 'PURGED' }),
+      }),
+    );
   });
 });

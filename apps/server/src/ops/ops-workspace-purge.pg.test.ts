@@ -107,6 +107,23 @@ describe.skipIf(!available)('Workspace offboarding & purge PG16 FORCE RLS end-to
           body: `Body ${email}`,
         },
       });
+      const campaign = await adminPrisma.campaign.create({
+        data: {
+          workspaceId: wsId,
+          name: 'Purge Campaign',
+          objective: 'Test',
+          createdBy: uid,
+          updatedBy: uid,
+        },
+      });
+      await adminPrisma.campaignPlanJob.create({
+        data: {
+          workspaceId: wsId,
+          campaignId: campaign.id,
+          objective: 'Test plan',
+          createdBy: uid,
+        },
+      });
       await adminPrisma.qgo.create({
         data: {
           workspaceId: wsId,
@@ -152,32 +169,80 @@ describe.skipIf(!available)('Workspace offboarding & purge PG16 FORCE RLS end-to
       await appPrisma.withWorkspace(WS_B, (tx) => tx.workspaceOffboardingRequest.findMany()),
     ).toEqual([]);
 
+    const wsAPlanJobs = await adminPrisma.campaignPlanJob.findMany({
+      where: { workspaceId: WS_A },
+      select: { id: true },
+    });
+    expect(wsAPlanJobs).toHaveLength(1);
+    const expectedJobId = wsAPlanJobs[0]!.id;
+
+    // 1st attempt: engine returns 503 -> receipt marked FAILED, throws 502
+    let engineCallCount = 0;
+    const engineBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: { id: engineReceiptId, workspaceId: WS_A, status: 'PENDING' },
-            }),
-            { status: 202, headers: { 'content-type': 'application/json' } },
-          ),
-      ),
+      vi.fn(async (_url: URL | string, init?: RequestInit) => {
+        engineCallCount += 1;
+        if (init?.body) {
+          engineBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        }
+        if (engineCallCount === 1) {
+          return new Response(JSON.stringify({ error: { code: 'TEMPORAL_UNAVAILABLE' } }), {
+            status: 503,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            data: { id: engineReceiptId, workspaceId: WS_A, status: 'PENDING' },
+          }),
+          { status: 202, headers: { 'content-type': 'application/json' } },
+        );
+      }),
     );
 
     const afterCoolOff = new Date('2026-12-04T00:00:00.000Z');
+    const purgeKey = `purge-${WS_A}`;
+    const firstErr = await purgeService
+      .purgeWorkspace(WS_A, { idempotencyKey: purgeKey }, opsActor, afterCoolOff)
+      .catch((e: unknown) => e);
+    expect((firstErr as { getStatus?: () => number })?.getStatus?.()).toBe(502);
+
+    const failedReceipt = await purgeService.getPurgeReceipt(WS_A);
+    expect(failedReceipt).toMatchObject({
+      workspaceId: WS_A,
+      status: 'FAILED',
+      errorCode: 'TEMPORAL_UNAVAILABLE',
+      revokedSessions: 1,
+    });
+    expect(failedReceipt?.deletedCounts.outreach_draft).toBe(1);
+    expect(failedReceipt?.deletedCounts.campaign_plan_job).toBe(1);
+
+    // 2nd attempt: retry with SAME idempotencyKey and force=false succeeds, sends original campaignPlanJobIds, preserves counts
     const receipt = await purgeService.purgeWorkspace(
       WS_A,
-      { idempotencyKey: `purge-${WS_A}` },
+      { idempotencyKey: purgeKey },
       opsActor,
-      afterCoolOff,
+      new Date('2026-12-04T00:05:00.000Z'),
     );
+    expect(engineCallCount).toBe(2);
+    expect(engineBodies[1]).toMatchObject({
+      idempotencyKey: purgeKey,
+      requestedBy: opsActor,
+      campaignPlanJobIds: [expectedJobId],
+    });
     expect(receipt).toMatchObject({
       workspaceId: WS_A,
       status: 'COMPLETED',
       revokedSessions: 1,
       enginePurgeReceiptId: engineReceiptId,
     });
+    expect(receipt.deletedCounts.outreach_draft).toBe(1);
+    expect(receipt.deletedCounts.campaign_plan_job).toBe(1);
+    const offboardingRowA = await adminPrisma.workspaceOffboardingRequest.findUnique({
+      where: { id: scheduled.id },
+    });
+    expect(offboardingRowA).toMatchObject({ status: 'PURGED', reason: null });
     // Receipt JSON contains zero PII
     expect(JSON.stringify(receipt)).not.toContain('pii-a@target.example');
     expect(JSON.stringify(receipt)).not.toContain('admin-a@purge-test.example');
@@ -189,12 +254,13 @@ describe.skipIf(!available)('Workspace offboarding & purge PG16 FORCE RLS end-to
     // Idempotent replay with same idempotencyKey returns completed receipt without calling engine again
     const replay = await purgeService.purgeWorkspace(
       WS_A,
-      { idempotencyKey: `purge-${WS_A}` },
+      { idempotencyKey: purgeKey },
       opsActor,
       afterCoolOff,
     );
     expect(replay.id).toBe(receipt.id);
     expect(replay.status).toBe('COMPLETED');
+    expect(engineCallCount).toBe(2);
 
     // WS_A wiped, registry disabled, workspace archived & anonymized, sessions revoked
     const wsARow = await adminPrisma.workspace.findUnique({ where: { id: WS_A } });

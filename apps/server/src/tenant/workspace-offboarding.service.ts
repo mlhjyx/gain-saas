@@ -132,6 +132,7 @@ export class WorkspaceOffboardingService {
     const coolOffEndsAt = new Date(now.getTime() + coolOffDays * DAY_MS);
 
     const created = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('workspace-offboarding'), hashtext(${workspaceId}))`;
       const membership = await tx.membership.findFirst({
         where: { userId: tenant.userId, workspaceId, status: 'active' },
         include: { workspace: { select: { id: true, name: true, status: true } } },
@@ -175,16 +176,28 @@ export class WorkspaceOffboardingService {
       }
 
       const reason = parsed.data.reason?.trim() || null;
-      return tx.workspaceOffboardingRequest.create({
-        data: {
-          workspaceId,
-          status: 'SCHEDULED',
-          requestedBy: tenant.userId,
-          reason,
-          requestedAt: now,
-          coolOffEndsAt,
-        },
-      });
+      try {
+        return await tx.workspaceOffboardingRequest.create({
+          data: {
+            workspaceId,
+            status: 'SCHEDULED',
+            requestedBy: tenant.userId,
+            reason,
+            requestedAt: now,
+            coolOffEndsAt,
+          },
+        });
+      } catch (err) {
+        if (err && typeof err === 'object' && (err as { code?: unknown }).code === 'P2002') {
+          throw new ConflictException({
+            error: {
+              code: 'OFFBOARDING_ALREADY_SCHEDULED',
+              message: '该工作空间已存在生效中的离网注销申请',
+            },
+          });
+        }
+        throw err;
+      }
     });
 
     await this.audit.record({
@@ -209,6 +222,7 @@ export class WorkspaceOffboardingService {
   ): Promise<WorkspaceOffboardingDto> {
     this.assertUuid(workspaceId);
     const updated = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('workspace-offboarding'), hashtext(${workspaceId}))`;
       const membership = await tx.membership.findFirst({
         where: { userId: tenant.userId, workspaceId, status: 'active' },
         include: { workspace: { select: { id: true, name: true, status: true } } },

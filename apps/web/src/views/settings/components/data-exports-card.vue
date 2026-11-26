@@ -298,7 +298,7 @@ watch(
               </div>
             </template>
             <template v-else-if="column.key === 'expiresAt'">
-              <span class="text-xs text-[var(--gs-fg-muted)]">{{ fmtTime(record.expiresAt ?? record.createdAt) }}</span>
+              <span class="text-xs text-[var(--gs-fg-muted)]">{{ fmtTime(record.expiresAt) }}</span>
             </template>
             <template v-else-if="column.key === 'action'">
               <Button

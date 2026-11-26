@@ -14,10 +14,16 @@ import { APP_CONFIG } from '../shared/config.module.js';
 import { PrismaService } from '../shared/prisma.service.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NO_CONTROL_CHARS_RE = /^[^\u0000-\u001f\u007f]+$/;
 
 const PurgeWorkspaceBodySchema = z
   .object({
-    idempotencyKey: z.string().trim().min(1).max(128).optional(),
+    idempotencyKey: z
+      .string()
+      .regex(NO_CONTROL_CHARS_RE, 'idempotencyKey 不能包含控制字符')
+      .transform((value) => value.trim())
+      .refine((value) => value.length >= 1 && value.length <= 128, 'idempotencyKey 长度须在 1..128 之间')
+      .optional(),
     force: z.boolean().optional(),
   })
   .strict();
@@ -49,6 +55,7 @@ interface PurgeReceiptRow {
   readonly forced: boolean;
   readonly revokedSessions: number;
   readonly deletedCounts: unknown;
+  readonly campaignPlanJobIds?: unknown;
   readonly enginePurgeReceiptId: string | null;
   readonly enginePurgeStatus: string | null;
   readonly errorCode: string | null;
@@ -56,15 +63,52 @@ interface PurgeReceiptRow {
   readonly completedAt: Date | null;
 }
 
-function serializeReceipt(row: PurgeReceiptRow): WorkspacePurgeReceiptDto {
+function parseDeletedCounts(raw: unknown): Record<string, number> {
   const counts: Record<string, number> = {};
-  if (row.deletedCounts && typeof row.deletedCounts === 'object' && !Array.isArray(row.deletedCounts)) {
-    for (const [key, value] of Object.entries(row.deletedCounts as Record<string, unknown>)) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
       if (typeof value === 'number' && Number.isFinite(value)) {
         counts[key] = value;
       }
     }
   }
+  return counts;
+}
+
+function mergeDeletedCounts(prevRaw: unknown, next: Record<string, number>): Record<string, number> {
+  const merged = parseDeletedCounts(prevRaw);
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (value > 0 || !(key in merged)) {
+        merged[key] = (merged[key] ?? 0) + value;
+      }
+    }
+  }
+  return merged;
+}
+
+function mergeUuidList(prevRaw: unknown, next: string[], limit = 100): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: unknown) => {
+    if (out.length >= limit) return;
+    if (typeof value === 'string' && UUID_RE.test(value) && !seen.has(value)) {
+      seen.add(value);
+      out.push(value);
+    }
+  };
+  if (Array.isArray(prevRaw)) {
+    for (const item of prevRaw) push(item);
+  }
+  for (const item of next) push(item);
+  return out;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { code?: unknown }).code === 'P2002');
+}
+
+function serializeReceipt(row: PurgeReceiptRow): WorkspacePurgeReceiptDto {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -74,7 +118,7 @@ function serializeReceipt(row: PurgeReceiptRow): WorkspacePurgeReceiptDto {
     offboardingRequestId: row.offboardingRequestId,
     forced: row.forced,
     revokedSessions: row.revokedSessions,
-    deletedCounts: counts,
+    deletedCounts: parseDeletedCounts(row.deletedCounts),
     enginePurgeReceiptId: row.enginePurgeReceiptId,
     enginePurgeStatus: row.enginePurgeStatus,
     errorCode: row.errorCode,
@@ -85,11 +129,12 @@ function serializeReceipt(row: PurgeReceiptRow): WorkspacePurgeReceiptDto {
 
 /**
  * 运营整空间物理清理服务（MT-P1）：
- * 1. 缺内部服务令牌 fail-closed 503；非强制清理必须满足 7 天离网冷却期已到期。
- * 2. 在 gain_saas 租户上下文事务内完成：吊销并清除全部会话、停用 workspace_registry、
- *    归档匿名化 workspace、按外键安全顺序清空全部 50 张租户业务/PII 表、脱敏租户审计日志、落 IN_PROGRESS 回执。
+ * 1. 缺内部服务令牌 fail-closed 503；idempotencyKey 拒绝控制字符；非强制清理须满足 7 天离网冷却期已到期。
+ * 2. 在 gain_saas 租户上下文事务（含 workspace 级事务咨询锁）内完成：吊销并清除全部会话、停用 workspace_registry、
+ *    归档匿名化 workspace、按外键安全顺序清空全部 50 张租户业务/PII 表、脱敏租户审计日志与离网 reason、落 IN_PROGRESS 回执
+ *    （同时持久化无 PII 的 campaignPlanJobIds，确保 FAILED 重试不丢失且累计保留首次真实计数）。
  * 3. 事务外调用引擎 POST /api/v1/internal/workspaces/:id/purge（x-service-token）清理引擎数据与 MinIO。
- * 4. 回写无 PII 的 COMPLETED / FAILED 回执并记录 ops 审计。
+ * 4. 引擎成功后将回执标 COMPLETED、同步离网申请为 PURGED 并记 ops 审计；引擎失败标 FAILED 并抛 502（可同幂等键重试）。
  */
 @Injectable()
 export class OpsWorkspacePurgeService {
@@ -160,6 +205,9 @@ export class OpsWorkspacePurgeService {
     const idempotencyKey = parsed.data.idempotencyKey ?? `purge-${workspaceId}`;
 
     const phase1 = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      // 串行化同一工作空间的物理清理请求，防止并发击穿唯一索引产生 500
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('workspace-purge'), hashtext(${workspaceId}))`;
+
       const existing = await tx.workspacePurgeReceipt.findFirst({
         where: { workspaceId, idempotencyKey },
       });
@@ -174,6 +222,8 @@ export class OpsWorkspacePurgeService {
         }
       }
 
+      const isFailedRetry = existing?.status === 'FAILED';
+
       const workspace = await tx.workspace.findUnique({ where: { id: workspaceId } });
       if (!workspace) {
         throw new NotFoundException({ error: { code: 'WORKSPACE_NOT_FOUND', message: '工作空间不存在' } });
@@ -184,7 +234,8 @@ export class OpsWorkspacePurgeService {
         orderBy: { requestedAt: 'desc' },
       });
 
-      if (!force) {
+      // FAILED 同幂等键重试已于首次通过冷却期校验并完成本地清理，不再重复要求存在 SCHEDULED 申请
+      if (!force && !isFailedRetry) {
         if (!offboarding) {
           throw new ConflictException({
             error: {
@@ -209,7 +260,11 @@ export class OpsWorkspacePurgeService {
         orderBy: { createdAt: 'desc' },
         take: 100,
       });
-      const campaignPlanJobIds = planJobs.map((j) => j.id);
+      const campaignPlanJobIds = mergeUuidList(
+        existing?.campaignPlanJobIds,
+        planJobs.map((j) => j.id),
+        100,
+      );
 
       // 1. 吊销并清除该工作空间全部会话（先 revoke 统计活跃数，再删会话表行）
       const revoked = await tx.session.updateMany({
@@ -290,13 +345,13 @@ export class OpsWorkspacePurgeService {
         ['membership', () => tx.membership.deleteMany({ where })],
       ];
 
-      const deletedCounts: Record<string, number> = {
+      const freshDeletedCounts: Record<string, number> = {
         session: deletedSessions.count,
       };
       for (const [tableName, runDelete] of tableDeletions) {
         const res = await runDelete();
         if (res.count > 0) {
-          deletedCounts[tableName] = res.count;
+          freshDeletedCounts[tableName] = res.count;
         }
       }
 
@@ -306,59 +361,72 @@ export class OpsWorkspacePurgeService {
         data: { detail: { redacted: true }, target: null },
       });
       if (redactedAudit.count > 0) {
-        deletedCounts.tenant_audit_redacted = redactedAudit.count;
+        freshDeletedCounts.tenant_audit_redacted = redactedAudit.count;
       }
 
-      // 5. 擦除该工作空间全部离网申请历史中的自由文本 reason（防含 PII），并将生效中的申请标为 PURGED
+      // 5. 立即擦除该工作空间全部离网申请历史中的自由文本 reason（防含 PII）；
+      //    离网申请状态推进至 PURGED 留待 Phase 2 引擎清理成功后再落终态，避免失败重试语义断裂。
       await tx.workspaceOffboardingRequest.updateMany({
         where: { workspaceId },
         data: { reason: null },
       });
-      if (offboarding) {
-        await tx.workspaceOffboardingRequest.update({
-          where: { id: offboarding.id },
+
+      const totalRevokedSessions = (existing?.revokedSessions ?? 0) + revoked.count;
+      const mergedDeletedCounts = isFailedRetry
+        ? mergeDeletedCounts(existing?.deletedCounts, freshDeletedCounts)
+        : freshDeletedCounts;
+      const targetOffboardingId = existing?.offboardingRequestId ?? offboarding?.id ?? null;
+      const effectiveForced = (existing?.forced ?? false) || force;
+
+      // 6. 写入或复用（重试 FAILED）无 PII 清理回执（累加保留首次真实清理计数与 campaignPlanJobIds）
+      let receiptRow: PurgeReceiptRow;
+      if (existing) {
+        receiptRow = await tx.workspacePurgeReceipt.update({
+          where: { id: existing.id },
           data: {
-            status: 'PURGED',
-            purgedBy: opsActorId,
-            purgedAt: now,
-            reason: null,
+            status: 'IN_PROGRESS',
+            requestedBy: opsActorId,
+            offboardingRequestId: targetOffboardingId,
+            forced: effectiveForced,
+            revokedSessions: totalRevokedSessions,
+            deletedCounts: mergedDeletedCounts,
+            campaignPlanJobIds,
+            errorCode: null,
+            completedAt: null,
           },
         });
-      }
-
-      // 6. 写入或复用（重试 FAILED）无 PII 清理回执
-      const receiptRow = existing
-        ? await tx.workspacePurgeReceipt.update({
-            where: { id: existing.id },
-            data: {
-              status: 'IN_PROGRESS',
-              requestedBy: opsActorId,
-              offboardingRequestId: offboarding?.id ?? existing.offboardingRequestId,
-              forced: force,
-              revokedSessions: revoked.count,
-              deletedCounts,
-              errorCode: null,
-              completedAt: null,
-            },
-          })
-        : await tx.workspacePurgeReceipt.create({
+      } else {
+        try {
+          receiptRow = await tx.workspacePurgeReceipt.create({
             data: {
               workspaceId,
               idempotencyKey,
               status: 'IN_PROGRESS',
               requestedBy: opsActorId,
-              offboardingRequestId: offboarding?.id ?? null,
-              forced: force,
-              revokedSessions: revoked.count,
-              deletedCounts,
+              offboardingRequestId: targetOffboardingId,
+              forced: effectiveForced,
+              revokedSessions: totalRevokedSessions,
+              deletedCounts: mergedDeletedCounts,
+              campaignPlanJobIds,
             },
           });
+        } catch (err) {
+          if (isUniqueViolation(err)) {
+            throw new ConflictException({
+              error: { code: 'WORKSPACE_PURGE_IN_PROGRESS', message: '该工作空间物理清理正在进行中' },
+            });
+          }
+          throw err;
+        }
+      }
 
       return {
         replay: false as const,
         receiptId: receiptRow.id,
-        revokedSessions: revoked.count,
-        deletedCounts,
+        offboardingRequestId: targetOffboardingId,
+        forced: effectiveForced,
+        revokedSessions: totalRevokedSessions,
+        deletedCounts: mergedDeletedCounts,
         campaignPlanJobIds,
       };
     });
@@ -392,7 +460,7 @@ export class OpsWorkspacePurgeService {
         target: phase1.receiptId,
         detail: {
           idempotencyKey,
-          forced: force,
+          forced: phase1.forced,
           errorCode: engineResult.errorCode,
         },
       });
@@ -408,8 +476,19 @@ export class OpsWorkspacePurgeService {
     }
 
     const completedAt = new Date();
-    const completed = await this.prisma.withWorkspace(workspaceId, (tx) =>
-      tx.workspacePurgeReceipt.update({
+    const completed = await this.prisma.withWorkspace(workspaceId, async (tx) => {
+      if (phase1.offboardingRequestId) {
+        await tx.workspaceOffboardingRequest.update({
+          where: { id: phase1.offboardingRequestId },
+          data: {
+            status: 'PURGED',
+            purgedBy: opsActorId,
+            purgedAt: completedAt,
+            reason: null,
+          },
+        });
+      }
+      return tx.workspacePurgeReceipt.update({
         where: { id: phase1.receiptId },
         data: {
           status: 'COMPLETED',
@@ -418,8 +497,8 @@ export class OpsWorkspacePurgeService {
           errorCode: null,
           completedAt,
         },
-      }),
-    );
+      });
+    });
 
     await this.audit.record({
       realm: 'ops',
@@ -429,7 +508,7 @@ export class OpsWorkspacePurgeService {
       target: completed.id,
       detail: {
         idempotencyKey,
-        forced: force,
+        forced: phase1.forced,
         revokedSessions: phase1.revokedSessions,
         enginePurgeReceiptId: engineResult.receiptId,
         enginePurgeStatus: engineResult.status,

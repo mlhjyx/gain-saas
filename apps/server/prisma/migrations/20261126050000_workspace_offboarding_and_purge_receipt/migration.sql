@@ -51,6 +51,7 @@ CREATE TABLE "public"."workspace_purge_receipt" (
     "forced" BOOLEAN NOT NULL DEFAULT false,
     "revoked_sessions" INTEGER NOT NULL DEFAULT 0,
     "deleted_counts" JSONB NOT NULL,
+    "campaign_plan_job_ids" JSONB NOT NULL DEFAULT '[]'::jsonb,
     "engine_purge_receipt_id" UUID,
     "engine_purge_status" VARCHAR(32),
     "error_code" VARCHAR(64),
