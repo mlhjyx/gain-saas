@@ -60,6 +60,9 @@ describe('seller documents BFF routes', () => {
     const expectedMember: Array<[string, string]> = [
       ['POST', 'companies/:companyId/seller-documents/presign'],
       ['PUT', 'companies/:companyId/seller-documents/:documentId/content'],
+      ['POST', 'companies/:companyId/seller-documents/:documentId/multipart/init'],
+      ['PUT', 'companies/:companyId/seller-documents/:documentId/parts/:partNumber'],
+      ['POST', 'companies/:companyId/seller-documents/:documentId/multipart/complete'],
       ['POST', 'companies/:companyId/seller-documents/:documentId/commit'],
       ['GET', 'companies/:companyId/seller-documents'],
       ['GET', 'companies/:companyId/seller-documents/search'],
@@ -84,6 +87,10 @@ describe('seller documents BFF routes', () => {
     expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
       binary: true,
       timeoutMs: 600_000,
+    });
+    expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/parts/:partNumber')).toMatchObject({
+      binary: true,
+      timeoutMs: 180_000,
     });
     expect(find('GET', 'seller-documents/:documentId/content')).toEqual({
       method: 'GET',

@@ -6,7 +6,11 @@ import { SESSION_COOKIE, type SessionService } from '../tenant/session.service.j
 export const SELLER_DOCUMENT_CONTENT_UPLOAD_PATH =
   '/api/companies/:companyId/seller-documents/:documentId/content';
 
+export const SELLER_DOCUMENT_PART_UPLOAD_PATH =
+  '/api/companies/:companyId/seller-documents/:documentId/parts/:partNumber';
+
 export const SELLER_DOCUMENT_MAX_BYTES = 51 * 1024 * 1024;
+export const SELLER_DOCUMENT_PART_MAX_BYTES = 6 * 1024 * 1024;
 
 export type SessionVerifier = Pick<SessionService, 'verify'> &
   Partial<Pick<SessionService, 'clearCookieOptions'>>;
@@ -46,6 +50,21 @@ export function isSellerDocumentContentUploadPath(path: unknown): boolean {
   );
 }
 
+export function isSellerDocumentPartUploadPath(path: unknown): boolean {
+  if (typeof path !== 'string' || !path.startsWith('/api/')) return false;
+  const parts = path.split('/').filter(Boolean);
+  return (
+    parts.length === 7 &&
+    parts[0] === 'api' &&
+    parts[1] === 'companies' &&
+    parts[2].length > 0 &&
+    parts[3] === 'seller-documents' &&
+    parts[4].length > 0 &&
+    parts[5] === 'parts' &&
+    parts[6].length > 0
+  );
+}
+
 function isPayloadTooLarge(error: unknown): boolean {
   const record = error as { status?: number; statusCode?: number; type?: string } | null;
   return (
@@ -75,18 +94,21 @@ function clientRawBodyErrorCode(status: number, error: unknown): string {
 }
 
 /**
- * 资料库文件上传前置鉴权与 51MB 二进制体解析（仅作用于 PUT /api/companies/:companyId/seller-documents/:documentId/content）：
+ * 资料库文件上传前置鉴权与二进制体解析（作用于整文件 PUT .../content（51MB）与分片 PUT .../parts/:partNumber（6MB））：
  * - 使用与 `bff.module.ts:matchRoute()` 同构的路径分段规范化，消除 `//` 绕过与前缀过度匹配；
- * - 先校验真实 `saas_session` JWT 与 DB 会话未吊销，防止未登录请求触发 51MB 堆内存缓冲 DoS；
+ * - 先校验真实 `saas_session` JWT 与 DB 会话未吊销，防止未登录请求触发大缓冲堆内存 DoS；
  * - 注册在全局 `express.json()` 之前，避免未登录或 `.json` 上传请求进入 JSON parser；
- * - 对超过 51MB 的请求在解析前按 Content-Length 快速拒绝，并将 raw parser 4xx 错误映射为标准 JSON。
+ * - 对超过对应大小上限的请求在解析前按 Content-Length 快速拒绝，并将 raw parser 4xx 错误映射为标准 JSON。
  */
 export function createSellerDocumentUploadMiddleware(
   sessionService: SessionVerifier,
   rawParser: RequestHandler = expressLib.raw({ type: () => true, limit: '51mb' }),
+  partRawParser: RequestHandler = expressLib.raw({ type: () => true, limit: '6mb' }),
 ): (req: Request, res: Response, next: NextFunction) => Promise<void> {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    if (req.method !== 'PUT' || !isSellerDocumentContentUploadPath(req.path)) {
+    const isContentUpload = req.method === 'PUT' && isSellerDocumentContentUploadPath(req.path);
+    const isPartUpload = !isContentUpload && req.method === 'PUT' && isSellerDocumentPartUploadPath(req.path);
+    if (!isContentUpload && !isPartUpload) {
       next();
       return;
     }
@@ -111,24 +133,27 @@ export function createSellerDocumentUploadMiddleware(
       return;
     }
 
+    const maxBytes = isPartUpload ? SELLER_DOCUMENT_PART_MAX_BYTES : SELLER_DOCUMENT_MAX_BYTES;
+    const limitMessage = isPartUpload ? '上传分片超过 6MB 限制' : '上传文件超过 51MB 限制';
     const rawContentLength = req.headers?.['content-length'];
     const contentLength =
       typeof rawContentLength === 'string' && rawContentLength.trim() !== ''
         ? Number(rawContentLength)
         : Number.NaN;
-    if (Number.isFinite(contentLength) && contentLength > SELLER_DOCUMENT_MAX_BYTES) {
-      sendUploadError(req, res, 413, 'PAYLOAD_TOO_LARGE', '上传文件超过 51MB 限制');
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      sendUploadError(req, res, 413, 'PAYLOAD_TOO_LARGE', limitMessage);
       return;
     }
 
-    rawParser(req, res, (err?: unknown) => {
+    const activeParser = isPartUpload ? partRawParser : rawParser;
+    activeParser(req, res, (err?: unknown) => {
       if (!err) {
         next();
         return;
       }
       if (isPayloadTooLarge(err)) {
         const message =
-          err instanceof Error && err.message ? err.message : '上传文件超过 51MB 限制';
+          err instanceof Error && err.message ? err.message : limitMessage;
         sendUploadError(req, res, 413, 'PAYLOAD_TOO_LARGE', message);
         return;
       }

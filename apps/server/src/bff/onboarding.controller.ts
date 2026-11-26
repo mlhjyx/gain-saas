@@ -358,15 +358,10 @@ export class OnboardingController {
     return { data: { started: true, preview } };
   }
 
-  /** 恢复进行中的预览；没有草稿档案时 started=false，前端回到官网页。 */
+  /** 恢复或只读回看建档理解预览；没有关联档案时 started=false，已完成建档后仍可只读查看。 */
   @Get('preview')
   async preview(@Req() req: Request) {
     const tenant = req.tenant!;
-    if (tenant.onboardingCompleted) {
-      throw new ConflictException({
-        error: { code: 'ONBOARDING_ALREADY_COMPLETED', message: '该工作空间已完成引导建档' },
-      });
-    }
     const companyId = tenant.onboardingCompanyId;
     if (!companyId) return { data: { started: false } };
     const fetched = await this.callEngine(tenant, 'GET', `/companies/${companyId}`);
