@@ -9,6 +9,8 @@ export interface BffWalletActionSpec {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const DISCOVERY_WALLET_ACTION = 'DISCOVERY_QUALIFIED_LEAD';
+export const DISCOVERY_TASK_RUN_WALLET_REF = 'discovery_task_run';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -34,7 +36,7 @@ export function resolveBffWalletAction(
   switch (enginePath) {
     case '/query-plans/:planId/execute':
       return {
-        actionCode: 'DISCOVERY_QUALIFIED_LEAD',
+        actionCode: DISCOVERY_WALLET_ACTION,
         refType: 'discovery_run',
         mode: 'async',
         refParam: 'planId',
