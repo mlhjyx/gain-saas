@@ -1,7 +1,7 @@
 {
   "schemaVersion": "engine-contract-pin/v1",
-  "specDigest": "623494827e1c015d-14f4607dd2528538-55c4fc76a971595c-600b2455deb5f4fc",
+  "specDigest": "9caff6728b9c62ad-99790949d7958e21-d4444260a23f74fc-aa0aee05ac18ad86",
   "pinnedAt": "2026-11-26",
-  "pinnedFrom": "mlhjyx/global-backend@7de26af8d2371135aa4340383bbce4fce1508593 (PR #1107 MT-P0); 168 paths including GET /api/v1/seller-documents/{documentId}/content and GET /api/v1/deletion-requests; 2026-11-26",
+  "pinnedFrom": "mlhjyx/global-backend@1e3ecf04a3ecbd1ab014fd135827812b421a419b (PR #1114 & #1115 MT-P1); 175 paths including PATCH /api/v1/workspace, GET /api/v1/workspace/usage-summary, POST /api/v1/companies/{companyId}/understanding/recompute, POST/GET /api/v1/internal/workspaces/{id}/purge, and /api/v1/data-exports*; 2026-11-26",
   "action": "Upgrading the engine contract is a separate PR: run pnpm gen:engine against the target engine, review the OpenAPI diff (CI runs oasdiff breaking when this file changes), regenerate schema.d.ts, update specDigest here, and record the engine image/source SHA in the PR body."
 }
