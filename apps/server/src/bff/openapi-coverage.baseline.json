@@ -1,6 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
   "pinnedAt": "2026-11-26",
-  "reason": "固定到mlhjyx/global-backend@1157b94f（含PR #1111、#1118 Track 3B、#1120 Batch 1.7B-2 icp.rejudge、#1121、#1123、#1124）的完整code-first合同（180路径、203操作、119 schema）；全部110条BFF路由（含原PR #210的2条Phase 2A只读透传与PR #214的2条Phase 3B反馈学习透传）均已100%覆盖，uncovered清零。",
+  "reason": "固定到mlhjyx/global-backend@1157b94f（含PR #1111、#1118 Track 3B、#1120 Batch 1.7B-2 icp.rejudge、#1121、#1123、#1124）的完整code-first合同（180路径、203操作、119 schema）；下线仅需ops:read的GET /data-providers并补齐7条引擎透传（result-view、feedback/recompute与5条联系人补强结果/质量事实路由），全部116条BFF路由均已100%覆盖，uncovered清零。",
   "uncovered": []
 }

@@ -99,6 +99,7 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'discovery-runs/:runId/events', enginePath: '/discovery-runs/:runId/events', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/jobs', enginePath: '/discovery-runs/:runId/jobs', access: 'member' },
   { method: 'GET', saasPath: 'discovery-runs/:runId/streaming-progress', enginePath: '/discovery-runs/:runId/streaming-progress', access: 'member' },
+  { method: 'GET', saasPath: 'discovery-runs/:runId/result-view', enginePath: '/discovery-runs/:runId/result-view', access: 'member' },
   // ── M1 渠道数据源：租户面（P3 起平台渠道注册/治理/试跑只走运营台 /api/ops/channels）──
   { method: 'GET', saasPath: 'source-channels/available', enginePath: '/source-channels/available', access: 'member' },
   { method: 'GET', saasPath: 'source-channels/import-template', enginePath: '/source-channels/import-template', access: 'admin' },
@@ -110,8 +111,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 04 线索工作台 ──
   { method: 'POST', saasPath: 'icps/:icpId/qualify', enginePath: '/icps/:icpId/qualify', access: 'member' },
-  // M2 反馈闭环：聚合与建议卡（只读）+ Phase 3B 结构化反馈学习与摘要。
+  // M2 反馈闭环：聚合与建议卡（只读）+ 幂等重算 + Phase 3B 结构化反馈学习与摘要。
   { method: 'GET', saasPath: 'icps/:icpId/feedback', enginePath: '/icps/:icpId/feedback', access: 'member' },
+  { method: 'POST', saasPath: 'icps/:icpId/feedback/recompute', enginePath: '/icps/:icpId/feedback/recompute', access: 'member' },
   { method: 'POST', saasPath: 'icps/:icpId/feedback/record', enginePath: '/icps/:icpId/feedback/record', access: 'member' },
   { method: 'GET', saasPath: 'icps/:icpId/feedback/summary', enginePath: '/icps/:icpId/feedback/summary', access: 'member' },
   { method: 'GET', saasPath: 'leads', enginePath: '/leads', access: 'member' },
@@ -132,9 +134,16 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'canonical-companies/:id', enginePath: '/canonical-companies/:id', access: 'admin' },
   { method: 'POST', saasPath: 'canonical-companies/:id/discover-contacts', enginePath: '/canonical-companies/:id/discover-contacts', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
   { method: 'POST', saasPath: 'canonical-companies/:id/enrich-contacts', enginePath: '/canonical-companies/:id/enrich-contacts', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
+  // 联系人补强结果与质量事实（Batch 1.6 / Track 3B）：
+  // GET 需 acquisition:read + contact-discovery:read，recover 需 acquisition:write + contact-discovery:read + compliance:manage；
+  // 均仅映射给 saas-admin，且不消费新 Execution Budget Grant、不做合法依据注入。
+  { method: 'GET', saasPath: 'canonical-companies/:id/contact-enrichment-results', enginePath: '/canonical-companies/:id/contact-enrichment-results', access: 'admin' },
+  { method: 'GET', saasPath: 'canonical-companies/:id/contact-enrichment-results/:operationRef', enginePath: '/canonical-companies/:id/contact-enrichment-results/:operationRef', access: 'admin' },
+  { method: 'POST', saasPath: 'canonical-companies/:id/contact-enrichment-results/:operationRef/recover', enginePath: '/canonical-companies/:id/contact-enrichment-results/:operationRef/recover', access: 'admin' },
+  { method: 'GET', saasPath: 'canonical-companies/:id/contact-enrichment-quality-facts', enginePath: '/canonical-companies/:id/contact-enrichment-quality-facts', access: 'admin' },
+  { method: 'GET', saasPath: 'canonical-companies/:id/contact-enrichment-quality-facts/:operationRef', enginePath: '/canonical-companies/:id/contact-enrichment-quality-facts/:operationRef', access: 'admin' },
   { method: 'POST', saasPath: 'canonical-companies/:id/guess-emails', enginePath: '/canonical-companies/:id/guess-emails', access: 'admin', grant: true, timeoutMs: 240_000, complianceInject: true },
   { method: 'POST', saasPath: 'contact-points/:pointId/verify', enginePath: '/contact-points/:pointId/verify', access: 'admin', grant: true, timeoutMs: 120_000, complianceInject: true },
-  { method: 'GET', saasPath: 'data-providers', enginePath: '/data-providers', access: 'admin' },
   // 引擎这些端点都要求 compliance:manage（仅 SaaS admin 映射），不能给 member 放行。
   { method: 'GET', saasPath: 'suppressions', enginePath: '/suppressions', access: 'admin' },
   { method: 'POST', saasPath: 'suppressions', enginePath: '/suppressions', access: 'admin' },

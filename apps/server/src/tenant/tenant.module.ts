@@ -5,6 +5,7 @@ import { AuditService } from '../shared/audit.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AuditController } from './audit.controller.js';
+import { DeletionMirrorsController } from './deletion-mirrors.controller.js';
 import { MembersController } from './members.controller.js';
 import { DiscoveryRunsController } from './discovery-runs.controller.js';
 import { NotificationsController } from './notifications.controller.js';
@@ -31,7 +32,7 @@ import { ServiceModule } from '../service/service.module.js';
  */
 @Module({
   imports: [ConfigModule, forwardRef(() => ServiceModule)],
-  controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, RunTraceController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
+  controllers: [AuthController, MembersController, AuditController, DeletionMirrorsController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, RunTraceController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
   providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService, WorkspaceOffboardingService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService, EngineHttp],
 })
