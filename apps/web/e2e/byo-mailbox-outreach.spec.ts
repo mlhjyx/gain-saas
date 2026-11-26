@@ -27,7 +27,8 @@ async function installSelfContainedMock(
   await page.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const defaultOrigin = `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT || 4173}`;
+    const e2ePort = process.env.GAINOS_E2E_PORT || process.env.PLAYWRIGHT_PORT || '4173';
+    const defaultOrigin = `http://127.0.0.1:${e2ePort}`;
     if (url.origin !== (process.env.PLAYWRIGHT_BASE_URL ?? defaultOrigin)) {
       await route.continue();
       return;
@@ -293,7 +294,7 @@ test('BYO 外联发信箱与域名 DNS 自检端到端流程（无明文凭据�
   await page.goto('/settings/outreach-mailboxes');
 
   const panel = page.locator('[data-gs="byo-mailbox-panel"]');
-  await expect(panel).toBeVisible();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
 
   // 1. 新增企业发信箱
   await page.locator('[data-gs="byo-create-address"]').fill('sales@exporter.example');

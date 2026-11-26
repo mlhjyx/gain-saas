@@ -66,6 +66,11 @@ function runRealAppModuleBootstrap(processRole: 'web' | 'worker'): {
     import { OpsWalletController } from './dist/wallet/ops-wallet.controller.js';
     import { CampaignService } from './dist/campaign/campaign.service.js';
     import { OutreachSendService } from './dist/outreach/outreach-send.service.js';
+    import { OutreachMailboxService } from './dist/outreach/outreach-mailbox.service.js';
+    import { OutreachOAuthService } from './dist/outreach/outreach-oauth.service.js';
+    import { OutreachOAuthController } from './dist/outreach/outreach-oauth.controller.js';
+    import { OutreachDomainController } from './dist/outreach/outreach-domain.controller.js';
+    import { PiiCryptoService } from './dist/shared/pii-crypto.service.js';
 
     PrismaService.prototype.onModuleInit = async () => {};
     PrismaService.prototype.onModuleDestroy = async () => {};
@@ -84,6 +89,11 @@ function runRealAppModuleBootstrap(processRole: 'web' | 'worker'): {
         ['OpsWalletController', OpsWalletController],
         ['CampaignService', CampaignService],
         ['OutreachSendService', OutreachSendService],
+        ['OutreachMailboxService', OutreachMailboxService],
+        ['OutreachOAuthService', OutreachOAuthService],
+        ['OutreachOAuthController', OutreachOAuthController],
+        ['OutreachDomainController', OutreachDomainController],
+        ['PiiCryptoService', PiiCryptoService],
       ];
       const resolved = [];
       for (const [name, token] of checks) {

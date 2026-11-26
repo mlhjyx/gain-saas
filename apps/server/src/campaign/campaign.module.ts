@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
+import { PiiCryptoModule } from '../shared/pii-crypto.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { BffModule } from '../bff/bff.module.js';
 import { CampaignController } from './campaign.controller.js';
@@ -20,7 +21,7 @@ import { OutreachAuthorizationIssuer } from './outreach-authorization.issuer.js'
  * M2.1 复用 BffModule 导出的 EngineBudgetGrantService（引擎 quote + Grant 签发）。
  */
 @Module({
-  imports: [ConfigModule, TenantModule, BffModule],
+  imports: [ConfigModule, PiiCryptoModule, TenantModule, BffModule],
   controllers: [
     CampaignController,
     CampaignInternalController,
