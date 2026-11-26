@@ -14,6 +14,7 @@ import GsTable from '#/components/gainos/ui/gs-table.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 
 import DataExportsCard from './components/data-exports-card.vue';
+import WalletBillingCard from './components/wallet-billing-card.vue';
 import WorkspaceOffboardingCard from './components/workspace-offboarding-card.vue';
 
 import { formatDateTime } from '@gain-saas/shared';
@@ -476,6 +477,8 @@ onMounted(() => {
           <p class="m-0 text-xs leading-relaxed text-[var(--gs-fg-subtle)]">{{ $t('gainos.privacy.trackedNote') }}</p>
         </div>
       </GsCard>
+
+      <WalletBillingCard :is-admin="isAdmin" />
 
       <DataExportsCard :is-admin="isAdmin" />
 

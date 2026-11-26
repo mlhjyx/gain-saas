@@ -7,3 +7,4 @@ export * from './format.js';
 export * from './outreach-t0.js';
 export * from './outreach-t1.js';
 export * from './acquisition-streaming.js';
+export * from './wallet.js';

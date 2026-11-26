@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 
 import OpsWorkspaceGovernance from './components/ops-workspace-governance.vue';
+import OpsWalletPanel from './components/ops-wallet-panel.vue';
 
 defineOptions({ name: 'OpsConsole' });
 
@@ -25,6 +26,7 @@ const TABS = [
   { key: 'campaign-metrics', label: '战役指标' },
   { key: 'channels', label: '渠道数据源' },
   { key: 'sources', label: '监控源' },
+  { key: 'wallet', label: '积分钱包' },
   { key: 'budget', label: '预算' },
   { key: 'diagnostics', label: '诊断' },
   { key: 'schedules', label: '调度' },
@@ -1652,6 +1654,10 @@ onMounted(checkSession);
               </table>
             </section>
             </div>
+          </section>
+
+          <section v-else-if="active === 'wallet'" class="ops__stack">
+            <OpsWalletPanel @error="error = $event" @notice="notice = $event" />
           </section>
 
           <section v-else-if="active === 'budget' && budget" class="ops__stack">

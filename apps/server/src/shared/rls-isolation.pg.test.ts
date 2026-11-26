@@ -85,6 +85,10 @@ const TENANT_TABLES = [
   'qualified_lead',
   'sao',
   'task_run',
+  'wallet_account',
+  'wallet_credit_lot',
+  'wallet_hold',
+  'wallet_ledger',
   'workspace_budget_policy',
   'workspace_compliance_declaration',
   'workspace_offboarding_request',
@@ -93,7 +97,7 @@ const TENANT_TABLES = [
   'workspace_storage_quota',
 ] as const;
 
-describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY DEFINER isolation', () => {
+describe.skipIf(!available)('PG16 57-table FORCE RLS, gain_saas_app & SECURITY DEFINER isolation', () => {
   let pg: DisposablePostgres;
   let adminPrisma: PrismaClient;
   let appPrisma: PrismaService;
@@ -136,8 +140,8 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
     await unsafeOwnerService.onModuleDestroy().catch(() => undefined);
   }, 60_000);
 
-  it('enforces ENABLE + FORCE RLS + policy on all 53 tenant tables, security_invoker on 3 views, and revokes _prisma_migrations', async () => {
-    expect(TENANT_TABLES).toHaveLength(53);
+  it('enforces ENABLE + FORCE RLS + policy on all 57 tenant tables + billing_price_card read-only, security_invoker on 3 views, and revokes _prisma_migrations', async () => {
+    expect(TENANT_TABLES).toHaveLength(57);
 
     const rlsRows = await adminPrisma.$queryRaw<
       Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>
@@ -191,6 +195,9 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
       'campaign_approval',
       'campaign_decision_trace',
       'campaign_revision',
+      'wallet_account',
+      'wallet_hold',
+      'wallet_ledger',
     ]);
     const HELPER_UPDATE_TABLES = new Set(['outreach_send_job', 'outreach_bounce_writeback']);
     for (const table of TENANT_TABLES) {
@@ -214,6 +221,25 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
       }
       expect([...tablePolicies!.keys()].sort()).toEqual(expectedNames.sort());
     }
+
+    // billing_price_card: platform read-only catalog with ENABLE + FORCE RLS
+    const priceCardRls = rlsMap.get('billing_price_card');
+    expect(priceCardRls, 'missing table billing_price_card').toBeDefined();
+    expect(priceCardRls!.relrowsecurity).toBe(true);
+    expect(priceCardRls!.relforcerowsecurity).toBe(true);
+    const priceCardPolicies = policyMap.get('billing_price_card');
+    expect(priceCardPolicies).toBeDefined();
+    expect([...priceCardPolicies!.keys()].sort()).toEqual([
+      'billing_price_card_definer_helper_all',
+      'billing_price_card_platform_read',
+    ]);
+    expect(priceCardPolicies!.get('billing_price_card_platform_read')).toEqual(['gain_saas_app']);
+    expect(priceCardPolicies!.get('billing_price_card_definer_helper_all')).not.toContain('gain_saas_app');
+    const activeCards = await appPrisma.billingPriceCard.findMany({ where: { active: true } });
+    expect(activeCards.length).toBeGreaterThanOrEqual(5);
+    await expect(
+      appPrisma.$executeRaw`INSERT INTO public.billing_price_card (action_code, display_name, pricing_mode, credits_per_unit) VALUES ('FORBIDDEN', 'Forbidden', 'FLAT_ACTION', 1)`,
+    ).rejects.toThrow(/42501|permission denied/i);
 
     const views = await adminPrisma.$queryRaw<Array<{ relname: string; reloptions: string[] | null }>>`
       SELECT c.relname, c.reloptions
@@ -522,7 +548,7 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
     });
   }, 60_000);
 
-  it('keeps all 15 SECURITY DEFINER helpers working when migrations are owned by a NOSUPERUSER NOBYPASSRLS role (production parity)', async () => {
+  it('keeps all 20 SECURITY DEFINER helpers working when migrations are owned by a NOSUPERUSER NOBYPASSRLS role (production parity)', async () => {
     const ownerRole = `gain_saas_owner_${randomUUID().slice(0, 8)}`;
     const ownerPw = `owner-${randomUUID().slice(0, 12)}`;
     const dbName = `gain_saas_nonsuper_${randomUUID().slice(0, 8)}`;
@@ -560,7 +586,7 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
           AND p.proname LIKE 'app_%'
           AND p.prosecdef = true
       `;
-      expect(fnOwners.length).toBe(15);
+      expect(fnOwners.length).toBe(20);
       for (const fn of fnOwners) {
         expect(fn.owner).toBe(ownerRole);
         expect(fn.rolsuper).toBe(false);

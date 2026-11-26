@@ -364,6 +364,79 @@ export class OpsWorkspacePurgeService {
         freshDeletedCounts.tenant_audit_redacted = redactedAudit.count;
       }
 
+      // 4b. 充值钱包无 PII 财务留痕与脱敏清理：
+      //     - 释放仍在 HELD 的预占单（EXPIRED_RELEASED）并记账，确保 held_credits 归零；
+      //     - 冻结 wallet_account（status='FROZEN'），保留不可变财务双录数值用于法定/对账留痕；
+      //     - 清空 wallet_credit_lot.note 与 wallet_ledger.note 中的自由文本以消除潜在 PII。
+      const walletAccount = await tx.walletAccount.findUnique({ where: { workspaceId } });
+      if (walletAccount) {
+        const openHolds = await tx.walletHold.findMany({
+          where: { workspaceId, status: 'HELD' },
+        });
+        let runningAvail = walletAccount.availableCredits;
+        let runningHeld = walletAccount.heldCredits;
+        let releasedHolds = 0;
+        for (const hold of openHolds) {
+          const refund = hold.heldCredits;
+          runningAvail += refund;
+          runningHeld = runningHeld >= refund ? runningHeld - refund : 0n;
+          await tx.walletHold.update({
+            where: { id: hold.id },
+            data: {
+              status: 'EXPIRED_RELEASED',
+              settledCredits: 0n,
+              releasedCredits: refund,
+              settledAt: now,
+            },
+          });
+          await tx.walletLedger.create({
+            data: {
+              workspaceId,
+              idempotencyKey: `purge-release:${hold.id}`,
+              entryType: 'EXPIRE',
+              deltaAvailable: refund,
+              deltaHeld: -refund,
+              balanceAvailable: runningAvail,
+              balanceHeld: runningHeld,
+              revenueMicros: 0n,
+              holdId: hold.id,
+              actionCode: hold.actionCode,
+              refType: hold.refType,
+              refId: hold.refId,
+              billableUnits: 0,
+              note: null,
+              actorId: opsActorId,
+            },
+          });
+          releasedHolds += 1;
+        }
+        await tx.walletAccount.update({
+          where: { workspaceId },
+          data: {
+            status: 'FROZEN',
+            availableCredits: runningAvail,
+            heldCredits: runningHeld,
+            version: walletAccount.version + 1n,
+          },
+        });
+        const redactedLotNotes = await tx.walletCreditLot.updateMany({
+          where: { workspaceId, note: { not: null } },
+          data: { note: null },
+        });
+        const redactedLedgerNotes = await tx.walletLedger.updateMany({
+          where: { workspaceId, note: { not: null } },
+          data: { note: null },
+        });
+        freshDeletedCounts.wallet_account_frozen = 1;
+        if (releasedHolds > 0) {
+          freshDeletedCounts.wallet_holds_released = releasedHolds;
+        }
+        const totalWalletNotesRedacted = redactedLotNotes.count + redactedLedgerNotes.count;
+        if (totalWalletNotesRedacted > 0) {
+          freshDeletedCounts.wallet_notes_redacted = totalWalletNotesRedacted;
+        }
+      }
+
       // 5. 立即擦除该工作空间全部离网申请历史中的自由文本 reason（防含 PII）；
       //    离网申请状态推进至 PURGED 留待 Phase 2 引擎清理成功后再落终态，避免失败重试语义断裂。
       await tx.workspaceOffboardingRequest.updateMany({

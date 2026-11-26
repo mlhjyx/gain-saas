@@ -144,6 +144,51 @@ describe.skipIf(!available)('Workspace offboarding & purge PG16 FORCE RLS end-to
           detail: { email },
         },
       });
+      await adminPrisma.walletAccount.create({
+        data: {
+          workspaceId: wsId,
+          availableCredits: 80n,
+          heldCredits: 20n,
+          lifetimeToppedUp: 100n,
+        },
+      });
+      const lot = await adminPrisma.walletCreditLot.create({
+        data: {
+          workspaceId: wsId,
+          sourceType: 'TOPUP_PAID',
+          initialCredits: 100n,
+          remainingCredits: 100n,
+          unitPriceMicros: 10_000n,
+          priority: 10,
+          externalOrderId: `ord-${wsId}`,
+          note: `payer ${email}`,
+        },
+      });
+      const hold = await adminPrisma.walletHold.create({
+        data: {
+          workspaceId: wsId,
+          idempotencyKey: `hold-${wsId}`,
+          actionCode: 'DISCOVERY_QUALIFIED_LEAD',
+          refType: 'discovery_run',
+          refId: randomUUID(),
+          heldCredits: 20n,
+          expiresAt: new Date(Date.now() + 3_600_000),
+        },
+      });
+      await adminPrisma.walletLedger.create({
+        data: {
+          workspaceId: wsId,
+          idempotencyKey: `topup-ord-${wsId}`,
+          entryType: 'TOPUP',
+          deltaAvailable: 100n,
+          deltaHeld: 0n,
+          balanceAvailable: 100n,
+          balanceHeld: 0n,
+          lotId: lot.id,
+          holdId: hold.id,
+          note: `ledger note ${email}`,
+        },
+      });
     }
 
     const audit = new AuditService(appPrisma);
@@ -274,9 +319,25 @@ describe.skipIf(!available)('Workspace offboarding & purge PG16 FORCE RLS end-to
     const tenantAuditA = await adminPrisma.auditLog.findMany({ where: { workspaceId: WS_A, realm: 'tenant' } });
     expect(JSON.stringify(tenantAuditA)).not.toContain('pii-a@target.example');
 
+    // WS_A wallet frozen, open holds released, free-text notes redacted, non-PII ledger figures preserved
+    const walletA = await adminPrisma.walletAccount.findUnique({ where: { workspaceId: WS_A } });
+    expect(walletA).toMatchObject({ status: 'FROZEN', availableCredits: 100n, heldCredits: 0n });
+    expect(await adminPrisma.walletHold.count({ where: { workspaceId: WS_A, status: 'HELD' } })).toBe(0);
+    const lotsA = await adminPrisma.walletCreditLot.findMany({ where: { workspaceId: WS_A } });
+    expect(lotsA.every((l) => l.note === null)).toBe(true);
+    const ledgersA = await adminPrisma.walletLedger.findMany({ where: { workspaceId: WS_A } });
+    expect(ledgersA.length).toBeGreaterThanOrEqual(2);
+    expect(ledgersA.every((l) => l.note === null)).toBe(true);
+    const bigIntReplacer = (_key: string, value: unknown) =>
+      typeof value === 'bigint' ? value.toString() : value;
+    expect(JSON.stringify(lotsA, bigIntReplacer)).not.toContain('pii-a@target.example');
+    expect(JSON.stringify(ledgersA, bigIntReplacer)).not.toContain('pii-a@target.example');
+
     // WS_B untouched
     const wsBRow = await adminPrisma.workspace.findUnique({ where: { id: WS_B } });
     expect(wsBRow).toMatchObject({ status: 'ACTIVE', name: 'Keep Intact AG' });
+    const walletB = await adminPrisma.walletAccount.findUnique({ where: { workspaceId: WS_B } });
+    expect(walletB).toMatchObject({ status: 'ACTIVE', availableCredits: 80n, heldCredits: 20n });
     expect(await adminPrisma.session.count({ where: { workspaceId: WS_B, revokedAt: null } })).toBe(1);
     expect(await adminPrisma.membership.count({ where: { workspaceId: WS_B } })).toBe(1);
     expect(await adminPrisma.outreachDraft.count({ where: { workspaceId: WS_B } })).toBe(1);

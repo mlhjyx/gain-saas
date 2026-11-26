@@ -24,6 +24,8 @@ import { OpsEngineClient } from './ops-engine.client.js';
 import { OpsWorkspacePurgeService } from './ops-workspace-purge.service.js';
 import { CooperationIntentOpsController } from '../cooperation/cooperation-ops.controller.js';
 import { CooperationIntentService } from '../cooperation/cooperation.service.js';
+import { OpsWalletController } from '../wallet/ops-wallet.controller.js';
+import { WalletModule } from '../wallet/wallet.module.js';
 
 /**
  * 运营域(SD9 / PRD §13):独立登录域 + 引擎库 app/owner 双池 + 白名单写。
@@ -31,13 +33,14 @@ import { CooperationIntentService } from '../cooperation/cooperation.service.js'
  * P9 起承载平台撤销的运营接口（复用 R4Module 的撤销服务）。
  */
 @Module({
-  imports: [ConfigModule, R4Module, ServiceModule],
+  imports: [ConfigModule, R4Module, ServiceModule, WalletModule],
   controllers: [
     OpsAuthController,
     OpsController,
     OpsRevocationController,
     OpsAttributionController,
     CooperationIntentOpsController,
+    OpsWalletController,
   ],
   providers: [
     OpsDatabase,
