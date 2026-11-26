@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -162,15 +163,56 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
       expect(row!.relrowsecurity, `${nonTenant} should not have RLS`).toBe(false);
     }
 
-    const policies = await adminPrisma.$queryRaw<Array<{ tablename: string; policyname: string }>>`
-      SELECT tablename, policyname
+    const policies = await adminPrisma.$queryRaw<
+      Array<{ tablename: string; policyname: string; roles: string[] }>
+    >`
+      SELECT tablename, policyname, roles::text[] AS roles
       FROM pg_policies
       WHERE schemaname = 'public'
-      ORDER BY tablename
+      ORDER BY tablename, policyname
     `;
-    const policyMap = new Map(policies.map((p) => [p.tablename, p.policyname]));
+    const policyMap = new Map<string, Map<string, string[]>>();
+    for (const p of policies) {
+      let tablePolicies = policyMap.get(p.tablename);
+      if (!tablePolicies) {
+        tablePolicies = new Map();
+        policyMap.set(p.tablename, tablePolicies);
+      }
+      tablePolicies.set(p.policyname, p.roles);
+    }
+    const HELPER_SELECT_TABLES = new Set([
+      'membership',
+      'invitation',
+      'outreach_unsubscribe_token',
+      'workspace_registry',
+      'outreach_mailbox',
+      'outreach_send_job',
+      'outreach_bounce_writeback',
+      'campaign_approval',
+      'campaign_decision_trace',
+      'campaign_revision',
+    ]);
+    const HELPER_UPDATE_TABLES = new Set(['outreach_send_job', 'outreach_bounce_writeback']);
     for (const table of TENANT_TABLES) {
-      expect(policyMap.get(table), `missing policy on ${table}`).toBe(`${table}_tenant_isolation`);
+      const tablePolicies = policyMap.get(table);
+      expect(tablePolicies, `missing policies on ${table}`).toBeDefined();
+      expect(tablePolicies!.has(`${table}_tenant_isolation`), `missing tenant_isolation on ${table}`).toBe(true);
+      const expectedNames = [`${table}_tenant_isolation`];
+      if (HELPER_SELECT_TABLES.has(table)) {
+        expectedNames.push(`${table}_definer_helper_select`);
+        const roles = tablePolicies!.get(`${table}_definer_helper_select`) ?? [];
+        expect(roles).not.toContain('public');
+        expect(roles).not.toContain('gain_saas_app');
+        expect(roles.length).toBe(1);
+      }
+      if (HELPER_UPDATE_TABLES.has(table)) {
+        expectedNames.push(`${table}_definer_helper_update`);
+        const roles = tablePolicies!.get(`${table}_definer_helper_update`) ?? [];
+        expect(roles).not.toContain('public');
+        expect(roles).not.toContain('gain_saas_app');
+        expect(roles.length).toBe(1);
+      }
+      expect([...tablePolicies!.keys()].sort()).toEqual(expectedNames.sort());
     }
 
     const views = await adminPrisma.$queryRaw<Array<{ relname: string; reloptions: string[] | null }>>`
@@ -479,4 +521,153 @@ describe.skipIf(!available)('PG16 53-table FORCE RLS, gain_saas_app & SECURITY D
       error: { code: 'WORKSPACE_DISABLED' },
     });
   }, 60_000);
+
+  it('keeps all 15 SECURITY DEFINER helpers working when migrations are owned by a NOSUPERUSER NOBYPASSRLS role (production parity)', async () => {
+    const ownerRole = `gain_saas_owner_${randomUUID().slice(0, 8)}`;
+    const ownerPw = `owner-${randomUUID().slice(0, 12)}`;
+    const dbName = `gain_saas_nonsuper_${randomUUID().slice(0, 8)}`;
+    const parsedAdmin = new URL(pg.databaseUrl);
+    const parsedApp = new URL(pg.appDatabaseUrl);
+
+    await adminPrisma.$executeRawUnsafe(
+      `CREATE ROLE "${ownerRole}" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${ownerPw}'`,
+    );
+    await adminPrisma.$executeRawUnsafe(`CREATE DATABASE "${dbName}" OWNER "${ownerRole}"`);
+    await adminPrisma.$executeRawUnsafe(`GRANT CONNECT ON DATABASE "${dbName}" TO gain_saas_app`);
+
+    const ownerDbUrl = `postgresql://${ownerRole}:${ownerPw}@${parsedAdmin.hostname}:${parsedAdmin.port || '5432'}/${dbName}`;
+    const nonSuperAppUrl = `postgresql://gain_saas_app:${decodeURIComponent(parsedApp.password)}@${parsedApp.hostname}:${parsedApp.port || '5432'}/${dbName}`;
+
+    // Run full Prisma migrations as the non-superuser, non-BYPASSRLS owner (mirrors production gain_saas)
+    execFileSync(`${process.cwd()}/node_modules/.bin/prisma`, ['migrate', 'deploy'], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: ownerDbUrl },
+      stdio: 'pipe',
+    });
+
+    const nonSuperApp = new PrismaService({ datasourceUrl: nonSuperAppUrl, enforcePrincipal: true });
+    try {
+      await nonSuperApp.verifyPrincipal();
+
+      // Confirm SECURITY DEFINER functions are genuinely owned by NOSUPERUSER NOBYPASSRLS ownerRole
+      const fnOwners = await nonSuperApp.$queryRaw<
+        Array<{ proname: string; owner: string; rolsuper: boolean; rolbypassrls: boolean }>
+      >`
+        SELECT p.proname, pg_get_userbyid(p.proowner)::text AS owner, r.rolsuper, r.rolbypassrls
+        FROM pg_proc p
+        JOIN pg_roles r ON r.oid = p.proowner
+        WHERE p.pronamespace = 'public'::regnamespace
+          AND p.proname LIKE 'app_%'
+          AND p.prosecdef = true
+      `;
+      expect(fnOwners.length).toBe(15);
+      for (const fn of fnOwners) {
+        expect(fn.owner).toBe(ownerRole);
+        expect(fn.rolsuper).toBe(false);
+        expect(fn.rolbypassrls).toBe(false);
+      }
+
+      const config = {
+        SESSION_SECRET: 's'.repeat(32),
+        SESSION_TTL_MINUTES: 60,
+        NODE_ENV: 'test',
+        INVITE_CODE: undefined,
+        OPS_EXPORT_HOURLY_LIMIT: 10,
+      } as AppConfig;
+      const audit = new AuditService(nonSuperApp);
+      const sessions = new SessionService(config, nonSuperApp);
+      const authService = new AuthService(config, nonSuperApp, sessions, audit);
+      const authController = new AuthController(authService, sessions, nonSuperApp, {} as never);
+      const workspacesController = new WorkspacesController(nonSuperApp, audit, sessions);
+
+      // Register -> Login -> Session -> Workspaces -> Invite -> AcceptInvite -> Worker -> Bounce FOR UPDATE -> Ops
+      const reg = await authService.register({
+        email: 'nonsuper@rls-test.example',
+        password: 'Password1234',
+        companyName: 'NonSuper Owner GmbH',
+      });
+      const wsId = reg.workspace.id;
+
+      const loginRes = await authService.login({
+        email: 'nonsuper@rls-test.example',
+        password: 'Password1234',
+      });
+      expect(loginRes.membership.workspaceId).toBe(wsId);
+
+      const tenantReq = {
+        tenant: {
+          userId: reg.user.id,
+          workspaceId: wsId,
+          role: 'admin',
+          jti: loginRes.session.claims.jti,
+          exp: loginRes.session.claims.exp,
+          onboardingCompleted: false,
+          onboardingCompanyId: null,
+        },
+      } as unknown as Request;
+      const sessionData = await authController.session(tenantReq);
+      expect(sessionData.data.workspaces.map((w) => w.id)).toEqual([wsId]);
+      const listData = await workspacesController.list(tenantReq);
+      expect(listData.data.map((w) => w.id)).toEqual([wsId]);
+
+      const inv = await authService.createInvitation(wsId, reg.user.id, {
+        email: 'member-nonsuper@rls-test.example',
+        role: 'member',
+      });
+      const accepted = await authService.acceptInvitation({
+        token: inv.token,
+        password: 'Password1234',
+      });
+      expect(accepted.membership.workspaceId).toBe(wsId);
+
+      const enabled = await nonSuperApp.$queryRaw<Array<{ workspace_id: string }>>`
+        SELECT workspace_id FROM public.app_list_enabled_workspaces()
+      `;
+      expect(enabled.map((r) => r.workspace_id)).toContain(wsId);
+
+      // Verify SELECT ... FOR UPDATE SKIP LOCKED helper on outreach_bounce_writeback
+      await nonSuperApp.withWorkspace(wsId, (tx) =>
+        tx.outreachBounceWriteback.create({
+          data: {
+            workspaceId: wsId,
+            contactPointId: randomUUID(),
+            event: 'HARD_BOUNCE',
+            messageId: `<bounce-${randomUUID()}@example.com>`,
+            smtpCode: '550',
+            receivedAt: new Date(),
+            status: 'PENDING',
+            attempts: 0,
+          },
+        }),
+      );
+      const pendingBounces = await nonSuperApp.$queryRaw<Array<{ workspace_id: string }>>`
+        SELECT workspace_id FROM public.app_list_pending_bounce_writebacks(10::integer, 5::integer)
+      `;
+      expect(pendingBounces.map((r) => r.workspace_id)).toContain(wsId);
+
+      const opsService = new OpsService(
+        config,
+        {} as never,
+        {} as never,
+        audit,
+        nonSuperApp,
+        new OpsExportThrottle(10),
+      );
+      const opsWs = await opsService.workspaces();
+      expect(opsWs.some((w) => w.id === wsId)).toBe(true);
+
+      // Direct fail-closed isolation for gain_saas_app must remain intact across all tables
+      expect(await nonSuperApp.membership.findMany()).toEqual([]);
+      expect(await nonSuperApp.outreachBounceWriteback.findMany()).toEqual([]);
+      await expect(
+        nonSuperApp.withWorkspace(randomUUID(), (tx) =>
+          tx.membership.create({
+            data: { userId: reg.user.id, workspaceId: wsId, role: 'member' },
+          }),
+        ),
+      ).rejects.toThrow(/42501|row-level security/i);
+    } finally {
+      await nonSuperApp.onModuleDestroy().catch(() => undefined);
+    }
+  }, 120_000);
 });
