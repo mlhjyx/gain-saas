@@ -585,3 +585,13 @@ onUnmounted(() => {
   background: transparent;
 }
 </style>
+
+<style>
+/* 暗色顶栏：Vben 把 .dark 单独挂在隐藏的 <header class="dark ... bg-header"> 容器上，
+   --header 在元素自身解析，默认是 Vben 带蓝调的 222.34deg 10.43% 12.27%（rgb(28, 30, 35)）。
+   此前被退役的 settings-dialog.vue 里的错误全局 .dark 规则掩盖，删除弹窗后暴露。
+   按 gainos.css .dark .dark { --sidebar: 0 0% 12%; } 同原则在布局级收敛为纯中性灰。 */
+.dark [data-layout-region='header'] > header.dark.bg-header {
+  --header: 0 0% 12%;
+}
+</style>
