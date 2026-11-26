@@ -47,6 +47,7 @@ import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import { failureText, gainosApi } from '#/api/gainos';
 import { usePendingAction } from '#/composables/use-pending-action';
 import { feedback } from '#/feedback';
+import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
 import JudgeDimensions from './judge-dimensions.vue';
@@ -619,7 +620,7 @@ watch(tab, (next) => {
           <Button v-if="status === 'QUALIFIED'" type="primary" @click="promoteOpen = true">
             {{ $t('gainos.leads.promoteQgo') }}
           </Button>
-          <Button v-if="status === 'QUALIFIED'" @click="goOutreach">
+          <Button v-if="status === 'QUALIFIED' && !GROWTH_PAGE_HIDDEN" @click="goOutreach">
             {{ $t('gainos.leads.goOutreach') }}
           </Button>
           <Button data-gs="back-to-list" @click="router.push('/leads')">
@@ -1087,7 +1088,7 @@ watch(tab, (next) => {
               <Button @click="router.push('/qgos')">
                 {{ $t('gainos.leads.outcomesQgos') }}
               </Button>
-              <Button @click="goOutreach">
+              <Button v-if="!GROWTH_PAGE_HIDDEN" @click="goOutreach">
                 {{ $t('gainos.leads.outcomesOutreach') }}
               </Button>
             </Space>

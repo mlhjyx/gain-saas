@@ -91,4 +91,6 @@
 - `.env*` 是 gitignored，worktree 里没有：`cp apps/web/.env apps/web/.env.development apps/web/.env.production <worktree>/apps/web/`。缺 `.env` 会得到 `undefined-…` 偏好 namespace（缓存归一 e2e 误判）；缺 `.env.development` 则 dev 模式 apiURL 为空；**缺 `.env.production` 则构建产物 API 地址为空——Vben 把它写进 `dist/_app-config-*.js`，缺失时请求变成 `/auth/login`（无 `/api` 前缀），5666 预览直接 404（2026-11-23 用户实测登录失败）**。
 - 构建产物的 API 地址来自 `dist/_app-config-*.js`（vite 插件只读 env 文件，不读进程环境变量）；改 `.env.production` 后必须重新 build 才生效。
 - e2e mock 已自动去掉 `/api` 前缀匹配，带不带前缀的构建产物都能跑本地 e2e（不再需要避开根 checkout）。
-- e2e 前确认 4173 无残留 preview 进程：`ss -ltnp 'sport = :4173'`，有则 kill。
+- e2e 前先看 4173 上是谁：`ss -ltnp 'sport = :4173'`，再对 pid 做 `readlink /proc/<pid>/cwd`。只有确认是自己留下的残留进程才 kill；
+  如果是别的 worktree 正在用（同机多任务并行很常见），不要动它，改用 `GAINOS_E2E_PORT=4183 pnpm exec playwright test …` 换端口跑。
+  Playwright 见端口已被占用会直接复用，等于拿别的目录的构建在测：断言成片失败，却查不出原因（2026-11-26 踩过）。

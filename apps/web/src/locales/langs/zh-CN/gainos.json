@@ -110,7 +110,50 @@
     "cancel": "取消",
     "comingSoon": "即将开放",
     "unknownStatus": "未知状态",
-    "you": "你"
+    "you": "你",
+    "copyFailed": "复制失败，请手动选中文字复制"
+  },
+  "errors": {
+    "network": {
+      "title": "没能连上服务器",
+      "next": "检查网络后重试；网络正常时刷新页面。"
+    },
+    "timeout": {
+      "title": "服务器响应超时",
+      "next": "稍后重试；持续出现时请联系我们。"
+    },
+    "loginExpired": {
+      "title": "登录已过期",
+      "next": "刷新页面重新登录。"
+    },
+    "forbidden": {
+      "title": "没有权限执行这个操作",
+      "next": "如需开通，请联系工作空间管理员。"
+    },
+    "notFound": {
+      "title": "请求的内容不存在或已被删除",
+      "next": "刷新页面查看最新状态。"
+    },
+    "conflict": {
+      "title": "数据刚刚发生了变化",
+      "next": "刷新页面后重试。"
+    },
+    "rateLimited": {
+      "title": "操作太频繁",
+      "next": "稍等片刻再试。"
+    },
+    "server": {
+      "title": "服务暂时不可用",
+      "next": "稍后重试；持续出现时请联系我们。"
+    },
+    "request": {
+      "title": "请求没有成功",
+      "next": "稍后重试；持续出现时请联系我们。"
+    },
+    "unknown": {
+      "title": "操作没有完成",
+      "next": "稍后重试。"
+    }
   },
   "notifications": {
     "default": "通知",
@@ -256,6 +299,7 @@
     "cockpitAlertAbnormal": "异常",
     "cockpitAlertOpportunity": "机会",
     "cockpitAlertSuggestion": "建议",
+    "cockpitAlertNotice": "通知",
     "nextKicker": "下一步",
     "nextEngineTitle": "获客引擎尚未完成对接授权",
     "nextEngineDesc": "这是部署环节的一次性配置（JWKS 信任与角色映射），与你的账号无关。配好后页面自动转绿，期间可以先把成员邀请进来。",
@@ -468,7 +512,7 @@
     "synthesizeDrafts": "从档案生成事实草稿",
     "synthesizeDraftsHint": "把注册引导里的产品、行业与目标市场转成待审事实。",
     "synthesizeDraftsCreated": "已生成 {count} 条待审事实草稿，请勾选审批。",
-    "synthesizeDraftsNone": "没有可补充的草稿（都已存在或被驳回）。",
+    "synthesizeDraftsNone": "档案里的产品、行业和市场都已经生成过事实，本次没有新增。",
     "conflictsTitle": "待处理冲突（{count}）",
     "conflictsHint": "两条事实互相矛盾。保留一条后，另一条会被撤销，不再用于目标客户画像。",
     "conflictsAdminOnly": "需要管理员处理",
@@ -1315,14 +1359,17 @@
       "matchValue": "{count} 家匹配",
       "enrichValue": "{count} 家补充",
       "waiting": "等待开始",
+      "inProgress": "进行中",
+      "done": "已完成",
       "outputRunning": "等待完成",
       "noExtraSignals": "暂无新增信号",
-      "searchHint": "按目标和市场搜索候选企业",
-      "collectHint": "去重、核对并排除禁联对象",
-      "matchHint": "判断产品、角色与采购迹象",
-      "enrichHint": "补充网站、信号与变更线索",
-      "outputHint": "形成可判断的买家线索"
+      "searchHint": "按目标客户画像里的行业和市场，去各个数据源找出候选企业",
+      "collectHint": "合并重复的公司、核对基本信息，并排除禁联名单里的公司",
+      "matchHint": "逐家对照目标客户画像，判断是否值得跟进",
+      "enrichHint": "深挖入选企业的官网和联系人，补充招聘、变更等新动态",
+      "outputHint": "整理成买家线索，交给你判断"
     },
+    "techIdentity": "技术详情：任务编号",
     "techStages": "技术详情：各阶段统计",
     "techOutputs": "技术详情：数据源与产出",
     "techDetails": "查看技术原因",

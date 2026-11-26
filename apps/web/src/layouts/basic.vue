@@ -27,6 +27,7 @@ const logoGainos = '/logo-gainos.svg?v=pass3';
 const notifications = ref<NotificationItem[]>([]);
 const notificationLoading = ref(false);
 let notificationTimer: ReturnType<typeof setInterval> | null = null;
+let notificationPending = false;
 
 const userStore = useUserStore();
 const authStore = useAuthStore();
@@ -259,23 +260,31 @@ function notificationMessage(row: AppNotification): string {
 }
 
 async function loadNotifications(): Promise<void> {
-  if (notificationLoading.value) return;
+  // 轮询请求还没回来时又来了「已读」通知：不能丢。那次请求拿到的多半还是已读前的数据，
+  // 丢掉的话红点要等下一个 30 秒才消。记一笔，等它回来后补刷一次。
+  if (notificationLoading.value) {
+    notificationPending = true;
+    return;
+  }
   notificationLoading.value = true;
   try {
-    const data = await gainosApi.notifications();
-    const page = (data as unknown as { items?: AppNotification[]; data?: { items?: AppNotification[] } });
-    const rows = page.items ?? page.data?.items ?? [];
-    notifications.value = rows.map((row) => ({
-      id: row.id,
-      avatar: preferences.app.defaultAvatar ?? '/favicon.svg',
-      title: notificationTitle(row),
-      message: notificationMessage(row),
-      date: formatDateTime(row.createdAt),
-      isRead: Boolean(row.readAt),
-      link: row.link,
-      type: row.type,
-      refId: row.refId,
-    }));
+    do {
+      notificationPending = false;
+      const data = await gainosApi.notifications();
+      const page = (data as unknown as { items?: AppNotification[]; data?: { items?: AppNotification[] } });
+      const rows = page.items ?? page.data?.items ?? [];
+      notifications.value = rows.map((row) => ({
+        id: row.id,
+        avatar: preferences.app.defaultAvatar ?? '/favicon.svg',
+        title: notificationTitle(row),
+        message: notificationMessage(row),
+        date: formatDateTime(row.createdAt),
+        isRead: Boolean(row.readAt),
+        link: row.link,
+        type: row.type,
+        refId: row.refId,
+      }));
+    } while (notificationPending);
   } catch {
     // 未登录/会话切换期间静默失败，不打扰主界面。
   } finally {

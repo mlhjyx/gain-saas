@@ -4,6 +4,8 @@
  * 不需要 BFF：登录与页面数据用共享 mock 层（support/mock-backend）。
  * 运行：pnpm exec playwright test（先 pnpm build 生成 apps/web/dist）。
  */
+import { GROWTH_PAGE_HIDDEN } from '../src/feature-flags';
+
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
@@ -72,8 +74,16 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   // pass3 B：顶栏（banner）不得出现任何菜单项；导航只存在于侧边栏。
   await expect(page.getByRole('banner').getByRole('menuitem')).toHaveCount(0);
 
-  // 六个业务分组齐全；没有「周报」项；战役计划不占一级导航
-  for (const group of NAV_GROUPS) {
+  // 「商机与触达」暂时隐藏（feature-flags.ts）：它不在侧栏里；「增长」分组下没有别的入口，整组不显示。
+  const visibleGroups = NAV_GROUPS.filter(
+    (group) => !(GROWTH_PAGE_HIDDEN && group.group === '增长'),
+  );
+  if (GROWTH_PAGE_HIDDEN) {
+    await expect(page.getByRole('menuitem', { name: '商机与触达' })).toHaveCount(0);
+  }
+
+  // 业务分组齐全；没有「周报」项；战役计划不占一级导航
+  for (const group of visibleGroups) {
     await expect(groupLocator(page, group.group)).toBeVisible();
   }
   // pass5：设置不再占导航分组（SDR 同款：底部「设置」打开设置弹窗）。
@@ -86,7 +96,7 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '战役计划' })).toHaveCount(0);
 
-  for (const group of NAV_GROUPS) {
+  for (const group of visibleGroups) {
     for (const item of group.items) {
       await ensureLeafVisible(page, group.group, item.name);
       await page.getByRole('menuitem', { name: item.name }).click();
@@ -119,8 +129,13 @@ test('六项导航可点、无死链，周报已下线', async ({ page }, testIn
 test('商机与触达：多 tab 内嵌真实页面、运行期语义与词表', async ({ page }, testInfo) => {
   await installMockBackend(page);
   await loginAs(page);
-  await ensureLeafVisible(page, '增长', '商机与触达');
-  await page.getByRole('menuitem', { name: '商机与触达' }).click();
+  // 入口隐藏期间（feature-flags.ts）侧栏里点不到，但路由保留：改走深链；恢复入口后仍按点击走。
+  if (GROWTH_PAGE_HIDDEN) {
+    await page.goto('/growth');
+  } else {
+    await ensureLeafVisible(page, '增长', '商机与触达');
+    await page.getByRole('menuitem', { name: '商机与触达' }).click();
+  }
 
   // 枢纽页头与运行期徽标（2026-11-10 起取消影子期：按授权执行）
   await settle(page);

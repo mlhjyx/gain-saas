@@ -28,7 +28,7 @@ const emit = defineEmits<{ retry: [] }>();
       <Skeleton active :title="false" :paragraph="{ rows: 4 }" />
       <span class="gas__sr-only">{{ loadingText ?? $t('gainos.common.loading') }}</span>
     </div>
-    <div v-else-if="error" class="gas__error" role="alert">
+    <div v-else-if="error" class="gas__error" data-gs="async-error" role="alert">
       <strong>{{ error.title }}</strong>
       <p v-if="error.next">{{ error.next }}</p>
       <Button size="small" @click="emit('retry')">{{ retryText ?? $t('gainos.common.retry') }}</Button>

@@ -18,6 +18,7 @@ import { feedback } from '#/feedback';
 import { useAuthStore } from '#/store';
 
 import { refreshTokenApi } from './core';
+import { httpFailureCopy } from './failure-copy';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
@@ -102,7 +103,7 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
 
   // 通用的错误处理：取后端三层文案(PRD §14.4 发生了什么/为什么/怎么办),没有则按状态码
   client.addResponseInterceptor(
-    errorMessageResponseInterceptor((msg: string, error) => {
+    errorMessageResponseInterceptor((_msg, error) => {
       const url = String(error?.config?.url ?? '');
       // 登录/注册/邀请页自己展示行内错误，不再叠加全局 toast。
       if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/accept-invite')) {
@@ -151,9 +152,10 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
         );
         return;
       }
-      const fallback =
-        error?.response?.data?.error?.message ?? error?.response?.data?.message ?? '';
-      feedback.message.error(fallback || msg);
+      // 没有三层文案时（网关 502、断网等）按状态码给本语言的说明；
+      // 以前会把响应里的英文原文或 axios 的英文消息直接弹出来。
+      const copy = httpFailureCopy(error);
+      feedback.message.error(copy.next ? `${copy.title}——${copy.next}` : copy.title);
     }),
   );
 

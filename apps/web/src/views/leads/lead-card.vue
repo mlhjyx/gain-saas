@@ -216,9 +216,12 @@ const dimsLabel = computed(() =>
 type MenuItem = NonNullable<MenuProps['items']>[number];
 type MenuClickInfo = Parameters<NonNullable<MenuProps['onClick']>>[0];
 
-/** 「⋯」里的次要动作：打开档案包、复制官网（主动作已在卡片上，这里不重复）。 */
+/**
+ * 「⋯」里只留低频动作（复制官网）。主动作都在卡片上，这里不重复；
+ * 「查看档案包」也是卡片上的可见按钮——判断前要看联系人和证据，藏进菜单里用户找不到。
+ */
 const menuItems = computed<MenuItem[]>(() => {
-  const items: MenuItem[] = [{ key: 'package', label: $t('gainos.leads.viewPackage') }];
+  const items: MenuItem[] = [];
   if (props.lead.company?.domain) {
     items.push({ key: 'copy', label: $t('gainos.leads.copyDomain') });
   }
@@ -362,8 +365,11 @@ function onMenu(info: MenuClickInfo): void {
         >
           {{ $t('gainos.leads.promoteQgo') }}
         </Button>
+        <Button class="lead-actions__btn" data-gs="lead-package" @click="emit('package')">
+          {{ $t('gainos.leads.viewPackage') }}
+        </Button>
         <!-- antdv 的 Dropdown 没有 menu 属性（那是 React 版的 API）：菜单必须走 #overlay -->
-        <Dropdown :trigger="['click']" placement="bottomRight">
+        <Dropdown v-if="menuItems.length > 0" :trigger="['click']" placement="bottomRight">
           <Button :aria-label="$t('gainos.leads.moreActions')" class="lead-actions__more" type="text">
             <Ellipsis :size="18" />
           </Button>
@@ -760,8 +766,9 @@ function onMenu(info: MenuClickInfo): void {
 
 .lead-actions {
   grid-area: actions;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  /* 卡片上现在有三个按钮加「⋯」：放不下时换行，不把卡片撑出横向滚动。 */
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .lead-actions__btn {
@@ -957,7 +964,8 @@ function onMenu(info: MenuClickInfo): void {
     grid-template-areas:
       'identity score verdict actions'
       'dims dims dims dims';
-    grid-template-columns: minmax(220px, 1.3fr) 104px minmax(200px, 1fr) auto;
+    /* 操作列最窄按「两个判断按钮」算，更窄时里面的按钮自己换行。 */
+    grid-template-columns: minmax(220px, 1.3fr) 104px minmax(200px, 1fr) minmax(232px, auto);
   }
 }
 
@@ -965,7 +973,7 @@ function onMenu(info: MenuClickInfo): void {
 @container (min-width: 1180px) {
   .lead-card__grid {
     grid-template-areas: 'identity score verdict dims actions';
-    grid-template-columns: minmax(240px, 1.2fr) 104px minmax(280px, 1.3fr) minmax(210px, 1fr) auto;
+    grid-template-columns: minmax(240px, 1.2fr) 104px minmax(280px, 1.3fr) minmax(210px, 1fr) minmax(232px, auto);
   }
   .lead-dims {
     display: block;

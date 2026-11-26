@@ -5,6 +5,7 @@
 import { useAppConfig } from '@vben/hooks';
 import { preferences } from '@vben/preferences';
 import { baseRequestClient, requestClient } from '#/api/request';
+import { httpFailureCopy, httpFailureTechText } from './failure-copy';
 import { buildExecutionBody, type ExecutionFeatureOptions } from './execution-body';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
@@ -2186,5 +2187,13 @@ export function failureText(error: unknown): {
   if (detail?.userCopy?.title) {
     return { title: detail.userCopy.title, why: detail.userCopy.why, next: detail.userCopy.next, code };
   }
-  return { title: detail?.message ?? (error as Error)?.message ?? '请求失败，请稍后重试', why: undefined, next: undefined, code };
+  // 服务端没给三层文案（网关 502、断网、引擎透传的裸报错）：按状态码给本语言的说明，
+  // 不把英文原文当标题；原文只留在技术详情里。
+  const copy = httpFailureCopy(error);
+  return {
+    title: copy.title,
+    why: undefined,
+    next: copy.next,
+    code: code ?? httpFailureTechText(error),
+  };
 }

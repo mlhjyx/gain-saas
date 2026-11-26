@@ -168,22 +168,11 @@ const panelCompanyOptions = computed(() =>
     };
   }),
 );
+// 页签不带计数：「企业事实 0」会被读成「没有事实」，其实那个 0 是待确认数。
+// 各状态的数量放在清单自己的页签上（待确认 / 已通过 / 未采用）。
 const panelTabs = computed(() => [
-  {
-    label: $t('gainos.companies.workspaceFacts'),
-    value: 'facts',
-    // 计数只对当前选中的公司有效；切到关联公司时不能沿用上一家的数字。
-    count:
-      claimsCompany.value?.id === panelCompany.value?.id
-        ? pendingClaims.value.length
-        : undefined,
-  },
-  {
-    label: $t('gainos.companies.workspaceDocs'),
-    value: 'docs',
-    count:
-      docsCompany.value?.id === panelCompany.value?.id ? docs.value.length : undefined,
-  },
+  { label: $t('gainos.companies.workspaceFacts'), value: 'facts' },
+  { label: $t('gainos.companies.workspaceDocs'), value: 'docs' },
 ]);
 const panelLoading = computed(() =>
   panelTab.value === 'facts'
@@ -672,12 +661,13 @@ function unwrap<T>(value: T | { data?: T }): T {
   return wrapped?.data ?? (value as T);
 }
 
-async function loadCompanyOverview(): Promise<void> {
+async function loadCompanyOverview(silent = false): Promise<void> {
   const companyId = claimsCompany.value?.id;
   const epoch = claimsEpoch;
   if (!companyId) return;
   const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
-  overviewLoading.value = true;
+  // silent：已有数据时原地刷新、不进加载态。审批、生成草稿后的刷新不该让整块概览闪一下。
+  if (!silent || !companyOverview.value) overviewLoading.value = true;
   overviewError.value = null;
   try {
     const [detail, stats, items] = await Promise.all([
@@ -733,7 +723,7 @@ function resolveConflict(conflict: CompanyConflict, keep: 'a' | 'b'): void {
       try {
         await gainosApi.resolveConflict(conflict.id, keep);
         claimNotice.value = $t('gainos.companies.conflictResolved');
-        await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
+        await Promise.all([loadClaims(true), loadCompanyOverview(true), loadConflicts()]);
       } catch (err) {
         claimActionError.value = failureText(err).title;
       } finally {
@@ -755,7 +745,7 @@ function revokeClaim(claim: CompanyClaim): void {
       try {
         await gainosApi.revokeClaim(claim.id);
         claimNotice.value = $t('gainos.companies.revoked');
-        await Promise.all([loadClaims(), loadCompanyOverview(), loadConflicts()]);
+        await Promise.all([loadClaims(true), loadCompanyOverview(true), loadConflicts()]);
       } catch (err) {
         claimActionError.value = failureText(err).title;
       } finally {
@@ -785,7 +775,7 @@ async function saveManualClaim(): Promise<void> {
     manualEvidence.value = '';
     claimNotice.value = $t('gainos.companies.manualCreated');
     claimTab.value = 'NEEDS_REVIEW';
-    await Promise.all([loadClaims(), loadCompanyOverview()]);
+    await Promise.all([loadClaims(true), loadCompanyOverview(true)]);
   } catch (err) {
     manualError.value = failureText(err).title;
   } finally {
@@ -799,15 +789,20 @@ async function synthesizeDrafts(): Promise<void> {
   if (!companyId || synthBusy.value) return;
   synthBusy.value = true;
   claimActionError.value = null;
+  // 上一步的行内结果（如「已通过 N 条」）与本次无关，先撤掉；本次结果用轻提示。
   claimNotice.value = null;
   try {
     const result = unwrap(await gainosApi.synthesizeClaimDrafts(companyId));
-    claimNotice.value =
-      result.created > 0
-        ? $t('gainos.companies.synthesizeDraftsCreated', { count: result.created })
-        : $t('gainos.companies.synthesizeDraftsNone');
-    claimTab.value = 'NEEDS_REVIEW';
-    await Promise.all([loadClaims(), loadCompanyOverview()]);
+    // 结果用轻提示说清楚；清单原地刷新（不进加载态），不会整块先变空再回来。
+    if (result.created > 0) {
+      claimTab.value = 'NEEDS_REVIEW';
+      feedback.message.success(
+        $t('gainos.companies.synthesizeDraftsCreated', { count: result.created }),
+      );
+    } else {
+      feedback.message.info($t('gainos.companies.synthesizeDraftsNone'));
+    }
+    await Promise.all([loadClaims(true), loadCompanyOverview(true)]);
   } catch (err) {
     claimActionError.value = failureText(err).title;
   } finally {
@@ -815,12 +810,13 @@ async function synthesizeDrafts(): Promise<void> {
   }
 }
 
-async function loadClaims(): Promise<void> {
+async function loadClaims(silent = false): Promise<void> {
   const companyId = claimsCompany.value?.id;
   const epoch = claimsEpoch;
   if (!companyId) return;
   const current = () => claimsCompany.value?.id === companyId && claimsEpoch === epoch;
-  claimsLoading.value = true;
+  // silent：已有数据时原地刷新、不进加载态，清单不会先变成「加载中」再回来。
+  if (!silent || claims.value.length === 0) claimsLoading.value = true;
   claimsError.value = null;
   try {
     const data = await gainosApi.claims(companyId);
@@ -905,7 +901,8 @@ async function reviewSelected(action: 'approve' | 'reject'): Promise<void> {
   selectedClaimIds.value = [];
   claimBusy.value = null;
   claimProgress.value = '';
-  await loadClaims();
+  // 审批后清单原地进行刷新，已勾选项消失即可，不闪「加载中」。
+  await loadClaims(true);
   // 审批达 3 条通过会把企业自动激活（REVIEW→ACTIVE）：列表状态必须跟上，
   // 否则卡片仍显示「待确认」，再点「确认档案」会撞 INVALID_STATE。
   if (action === 'approve' && failed < total) void load(true);
@@ -1717,7 +1714,14 @@ onUnmounted(() => {
               </button>
             </div>
 
-            <div class="co-next">
+            <!-- 档案已就绪时不再显示「下一步」引导，只留一个去设定画像的按钮。 -->
+            <div v-if="nextStep.action === 'go'" class="co-next co-next--ready" data-gs="next-step">
+              <p class="co-next__title">{{ nextStep.title }}</p>
+              <Button data-gs="primary-next" type="primary" @click="runNextStep">
+                {{ nextStep.label }}
+              </Button>
+            </div>
+            <div v-else class="co-next" data-gs="next-step">
               <p class="co-label">{{ $t('gainos.companies.nextStep') }}</p>
               <p class="co-next__title">{{ nextStep.title }}</p>
               <p class="co-next__desc">{{ nextStep.desc }}</p>
@@ -1931,7 +1935,7 @@ onUnmounted(() => {
                 :title="claimsError.title"
                 :why="claimsError.why"
               />
-              <Button size="small" @click="loadClaims">{{ $t('gainos.common.retry') }}</Button>
+              <Button size="small" @click="loadClaims()">{{ $t('gainos.common.retry') }}</Button>
             </div>
 
             <div v-else-if="visibleClaims.length === 0" class="cp__claims-state">
@@ -2041,7 +2045,7 @@ onUnmounted(() => {
             </div>
             <div v-else-if="overviewError" class="co-panel__state co-panel__state--error">
               <span>{{ overviewError }}</span>
-              <Button size="small" @click="loadCompanyOverview">
+              <Button size="small" @click="loadCompanyOverview()">
                 {{ $t('gainos.common.retry') }}
               </Button>
             </div>
@@ -3160,6 +3164,9 @@ onUnmounted(() => {
 }
 .co-next :deep(.ant-btn) {
   justify-self: start;
+}
+.co-next--ready {
+  gap: 10px;
 }
 .co-primary__foot {
   display: flex;

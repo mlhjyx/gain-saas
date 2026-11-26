@@ -30,6 +30,15 @@ function observeErrors(page: Page): string[] {
   return errors;
 }
 
+/**
+ * 本地构建的接口地址带 /api 前缀（apps/web/.env.production，不进仓库），CI 没有这个文件、不带前缀。
+ * 与 mock-backend 的去前缀规则保持一致，两种构建都能匹配。
+ */
+function isRunRecordResponse(response: { request(): { method(): string }; url(): string }): boolean {
+  const path = new URL(response.url()).pathname;
+  return (path === RUN_PATH || path === `/api${RUN_PATH}`) && response.request().method() === 'GET';
+}
+
 test('run identity waits for the delayed result and survives refresh', async ({ page }) => {
   const errors = observeErrors(page);
   const backend = await installMockBackend(page);
@@ -56,7 +65,8 @@ test('run identity waits for the delayed result and survives refresh', async ({ 
     await page.goto('/runs/run-test-123');
     await requestStarted;
     await expect(page.getByText('正在加载…', { exact: true })).toBeVisible();
-    await expect(page.locator('.run__identity')).toHaveText('');
+    // 编号只在「技术详情：任务编号」里出现，运行记录到手前整块都不渲染。
+    await expect(page.locator('.run__identity')).toHaveCount(0);
   } finally {
     release();
   }
@@ -64,9 +74,9 @@ test('run identity waits for the delayed result and survives refresh', async ({ 
   await expect(identity).toContainText('icp-test');
   await expect(identity).toContainText('plan-tes');
   await expect(identity).toContainText('run-test');
-  const refreshed = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === RUN_PATH && response.request().method() === 'GET',
-  );
+  // 页头不再展示内部编号。
+  await expect(page.locator('.run__head')).not.toContainText('icp-test');
+  const refreshed = page.waitForResponse(isRunRecordResponse);
   await page.getByRole('button', { name: '刷新', exact: true }).click();
   expect((await refreshed).ok()).toBe(true);
   await expect(identity).toContainText('plan-nex');
@@ -89,7 +99,7 @@ test('initial run request failure displays the error without a render crash', as
   await loginAs(page);
   await page.goto('/runs/run-test-123');
   await expect(page.locator('.run__error')).toBeVisible();
-  await expect(page.locator('.run__identity')).toHaveText('');
+  await expect(page.locator('.run__identity')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -98,12 +108,10 @@ test('a null run result renders no identity values and does not crash', async ({
   const backend = await installMockBackend(page);
   backend.set('GET', RUN_PATH, null);
   await loginAs(page);
-  const response = page.waitForResponse((item) =>
-    new URL(item.url()).pathname === RUN_PATH && item.request().method() === 'GET',
-  );
+  const response = page.waitForResponse(isRunRecordResponse);
   await page.goto('/runs/run-test-123');
   expect((await response).ok()).toBe(true);
-  await expect(page.locator('.run__identity')).toHaveText('');
+  await expect(page.locator('.run__identity')).toHaveCount(0);
   await expect(page.getByText('正在加载…', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
