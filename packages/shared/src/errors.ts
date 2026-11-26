@@ -335,7 +335,7 @@ export const ENGINE_ERROR_COPY = {
     why: '买家画像只能建立在你确认过的企业事实上，系统不会凭空生成。',
     next: '到「公司档案 → 企业事实」确认至少一条；没有待确认事实时，先用「从档案生成事实草稿」补齐。',
     en: {
-      title: "No confirmed company facts yet, so a target customer profile cannot be generated",
+      title: "No confirmed company facts yet, so a buyer profile cannot be generated",
       why: "Profiles can only build on facts you confirmed; the system never invents them.",
       next: "Confirm at least one fact under Company profile → Facts; if none are pending, use 'Generate fact drafts from profile' first.",
     },

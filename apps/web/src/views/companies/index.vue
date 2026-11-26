@@ -540,7 +540,7 @@ const formError = ref<string | null>(null);
 const createdNotice = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-// ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
+// ── 企业事实（Claim）审批：只有「已通过」的事实会进入买家画像设计 ──
 const claimsOpen = ref(false);
 const claimsRecoveryReadOnly = ref(false);
 let claimsEpoch = 0;
@@ -1589,7 +1589,7 @@ onMounted(async () => {
   await load();
 });
 onActivated(() => {
-  // 从「找买家」回来时，目标客户画像可能刚变化：刷新画像与事实计数。
+  // 从「找买家」回来时，买家画像可能刚变化：刷新画像与事实计数。
   if (!loading.value) {
     void loadIcps();
     void loadSummaries();

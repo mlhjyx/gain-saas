@@ -17,7 +17,7 @@ withDefaults(
     /** 页面专属插画与底纹；不传时用通用人物卡片。 */
     art?: 'company' | 'default' | 'find-buyers' | 'leads';
     hero?: boolean;
-    /** 阶段/上下文字标，例如「第 2 步 · 设定目标客户画像」 */
+    /** 阶段/上下文字标，例如「第 2 步 · 设定买家画像」 */
     kicker?: string;
     subtitle?: string;
     title: string;

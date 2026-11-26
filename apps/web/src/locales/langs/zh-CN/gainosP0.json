@@ -12,13 +12,13 @@
     "manualObjectivePlaceholder": "例如：针对德国工业泵分销商发起首批买家发现",
     "manualMetricLabel": "成功度量（可选）",
     "manualMetricPlaceholder": "例如：筛选出 30 家匹配分销商",
-    "manualAudienceLabel": "目标客户画像（至少选择一项）",
-    "manualAudiencePlaceholder": "请选择目标客户画像",
+    "manualAudienceLabel": "买家画像（至少选择一项）",
+    "manualAudiencePlaceholder": "请选择买家画像",
     "manualSizeCapLabel": "每个画像最多处理（家）",
     "manualBudgetLabel": "预算上限（USD，可选）",
     "manualMaxReplansLabel": "自动重规划上限（0–2 次）",
     "manualSubmit": "保存为草稿版本",
-    "manualRequiredError": "请填写计划目标、至少选择一个目标客户画像，并设置有效的数量上限（1–1000）。",
+    "manualRequiredError": "请填写计划目标、至少选择一个买家画像，并设置有效的数量上限（1–1000）。",
     "conclusion": "{objective}（受众：{audience}；每个画像最多 {sizeCap} 家）",
     "conclusionWithBudget": "{objective}（受众：{audience}；每个画像最多 {sizeCap} 家；预算上限 {budget}）",
     "motionType": {
@@ -99,7 +99,7 @@
   },
   "tasks": {
     "unnamedProfile": "未关联画像",
-    "profileFallback": "目标客户画像"
+    "profileFallback": "买家画像"
   },
   "access": {
     "readonlyAdminHint": "当前账号为成员角色，仅可查看；如需修改或审批，请联系工作空间管理员。"

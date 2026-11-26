@@ -151,7 +151,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   await expect(page.getByText('已通过 1 条事实。')).toBeVisible();
 });
 
-test('主链路 3：目标客户画像 → 方案生成/确认 → 开始寻源 → run 进度可见', async ({ page }) => {
+test('主链路 3：买家画像 → 方案生成/确认 → 开始寻源 → run 进度可见', async ({ page }) => {
   const backend = await installMockBackend(page);
   backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', [ICP]);

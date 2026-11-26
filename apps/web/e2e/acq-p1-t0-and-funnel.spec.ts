@@ -4,7 +4,7 @@
  * 2. 线索页 Battle CSV 导出按钮接线
  * 3. 触达批次页（route.query.lead 预选 + canonical 联系人与官方邮箱 + countryCode + 编辑保留 contactPointId）
  * 4. 注册建档（域名自动补齐 https:// + 有行业列表时解锁手动自定义行业）
- * 5. 找买家页（同公司多画像 + 一键确认建档事实 + DONE 后可重跑）
+ * 5. 买家画像页（原「找买家」：同公司多画像 + 一键确认建档事实 + DONE 后可重跑）
  */
 import { expect, test } from '@playwright/test';
 
@@ -370,7 +370,7 @@ test('注册建档：自动补全 https:// 与解锁手动输入自定义行业'
   expect(completeBody.industryCode).toBeUndefined();
 });
 
-test('找买家：允许同公司新建第二组画像（带 attemptId）并支持一键确认建档事实', async ({ page }) => {
+test('买家画像：允许同公司新建第二组画像（带 attemptId）并支持一键确认建档事实', async ({ page }) => {
   const backend = await installMockBackend(page);
   let approvedClaims: Array<Record<string, unknown>> = [];
 
@@ -451,9 +451,9 @@ test('找买家：允许同公司新建第二组画像（带 attemptId）并支�
   await loginAs(page);
   await page.goto('/find-buyers');
 
-  // 即使公司已有 1 组画像，点击「设定目标客户画像」依然弹出创建模态框
-  await page.getByRole('button', { name: '设定目标客户画像' }).click();
-  await expect(page.getByRole('dialog', { name: '设定目标客户画像' })).toBeVisible();
+  // 即使公司已有 1 组画像，点击「设定买家画像」依然弹出创建模态框
+  await page.getByRole('button', { name: '设定买家画像' }).click();
+  await expect(page.getByRole('dialog', { name: '设定买家画像' })).toBeVisible();
 
   // 无已通过事实时，点击一键确认建档事实解锁生成
   await page.locator('[data-gs="quick-approve-facts"]').click();
@@ -468,7 +468,7 @@ test('找买家：允许同公司新建第二组画像（带 attemptId）并支�
   expect(createBody.confirmedTargetMarkets).toEqual(['IT', 'ES']);
 });
 
-test('找买家：普通成员（非管理员）不显示一键审批事实按钮，提示联系管理员', async ({ page }) => {
+test('买家画像：普通成员（非管理员）不显示一键审批事实按钮，提示联系管理员', async ({ page }) => {
   const backend = await installMockBackend(page, { role: 'member' });
   backend.set('GET', '/companies', [
     { id: COMPANY_ID, name: 'E2E 光伏工厂', website: 'https://solar.example', targetMarkets: ['IT'] },
@@ -479,8 +479,8 @@ test('找买家：普通成员（非管理员）不显示一键审批事实按�
   await loginAs(page);
   await page.goto('/find-buyers');
 
-  await page.getByRole('button', { name: '设定目标客户画像' }).click();
-  await expect(page.getByRole('dialog', { name: '设定目标客户画像' })).toBeVisible();
+  await page.getByRole('button', { name: '设定买家画像' }).click();
+  await expect(page.getByRole('dialog', { name: '设定买家画像' })).toBeVisible();
   await expect(page.locator('[data-gs="no-approved-facts-alert"]')).toContainText('联系工作空间管理员');
   await expect(page.locator('[data-gs="quick-approve-facts"]')).toHaveCount(0);
 });

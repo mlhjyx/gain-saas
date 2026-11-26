@@ -1,6 +1,13 @@
 <script lang="ts" setup>
 /**
- * 找买家（目标客户画像 + 寻源方案）。
+ * 买家画像页（原「找买家」：买家画像 + 寻源方案）。
+ *
+ * 2026-11-26 体验问题第二轮：
+ * - 「目标客户画像」全站统一叫「买家画像」，页面与菜单随之改名，和「买家线索」放同一个分组；
+ * - 画像里的五个板块换成用户读得懂的说法并各加一行说明（客户难题 / 采购信号 / 不找的对象 /
+ *   我们的卖点 / 该找的人）；
+ * - 「目标公司属性」里的英文字段补中文名；引擎写入的四个输入血缘字段不是目标公司属性，
+ *   单独列成「画像依据」并用白话写。
  *
  * 2026-11-25 按买家线索页的风格与理念重排：
  * - 列表 = 对齐分列的画像卡，「寻源方案 / 最近寻源」直接摆在卡片上（进入页面时并行预取）；
@@ -79,6 +86,7 @@ import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
 import { acquisitionStep } from '#/utils/acquisition-step';
+import { regionName } from '#/utils/region-name';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
@@ -279,7 +287,7 @@ const orderedCompanies = computed(() =>
 function toneOf(tone: StatusTone): FbTone {
   return tone === 'processing' ? 'info' : tone;
 }
-// 目标客户画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
+// 买家画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
 // 未登记的状态显示占位符，绝不把裸枚举直接渲染进界面。
 function icpStatus(status?: string): { label: string; tone: FbTone } {
   const meta = glossaryStatus('icp', status, preferences.app.locale);
@@ -398,8 +406,42 @@ function attrText(value: unknown): string {
 
 function attributesOf(icp: Icp): Array<{ key: string; value: string }> {
   return Object.entries(icp.companyAttributes ?? {})
+    .filter(([key]) => !LINEAGE_KEYS.has(key))
     .map(([key, value]) => ({ key: attributeLabel(key), value: attrText(value) }))
     .filter((item) => item.value.length > 0);
+}
+
+/**
+ * 引擎写进 companyAttributes 的「输入血缘」字段：记录这份画像依据什么生成（用了哪些产品、
+ * 市场按什么定），不是目标公司的属性。单独列成「画像依据」，值是内部代码，要换成白话。
+ */
+const LINEAGE_KEYS = new Set(['inputBasis', 'inputProducts', 'marketBasis', 'modelSuggestedMarkets']);
+
+function lineageLabel(group: 'lineageBasis' | 'lineageMarket', value: unknown): string {
+  const code = attrText(value);
+  const key = `gainos.findBuyers.${group}.${code}`;
+  const translated = $t(key);
+  return translated === key ? code : translated;
+}
+
+/** 「画像依据」：依据的产品、市场按什么定、AI 另外建议了哪些市场。只显示有内容的项。 */
+function lineageOf(icp: Icp): Array<{ key: string; value: string }> {
+  const attributes = icp.companyAttributes ?? {};
+  return [
+    { key: $t('gainos.findBuyers.lineageProducts'), value: attrText(attributes.inputProducts) },
+    {
+      key: $t('gainos.findBuyers.lineageProductBasis'),
+      value: lineageLabel('lineageBasis', attributes.inputBasis),
+    },
+    {
+      key: $t('gainos.findBuyers.lineageMarketBasis'),
+      value: lineageLabel('lineageMarket', attributes.marketBasis),
+    },
+    {
+      key: $t('gainos.findBuyers.lineageSuggestedMarkets'),
+      value: attrText(attributes.modelSuggestedMarkets),
+    },
+  ].filter((row) => row.value.length > 0);
 }
 function canActivate(icp: Icp): boolean {
   return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(icp.status);
@@ -452,7 +494,10 @@ async function loadTaskRuns(icpId: string): Promise<void> {
   try {
     const tasks = await gainosApi.acquisitionTasks(icpId);
     taskCache = tasks[0] ?? null;
-    taskRuns.value = taskCache?.runs ?? [];
+    // 列表和「是否还有寻源在跑」要看这个画像下所有任务的运行，按发起时间倒序。
+    taskRuns.value = tasks
+      .flatMap((task) => task.runs ?? [])
+      .sort((a, b) => Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? ''));
   } catch {
     taskCache = null;
     taskRuns.value = [];
@@ -1030,7 +1075,10 @@ async function prefetchSummary(icpId: string): Promise<void> {
   }
   if (tasksResult.status === 'fulfilled') {
     const tasks = Array.isArray(tasksResult.value) ? tasksResult.value : [];
-    summary.runs = tasks[0]?.runs ?? [];
+    // 一个画像下可以有多个任务，运行记录合在一起按发起时间倒序，取最近的一次。
+    summary.runs = tasks
+      .flatMap((task) => task.runs ?? [])
+      .sort((a, b) => Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? ''));
   }
   summaries.value = { ...summaries.value, [icpId]: summary };
   const next = new Set(summaryPending.value);
@@ -1098,12 +1146,44 @@ const detailOpen = computed({
 const statusOfSelected = computed(() => icpStatus(selected.value?.status));
 const versionOfSelected = computed(() => selected.value?.version ?? 1);
 
-const overviewSections = computed(() => [
-  { items: selected.value?.painPoints ?? [], key: 'painPoints', title: $t('gainos.findBuyers.painPoints') },
-  { items: selected.value?.triggerSignals ?? [], key: 'triggerSignals', title: $t('gainos.findBuyers.triggerSignals') },
-  { items: selected.value?.exclusions ?? [], key: 'exclusions', title: $t('gainos.findBuyers.exclusions') },
-  { items: selected.value?.valueProps ?? [], key: 'valueProps', title: $t('gainos.findBuyers.valueProps') },
-]);
+const overviewSections = computed(() =>
+  (['painPoints', 'triggerSignals', 'exclusions', 'valueProps'] as const).map((key) => ({
+    hint: $t(`gainos.findBuyers.${key}Hint`),
+    items: selected.value?.[key] ?? [],
+    key,
+    title: $t(`gainos.findBuyers.${key}`),
+  })),
+);
+
+interface ProfilePerson {
+  concerns: string[];
+  goals: string[];
+  pains: string[];
+  title: string;
+}
+/** 「该找的人」：personas 和 buyingCommittee 是引擎对同一批角色的两种写法（一个带目标和难题，一个带关注点），按职务合并。 */
+const peopleOfSelected = computed<ProfilePerson[]>(() => {
+  const byTitle = new Map<string, ProfilePerson>();
+  const slot = (raw: string | undefined): ProfilePerson => {
+    const title = (raw ?? '').trim();
+    const key = title.toLowerCase();
+    let row = byTitle.get(key);
+    if (!row) {
+      row = { concerns: [], goals: [], pains: [], title };
+      byTitle.set(key, row);
+    }
+    return row;
+  };
+  for (const persona of selected.value?.personas ?? []) {
+    const row = slot(persona.title);
+    row.goals.push(...(persona.goals ?? []));
+    row.pains.push(...(persona.painPoints ?? []));
+  }
+  for (const role of selected.value?.buyingCommittee ?? []) {
+    slot(role.title || role.role).concerns.push(...(role.concerns ?? []));
+  }
+  return [...byTitle.values()].filter((row) => row.title.length > 0);
+});
 
 const companyOptions = computed(() =>
   orderedCompanies.value.map((company) => {
@@ -1349,8 +1429,14 @@ onUnmounted(stopDetailStreamPoll);
           <div class="fb-block">
             <p class="fb-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
             <div v-if="(selected.targetMarkets ?? []).length > 0" class="fb-chips">
-              <Tag v-for="market in selected.targetMarkets" :key="market" :bordered="false" class="fb-chip">
-                {{ market }}
+              <Tag
+                v-for="market in selected.targetMarkets"
+                :key="market"
+                :bordered="false"
+                class="fb-chip"
+                :title="market"
+              >
+                {{ regionName(market) }}
               </Tag>
             </div>
             <p v-else class="fb-muted">—</p>
@@ -1375,9 +1461,24 @@ onUnmounted(stopDetailStreamPoll);
             <p v-else class="fb-muted">—</p>
           </div>
 
+          <!-- 画像依据：引擎记录的「这份画像按什么生成」，和上面的目标公司属性不是一回事。 -->
+          <div v-if="lineageOf(selected).length > 0" class="fb-block">
+            <p class="fb-label">{{ $t('gainos.findBuyers.lineageTitle') }}</p>
+            <Descriptions :colon="false" :column="{ md: 2, xs: 1 }" size="small">
+              <DescriptionsItem
+                v-for="item in lineageOf(selected)"
+                :key="item.key"
+                :label="item.key"
+              >
+                {{ item.value }}
+              </DescriptionsItem>
+            </Descriptions>
+          </div>
+
           <div class="fb-grid-2">
             <div v-for="section in overviewSections" :key="section.key" class="fb-block">
               <p class="fb-label">{{ section.title }}</p>
+              <p class="fb-hint">{{ section.hint }}</p>
               <ul v-if="section.items.length > 0" class="fb-list">
                 <li v-for="(item, i) in section.items" :key="i">{{ item }}</li>
               </ul>
@@ -1385,30 +1486,25 @@ onUnmounted(stopDetailStreamPoll);
             </div>
           </div>
 
-          <div v-if="(selected.personas ?? []).length > 0" class="fb-block">
+          <!-- 该找的人：角色卡（想达成什么 / 客户难题 / 关注点） -->
+          <div v-if="peopleOfSelected.length > 0" class="fb-block">
             <p class="fb-label">{{ $t('gainos.findBuyers.personas') }}</p>
+            <p class="fb-hint">{{ $t('gainos.findBuyers.personasHint') }}</p>
             <div class="fb-personas">
-              <div v-for="persona in selected.personas" :key="persona.title" class="fb-persona">
-                <p class="fb-persona__title">{{ persona.title }}</p>
-                <p v-if="persona.goals?.length" class="fb-muted">
-                  <em class="fb-key">{{ $t('gainos.findBuyers.goals') }}</em>{{ persona.goals.join(' · ') }}
+              <div v-for="person in peopleOfSelected" :key="person.title" class="fb-persona">
+                <p class="fb-persona__title">{{ person.title }}</p>
+                <p v-if="person.goals.length" class="fb-muted">
+                  <em class="fb-key">{{ $t('gainos.findBuyers.goals') }}</em>{{ person.goals.join(' · ') }}
                 </p>
-                <p v-if="persona.painPoints?.length" class="fb-muted">
+                <p v-if="person.pains.length" class="fb-muted">
                   <em class="fb-key">{{ $t('gainos.findBuyers.painPoints') }}</em>
-                  {{ persona.painPoints.join(' · ') }}
+                  {{ person.pains.join(' · ') }}
+                </p>
+                <p v-if="person.concerns.length" class="fb-muted">
+                  <em class="fb-key">{{ $t('gainos.findBuyers.concerns') }}</em>{{ person.concerns.join(' · ') }}
                 </p>
               </div>
             </div>
-          </div>
-
-          <div v-if="(selected.buyingCommittee ?? []).length > 0" class="fb-block">
-            <p class="fb-label">{{ $t('gainos.findBuyers.buyingCommittee') }}</p>
-            <ul class="fb-list">
-              <li v-for="(role, i) in selected.buyingCommittee" :key="i">
-                <strong>{{ role.title || role.role }}</strong>
-                <span v-if="role.concerns?.length"> · {{ role.concerns.join(' · ') }}</span>
-              </li>
-            </ul>
           </div>
           </div>
         </GsCard>
@@ -1722,7 +1818,7 @@ onUnmounted(stopDetailStreamPoll);
       </div>
     </Drawer>
 
-    <!-- 设定目标客户画像（从公司档案生成初稿） -->
+    <!-- 设定买家画像（从公司档案生成初稿） -->
     <Modal
       v-model:open="createOpen"
       :confirm-loading="creating"
@@ -1903,18 +1999,22 @@ onUnmounted(stopDetailStreamPoll);
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.painPoints') }}</span>
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.painPointsHint') }}</em>
           <Input.TextArea v-model:value="editForm.painPoints" :rows="3" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.triggerSignals') }}</span>
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.triggerSignalsHint') }}</em>
           <Input.TextArea v-model:value="editForm.triggerSignals" :rows="3" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.exclusions') }}</span>
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.exclusionsHint') }}</em>
           <Input.TextArea v-model:value="editForm.exclusions" :rows="3" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.valueProps') }}</span>
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.valuePropsHint') }}</em>
           <Input.TextArea v-model:value="editForm.valueProps" :rows="3" />
         </label>
         <label class="fb-field">
@@ -2006,6 +2106,21 @@ onUnmounted(stopDetailStreamPoll);
   color: var(--gs-fg-muted);
   font-size: 12px;
   line-height: 18px;
+}
+/* 板块标题下的一行白话说明：让没看过文档的人也知道这一栏是问什么。 */
+.fb-hint {
+  margin: -2px 0 2px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.fb-field-hint {
+  display: block;
+  margin: -2px 0 4px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  line-height: 18px;
+  font-style: normal;
 }
 .fb-toolbar__main {
   min-width: 0;

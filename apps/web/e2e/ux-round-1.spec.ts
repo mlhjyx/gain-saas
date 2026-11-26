@@ -114,7 +114,7 @@ test('#11 命令面板关闭时不吞掉回车和方向键', async ({ page }) =>
 // #1（注册引导返回修改官网）与 #2（引导页行业选项去分类码）已移交并行 PR feat/onboarding-intake-combine
 // 随 acq-p2-fast-onboarding-and-streaming.spec.ts 一并收口，此处不再重复断言 onboarding 页面。
 
-test('#14 找买家：步骤条跟着寻源进度走', async ({ page }) => {
+test('#14 买家画像：步骤条跟着寻源进度走', async ({ page }) => {
   const backend = await installMockBackend(page);
   backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', [ICP]);
@@ -176,10 +176,10 @@ test('#14 买家线索：步骤条按实际进度显示，多个任务的运行�
   await page.reload();
   await expect(currentStep(page)).toHaveText('等待寻源');
 
-  // 画像还没生效：回到「设定目标客户画像」
+  // 画像还没生效：回到「设定买家画像」
   icp.status = 'DRAFT';
   await page.reload();
-  await expect(currentStep(page)).toHaveText('设定目标客户画像');
+  await expect(currentStep(page)).toHaveText('设定买家画像');
 });
 
 test('#15 #18 运行页：编号收进技术详情，五步进度按引擎阶段显示', async ({ page }) => {
@@ -456,7 +456,7 @@ test('#3 #6 建议 2 公司档案：页签不带数量，档案就绪后收起�
   await expect(next).toHaveCount(1);
   await expect(next).not.toContainText('下一步');
   await expect(next).not.toContainText('已通过');
-  await expect(next.locator("[data-gs='primary-next']")).toHaveText('设定目标客户画像');
+  await expect(next.locator("[data-gs='primary-next']")).toHaveText('设定买家画像');
 
   // 从档案生成草稿、一条新的都没有：说清楚「没有新增」，清单原地刷新不进加载态
   await page.getByRole('button', { name: '从档案生成事实草稿' }).click();

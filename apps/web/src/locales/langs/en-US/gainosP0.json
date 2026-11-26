@@ -12,13 +12,13 @@
     "manualObjectivePlaceholder": "e.g. Discover German industrial pump distributors",
     "manualMetricLabel": "Success metric (optional)",
     "manualMetricPlaceholder": "e.g. Qualify 30 matching distributors",
-    "manualAudienceLabel": "Target customer profiles (select at least one)",
-    "manualAudiencePlaceholder": "Select target customer profiles",
+    "manualAudienceLabel": "Buyer profiles (select at least one)",
+    "manualAudiencePlaceholder": "Select buyer profiles",
     "manualSizeCapLabel": "Max companies per profile",
     "manualBudgetLabel": "Budget cap (USD, optional)",
     "manualMaxReplansLabel": "Auto-replan limit (0–2)",
     "manualSubmit": "Save as draft version",
-    "manualRequiredError": "Enter an objective, select at least one target customer profile, and set a valid cap (1–1000).",
+    "manualRequiredError": "Enter an objective, select at least one buyer profile, and set a valid cap (1–1000).",
     "conclusion": "{objective} (Audience: {audience}; up to {sizeCap} companies per profile)",
     "conclusionWithBudget": "{objective} (Audience: {audience}; up to {sizeCap} companies per profile; budget cap {budget})",
     "motionType": {
@@ -99,7 +99,7 @@
   },
   "tasks": {
     "unnamedProfile": "Unlinked profile",
-    "profileFallback": "Target customer profile"
+    "profileFallback": "Buyer profile"
   },
   "access": {
     "readonlyAdminHint": "Your account has member access (view only). Ask a workspace admin to make changes or approve."
