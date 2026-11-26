@@ -1969,3 +1969,80 @@ tone：COMPLETED `is-ok` / FAILED `is-bad` / ERASING、FROZEN `is-warn` / 其他
 - 需要改引擎或 BFF 的问题（#4b、#13b、#19、#22 与偶发 502）不在本轮；第二步到第四步（术语、资格规则与回测、
   全局进度条、找买家改名分组）等产品决定。
 - 真实数据下的走查未做，待用户在 5666 验收。
+
+## 27. 体验问题第二轮（一）：买家画像的术语、改名与分组（2026-11-26）
+
+第二轮的产品决定（用户已定）：五个板块用名词式说法并加说明行；「资格规则与回测」用开关隐藏，「寻源方案」「最近寻源」
+只在画像生效后出现；画像详情改成页内工作区；全站统一叫「买家画像」；进度浮窗只在主流程页面显示。
+本节是第一段：术语、改名与分组。页面结构（页内工作区、编辑表单、寻源方案重排）见 §28，进度浮窗见后续小节。
+
+### 27.1 原因
+- 画像的小标题（痛点、触发信号、排除条件、价值主张、买家委员会）是营销术语，没看过文档的人读不懂。
+- 「目标公司属性」是自由对象，键由模型给出，登记表不全：`product`、`trade_side` 原样显示键名；另外四个
+  `inputBasis` / `marketBasis` / `inputProducts` / `modelSuggestedMarkets` 是引擎 `icpInputLineage()` 写入的输入血缘
+  （记录这份画像按什么生成），根本不是目标公司的属性，值还是内部代码（`legacy_profile_floor`、`legacy_all_offerings`）。
+- 「找买家」是动作，不是这一页的内容（买家画像 + 寻源方案）；「目标客户画像」和「买家画像」两个叫法并存，
+  画像卡上的「N 个买家画像」其实指角色数。
+
+### 27.2 改动
+- 改名与分组：「目标客户画像」→「买家画像」，网页文案（zh 70 处、en 68 处）、源码注释、共享词表
+  （`glossary.ts` 的 `icp` 与 `NAV.findBuyers`、`terminology.ts`、`errors.ts` 一条英文标题）、用例、设计系统文档共 176 处。
+  页面与菜单标题改为「买家画像」，从「获客」移到「线索」分组（`use-menu-groups.ts`）；路由仍是 `/find-buyers`。
+  手工顺了替换后读起来别扭的文案（中文 8 句、英文 5 句，如「先到『找买家』设定买家画像…」）。规则见设计系统 §17。
+- 五个板块：客户难题 / 采购信号 / 不找的对象 / 我们的卖点 / 该找的人，各加一行说明（`findBuyers.<板块>Hint`），
+  详情和编辑表单共用。`personas` 与 `buyingCommittee` 按职务合并成角色卡（想达成什么 / 客户难题 / 关注点）；
+  画像卡的「N 个买家画像」改为「N 个对接角色」。
+- 属性与依据：登记 `product`（产品）、`trade_side`（交易角色）；四个血缘字段不计入目标公司属性，
+  单列成「画像依据」，代码按 `lineageBasis` / `lineageMarket` 换成白话。目标市场按界面语言显示地区名
+  （新增 `utils/region-name.ts`，`Intl.DisplayNames`）。
+- 画像状态 `HYPOTHESIS` 的显示名由「假设」改为「待激活」。
+- 顺带修正：买家画像页的方案与运行预取、详情里的「最近寻源」原先只取第一个任务的运行记录；一个画像下可以有多个任务，
+  现在合并后按发起时间倒序。
+- 测试基建：e2e 支持 `GAINOS_E2E_PORT` 换端口（`playwright.config.ts`、`support/test-origin.ts`，默认仍是 4173）。
+  起因是同机另一个 worktree 正占着 4173，Playwright 直接复用了它的预览服务，本目录的用例等于拿别人的构建在测，
+  17 条成片失败。那个进程属于别的任务，不能 kill。`AGENTS.md` 的环境陷阱一条同步改写。
+
+### 27.3 验证
+- shared 47 条单测通过并重新构建；typecheck / build / lint:terms / lint:date 绿。
+- 新增 `ux-round-2` 3 条（改名与分组、五个板块与说明行、属性中文名与画像依据）；同步 `nav-shell`（分组与页面名）、
+  `pass5-shell`（菜单名；拖拽用例改为等侧栏渲染）、`acq-p1`、`main-chain`、`ux-round-1` 里的旧叫法。
+- 私有端口上 `ux-round-2`、`ux-round-1`、`nav-shell`、`pass5-shell`、`pass3-interactions`、`main-chain`、
+  `acq-p1-t0-and-funnel`、`a11y`、`zero-jargon`、`locale-toggle`、`responsive`、`dark-mode` 共 54 条通过。
+- 写用例时踩到的两点：antd 的 `Drawer` 既不把 `data-gs` 透到 DOM 上，也没有 dialog 角色，按标题定位；
+  一条「旧说法不再出现」的断言曾因为定位到空集合而白白通过，已改为先确认抽屉打开。
+- 本节一度丢失：提交前用 `git checkout -- docs/evidence/ui-restyle` 还原测试产物，把同一目录下的本文件一并还原了。
+  现在还原产物时只指定截图与扫描结果的子目录（`antd-system`、`pass2`、`pass3`），不碰本文件。
+- 未做：全量 e2e（交给 PR CI）；真实数据下的走查待用户在 5666 验收。
+
+## 28. 体验问题第二轮（二）：买家画像页重做（2026-11-26）
+
+### 28.1 原因
+- 画像详情是右侧抽屉：和公司档案的页内操作不统一，内容长、要来回滚动，看完没有「下一步」。
+- 没激活的画像就摆着「还没有寻源方案」「还没有任务运行记录」；「高级：资格规则与回测」看不懂也用不上。
+- 编辑时「目标公司属性」是一个 JSON 文本框，还给了示例代码。
+- 寻源方案按搜索条件平铺，说明里混着引擎的内部代码（`[source_filter] 已移除…: SOURCE_QUERY_BUDGET…; icp_seed_gap: …`）。
+
+### 28.2 改动（`views/find-buyers/index.vue`、`icp-card.vue`、`feature-flags.ts`）
+- 页内工作区：画像列表在上，`data-gs="icp-workspace"` 在下。进页面默认展示生效中的画像（没有就取第一份），
+  多份时头部有「切换画像」；从画像卡点进来滚到工作区。分区标题用 h3（原 GsCard 标题是 aria-level 2）。
+  生效前只有「画像概览」（和反馈建议）；生效后「寻源方案」「最近寻源」排在前面。
+- 下一步：`data-gs="icp-next"`，`position: sticky; bottom: 12px`，放在页面根节点最后，页面在顶部时也贴在视口底部
+  （用例实测了位置）。按钮文字统一是「下一步」，具体动作写在左边的提示里，所以不会和方案里的「确认方案」「开始寻源」重名。
+  数据在加载或出错时不显示。
+- 隐藏规则与回测：`ICP_ADVANCED_HIDDEN = true`。整块 `v-if`、画像卡的规则数、新建与空态说明里提到规则与回测的措辞都跟随开关。
+- 画像卡：没生效的画像，「寻源方案」「最近寻源」两栏写「先激活买家画像」（已被取代、已归档写「—」）；当前选中的加浅蓝描边；
+  目标市场显示地区名。
+- 编辑表单：`ATTRIBUTE_FIELDS` 登记了 15 个目标公司属性（列表类一项一行）。`attributeText` / `attributeValue` 负责文本与值的互换，
+  保持原来的类型。没登记的属性、嵌套结构和四个输入血缘字段进「其他属性（原始数据）」，默认收起。
+- 寻源方案：`planGroups` 按来源渠道分组，`planLead` 给一句话结论；`splitRationale` 把引擎的说明按「；」「。」拆成小句，
+  `icp_fit_warning:` 换成「注意」留在正文，带 snake_case 或全大写常量的小句收进「技术详情」。原始 JSON 仍在折叠区。
+
+### 28.3 验证
+- typecheck / build / lint:terms / lint:date 绿。lint:terms 抓到两条英文新文案里的 run，已改写。
+- `ux-round-2` 7 条：改名与分组、五个板块与说明行、属性中文名与画像依据、工作区与切换、未激活时只看内容并由下一步引导激活
+  （含贴底位置断言）、方案先看结论与内部代码折叠、编辑表单（断言 PATCH 请求体保持原属性、只改了客户难题）。
+- 私有端口上 13 个套件 55 条通过（`ux-round-2`、`main-chain`、`acq-p1-t0-and-funnel`、`ux-round-1`、`nav-shell`、
+  `pass3-interactions`、`zero-jargon`、`a11y`、`responsive`、`dark-mode`、`pass2/pass3-color-scan`、`locale-toggle`）。
+- 过程记录：第一次跑时「还没有寻源方案」断言失败，暴露出画像卡两栏在未激活时仍写「还没有」，已改；用 `timeout` 包住 Playwright
+  会留下孤儿预览进程（占着 4183），改用 `--global-timeout`；门禁命令里 `lint | tail -1` 会掩盖失败，已加 `pipefail`。
+- 未做：全量 e2e（交给 PR CI）；真实数据下的走查待用户在 5666 验收。
