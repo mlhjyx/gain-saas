@@ -141,6 +141,9 @@ test('数据与隐私页：使用买家列表发起删除请求、展示 RECEIVE
   await page.locator('.ant-select-item-option', { hasText: 'Rhein CNC GmbH' }).click();
   await page.locator('[data-gs="privacy-submit"]').click();
 
+  await expect
+    .poll(() => backend.callsTo('POST', '/deletion-requests').length)
+    .toBeGreaterThan(0);
   const postCall = backend.take('POST', '/deletion-requests');
   expect(postCall?.body).toMatchObject({
     reason: 'erasure',
