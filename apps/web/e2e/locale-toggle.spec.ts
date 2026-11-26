@@ -14,7 +14,7 @@ test('切语言：账号菜单零刷新即时热切换（侧栏 + 48px 面包屑
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
-  await expect(page.locator('.sdr-section__label').first()).toHaveText('获客主线');
+  await expect(page.locator('.sdr-section__label').first()).toHaveText('总览');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toHaveText('工作台');
 
   // 打开账号菜单检查当前语言标记
@@ -28,7 +28,7 @@ test('切语言：账号菜单零刷新即时热切换（侧栏 + 48px 面包屑
   await page.locator("[data-gs='locale-toggle']").click();
 
   await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('EN');
-  await expect(page.locator('.sdr-section__label').first()).toHaveText('Acquisition');
+  await expect(page.locator('.sdr-section__label').first()).toHaveText('Overview');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toHaveText('Workspace');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: 'Buyer profiles' }),
@@ -43,7 +43,7 @@ test('切语言：账号菜单零刷新即时热切换（侧栏 + 48px 面包屑
   // 等偏好防抖落盘后手动刷新一次，确认持久化有效
   await page.waitForTimeout(400);
   await page.reload();
-  await expect(page.locator('.sdr-section__label').first()).toHaveText('Acquisition');
+  await expect(page.locator('.sdr-section__label').first()).toHaveText('Overview');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toHaveText('Workspace');
 
   // 切回中文同样零刷新生效
@@ -54,7 +54,7 @@ test('切语言：账号菜单零刷新即时热切换（侧栏 + 48px 面包屑
   await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('EN');
   await page.locator("[data-gs='locale-toggle']").click();
   await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('中');
-  await expect(page.locator('.sdr-section__label').first()).toHaveText('获客主线');
+  await expect(page.locator('.sdr-section__label').first()).toHaveText('总览');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toHaveText('工作台');
   const reloadedBack = await page.evaluate(
     () =>

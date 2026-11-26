@@ -1,8 +1,8 @@
 /**
  * PR-UI1 新版展示目录与导航壳层验收：
- * - 顶区高频核心项（无分组标题）：工作台（/workspace）、通知（/notifications）
- * - 分组 1「获客主线」：企业档案（/companies）、买家画像（/find-buyers）、买家线索（/leads）、寻源记录（/tasks）
- * - 分组 2「触达与转化」（全部 3 项受 GROWTH_PAGE_HIDDEN 统一门控）：外发与战役（/outreach）、商机管线（/opportunities）、成效复盘（/analytics）
+ * - 总览：工作台、成效复盘、通知。
+ * - 获客与筛选：企业档案、买家画像、寻源记录、买家线索。
+ * - 触达与转化：外发与战役、商机管线，仍受 GROWTH_PAGE_HIDDEN 门控。
  * - 直接深链 /outreach、/opportunities、/analytics 始终 100% 可达；/tasks/:id 与 /runs/:id 高亮 /tasks，/leads/:id 高亮 /leads。
  */
 import { GROWTH_PAGE_HIDDEN } from '../src/feature-flags';
@@ -17,19 +17,20 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
 
 const NAV_GROUPS = [
   {
-    group: '',
+    group: '总览',
     items: [
       { landmark: '.wk', name: '工作台', path: '/workspace' },
+      { heading: '成效复盘', landmark: '.mt', name: '成效复盘', path: '/analytics' },
       { heading: '通知', landmark: '.gpc', name: '通知', path: '/notifications' },
     ],
   },
   {
-    group: '获客主线',
+    group: '获客与筛选',
     items: [
       { heading: '企业档案', landmark: '[data-gs="page-header"]', name: '企业档案', path: '/companies' },
       { heading: '买家画像', landmark: '[data-gs="page-header"]', name: '买家画像', path: '/find-buyers' },
+      { heading: '挖掘任务', landmark: '.gpc', name: '寻源记录', path: '/tasks' },
       { heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' },
-      { landmark: '.gpc', name: '寻源记录', path: '/tasks' },
     ],
   },
   {
@@ -37,7 +38,6 @@ const NAV_GROUPS = [
     items: [
       { heading: '外发与战役', landmark: '[data-gs="outreach-hub"]', name: '外发与战役', path: '/outreach' },
       { heading: '商机', landmark: '.gpc', name: '商机管线', path: '/opportunities' },
-      { heading: '成效复盘', landmark: '.mt', name: '成效复盘', path: '/analytics' },
     ],
   },
 ] as const;
@@ -46,7 +46,7 @@ function groupLocator(page: import('@playwright/test').Page, group: string) {
   return page.locator('[data-sdr-nav] .sdr-section__label').filter({ hasText: group });
 }
 
-test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门控触达与转化 3 项、子路由高亮准确', async ({
+test('新版左侧目录可点、复盘独立、触达门控生效、子路由高亮准确', async ({
   page,
 }, testInfo) => {
   const backend = await installMockBackend(page);
@@ -83,7 +83,7 @@ test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门�
   // 顶栏（banner）不得出现任何菜单项；导航只存在于侧边栏。
   await expect(page.getByRole('banner').getByRole('menuitem')).toHaveCount(0);
 
-  // GROWTH_PAGE_HIDDEN=true 时，「触达与转化」整组（外发与战役 / 商机管线 / 成效复盘）自动隐藏。
+  // 触达关闭时照常能够查看成效复盘。
   const visibleGroups = NAV_GROUPS.filter(
     (group) => !(GROWTH_PAGE_HIDDEN && group.group === '触达与转化'),
   );
@@ -91,7 +91,7 @@ test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门�
     await expect(groupLocator(page, '触达与转化')).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '外发与战役' })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '商机管线' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: '成效复盘' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: '成效复盘' })).toBeVisible();
   }
 
   const sectionCounts = await page
@@ -107,10 +107,8 @@ test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门�
     expect(section.count, `分组「${section.label || '顶区高频'}」不得为单条目分组`).toBeGreaterThanOrEqual(2);
   }
 
-  // 分组标题核对；无旧词/死项（总览、获客与筛选、周报、战役计划、商机与触达、找买家）
-  await expect(groupLocator(page, '获客主线')).toBeVisible();
-  await expect(groupLocator(page, '总览')).toHaveCount(0);
-  await expect(groupLocator(page, '获客与筛选')).toHaveCount(0);
+  await expect(groupLocator(page, '总览')).toBeVisible();
+  await expect(groupLocator(page, '获客与筛选')).toBeVisible();
   await expect(page.locator('.sdr-section__label').filter({ hasText: '设置' })).toHaveCount(0);
   await expect(page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
@@ -210,7 +208,7 @@ test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、
   await page.locator('[data-gs="leads-view-switch"]').getByRole('button', { name: '线索列表' }).click();
   await page.waitForURL((url) => url.pathname === '/leads' && !url.searchParams.has('view'));
 
-  // 命令面板：GROWTH_PAGE_HIDDEN 门控触达与转化（外发/商机/成效复盘），AI 判定复核与获客主线直达
+  // 命令面板：触达关闭时 AI 判定复核与获客入口仍可用。
   await page.keyboard.press('Control+K');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -220,7 +218,6 @@ test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、
   if (GROWTH_PAGE_HIDDEN) {
     await expect(list).not.toContainText('外发与战役');
     await expect(list).not.toContainText('商机管线');
-    await expect(list).not.toContainText('成效复盘');
     await expect(list).not.toContainText('回复收件箱');
   }
   await dialog.getByRole('option', { name: /AI 判定复核/ }).click();

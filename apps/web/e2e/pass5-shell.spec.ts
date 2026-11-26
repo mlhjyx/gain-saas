@@ -237,10 +237,13 @@ test('侧栏拖拽最小宽度：低于 220px 自动拉回，顶区企业头与�
     ) as HTMLElement;
     const nameEl = document.querySelector("[data-gs='sidebar-workspace-name']") as HTMLElement;
     const collapseBtn = document.querySelector("[data-gs='sidebar-collapse']") as HTMLElement;
+    const name = nameEl.getBoundingClientRect();
+    const collapse = collapseBtn.getBoundingClientRect();
     return {
       asideW: Math.round(aside.getBoundingClientRect().width),
       brandOverlap:
-        collapseBtn.getBoundingClientRect().left < nameEl.getBoundingClientRect().right,
+        collapse.left < name.right && name.left < collapse.right &&
+        collapse.top < name.bottom && name.top < collapse.bottom,
     };
   });
   expect(geo.asideW).toBeGreaterThanOrEqual(220);

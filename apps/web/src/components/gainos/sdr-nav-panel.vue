@@ -48,13 +48,15 @@ const { go, isActive, route, sections } = useSdrNav();
 
 const searchLabel = computed(() => $t('gainosUi1.nav.searchPlaceholder'));
 const settingsLabel = computed(() => $t('gainosUi1.nav.settings'));
+const walletLabel = computed(() => $t('gainosUi1.nav.wallet'));
 const showFlowChip = computed(() => isFlowPath(route.path));
 
 const initial = computed(() =>
   (props.userEmail || props.workspaceName || 'G').trim().slice(0, 1).toUpperCase(),
 );
 
-const settingsActive = computed(() => route.path.startsWith('/settings'));
+const walletActive = computed(() => route.path === '/settings/account' && route.hash === '#wallet');
+const settingsActive = computed(() => route.path.startsWith('/settings') && !walletActive.value);
 
 const accountOpen = ref(false);
 function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings') {
@@ -68,6 +70,13 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
 
 <template>
   <div class="sdr-panel">
+    <div v-if="workspaceName" class="sdr-workspace">
+      <span class="sdr-workspace__avatar" aria-hidden="true">{{ workspaceName.trim().slice(0, 1) }}</span>
+      <div class="sdr-workspace__identity">
+        <strong :title="workspaceName" data-gs="sidebar-workspace-name">{{ workspaceName }}</strong>
+        <small>{{ $t('gainosUi1.dashboard.workspaceLabel') }}</small>
+      </div>
+    </div>
     <!-- 快捷搜索框（⌘K） -->
     <button
       :aria-label="searchLabel"
@@ -118,6 +127,17 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
       <FlowProgressBar v-if="showFlowChip" />
 
       <div :aria-label="settingsLabel" class="sdr-footer__rows" role="menu">
+        <RouterLink
+          :aria-current="walletActive ? 'page' : undefined"
+          :class="{ 'is-active': walletActive }"
+          class="sdr-row sdr-footer__row"
+          data-gs="nav-wallet"
+          role="menuitem"
+          to="/settings/account#wallet"
+        >
+          <SdrIcon name="lucide:wallet" :size="16" />
+          <span class="sdr-row__label">{{ walletLabel }}</span>
+        </RouterLink>
         <button
           :aria-current="settingsActive ? 'page' : undefined"
           :class="{ 'is-active': settingsActive }"
@@ -176,6 +196,34 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
 </template>
 
 <style scoped>
+.sdr-workspace {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px 13px;
+  margin-bottom: 11px;
+  border-bottom: 1px solid var(--gs-divider);
+}
+.sdr-workspace__avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--gs-success-fg);
+  background: var(--gs-success-bg);
+  font-weight: 680;
+}
+.sdr-workspace__identity { min-width: 0; }
+.sdr-workspace__identity strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sdr-workspace__identity small { color: var(--gs-fg-muted); }
+
 .sdr-panel {
   display: flex;
   flex: 1 1 auto;

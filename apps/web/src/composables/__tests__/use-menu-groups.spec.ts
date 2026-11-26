@@ -10,6 +10,7 @@ const { localeState, translations } = vi.hoisted(() => ({
     'en-US': {
       'gainos.menu.members': 'Members & Roles',
       'gainosB3.menu.account': 'Account & workspace',
+      'gainosUi1.nav.groupOverview': 'Overview',
       'gainosUi1.nav.groupAcquisition': 'Acquisition',
       'gainosUi1.nav.groupEngagement': 'Engagement',
       'gainosUi1.nav.groupSettings': 'Settings',
@@ -17,7 +18,8 @@ const { localeState, translations } = vi.hoisted(() => ({
     'zh-CN': {
       'gainos.menu.members': '成员与角色',
       'gainosB3.menu.account': '账号与空间',
-      'gainosUi1.nav.groupAcquisition': '获客主线',
+      'gainosUi1.nav.groupOverview': '总览',
+      'gainosUi1.nav.groupAcquisition': '获客与筛选',
       'gainosUi1.nav.groupEngagement': '触达与转化',
       'gainosUi1.nav.groupSettings': '设置',
     },
@@ -87,25 +89,26 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     } as MenuRecordRaw,
   ];
 
-  it('GROWTH_PAGE_HIDDEN=true 时隐藏触达与转化（含成效复盘），顶区高频 2 项无标题 + 获客主线 4 项', () => {
-    const grouped = groupMenus(baseMenus);
+  it('触达入口关闭时，成效复盘仍在总览', () => {
+    const grouped = groupMenus([...baseMenus, menu('/analytics', '成效复盘')]);
     const businessGroups = grouped.filter((item) => item.query?.__uiGroup);
 
     expect(businessGroups.map((group) => group.query?.__uiGroup)).toEqual([
       'core',
       'acquisition',
     ]);
-    expect(businessGroups[0]?.name).toBe('');
+    expect(businessGroups[0]?.name).toBe('总览');
     expect(businessGroups[0]?.children?.map((child) => child.path)).toEqual([
       '/workspace',
+      '/analytics',
       '/notifications',
     ]);
-    expect(businessGroups[1]?.name).toBe('获客主线');
+    expect(businessGroups[1]?.name).toBe('获客与筛选');
     expect(businessGroups[1]?.children?.map((child) => child.path)).toEqual([
       '/companies',
       '/find-buyers',
-      '/leads',
       '/tasks',
+      '/leads',
     ]);
     for (const group of businessGroups) {
       expect(group.children?.length ?? 0).toBeGreaterThanOrEqual(2);
@@ -113,7 +116,7 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     expect(grouped.find((item) => item.path === '/settings')).toBeDefined();
   });
 
-  it('GROWTH_PAGE_HIDDEN=false 时触达与转化呈现全部 3 项（外发与战役 / 商机管线 / 成效复盘）', () => {
+  it('触达开放后展示外发与战役、商机管线，成效复盘继续归属总览', () => {
     const grouped = groupMenus([
       ...baseMenus,
       menu('/outreach', '外发与战役'),
@@ -131,8 +134,8 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     expect(businessGroups[2]?.children?.map((child) => child.path)).toEqual([
       '/outreach',
       '/opportunities',
-      '/analytics',
     ]);
+    expect(businessGroups[0]?.children?.map((child) => child.path)).toContain('/analytics');
     const totalBusinessItems = businessGroups.reduce(
       (sum, group) => sum + (group.children?.length ?? 0),
       0,
@@ -178,13 +181,13 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     await nextTick();
 
     // 初始中文态
-    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['', '获客主线', '设置']);
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['总览', '获客与筛选', '设置']);
     expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual(['工作台', '通知']);
     expect(accessStore.accessMenus[1]?.children?.map((c) => c.name)).toEqual([
       '企业档案',
       '买家画像',
-      '买家线索',
       '寻源记录',
+      '买家线索',
     ]);
     expect(accessStore.accessMenus[2]?.children?.map((c) => c.name)).toEqual([
       '账号与空间',
@@ -197,7 +200,7 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     preferences.app.locale = 'en-US';
     await nextTick();
 
-    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['', 'Acquisition', 'Settings']);
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['Overview', 'Acquisition', 'Settings']);
     expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual([
       'Workspace',
       'Notifications',
@@ -205,8 +208,8 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     expect(accessStore.accessMenus[1]?.children?.map((c) => c.name)).toEqual([
       'Company profile',
       'Buyer profiles',
-      'Buyer leads',
       'Sourcing history',
+      'Buyer leads',
     ]);
     expect(accessStore.accessMenus[2]?.children?.map((c) => c.name)).toEqual([
       'Account & workspace',
@@ -219,7 +222,7 @@ describe('use-menu-groups（PR-UI1 新版展示目录与零刷新语言热切换
     preferences.app.locale = 'zh-CN';
     await nextTick();
 
-    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['', '获客主线', '设置']);
+    expect(accessStore.accessMenus.map((m) => m.name)).toEqual(['总览', '获客与筛选', '设置']);
     expect(accessStore.accessMenus[0]?.children?.map((c) => c.name)).toEqual(['工作台', '通知']);
   });
 });

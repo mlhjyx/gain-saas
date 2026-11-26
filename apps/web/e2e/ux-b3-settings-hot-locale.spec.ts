@@ -484,7 +484,7 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
 
   await page.goto('/settings/account');
   await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('获客主线');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('总览');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('设置');
   await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('账号与空间');
   await expect(
@@ -505,7 +505,7 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
 
   await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('EN');
   await expect(page.getByRole('heading', { level: 1, name: 'Account & workspace' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('Acquisition');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('Overview');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: 'Buyer profiles' }),
   ).toBeVisible();
@@ -526,7 +526,7 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
   await page.locator("[data-gs='locale-toggle']").click();
   await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('中');
   await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('获客主线');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('总览');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '买家画像' }),
   ).toBeVisible();

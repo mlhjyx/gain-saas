@@ -14,9 +14,9 @@ import { navKeyFromTitle, resolveNavTitle } from '#/router/routes/nav';
  *
  * 路由本身保持扁平（path/name/component 一律不动），这里只在 Vben 的菜单数据层
  * 将菜单收进新版目录结构：
- * - 顶区高频核心项（core，无分组标题）：/workspace、/notifications
- * - 获客主线（acquisition）：/companies、/find-buyers、/leads、/tasks
- * - 触达与转化（engagement）：/outreach、/opportunities、/analytics（全部受 GROWTH_PAGE_HIDDEN 统一门控；无可见子项时整组自动隐藏）
+ * - 总览（core）：/workspace、/analytics、/notifications
+ * - 获客与筛选（acquisition）：/companies、/find-buyers、/tasks、/leads
+ * - 触达与转化（engagement）：/outreach、/opportunities（无可见子项时整组自动隐藏）
  * - 设置（settings）：/settings（主侧栏过滤，由底部「设置」直达 /settings/account）
  *
  * 组节点使用第一个子项的真实 path，避免全局搜索把用户带到不存在的路径。
@@ -35,20 +35,20 @@ export const MENU_GROUPS: MenuGroup[] = [
   {
     icon: 'lucide:layout-dashboard',
     key: 'core',
-    labelKey: '',
-    paths: ['/workspace', '/notifications'],
+    labelKey: 'gainosUi1.nav.groupOverview',
+    paths: ['/workspace', '/analytics', '/notifications'],
   },
   {
     icon: 'lucide:radar',
     key: 'acquisition',
     labelKey: 'gainosUi1.nav.groupAcquisition',
-    paths: ['/companies', '/find-buyers', '/leads', '/tasks'],
+    paths: ['/companies', '/find-buyers', '/tasks', '/leads'],
   },
   {
     icon: 'lucide:send',
     key: 'engagement',
     labelKey: 'gainosUi1.nav.groupEngagement',
-    paths: ['/outreach', '/opportunities', '/analytics'],
+    paths: ['/outreach', '/opportunities'],
   },
   {
     icon: 'lucide:settings',

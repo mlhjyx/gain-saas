@@ -304,6 +304,7 @@ test('#17 工作台：没有可去页面的通知标为「通知」，不给「�
   await loginAs(page);
   await page.goto('/workspace');
 
+  await page.locator('[data-gs="workspace-activity"] > summary').click();
   const alerts = page.locator("[data-gs='workspace-alert']");
   const notice = alerts.filter({ hasText: '一条已批准的企业事实已被撤销' });
   await expect(notice).toContainText('通知');

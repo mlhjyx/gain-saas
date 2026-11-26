@@ -141,7 +141,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
   );
 
   await loginAs(page);
-  await expect(page.locator('[data-sdr-nav]').getByText('获客主线', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-sdr-nav]').getByText('获客与筛选', { exact: true })).toBeVisible();
   await page.getByRole('menuitem', { name: '企业档案' }).click();
   await page.waitForURL(/\/companies/);
   // 企业事实是页内工作台，进入页面后自动加载，不需要再点开弹窗。

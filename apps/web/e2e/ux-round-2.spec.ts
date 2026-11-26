@@ -121,9 +121,9 @@ test('建议 3：「买家画像」取代「找买家」，和「买家线索」
   await expect(page.getByRole('heading', { level: 1, name: '买家画像' })).toBeVisible();
   await expect(page.getByText('目标客户画像').first()).toHaveCount(0);
 
-  // 侧栏：「企业档案」「买家画像」「买家线索」「寻源记录」同在「获客主线」组，没有「找买家」
+  // 侧栏的企业档案、画像、寻源与线索都在获客与筛选。
   const nav = page.locator('[data-sdr-nav]');
-  await expect(nav.getByText('获客主线', { exact: true })).toBeVisible();
+  await expect(nav.getByText('获客与筛选', { exact: true })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '企业档案' })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '买家画像' })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '买家线索' })).toBeVisible();

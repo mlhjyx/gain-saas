@@ -53,8 +53,10 @@ const collapseLabel = computed(() => $t('gainosUi1.nav.toggleSidebar'));
 const expandLabel = computed(() => $t('gainosUi1.nav.expandSidebar'));
 const closeLabel = computed(() => $t('gainosUi1.nav.closeMenu'));
 const settingsLabel = computed(() => $t('gainosUi1.nav.settings'));
+const walletLabel = computed(() => $t('gainosUi1.nav.wallet'));
 const showFlowChip = computed(() => isFlowPath(route.path));
-const settingsActive = computed(() => route.path.startsWith('/settings'));
+const walletActive = computed(() => route.path === '/settings/account' && route.hash === '#wallet');
+const settingsActive = computed(() => route.path.startsWith('/settings') && !walletActive.value);
 
 const showRail = computed(
   () => !isMobile.value && sidebarCollapsed.value && !preferences.sidebar.hidden,
@@ -113,14 +115,12 @@ function fromDrawer(action: 'search' | 'settings') {
   >
     <header class="sdr-brand" data-gs="sidebar-brand">
       <RouterLink
-        :title="workspaceName || 'GainOS'"
+        title="GainOS"
         class="sdr-brand__identity"
         to="/workspace"
       >
-        <img v-if="logoSrc" :src="logoSrc" alt="GainOS" class="sdr-brand__logo" />
-        <span class="sdr-brand__name" data-gs="sidebar-workspace-name">
-          {{ workspaceName || 'GainOS' }}
-        </span>
+        <img v-if="logoSrc" :src="logoSrc" alt="" class="sdr-brand__logo" />
+        <span class="sdr-brand__name">GainOS</span>
       </RouterLink>
       <button
         :aria-label="collapseLabel"
@@ -203,6 +203,19 @@ function fromDrawer(action: 'search' | 'settings') {
       <div class="sdr-rail__footer">
         <FlowProgressBar v-if="showFlowChip" compact />
 
+        <RouterLink
+          :aria-current="walletActive ? 'page' : undefined"
+          :aria-label="walletLabel"
+          :class="{ 'is-active': walletActive }"
+          :title="walletLabel"
+          class="sdr-rail__item"
+          data-gs="nav-wallet"
+          role="menuitem"
+          to="/settings/account#wallet"
+        >
+          <SdrIcon name="lucide:wallet" :size="17" />
+        </RouterLink>
+
         <button
           :aria-current="settingsActive ? 'page' : undefined"
           :aria-label="settingsLabel"
@@ -282,12 +295,12 @@ function fromDrawer(action: 'search' | 'settings') {
     <div id="gainos-mobile-nav" class="sdr-mobile" data-gs="mobile-nav">
       <header class="sdr-brand sdr-mobile__brand">
         <RouterLink
-          :title="workspaceName || 'GainOS'"
+          title="GainOS"
           class="sdr-brand__identity"
           to="/workspace"
         >
-          <img v-if="logoSrc" :src="logoSrc" alt="GainOS" class="sdr-brand__logo" />
-          <span class="sdr-brand__name">{{ workspaceName || 'GainOS' }}</span>
+          <img v-if="logoSrc" :src="logoSrc" alt="" class="sdr-brand__logo" />
+          <span class="sdr-brand__name">GainOS</span>
         </RouterLink>
         <button
           :aria-label="closeLabel"
@@ -352,8 +365,8 @@ function fromDrawer(action: 'search' | 'settings') {
 }
 
 .sdr-brand__logo {
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   flex: none;
   border-radius: 6px;
   object-fit: contain;
@@ -364,8 +377,8 @@ function fromDrawer(action: 'search' | 'settings') {
   min-width: 0;
   overflow: hidden;
   color: var(--gs-fg);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 21px;
+  font-weight: 760;
   letter-spacing: -0.015em;
   text-overflow: ellipsis;
   white-space: nowrap;
