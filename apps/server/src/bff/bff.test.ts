@@ -84,9 +84,14 @@ describe('BFF 路由表(SD7)', () => {
       ['POST', 'claims/:claimId/revoke'],
       ['POST', 'conflicts/:conflictId/resolve'],
       ['POST', 'leads/:leadId/sanctions-review'],
-      ['GET', 'data-providers'],
       ['GET', 'canonical-companies/:id'],
       ['POST', 'canonical-companies/:id/discover-contacts'],
+      ['POST', 'canonical-companies/:id/enrich-contacts'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-results'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-results/:operationRef'],
+      ['POST', 'canonical-companies/:id/contact-enrichment-results/:operationRef/recover'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-quality-facts'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-quality-facts/:operationRef'],
       ['POST', 'canonical-companies/:id/guess-emails'],
       ['POST', 'contact-points/:pointId/verify'],
       ['DELETE', 'companies/:companyId'],
@@ -100,17 +105,26 @@ describe('BFF 路由表(SD7)', () => {
       expect(route, `${method} ${saasPath}`).toBeDefined();
       expect(route!.access, `${method} ${saasPath}`).toBe('admin');
     }
+    expect(BFF_ROUTES.find((r) => r.method === 'GET' && r.saasPath === 'data-providers')).toBeUndefined();
+    expect(BFF_ROUTES.find((r) => r.method === 'GET' && r.saasPath === 'discovery-runs/:runId/result-view')?.access).toBe('member');
+    expect(BFF_ROUTES.find((r) => r.method === 'POST' && r.saasPath === 'icps/:icpId/feedback/recompute')?.access).toBe('member');
     expect(BFF_ROUTES.find((r) => r.method === 'PATCH' && r.saasPath === 'companies/:companyId')?.access).toBe('member');
     expect(BFF_ROUTES.find((r) => r.method === 'PATCH' && r.saasPath === 'icp-rules/:ruleId')?.access).toBe('member');
   });
 
-  it('BffGuard / registerBffMiddleware 对 4 条收紧路由及 GET /api/deletion-requests：member 返回 403 ADMIN_REQUIRED，admin 放行', async () => {
+  it('BffGuard / registerBffMiddleware 对收紧路由、GET /api/deletion-requests 与联系人补强路由：member 返回 403 ADMIN_REQUIRED，admin 放行', async () => {
+    const opRef = 'a'.repeat(64);
     const cases: Array<readonly ['DELETE' | 'POST' | 'GET', string]> = [
       ['DELETE', '/api/companies/c1'],
       ['DELETE', '/api/seller-documents/d1'],
       ['POST', '/api/companies/c1/confirm'],
       ['DELETE', '/api/icp-rules/r1'],
       ['GET', '/api/deletion-requests'],
+      ['GET', '/api/canonical-companies/c1/contact-enrichment-results'],
+      ['GET', `/api/canonical-companies/c1/contact-enrichment-results/${opRef}`],
+      ['POST', `/api/canonical-companies/c1/contact-enrichment-results/${opRef}/recover`],
+      ['GET', '/api/canonical-companies/c1/contact-enrichment-quality-facts'],
+      ['GET', `/api/canonical-companies/c1/contact-enrichment-quality-facts/${opRef}`],
     ];
     for (const role of ['member', 'admin'] as const) {
       const call = vi.fn(async () => ({
@@ -200,6 +214,94 @@ describe('BFF 路由表(SD7)', () => {
   it('裁决(accept/reject)对 member 开放(acquisition:review)', () => {
     expect(BFF_ROUTES.find((r) => r.saasPath === 'leads/:leadId/accept')?.access).toBe('member');
     expect(BFF_ROUTES.find((r) => r.saasPath === 'leads/:leadId/reject')?.access).toBe('member');
+  });
+
+  it('registerBffMiddleware 放行 /api/deletion-mirrors 给 Nest 控制器，且已下线的 GET /api/data-providers 返回 404', async () => {
+    const call = vi.fn(async () => ({
+      status: 200,
+      body: { data: { ok: true } },
+      contentType: 'application/json',
+      headers: {},
+    }));
+    const handler = new BffHandler(
+      { call } as never,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    const claims = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      workspaceId: '22222222-2222-4222-8222-222222222222',
+      role: 'admin' as const,
+      jti: 'jti-1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+    const tenantPrisma: Record<string, unknown> = {
+      membership: {
+        findFirst: async () => ({
+          role: 'admin',
+          workspace: { status: 'ACTIVE', onboardingCompletedAt: new Date(), onboardingCompanyId: 'c1' },
+        }),
+      },
+      withWorkspace: async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(tenantPrisma),
+    };
+    const guard = new BffGuard(
+      new TenantGuard(
+        { verify: async (token: string) => (token === 'tok' ? claims : null), needsRefresh: () => false } as never,
+        tenantPrisma as never,
+      ),
+      new AdminGuard(),
+    );
+    let middleware!: (req: unknown, res: unknown, next: () => void) => Promise<void>;
+    registerBffMiddleware(
+      { use: (fn) => { middleware = fn as typeof middleware; } },
+      handler,
+      guard,
+    );
+
+    const next = vi.fn();
+    await middleware(
+      { method: 'GET', path: '/api/deletion-mirrors', originalUrl: '/api/deletion-mirrors?limit=20' },
+      {},
+      next,
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(call).not.toHaveBeenCalled();
+
+    const sent: { status?: number; json?: { error?: { code?: string } } } = {};
+    const res = {
+      status(code: number) {
+        sent.status = code;
+        return this;
+      },
+      json(payload: typeof sent.json) {
+        sent.json = payload;
+        return this;
+      },
+      clearCookie: vi.fn(),
+      cookie: vi.fn(),
+      setHeader: vi.fn(),
+      type() {
+        return this;
+      },
+      send: vi.fn(),
+    };
+    await middleware(
+      {
+        method: 'GET',
+        path: '/api/data-providers',
+        originalUrl: '/api/data-providers',
+        cookies: { [SESSION_COOKIE]: 'tok' },
+        headers: {},
+        get: () => undefined,
+      },
+      res,
+      vi.fn(),
+    );
+    expect(sent.status).toBe(404);
+    expect(sent.json?.error?.code).toBe('NOT_FOUND');
+    expect(call).not.toHaveBeenCalled();
   });
 });
 

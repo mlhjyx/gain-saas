@@ -57,6 +57,8 @@ function runRealAppModuleBootstrap(processRole: 'web' | 'worker'): {
     import { PrismaService } from './dist/shared/prisma.service.js';
     import { AppModule } from './dist/app.module.js';
     import { BffGuard, BffHandler } from './dist/bff/bff.module.js';
+    import { AcquisitionTasksController } from './dist/bff/acquisition-tasks.controller.js';
+    import { DeletionMirrorsController } from './dist/tenant/deletion-mirrors.controller.js';
     import { EventConsumerService } from './dist/service/event-consumer.service.js';
     import { EngineTokenSigner } from './dist/service/engine-token.signer.js';
     import { EngineBudgetGrantSigner } from './dist/service/engine-budget-grant.signer.js';
@@ -80,6 +82,8 @@ function runRealAppModuleBootstrap(processRole: 'web' | 'worker'): {
       const checks = [
         ['BffHandler', BffHandler],
         ['BffGuard', BffGuard],
+        ['AcquisitionTasksController', AcquisitionTasksController],
+        ['DeletionMirrorsController', DeletionMirrorsController],
         ['EventConsumerService', EventConsumerService],
         ['EngineTokenSigner', EngineTokenSigner],
         ['EngineBudgetGrantSigner', EngineBudgetGrantSigner],
@@ -164,6 +168,8 @@ describe('AppModule 真实 NestJS DI 启动装配冒烟（web + worker）', () =
     expect(res.resolved).toContain('OpsWalletController');
     expect(res.resolved).toContain('EventConsumerService');
     expect(res.resolved).toContain('BffHandler');
+    expect(res.resolved).toContain('AcquisitionTasksController');
+    expect(res.resolved).toContain('DeletionMirrorsController');
     expect(res.eventConsumerHasWallet).toBe(true);
     expect(res.bffHandlerHasWallet).toBe(true);
   }, 60_000);

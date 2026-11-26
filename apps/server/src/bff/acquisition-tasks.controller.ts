@@ -7,6 +7,7 @@ import {
   HttpException,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -29,6 +30,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** task.icpId 为空且引擎未回传 icpId 时的占位 UUID：确保 discovery_run_link 始终落账，封堵 icpId=null 配额绕过。 */
 const UNSCOPED_TASK_ICP_ID = '00000000-0000-4000-8000-000000000000';
 const MAX_TASK_NAME = 200;
+type AcquisitionTaskStatus = 'active' | 'paused' | 'archived';
+const TASK_STATUSES = new Set<AcquisitionTaskStatus>(['active', 'paused', 'archived']);
+const ALLOWED_PATCH_FIELDS = new Set(['name', 'status']);
+const ALLOWED_TASK_STATUS_TRANSITIONS: Record<AcquisitionTaskStatus, ReadonlySet<AcquisitionTaskStatus>> = {
+  active: new Set<AcquisitionTaskStatus>(['active', 'paused', 'archived']),
+  paused: new Set<AcquisitionTaskStatus>(['active', 'paused', 'archived']),
+  archived: new Set<AcquisitionTaskStatus>(['archived']),
+};
 
 function invalid(message: string): never {
   throw new BadRequestException({ error: { code: 'VALIDATION_ERROR', message } });
@@ -43,6 +52,7 @@ interface TaskRow {
   lastRunAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  _count?: { runs: number };
   runs?: Array<{
     id: string;
     engineRunId: string | null;
@@ -57,6 +67,17 @@ interface TaskRow {
 }
 
 function taskView(row: TaskRow) {
+  const runs = (row.runs ?? []).map((run) => ({
+    id: run.id,
+    runId: run.engineRunId,
+    planId: run.planId ?? null,
+    attempt: run.attempt ?? 1,
+    rerunOf: run.rerunOf ?? null,
+    trigger: run.trigger,
+    status: run.status,
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt?.toISOString() ?? null,
+  }));
   return {
     id: row.id,
     icpId: row.icpId,
@@ -66,17 +87,8 @@ function taskView(row: TaskRow) {
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    runs: (row.runs ?? []).map((run) => ({
-      id: run.id,
-      runId: run.engineRunId,
-      planId: run.planId ?? null,
-      attempt: run.attempt ?? 1,
-      rerunOf: run.rerunOf ?? null,
-      trigger: run.trigger,
-      status: run.status,
-      startedAt: run.startedAt.toISOString(),
-      finishedAt: run.finishedAt?.toISOString() ?? null,
-    })),
+    runCount: row._count?.runs ?? runs.length,
+    runs,
   };
 }
 
@@ -109,10 +121,117 @@ export class AcquisitionTasksController {
         where: { workspaceId: tenant.workspaceId, ...(icpId ? { icpId } : {}) },
         orderBy: { createdAt: 'desc' },
         take: 50,
-        include: { runs: { orderBy: { createdAt: 'desc' }, take: 20 } },
+        include: {
+          runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+          _count: { select: { runs: true } },
+        },
       }),
     );
     return { data: (rows as unknown as TaskRow[]).map(taskView) };
+  }
+
+  @Get(':taskId')
+  async getOne(@Req() req: Request, @Param('taskId') taskId: string) {
+    const tenant = req.tenant!;
+    if (!UUID.test(taskId)) invalid('taskId 必须是 UUID');
+    const task = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+      tx.acquisitionTask.findFirst({
+        where: { id: taskId, workspaceId: tenant.workspaceId },
+        include: {
+          runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+          _count: { select: { runs: true } },
+        },
+      }),
+    );
+    if (!task) {
+      throw new NotFoundException({ error: { code: 'TASK_NOT_FOUND', message: '任务不存在' } });
+    }
+    return { data: taskView(task as unknown as TaskRow) };
+  }
+
+  @Patch(':taskId')
+  async update(
+    @Req() req: Request,
+    @Param('taskId') taskId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const tenant = req.tenant!;
+    if (!UUID.test(taskId)) invalid('taskId 必须是 UUID');
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      invalid('请求体必须是 JSON 对象');
+    }
+    const unknownFields = Object.keys(body).filter((key) => !ALLOWED_PATCH_FIELDS.has(key));
+    if (unknownFields.length > 0) {
+      invalid(`不允许更新的字段：${unknownFields.join(', ')}`);
+    }
+
+    let nextName: string | undefined;
+    if (Object.prototype.hasOwnProperty.call(body, 'name') && body.name !== undefined) {
+      if (typeof body.name !== 'string') {
+        invalid(`name 必须是 1–${MAX_TASK_NAME} 个字符`);
+      }
+      const trimmed = body.name.trim();
+      if (trimmed.length < 1 || trimmed.length > MAX_TASK_NAME) {
+        invalid(`name 必须是 1–${MAX_TASK_NAME} 个字符`);
+      }
+      nextName = trimmed;
+    }
+
+    let nextStatus: AcquisitionTaskStatus | undefined;
+    if (Object.prototype.hasOwnProperty.call(body, 'status') && body.status !== undefined) {
+      if (typeof body.status !== 'string' || !TASK_STATUSES.has(body.status as AcquisitionTaskStatus)) {
+        invalid('status 必须是 active、paused 或 archived');
+      }
+      nextStatus = body.status as AcquisitionTaskStatus;
+    }
+
+    if (nextName === undefined && nextStatus === undefined) {
+      invalid('至少需要提供 name 或 status');
+    }
+
+    const { existing, updated } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const current = await tx.acquisitionTask.findFirst({
+        where: { id: taskId, workspaceId: tenant.workspaceId },
+      });
+      if (!current) {
+        throw new NotFoundException({ error: { code: 'TASK_NOT_FOUND', message: '任务不存在' } });
+      }
+      if (nextStatus !== undefined) {
+        const currentStatus = current.status as AcquisitionTaskStatus;
+        if (!ALLOWED_TASK_STATUS_TRANSITIONS[currentStatus]?.has(nextStatus)) {
+          throw new BadRequestException({
+            error: { code: 'INVALID_STATE', message: '已归档的任务不允许恢复或暂停' },
+          });
+        }
+      }
+      const data: { name?: string; status?: AcquisitionTaskStatus } = {};
+      if (nextName !== undefined) data.name = nextName;
+      if (nextStatus !== undefined) data.status = nextStatus;
+
+      const saved = await tx.acquisitionTask.update({
+        where: { id: current.id },
+        data,
+        include: {
+          runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+          _count: { select: { runs: true } },
+        },
+      });
+      return { existing: current, updated: saved };
+    });
+
+    await this.audit.record({
+      realm: 'tenant',
+      actorId: tenant.userId,
+      workspaceId: tenant.workspaceId,
+      action: 'acquisition.task.update',
+      target: updated.id,
+      detail: {
+        ...(nextName !== undefined ? { nameChanged: existing.name !== updated.name } : {}),
+        ...(nextStatus !== undefined ? { fromStatus: existing.status, toStatus: updated.status } : {}),
+      },
+    });
+
+    return { data: taskView(updated as unknown as TaskRow) };
   }
 
   @Post()

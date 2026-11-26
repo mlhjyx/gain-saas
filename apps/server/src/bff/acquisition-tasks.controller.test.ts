@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
+import 'reflect-metadata';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
+import { TenantGuard } from '../tenant/tenant.guard.js';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
@@ -522,5 +525,263 @@ describe('Run 2.0 任务对象（M0②）', () => {
       status: 404,
       response: { error: { code: 'NOT_FOUND' } },
     });
+  });
+});
+
+describe('AcquisitionTasksController GET/PATCH /api/tasks/:taskId (Wave B1)', () => {
+  const memberReq = {
+    tenant: { userId: USER_ID, workspaceId: WORKSPACE_ID, role: 'member' },
+  } as never;
+
+  it('keeps TenantGuard at controller level without AdminGuard (consistent with list/create/startRun)', () => {
+    const classGuards = Reflect.getMetadata(GUARDS_METADATA, AcquisitionTasksController);
+    expect(classGuards).toEqual([TenantGuard]);
+    expect(Reflect.getMetadata(GUARDS_METADATA, AcquisitionTasksController.prototype.getOne)).toBeUndefined();
+    expect(Reflect.getMetadata(GUARDS_METADATA, AcquisitionTasksController.prototype.update)).toBeUndefined();
+  });
+
+  it('GET /api/tasks/:taskId returns a workspace task with recent runs and runCount matching list view', async () => {
+    const startedAt = new Date('2026-11-05T08:00:00Z');
+    const finishedAt = new Date('2026-11-05T08:05:00Z');
+    const now = new Date('2026-11-04T04:00:00Z');
+    const { controller, prisma } = makeController({
+      task: {
+        id: TASK_ID,
+        workspaceId: WORKSPACE_ID,
+        icpId: ICP_ID,
+        name: '德国泵买家',
+        status: 'active',
+        createdBy: USER_ID,
+        lastRunAt: finishedAt,
+        createdAt: now,
+        updatedAt: finishedAt,
+        _count: { runs: 3 },
+        runs: [
+          {
+            id: TASK_RUN_ID,
+            engineRunId: ENGINE_RUN_ID,
+            planId: PLAN_ID,
+            attempt: 3,
+            rerunOf: null,
+            trigger: 'manual',
+            status: 'DONE',
+            startedAt,
+            finishedAt,
+          },
+        ],
+      },
+    });
+
+    const result = await controller.getOne(memberReq, TASK_ID);
+    expect((prisma as unknown as { withWorkspace: ReturnType<typeof vi.fn> }).withWorkspace).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      expect.any(Function),
+    );
+    expect(prisma.acquisitionTask.findFirst).toHaveBeenCalledWith({
+      where: { id: TASK_ID, workspaceId: WORKSPACE_ID },
+      include: {
+        runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+        _count: { select: { runs: true } },
+      },
+    });
+    expect(result).toEqual({
+      data: {
+        id: TASK_ID,
+        icpId: ICP_ID,
+        name: '德国泵买家',
+        status: 'active',
+        createdBy: USER_ID,
+        lastRunAt: finishedAt.toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: finishedAt.toISOString(),
+        runCount: 3,
+        runs: [
+          {
+            id: TASK_RUN_ID,
+            runId: ENGINE_RUN_ID,
+            planId: PLAN_ID,
+            attempt: 3,
+            rerunOf: null,
+            trigger: 'manual',
+            status: 'DONE',
+            startedAt: startedAt.toISOString(),
+            finishedAt: finishedAt.toISOString(),
+          },
+        ],
+      },
+    });
+  });
+
+  it('GET /api/tasks/:taskId returns 404 TASK_NOT_FOUND for unknown or cross-tenant task and 400 for malformed UUID', async () => {
+    const missing = makeController({ task: null });
+    await expect(missing.controller.getOne(memberReq, TASK_ID)).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'TASK_NOT_FOUND' } },
+    });
+
+    const bad = makeController();
+    await expect(bad.controller.getOne(memberReq, 'not-a-uuid')).rejects.toMatchObject({
+      status: 400,
+      response: { error: { code: 'VALIDATION_ERROR' } },
+    });
+    expect(bad.prisma.acquisitionTask.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /api/tasks/:taskId renames a task, trims whitespace, and writes audit log (member allowed)', async () => {
+    const now = new Date('2026-11-04T04:00:00Z');
+    const updatedAt = new Date('2026-11-05T09:00:00Z');
+    const { controller, prisma, audit } = makeController();
+    prisma.acquisitionTask.update.mockResolvedValueOnce({
+      id: TASK_ID,
+      workspaceId: WORKSPACE_ID,
+      icpId: ICP_ID,
+      name: '德国离心泵买家',
+      status: 'active',
+      createdBy: USER_ID,
+      lastRunAt: null,
+      createdAt: now,
+      updatedAt,
+      _count: { runs: 0 },
+      runs: [],
+    });
+
+    const result = await controller.update(memberReq, TASK_ID, { name: '  德国离心泵买家  ' });
+    expect((prisma as unknown as { withWorkspace: ReturnType<typeof vi.fn> }).withWorkspace).toHaveBeenCalledWith(
+      WORKSPACE_ID,
+      expect.any(Function),
+    );
+    expect(prisma.acquisitionTask.update).toHaveBeenCalledWith({
+      where: { id: TASK_ID },
+      data: { name: '德国离心泵买家' },
+      include: {
+        runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+        _count: { select: { runs: true } },
+      },
+    });
+    expect(audit.record).toHaveBeenCalledWith({
+      realm: 'tenant',
+      actorId: USER_ID,
+      workspaceId: WORKSPACE_ID,
+      action: 'acquisition.task.update',
+      target: TASK_ID,
+      detail: { nameChanged: true },
+    });
+    expect(result).toMatchObject({
+      data: { id: TASK_ID, name: '德国离心泵买家', status: 'active', runCount: 0, runs: [] },
+    });
+  });
+
+  it.each([
+    ['active', 'paused'],
+    ['paused', 'active'],
+    ['active', 'archived'],
+    ['paused', 'archived'],
+    ['archived', 'archived'],
+  ] as const)('PATCH /api/tasks/:taskId allows transition %s -> %s and audits status change', async (fromStatus, toStatus) => {
+    const now = new Date('2026-11-04T04:00:00Z');
+    const { controller, prisma, audit } = makeController({
+      task: {
+        id: TASK_ID,
+        workspaceId: WORKSPACE_ID,
+        icpId: ICP_ID,
+        name: '德国泵买家',
+        status: fromStatus,
+        createdBy: USER_ID,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    prisma.acquisitionTask.update.mockResolvedValueOnce({
+      id: TASK_ID,
+      workspaceId: WORKSPACE_ID,
+      icpId: ICP_ID,
+      name: '德国泵买家',
+      status: toStatus,
+      createdBy: USER_ID,
+      lastRunAt: null,
+      createdAt: now,
+      updatedAt: now,
+      _count: { runs: 0 },
+      runs: [],
+    });
+
+    const result = await controller.update(req, TASK_ID, { status: toStatus });
+    expect(prisma.acquisitionTask.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: TASK_ID }, data: { status: toStatus } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'acquisition.task.update',
+        target: TASK_ID,
+        detail: { fromStatus, toStatus },
+      }),
+    );
+    expect(result.data.status).toBe(toStatus);
+  });
+
+  it.each(['active', 'paused'] as const)('PATCH /api/tasks/:taskId rejects archived -> %s with 400 INVALID_STATE', async (nextStatus) => {
+    const now = new Date('2026-11-04T04:00:00Z');
+    const { controller, prisma, audit } = makeController({
+      task: {
+        id: TASK_ID,
+        workspaceId: WORKSPACE_ID,
+        icpId: ICP_ID,
+        name: '已归档任务',
+        status: 'archived',
+        createdBy: USER_ID,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    await expect(controller.update(req, TASK_ID, { status: nextStatus })).rejects.toMatchObject({
+      status: 400,
+      response: { error: { code: 'INVALID_STATE' } },
+    });
+    expect(prisma.acquisitionTask.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /api/tasks/:taskId returns 404 TASK_NOT_FOUND for unknown or cross-tenant task', async () => {
+    const { controller, prisma, audit } = makeController({ task: null });
+    await expect(controller.update(req, TASK_ID, { name: '新名称' })).rejects.toMatchObject({
+      status: 404,
+      response: { error: { code: 'TASK_NOT_FOUND' } },
+    });
+    expect(prisma.acquisitionTask.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown field workspaceId', { workspaceId: WORKSPACE_ID }],
+    ['unknown field icpId', { icpId: ICP_ID }],
+    ['unknown field mixed with name', { name: '合法', extra: 1 }],
+    ['empty object', {}],
+    ['blank name', { name: '   ' }],
+    ['too long name', { name: 'a'.repeat(201) }],
+    ['non-string name', { name: 123 }],
+    ['uppercase ACTIVE status', { status: 'ACTIVE' }],
+    ['uppercase PAUSED status', { status: 'PAUSED' }],
+    ['unknown status enum', { status: 'deleted' }],
+    ['null status', { status: null }],
+  ] as const)('PATCH /api/tasks/:taskId rejects %s with 400 VALIDATION_ERROR before DB access', async (_label, body) => {
+    const { controller, prisma, audit } = makeController();
+    await expect(controller.update(req, TASK_ID, body as Record<string, unknown>)).rejects.toMatchObject({
+      status: 400,
+      response: { error: { code: 'VALIDATION_ERROR' } },
+    });
+    expect(prisma.acquisitionTask.findFirst).not.toHaveBeenCalled();
+    expect(prisma.acquisitionTask.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /api/tasks/:taskId rejects malformed taskId with 400 VALIDATION_ERROR', async () => {
+    const { controller, prisma } = makeController();
+    await expect(controller.update(req, 'bad-id', { name: 'ok' })).rejects.toMatchObject({
+      status: 400,
+      response: { error: { code: 'VALIDATION_ERROR' } },
+    });
+    expect(prisma.acquisitionTask.findFirst).not.toHaveBeenCalled();
   });
 });

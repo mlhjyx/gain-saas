@@ -200,4 +200,24 @@ describe('copyForError 英文词表', () => {
     const missing = codes.filter((code) => !mod.ENGINE_ERROR_COPY[code].en);
     expect(missing).toEqual([]);
   });
+
+  it('LAST_MEMBER / LAST_ADMIN / TASK_NOT_FOUND / TASK_ARCHIVED 具备中英文白话三层文案且不含机器术语', () => {
+    const forbidden = /\b(run|icp|canonical|plan_hash|uuid|PARTIAL|FAILED|RISKY)\b/i;
+    for (const code of ['LAST_MEMBER', 'LAST_ADMIN', 'TASK_NOT_FOUND', 'TASK_ARCHIVED'] as const) {
+      const zh = copyForError(code, 'zh-CN');
+      const en = copyForError(code, 'en-US');
+      for (const layer of [zh.title, zh.why, zh.next, en.title, en.why, en.next]) {
+        expect(layer.trim(), `${code}`).not.toBe('');
+        expect(layer, `${code}: ${layer}`).not.toMatch(forbidden);
+      }
+    }
+    expect(copyForError('LAST_MEMBER', 'zh-CN').title).toContain('最后一名成员');
+    expect(copyForError('LAST_MEMBER', 'zh-CN').next).toContain('邀请');
+    expect(copyForError('LAST_MEMBER', 'en-US').title).toContain('last member');
+    expect(copyForError('LAST_ADMIN', 'zh-CN').why).toContain('退出');
+    expect(copyForError('LAST_ADMIN', 'zh-CN').next).toContain('管理员');
+    expect(copyForError('LAST_ADMIN', 'en-US').why.toLowerCase()).toContain('leave');
+    expect(copyForError('TASK_NOT_FOUND', 'zh-CN').title).toContain('挖掘任务');
+    expect(copyForError('TASK_ARCHIVED', 'en-US').title.toLowerCase()).toContain('archived');
+  });
 });

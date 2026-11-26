@@ -492,22 +492,42 @@ export const ENGINE_ERROR_COPY = {
   },
   LAST_ADMIN: {
     title: '至少保留一名管理员',
-    why: '移除或降级最后一名管理员会让工作空间无人可管理。',
+    why: '退出、移除或降级最后一名管理员会让工作空间无人可管理。',
     next: '先把另一位成员设为管理员，再执行本次操作。',
     en: {
-      title: "Keep at least one admin",
-      why: "Removing or demoting the last admin leaves the workspace unmanageable.",
-      next: "Make another member an admin first, then repeat this action.",
+      title: 'Keep at least one admin',
+      why: 'Having the last admin leave, or removing or demoting them, leaves the workspace unmanageable.',
+      next: 'Make another member an admin first, then repeat this action.',
     },
   },
   LAST_MEMBER: {
-    title: '你是最后一名成员，不能退出',
-    why: '工作空间至少要有一名成员。',
-    next: '邀请成员加入后再退出，或直接停用该空间。',
+    title: '你是最后一名成员，暂时不能退出',
+    why: '每个工作空间至少需要保留一名成员，避免空间无人维护。',
+    next: '请先邀请其他同事加入并移交管理权限后再退出，或在设置中申请注销该工作空间。',
     en: {
-      title: "You are the last member and cannot leave",
-      why: "A workspace must have at least one member.",
-      next: "Invite a member before leaving, or disable the workspace instead.",
+      title: 'You are the last member and cannot leave',
+      why: 'Every workspace must keep at least one active member so it is not left unmanaged.',
+      next: 'Invite a colleague and hand over admin access before leaving, or schedule workspace offboarding in Settings.',
+    },
+  },
+  TASK_NOT_FOUND: {
+    title: '找不到这条挖掘任务',
+    why: '该任务可能已被删除，或不属于当前工作空间。',
+    next: '返回挖掘任务列表刷新查看；如链接来自他人，请确认已切换到对应工作空间。',
+    en: {
+      title: 'Prospecting task not found',
+      why: 'This task may have been deleted or belongs to another workspace.',
+      next: 'Return to the tasks list and refresh; if someone shared the link, confirm you are in the right workspace.',
+    },
+  },
+  TASK_ARCHIVED: {
+    title: '该挖掘任务已归档',
+    why: '已归档的任务为只读留档状态，不能再次发起执行或恢复运行。',
+    next: '如需继续挖掘同类买家，请新建一条挖掘任务。',
+    en: {
+      title: 'This prospecting task is archived',
+      why: 'Archived tasks are kept for reference only and cannot be started or resumed.',
+      next: 'Create a new prospecting task if you want to continue finding similar buyers.',
     },
   },
   VERSION_CONFLICT: {

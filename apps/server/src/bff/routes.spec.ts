@@ -367,3 +367,51 @@ describe('MT-P1 async data-exports BFF routes', () => {
     });
   });
 });
+
+describe('Wave B1 BFF cleanup and 7 engine passthrough routes', () => {
+  const find = (method: string, saasPath: string) =>
+    BFF_ROUTES.find((candidate) => candidate.method === method && candidate.saasPath === saasPath);
+
+  it('removes broken GET /data-providers route (engine requires ops:read)', () => {
+    expect(find('GET', 'data-providers')).toBeUndefined();
+  });
+
+  it('registers result-view and feedback/recompute as member passthroughs without grants', () => {
+    const memberCases: Array<readonly ['GET' | 'POST', string]> = [
+      ['GET', 'discovery-runs/:runId/result-view'],
+      ['POST', 'icps/:icpId/feedback/recompute'],
+    ];
+    for (const [method, saasPath] of memberCases) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toEqual({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+      expect(route?.complianceInject).toBeUndefined();
+    }
+  });
+
+  it('registers all 5 contact-enrichment results/quality-facts routes as admin without grants or compliance injection', () => {
+    const adminCases: Array<readonly ['GET' | 'POST', string]> = [
+      ['GET', 'canonical-companies/:id/contact-enrichment-results'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-results/:operationRef'],
+      ['POST', 'canonical-companies/:id/contact-enrichment-results/:operationRef/recover'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-quality-facts'],
+      ['GET', 'canonical-companies/:id/contact-enrichment-quality-facts/:operationRef'],
+    ];
+    for (const [method, saasPath] of adminCases) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toEqual({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'admin',
+      });
+      expect(route?.grant).toBeUndefined();
+      expect(route?.complianceInject).toBeUndefined();
+    }
+  });
+});

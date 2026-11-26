@@ -1,5 +1,7 @@
+import type { ArgumentsHost } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
+import { GlobalHttpExceptionFilter } from '../shared/http-exception.filter.js';
 import { SESSION_COOKIE } from './session.service.js';
 import { WorkspacesController } from './workspaces.controller.js';
 
@@ -160,6 +162,56 @@ describe('WorkspacesController.leave', () => {
     expect(sessions.find((s) => s.jti === 'jti-curr-legacy')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-curr-tab2')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-other-ws')?.revokedAt).toBeNull();
+  });
+
+  it('rejects leaving when user is LAST_MEMBER or LAST_ADMIN with bilingual userCopy via GlobalHttpExceptionFilter', async () => {
+    const filter = new GlobalHttpExceptionFilter();
+    const capture = (err: unknown, lang: string) => {
+      const sent: { status?: number; body?: { error?: { code?: string; userCopy?: { title?: string; why?: string; next?: string } } } } = {};
+      const host = {
+        switchToHttp: () => ({
+          getRequest: () => ({ headers: { 'accept-language': lang } }),
+          getResponse: () => ({
+            status(code: number) {
+              sent.status = code;
+              return this;
+            },
+            json(payload: typeof sent.body) {
+              sent.body = payload;
+              return this;
+            },
+          }),
+        }),
+      } as unknown as ArgumentsHost;
+      filter.catch(err, host);
+      return sent;
+    };
+
+    const lastMemberFixture = makeController([], 'member');
+    ((lastMemberFixture.prisma.membership as Record<string, unknown>).count as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0);
+    const req = { tenant: { userId: USER_ID, workspaceId: WS_CURR, role: 'member', jti: 'jti-1', exp: 9_999_999_999 } } as unknown as Request;
+    const lastMemberErr = await lastMemberFixture.controller.leave(req, { clearCookie: vi.fn() } as unknown as Response, WS_CURR).catch((e: unknown) => e);
+    const lmZh = capture(lastMemberErr, 'zh-CN');
+    const lmEn = capture(lastMemberErr, 'en-US');
+    expect(lmZh.status).toBe(400);
+    expect(lmZh.body?.error?.code).toBe('LAST_MEMBER');
+    expect(lmZh.body?.error?.userCopy?.title).toContain('最后一名成员');
+    expect(lmEn.body?.error?.userCopy?.title).toContain('last member');
+
+    const lastAdminFixture = makeController([], 'admin');
+    ((lastAdminFixture.prisma.membership as Record<string, unknown>).count as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1);
+    const adminReq = { tenant: { userId: USER_ID, workspaceId: WS_CURR, role: 'admin', jti: 'jti-2', exp: 9_999_999_999 } } as unknown as Request;
+    const lastAdminErr = await lastAdminFixture.controller.leave(adminReq, { clearCookie: vi.fn() } as unknown as Response, WS_CURR).catch((e: unknown) => e);
+    const laZh = capture(lastAdminErr, 'zh-CN');
+    const laEn = capture(lastAdminErr, 'en-US');
+    expect(laZh.status).toBe(400);
+    expect(laZh.body?.error?.code).toBe('LAST_ADMIN');
+    expect(laZh.body?.error?.userCopy?.title).toContain('管理员');
+    expect(laEn.body?.error?.userCopy?.title).toContain('admin');
   });
 });
 
