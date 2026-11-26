@@ -57,28 +57,87 @@ function jsonContainsUuidRef(value: unknown, refs: ReadonlySet<string>, depth = 
   return false;
 }
 
-function scrubAuditPackageDrafts(
+function scrubAuditPackage(
   pkg: unknown,
   contactRefs: ReadonlySet<string>,
+  matchedRefs: ReadonlySet<string>,
+  deletionRequestId: string,
 ): { changed: boolean; value: unknown } {
-  if (!isObject(pkg) || !Array.isArray(pkg.drafts)) {
+  if (!isObject(pkg)) {
     return { changed: false, value: pkg };
   }
   let changed = false;
-  const drafts = pkg.drafts.map((entry) => {
-    if (!isObject(entry)) return entry;
-    const ref = typeof entry.contactRef === 'string' ? entry.contactRef.toLowerCase() : '';
-    if (!ref || !contactRefs.has(ref)) return entry;
-    changed = true;
-    return {
-      ...entry,
-      recipientEmail: '[ERASED]',
-      companyName: '[ERASED]',
-      subject: '[ERASED]',
-      body: '[ERASED]',
-    };
-  });
-  return changed ? { changed: true, value: { ...pkg, drafts } } : { changed: false, value: pkg };
+  let nextPkg: Record<string, unknown> = pkg;
+
+  if (Array.isArray(pkg.drafts)) {
+    const drafts = pkg.drafts.map((entry) => {
+      if (!isObject(entry)) return entry;
+      const ref = typeof entry.contactRef === 'string' ? entry.contactRef.toLowerCase() : '';
+      const draftId = typeof entry.draftId === 'string' ? entry.draftId.toLowerCase() : '';
+      const matched = (ref && contactRefs.has(ref)) || (draftId && matchedRefs.has(draftId));
+      if (!matched) return entry;
+      changed = true;
+      const sends = Array.isArray(entry.sends)
+        ? entry.sends.map((send) => {
+            if (!isObject(send) || typeof send.error !== 'string') return send;
+            return { ...send, error: '[ERASED]' };
+          })
+        : entry.sends;
+      return {
+        ...entry,
+        recipientEmail: '[ERASED]',
+        companyName: '[ERASED]',
+        subject: '[ERASED]',
+        body: '[ERASED]',
+        ...(entry.sends !== undefined ? { sends } : {}),
+      };
+    });
+    if (changed) {
+      nextPkg = { ...nextPkg, drafts };
+    }
+  }
+
+  if (Array.isArray(pkg.events)) {
+    let eventsChanged = false;
+    const events = pkg.events.map((entry) => {
+      if (!isObject(entry)) return entry;
+      if (!jsonContainsUuidRef(entry, matchedRefs)) return entry;
+      eventsChanged = true;
+      return {
+        ...entry,
+        detail: {
+          redacted: true,
+          reason: 'GDPR_ART17',
+          deletionRequestId,
+        },
+      };
+    });
+    if (eventsChanged) {
+      changed = true;
+      nextPkg = { ...nextPkg, events };
+    }
+  }
+
+  return changed ? { changed: true, value: nextPkg } : { changed: false, value: pkg };
+}
+
+function scrubQualifiedLeadContacts(
+  snapshot: unknown,
+  contactRefs: ReadonlySet<string>,
+): { changed: boolean; value: unknown } {
+  if (!isObject(snapshot)) return { changed: false, value: snapshot };
+  let changed = false;
+  const next: Record<string, unknown> = { ...snapshot };
+  for (const key of ['contact_refs', 'contacts'] as const) {
+    const list = next[key];
+    if (!Array.isArray(list)) continue;
+    const filtered = list.filter((item) => !jsonContainsUuidRef(item, contactRefs));
+    if (filtered.length !== list.length) {
+      changed = true;
+      next[key] = filtered;
+    }
+  }
+  return changed ? { changed: true, value: next } : { changed: false, value: snapshot };
 }
 
 function discoveryRunId(payload: Record<string, unknown>, aggregateId: string | null): string {
@@ -671,7 +730,9 @@ export class EventConsumerService implements OnModuleInit {
     }
 
     let saasDeleted = 0;
+    const deletionRequestId = refId || event.eventId;
     const targetRefs = new Set<string>([...contactRefs, ...(companyRef ? [companyRef] : [])]);
+    const matchedDraftIds = new Set<string>();
 
     if (contactRefs.length > 0) {
       const matchedDrafts = await tx.outreachDraft.findMany({
@@ -679,6 +740,7 @@ export class EventConsumerService implements OnModuleInit {
         select: { id: true, batchId: true, contactPointId: true },
       });
       const draftIds = matchedDrafts.map((d) => d.id);
+      for (const draftId of draftIds) matchedDraftIds.add(draftId.toLowerCase());
       const contactPointIds = [
         ...new Set(matchedDrafts.map((d) => d.contactPointId).filter((id): id is string => typeof id === 'string' && id.length > 0)),
       ];
@@ -718,20 +780,42 @@ export class EventConsumerService implements OnModuleInit {
           where: { workspaceId, subjectType: 'contact', subjectRef: { in: contactRefs } },
         })
       ).count;
+    }
 
-      const auditPackages = await tx.outreachAuditPackage.findMany({
-        where: { workspaceId },
-        select: { id: true, package: true },
-      });
-      for (const pkgRow of auditPackages) {
-        const scrubbed = scrubAuditPackageDrafts(pkgRow.package, contactRefSet);
-        if (scrubbed.changed) {
-          await tx.outreachAuditPackage.update({
-            where: { id: pkgRow.id },
-            data: { package: scrubbed.value as Prisma.InputJsonValue },
-          });
-          saasDeleted += 1;
-        }
+    const matchedRefs = new Set<string>([...targetRefs, ...matchedDraftIds]);
+
+    const batchEvents = await tx.outreachBatchEvent.findMany({
+      where: { workspaceId },
+      select: { id: true, detail: true },
+    });
+    for (const batchEvent of batchEvents) {
+      if (jsonContainsUuidRef(batchEvent.detail, matchedRefs)) {
+        await tx.outreachBatchEvent.update({
+          where: { id: batchEvent.id },
+          data: {
+            detail: {
+              redacted: true,
+              reason: 'GDPR_ART17',
+              deletionRequestId,
+            },
+          },
+        });
+        saasDeleted += 1;
+      }
+    }
+
+    const auditPackages = await tx.outreachAuditPackage.findMany({
+      where: { workspaceId },
+      select: { id: true, package: true },
+    });
+    for (const pkgRow of auditPackages) {
+      const scrubbed = scrubAuditPackage(pkgRow.package, contactRefSet, matchedRefs, deletionRequestId);
+      if (scrubbed.changed) {
+        await tx.outreachAuditPackage.update({
+          where: { id: pkgRow.id },
+          data: { package: scrubbed.value as Prisma.InputJsonValue },
+        });
+        saasDeleted += 1;
       }
     }
 
@@ -779,6 +863,21 @@ export class EventConsumerService implements OnModuleInit {
           })
         ).count;
       }
+    } else if (contactRefs.length > 0) {
+      const qualifiedLeads = await tx.qualifiedLead.findMany({
+        where: { workspaceId },
+        select: { id: true, leadId: true, snapshot: true },
+      });
+      for (const row of qualifiedLeads) {
+        const scrubbed = scrubQualifiedLeadContacts(row.snapshot, contactRefSet);
+        if (scrubbed.changed) {
+          await tx.qualifiedLead.update({
+            where: { id: row.id },
+            data: { snapshot: scrubbed.value as Prisma.InputJsonValue },
+          });
+          saasDeleted += 1;
+        }
+      }
     }
 
     const inboxRows = await tx.eventInbox.findMany({
@@ -797,7 +896,7 @@ export class EventConsumerService implements OnModuleInit {
             payload: {
               redacted: true,
               reason: 'GDPR_ART17',
-              deletionRequestId: refId || event.eventId,
+              deletionRequestId,
             },
           },
         });

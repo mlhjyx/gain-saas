@@ -190,6 +190,24 @@ describe.skipIf(!available)('EventConsumerService DeletionCompleted PG16 RLS cas
           { workspaceId: wsId, experimentId: exp.id, subjectType: 'account', subjectRef: companyRef, arm: 'holdout', bucket: 11 },
         ],
       });
+      await adminPrisma.outreachBatchEvent.createMany({
+        data: [
+          {
+            workspaceId: wsId,
+            batchId: batch.id,
+            type: 'DRAFT_SKIPPED',
+            actor: userId,
+            detail: { contactRef, draftId: draft.id, reason: `DNC ${email}` },
+          },
+          {
+            workspaceId: wsId,
+            batchId: batch.id,
+            type: 'BATCH_APPROVED',
+            actor: userId,
+            detail: { approvedCount: 1 },
+          },
+        ],
+      });
       await adminPrisma.outreachAuditPackage.create({
         data: {
           workspaceId: wsId,
@@ -207,6 +225,17 @@ describe.skipIf(!available)('EventConsumerService DeletionCompleted PG16 RLS cas
                 companyName: 'Target Co',
                 subject: `Hello ${email}`,
                 body: `Secret body for ${email}`,
+                sends: [{ attempt: 1, status: 'FAILED', error: `550 <${email}> user unknown` }],
+              },
+            ],
+            events: [
+              {
+                type: 'DRAFT_SKIPPED',
+                detail: { contactRef, draftId: draft.id, reason: `DNC ${email}` },
+              },
+              {
+                type: 'BATCH_APPROVED',
+                detail: { approvedCount: 1 },
               },
             ],
           },
@@ -339,13 +368,23 @@ describe.skipIf(!available)('EventConsumerService DeletionCompleted PG16 RLS cas
     const pkgA = await adminPrisma.outreachAuditPackage.findFirst({ where: { workspaceId: WS_A } });
     expect(JSON.stringify(pkgA?.package)).not.toContain('alice@target-a.example');
     expect(JSON.stringify(pkgA?.package)).toContain('[ERASED]');
+    expect(JSON.stringify(pkgA?.package)).toContain('GDPR_ART17');
+
+    const batchEventsA = await adminPrisma.outreachBatchEvent.findMany({ where: { workspaceId: WS_A } });
+    expect(JSON.stringify(batchEventsA)).not.toContain('alice@target-a.example');
+    expect(batchEventsA.find((e) => e.type === 'DRAFT_SKIPPED')?.detail).toEqual({
+      redacted: true,
+      reason: 'GDPR_ART17',
+      deletionRequestId: reqId,
+    });
+    expect(batchEventsA.find((e) => e.type === 'BATCH_APPROVED')?.detail).toEqual({ approvedCount: 1 });
 
     const inboxA = await adminPrisma.eventInbox.findUnique({ where: { eventId: leadEventIdA } });
     expect(inboxA?.payload).toEqual({ redacted: true, reason: 'GDPR_ART17', deletionRequestId: reqId });
 
     const mirror = await adminPrisma.deletionMirror.findUnique({ where: { engineRequestId: reqId } });
     expect(mirror).toMatchObject({ workspaceId: WS_A, status: 'COMPLETED' });
-    expect(mirror!.saasDeleted).toBeGreaterThanOrEqual(15);
+    expect(mirror!.saasDeleted).toBeGreaterThanOrEqual(16);
 
     // WS_B: completely untouched
     expect(await adminPrisma.outreachDraft.count({ where: { workspaceId: WS_B } })).toBe(1);
@@ -354,7 +393,73 @@ describe.skipIf(!available)('EventConsumerService DeletionCompleted PG16 RLS cas
     expect(await adminPrisma.qualifiedLead.count({ where: { workspaceId: WS_B } })).toBe(1);
     const pkgB = await adminPrisma.outreachAuditPackage.findFirst({ where: { workspaceId: WS_B } });
     expect(JSON.stringify(pkgB?.package)).toContain('bob@target-b.example');
+    const batchEventsB = await adminPrisma.outreachBatchEvent.findMany({ where: { workspaceId: WS_B } });
+    expect(JSON.stringify(batchEventsB)).toContain('bob@target-b.example');
     const inboxB = await adminPrisma.eventInbox.findUnique({ where: { eventId: leadEventIdB } });
     expect(JSON.stringify(inboxB?.payload)).toContain('bob@target-b.example');
+
+    // Single-contact erasure (subject_type='contact') strips only that contact from qualified_lead.snapshot.contact_refs
+    const contactEraseId = randomUUID();
+    const contactKeepId = randomUUID();
+    const contactReqId = randomUUID();
+    const contactEventId = randomUUID();
+    const qlContactId = randomUUID();
+    await adminPrisma.qualifiedLead.create({
+      data: {
+        id: qlContactId,
+        workspaceId: WS_A,
+        eventId: randomUUID(),
+        leadId: randomUUID(),
+        snapshot: {
+          company_ref: { canonical_company_id: randomUUID(), name: 'Multi-Contact GmbH' },
+          contact_refs: [
+            { contact_id: contactEraseId, full_name: 'Erase Me', email: 'erase@multi.example' },
+            { contact_id: contactKeepId, full_name: 'Keep Me', email: 'keep@multi.example' },
+          ],
+        },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  event_id: contactEventId,
+                  event_type: 'DeletionCompleted',
+                  workspace_id: WS_A,
+                  occurred_at: new Date().toISOString(),
+                  aggregate_id: contactReqId,
+                  payload: {
+                    snapshot_version: 1,
+                    deletion_request_id: contactReqId,
+                    subject_type: 'contact',
+                    subject_ref: contactEraseId,
+                    contacts_erased: 1,
+                    contact_points_erased: 1,
+                    field_evidence_erased: 0,
+                    signals_revoked: 0,
+                    companies_suppressed: 0,
+                    leads_rescore_requested: 0,
+                    rule_version: 'v1',
+                    erased_at: new Date().toISOString(),
+                  },
+                },
+              ],
+              page: { next_cursor: null, has_more: false },
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }), { status: 200 })),
+    );
+    await consumer.consumeOnce();
+    const updatedQl = await adminPrisma.qualifiedLead.findUnique({ where: { id: qlContactId } });
+    expect(JSON.stringify(updatedQl?.snapshot)).not.toContain('erase@multi.example');
+    expect(JSON.stringify(updatedQl?.snapshot)).not.toContain(contactEraseId);
+    expect(JSON.stringify(updatedQl?.snapshot)).toContain(contactKeepId);
   }, 120_000);
 });

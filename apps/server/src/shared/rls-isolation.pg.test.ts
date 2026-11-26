@@ -411,7 +411,7 @@ describe.skipIf(!available)('PG16 51-table FORCE RLS, gain_saas_app & SECURITY D
       error: { code: 'NOT_FOUND' },
     });
 
-    // 7. OpsService.workspaces / users / setWorkspaceStatus & OpsCampaignMetricsService (cross-workspace + single workspace)
+    // 7. OpsService.workspaces / users / storage-quota / detail / setWorkspaceStatus & OpsCampaignMetricsService
     const opsService = new OpsService(
       config,
       {} as never,
@@ -424,6 +424,39 @@ describe.skipIf(!available)('PG16 51-table FORCE RLS, gain_saas_app & SECURITY D
     expect(opsWorkspaces.some((w) => w.id === ws1)).toBe(true);
     const opsUsers = await opsService.users();
     expect(opsUsers.some((u) => u.email === 'founder@rls-test.example')).toBe(true);
+
+    // workspace_storage_quota FORCE RLS cross-tenant isolation + OpsService write/detail path under gain_saas_app
+    const savedQuota = await opsService.updateWorkspaceStorageQuota(
+      ws1,
+      {
+        maxDocumentsPerWorkspace: 800,
+        maxDocumentsPerCompany: 250,
+        maxBytesPerWorkspace: '4294967296',
+        maxExportsPerDay: 15,
+      },
+      'ops-1',
+    );
+    expect(savedQuota).toMatchObject({
+      workspaceId: ws1,
+      maxDocumentsPerWorkspace: 800,
+      maxDocumentsPerCompany: 250,
+      maxBytesPerWorkspace: '4294967296',
+      maxExportsPerDay: 15,
+      isDefault: false,
+    });
+    expect(await appPrisma.workspaceStorageQuota.findMany()).toEqual([]);
+    const quotaSeenFromWsB = await appPrisma.withWorkspace(WS_B, (tx) =>
+      tx.workspaceStorageQuota.findMany(),
+    );
+    expect(quotaSeenFromWsB).toEqual([]);
+    const detail = await opsService.workspaceDetail(ws1);
+    expect(detail.workspace).toMatchObject({ id: ws1, name: 'RLS Test GmbH', status: 'ACTIVE' });
+    expect(detail.storageQuota).toMatchObject({
+      workspaceId: ws1,
+      maxDocumentsPerWorkspace: 800,
+      maxBytesPerWorkspace: '4294967296',
+      isDefault: false,
+    });
 
     const opsMetrics = new OpsCampaignMetricsService(appPrisma, {
       db: { query: vi.fn(async () => ({ rows: [] })) },

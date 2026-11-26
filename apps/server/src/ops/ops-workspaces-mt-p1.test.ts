@@ -266,6 +266,24 @@ describe('OpsService MT-P1 workspace reconcile / detail / quota management', () 
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
+    // Reject boolean coercion (true must NOT coerce to 1)
+    await expect(
+      service.updateWorkspaceStorageQuota(
+        WS_MATCH,
+        { maxDocumentsPerWorkspace: true, maxDocumentsPerCompany: 1, maxBytesPerWorkspace: '1048576', maxExportsPerDay: 5 },
+        OPS_ACTOR,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Reject cross-field inversion: maxDocumentsPerCompany > maxDocumentsPerWorkspace
+    await expect(
+      service.updateWorkspaceStorageQuota(
+        WS_MATCH,
+        { maxDocumentsPerWorkspace: 100, maxDocumentsPerCompany: 200, maxBytesPerWorkspace: '1048576', maxExportsPerDay: 5 },
+        OPS_ACTOR,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
     const updated = await service.updateWorkspaceStorageQuota(
       WS_MATCH,
       {

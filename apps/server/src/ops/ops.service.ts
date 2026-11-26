@@ -24,6 +24,16 @@ type Row = Record<string, unknown>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const positiveIntField = (min: number, max: number, label: string) =>
+  z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform((value, ctx) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+      ctx.addIssue({ code: 'custom', message: `${label} 必须在 ${min}..${max} 之间` });
+      return z.NEVER;
+    }
+    return parsed;
+  });
+
 const positiveBigIntField = (min: bigint, max: bigint, label: string) =>
   z.union([z.number().int(), z.string().regex(/^\d+$/)]).transform((value, ctx) => {
     try {
@@ -39,12 +49,17 @@ const positiveBigIntField = (min: bigint, max: bigint, label: string) =>
     }
   });
 
-const updateStorageQuotaSchema = z.object({
-  maxDocumentsPerWorkspace: z.coerce.number().int().min(1).max(100_000),
-  maxDocumentsPerCompany: z.coerce.number().int().min(1).max(50_000),
-  maxBytesPerWorkspace: positiveBigIntField(1_048_576n, 1_099_511_627_776n, 'maxBytesPerWorkspace'),
-  maxExportsPerDay: z.coerce.number().int().min(1).max(1_000),
-});
+const updateStorageQuotaSchema = z
+  .object({
+    maxDocumentsPerWorkspace: positiveIntField(1, 100_000, 'maxDocumentsPerWorkspace'),
+    maxDocumentsPerCompany: positiveIntField(1, 50_000, 'maxDocumentsPerCompany'),
+    maxBytesPerWorkspace: positiveBigIntField(1_048_576n, 1_099_511_627_776n, 'maxBytesPerWorkspace'),
+    maxExportsPerDay: positiveIntField(1, 1_000, 'maxExportsPerDay'),
+  })
+  .refine((v) => v.maxDocumentsPerCompany <= v.maxDocumentsPerWorkspace, {
+    path: ['maxDocumentsPerCompany'],
+    message: 'maxDocumentsPerCompany 不能大于 maxDocumentsPerWorkspace',
+  });
 
 const PROVIDER_STATUSES = new Set(['ENABLED', 'DISABLED']);
 const SOURCE_STATUSES = new Set(['ACTIVE', 'PAUSED', 'ARCHIVED']);

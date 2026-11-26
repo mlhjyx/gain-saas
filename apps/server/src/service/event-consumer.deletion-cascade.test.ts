@@ -26,6 +26,7 @@ function createCascadeHarness(options: {
   drafts?: Array<{ id: string; batchId: string; contactPointId: string | null }>;
   bases?: Array<{ id: string }>;
   auditPackages?: Array<{ id: string; package: unknown }>;
+  batchEvents?: Array<{ id: string; detail: unknown }>;
   qgos?: Array<{ id: string; leadRef: string; sao: { id: string } | null }>;
   qualifiedLeads?: Array<{ id: string; leadId: string; snapshot: unknown }>;
   inboxRows?: Array<{ id: string; eventId: string; type: string; payload: unknown }>;
@@ -40,6 +41,7 @@ function createCascadeHarness(options: {
     qualifiedLead: {
       create: vi.fn(async () => ({})),
       findMany: vi.fn(async () => options.qualifiedLeads ?? []),
+      update: vi.fn(async () => ({})),
       deleteMany: vi.fn(async () => ({ count: (options.qualifiedLeads ?? []).length })),
     },
     costLedger: { createMany: vi.fn(async () => ({ count: 0 })) },
@@ -61,6 +63,10 @@ function createCascadeHarness(options: {
     },
     outreachCallAttempt: { deleteMany: vi.fn(async () => ({ count: 1 })) },
     outreachExperimentAssignment: { deleteMany: vi.fn(async () => ({ count: 1 })) },
+    outreachBatchEvent: {
+      findMany: vi.fn(async () => options.batchEvents ?? []),
+      update: vi.fn(async () => ({})),
+    },
     outreachAuditPackage: {
       findMany: vi.fn(async () => options.auditPackages ?? []),
       update: vi.fn(async () => ({})),
@@ -158,6 +164,9 @@ describe('EventConsumerService DeletionCompleted GDPR cascade erasure', () => {
                 companyName: 'Buyer Corp',
                 subject: 'Hi Alice',
                 body: 'Personal outreach body',
+                sends: [
+                  { attempt: 1, status: 'FAILED', error: '550 5.1.1 <alice@buyer.example> user unknown' },
+                ],
               },
               {
                 draftId: DRAFT_2,
@@ -166,7 +175,41 @@ describe('EventConsumerService DeletionCompleted GDPR cascade erasure', () => {
                 companyName: 'Other Corp',
                 subject: 'Hi Bob',
                 body: 'Keep intact',
+                sends: [{ attempt: 1, status: 'SENT', error: null }],
               },
+            ],
+            events: [
+              {
+                type: 'DRAFT_SKIPPED',
+                detail: { contactRef: CONTACT_1, draftId: DRAFT_1, reason: 'DNC <alice@buyer.example>' },
+              },
+              {
+                type: 'BATCH_APPROVED',
+                detail: { approvedCount: 2 },
+              },
+            ],
+          },
+        },
+      ],
+      batchEvents: [
+        {
+          id: 'be-match',
+          detail: { contactRef: CONTACT_1, draftId: DRAFT_1, reason: 'SKIPPED alice@buyer.example' },
+        },
+        {
+          id: 'be-keep',
+          detail: { approvedCount: 2 },
+        },
+      ],
+      qualifiedLeads: [
+        {
+          id: 'ql-contact-1',
+          leadId: LEAD_1,
+          snapshot: {
+            company_ref: { canonical_company_id: COMPANY_ID, name: 'Buyer Corp' },
+            contact_refs: [
+              { contact_id: CONTACT_1, full_name: 'Alice', email: 'alice@buyer.example' },
+              { contact_id: CONTACT_OTHER, full_name: 'Bob', email: 'bob@other.example' },
             ],
           },
         },
@@ -227,7 +270,7 @@ describe('EventConsumerService DeletionCompleted GDPR cascade erasure', () => {
       where: { workspaceId: WORKSPACE, subjectType: 'contact', subjectRef: { in: [CONTACT_1] } },
     });
 
-    // Audit package scrubbed for CONTACT_1 while preserving CONTACT_OTHER
+    // Audit package scrubbed for CONTACT_1 (including sends[].error & events[]) while preserving CONTACT_OTHER
     expect(tx.outreachAuditPackage.update).toHaveBeenCalledWith({
       where: { id: PKG_1 },
       data: {
@@ -240,15 +283,50 @@ describe('EventConsumerService DeletionCompleted GDPR cascade erasure', () => {
               companyName: '[ERASED]',
               subject: '[ERASED]',
               body: '[ERASED]',
+              sends: [expect.objectContaining({ attempt: 1, status: 'FAILED', error: '[ERASED]' })],
             }),
             expect.objectContaining({
               draftId: DRAFT_2,
               contactRef: CONTACT_OTHER,
               recipientEmail: 'bob@other.example',
               body: 'Keep intact',
+              sends: [expect.objectContaining({ attempt: 1, status: 'SENT', error: null })],
+            }),
+          ],
+          events: [
+            expect.objectContaining({
+              type: 'DRAFT_SKIPPED',
+              detail: { redacted: true, reason: 'GDPR_ART17', deletionRequestId: REQ_ID },
+            }),
+            expect.objectContaining({
+              type: 'BATCH_APPROVED',
+              detail: { approvedCount: 2 },
             }),
           ],
         }),
+      },
+    });
+
+    // outreach_batch_event matching CONTACT_1 / DRAFT_1 redacted while unrelated event stays untouched
+    expect(tx.outreachBatchEvent.update).toHaveBeenCalledTimes(1);
+    expect(tx.outreachBatchEvent.update).toHaveBeenCalledWith({
+      where: { id: 'be-match' },
+      data: {
+        detail: { redacted: true, reason: 'GDPR_ART17', deletionRequestId: REQ_ID },
+      },
+    });
+
+    // qualified_lead.snapshot.contact_refs strips CONTACT_1 while preserving CONTACT_OTHER
+    expect(tx.qualifiedLead.update).toHaveBeenCalledTimes(1);
+    expect(tx.qualifiedLead.update).toHaveBeenCalledWith({
+      where: { id: 'ql-contact-1' },
+      data: {
+        snapshot: {
+          company_ref: { canonical_company_id: COMPANY_ID, name: 'Buyer Corp' },
+          contact_refs: [
+            { contact_id: CONTACT_OTHER, full_name: 'Bob', email: 'bob@other.example' },
+          ],
+        },
       },
     });
 
