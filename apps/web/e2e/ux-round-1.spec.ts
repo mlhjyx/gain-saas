@@ -449,8 +449,8 @@ test('#3 #6 建议 2 公司档案：页签不带数量，档案就绪后收起�
   await loginAs(page);
   await page.goto('/companies');
 
-  const views = page.getByRole('group', { name: '企业事实与资料库视图' }).getByRole('button');
-  await expect(views).toHaveText(['企业事实', '资料库']);
+  const views = page.getByRole('group', { name: '企业档案工作台视图' }).getByRole('button');
+  await expect(views).toHaveText(['企业事实', '企业资料库', '目标市场']);
 
   // 事实都审完了、画像还没建：只留「去设定画像」，不再写「下一步」加一段说明
   const next = page.locator("[data-gs='next-step']");

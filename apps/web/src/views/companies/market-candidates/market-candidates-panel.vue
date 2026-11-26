@@ -9,7 +9,13 @@ import CandidateDetail from "./candidate-detail.vue";
 import FeedbackDialog from "./feedback-dialog.vue";
 import RevisionHistory from "./revision-history.vue";
 import { useMarketCandidates } from "./use-market-candidates";
-const props = defineProps<{ companyId: string; companyName: string; context: string; hidden?: boolean }>();
+const props = defineProps<{
+  companyId: string;
+  companyName: string;
+  context: string;
+  hidden?: boolean;
+  inline?: boolean;
+}>();
 const emit = defineEmits<{
   close: [];
   recover: [{ companyId: string; destination: 'facts' | 'documents' }];
@@ -62,7 +68,7 @@ let feedbackFocus: HTMLElement | null = null,
 async function returnFocus(trigger: HTMLElement | null) {
   await nextTick();
   if (trigger?.isConnected && root.value?.contains(trigger)) trigger.focus();
-  else root.value?.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
+  else if (!props.inline) root.value?.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
 }
 function openFeedback(
   candidate: import("#/api/market-candidates").Candidate,
@@ -90,14 +96,14 @@ watch(feedbackCandidate, (value, previous) => {
 watch(
   () => props.hidden,
   async (hidden) => {
-    if (hidden) return;
+    if (props.inline || hidden) return;
     await nextTick();
     if (recoveryTrigger?.isConnected) recoveryTrigger.focus();
     else root.value?.querySelector<HTMLElement>('[data-testid="mc-recover-facts"]')?.focus();
   },
 );
 watch([loading, busy, historyBusy, feedbackBusy, feedbackCandidate, activeCandidate, () => props.hidden], async () => {
-  if (props.hidden || leaveConfirmOpen.value) return;
+  if (props.inline || props.hidden || leaveConfirmOpen.value) return;
   await nextTick();
   const modal =
     root.value?.querySelector<HTMLElement>('[data-testid="mc-feedback-dialog"]') ?? root.value;
@@ -148,6 +154,7 @@ function confirmLeave(): Promise<boolean> {
     });
   });
 }
+defineExpose({ confirmLeave });
 function close() {
   if (feedbackBusy.value) return;
   if (!(draftDirty.value || frozen.value)) {
@@ -186,15 +193,16 @@ function restoreFocus() {
   target.focus();
 }
 function focusout(event: FocusEvent) {
-  if (props.hidden || leaveConfirmOpen.value || state.confirmDialogOpen.value) return;
+  if (props.inline || props.hidden || leaveConfirmOpen.value || state.confirmDialogOpen.value) return;
   const related = event.relatedTarget;
   const boundary = focusBoundary();
   if (boundary && related instanceof Node && boundary.contains(related)) return;
   void nextTick(() => {
-    if (!props.hidden && !leaveConfirmOpen.value && !state.confirmDialogOpen.value) restoreFocus();
+    if (!props.inline && !props.hidden && !leaveConfirmOpen.value && !state.confirmDialogOpen.value) restoreFocus();
   });
 }
 function keydown(event: KeyboardEvent) {
+  if (props.inline) return;
   // 面板是模态目标，键盘事件不向全局命令面板/布局冒泡；否则全局 Enter 会触发无关导航。
   event.stopPropagation();
   if (leaveConfirmOpen.value || state.confirmDialogOpen.value || feedbackCandidate.value) return;
@@ -230,24 +238,33 @@ function beforeUnload(event: BeforeUnloadEvent) {
 onBeforeRouteLeave(() => confirmLeave());
 onMounted(async () => {
   window.addEventListener("beforeunload", beforeUnload);
-  await nextTick();
-  root.value?.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
+  if (!props.inline) {
+    await nextTick();
+    root.value?.querySelector<HTMLElement>('[data-testid="mc-close"]')?.focus();
+  }
 });
 onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
 </script>
 <template>
-  <Teleport to="body"
-    ><div v-show="!hidden" class="mc-overlay" :inert="hidden" :aria-hidden="hidden ? 'true' : undefined" @focusout="focusout" @keydown="keydown">
+  <Teleport to="body" :disabled="Boolean(inline)"
+    ><div
+      v-show="!hidden"
+      :class="inline ? 'mc-inline-wrap' : 'mc-overlay'"
+      :inert="hidden"
+      :aria-hidden="hidden ? 'true' : undefined"
+      @focusout="focusout"
+      @keydown="keydown"
+    >
       <section
         ref="root"
-        class="mc-panel"
-        role="dialog"
-        :aria-modal="hidden ? 'false' : 'true'"
+        :class="inline ? 'mc-panel mc-panel--inline' : 'mc-panel'"
+        :role="inline ? undefined : 'dialog'"
+        :aria-modal="inline ? undefined : (hidden ? 'false' : 'true')"
         :aria-label="$t('gainos.marketCandidates.title')"
-        data-testid="mc-panel"
+        :data-testid="inline ? 'mc-panel-inline' : 'mc-panel'"
         tabindex="-1"
       >
-        <header class="mc-panel-head">
+        <header v-if="!inline" class="mc-panel-head">
           <div>
             <h2>{{ $t("gainos.marketCandidates.title") }}</h2>
             <p>{{ companyName }}</p>
@@ -256,7 +273,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             {{ $t("gainos.marketCandidates.close") }}
           </button>
         </header>
-        <p class="mc-description">{{ $t("gainos.marketCandidates.subtitle") }}</p>
+        <p v-if="!inline" class="mc-description">{{ $t("gainos.marketCandidates.subtitle") }}</p>
         <div class="mc-tools">
           <button
             type="button"
@@ -553,6 +570,41 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+.mc-inline-wrap {
+  width: 100%;
+  min-width: 0;
+}
+.mc-panel--inline {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.mc-panel--inline .mc-tools:first-child {
+  margin-top: 0;
+}
+.mc-panel--inline .mc-card,
+.mc-panel--inline .mc-detail {
+  border-color: var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+}
+.mc-panel--inline .mc-generation,
+.mc-panel--inline .mc-b4,
+.mc-panel--inline .mc-history,
+.mc-panel--inline .mc-empty {
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.mc-panel--inline button {
+  min-height: 34px;
+  font-size: 13px;
+}
 .mc-panel button,
 .mc-panel select,
 .mc-panel input,
@@ -767,6 +819,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     max-height: 100dvh;
     border-radius: 0;
     padding: 16px;
+  }
+  .mc-panel--inline {
+    height: auto;
+    max-height: none;
+    padding: 0;
   }
   .mc-layout--detail {
     grid-template-columns: 1fr;

@@ -8,6 +8,17 @@
 import { preferences } from '@vben/preferences';
 
 import { baseRequestClient, requestClient } from '#/api/request';
+import { newAttemptId } from '#/utils/attempt-id';
+
+export const AUTH_SESSION_CHANGING_KEY = 'gainos.auth.session-changing';
+
+function announceAuthChange(): void {
+  try {
+    window.localStorage.setItem(AUTH_SESSION_CHANGING_KEY, newAttemptId());
+  } catch {
+    // 浏览器在受限存储环境下仍可正常登录。
+  }
+}
 
 export namespace AuthApi {
   /** 登录接口参数(界面 username 字段即邮箱) */
@@ -33,6 +44,7 @@ export namespace AuthApi {
  * refresh→logout→再次 401 的递归，页面一直停在提交中。
  */
 export async function loginApi(data: AuthApi.LoginParams) {
+  announceAuthChange();
   await baseRequestClient.post('/auth/login', {
     email: data.username,
     password: data.password,
@@ -51,6 +63,7 @@ export async function refreshTokenApi() {
 
 /** 退出登录(撤销服务端会话)。同样绕开会话过期拦截器，避免登出失败时递归。 */
 export async function logoutApi() {
+  announceAuthChange();
   return baseRequestClient.post('/auth/logout');
 }
 
@@ -83,10 +96,12 @@ export async function registerApi(data: {
   password: string;
   inviteCode?: string;
 }) {
+  announceAuthChange();
   return requestClient.post<unknown>('/auth/register', data);
 }
 
 /** 接受邀请(带 token 的链接进入；只设密码即加入) */
 export async function acceptInviteApi(data: { token: string; password: string }) {
+  announceAuthChange();
   return requestClient.post<unknown>('/auth/accept-invite', data);
 }

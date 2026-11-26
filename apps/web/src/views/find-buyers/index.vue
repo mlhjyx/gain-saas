@@ -771,6 +771,19 @@ function openCreate(presetCompanyId?: string): void {
   void loadCreateComtrade(selectedCompanyId.value);
 }
 
+let openedCreatePath: string | undefined;
+watch([() => route.fullPath, companies], ([path]) => {
+  if (route.path !== '/find-buyers' || route.query.action !== 'create') {
+    openedCreatePath = undefined;
+    return;
+  }
+  if (openedCreatePath === path) return;
+  const companyId = route.query.companyId;
+  if (typeof companyId !== 'string' || !companies.value.some((company) => company.id === companyId)) return;
+  openedCreatePath = path;
+  openCreate(companyId);
+});
+
 async function quickApproveOnboardingFacts(): Promise<void> {
   if (!isAdmin.value || !selectedCompanyId.value || quickApprovingFacts.value) return;
   quickApprovingFacts.value = true;

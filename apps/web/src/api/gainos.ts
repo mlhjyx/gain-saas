@@ -989,6 +989,7 @@ export interface SellerDocument {
   status: string;
   chunkCount?: number;
   processingErrorCode?: string | null;
+  parsedMeta?: Record<string, unknown> | null;
   createdAt?: string;
 }
 
@@ -1248,9 +1249,14 @@ export const gainosApi = {
   commitSellerDocument: (companyId: string, documentId: string) =>
     requestClient.post<SellerDocument>(`/companies/${companyId}/seller-documents/${documentId}/commit`, {}),
   sellerDocuments: (companyId: string, cursor?: string) =>
-    requestClient.get<{ data: SellerDocument[]; page?: { next_cursor?: string; has_more?: boolean } }>(
-      `/companies/${companyId}/seller-documents`,
+    requestClient.get<SellerDocument[]>(
+      `/companies/${encodeURIComponent(companyId)}/seller-documents`,
       { params: cursor ? { cursor } : {} },
+    ),
+  sellerDocumentPage: (companyId: string, cursor?: string) =>
+    pagedGet<SellerDocument>(
+      `/companies/${encodeURIComponent(companyId)}/seller-documents`,
+      cursor ? { cursor } : {},
     ),
   searchSellerDocuments: (companyId: string, q: string, limit = 10) =>
     requestClient.get<Array<{ documentId: string; filename: string; seq: number; text: string; score: number }>>(
