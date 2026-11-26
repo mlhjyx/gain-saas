@@ -17,7 +17,7 @@ import { OpsService } from '../ops/ops.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditController } from '../tenant/audit.controller.js';
-import { OutreachExperimentsService } from './outreach-experiments.service.js';
+import { assignmentBucket, OutreachExperimentsService } from './outreach-experiments.service.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 
 const available = dockerAvailable();
@@ -92,6 +92,21 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
       'outreach_domain_counter_workspace_id_domain_id_hour_idx',
       'outreach_experiment_assignment_workspace_id_experiment_id_idx',
       'outreach_mailbox_counter_workspace_id_mailbox_id_day_idx',
+    ]);
+
+    const armCols = await prisma.$queryRaw<
+      Array<{ table_name: string; column_name: string; character_maximum_length: number }>
+    >`
+      SELECT table_name, column_name, character_maximum_length
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND column_name = 'arm'
+        AND table_name IN ('outreach_experiment_assignment', 'outreach_metric_snapshot')
+      ORDER BY table_name
+    `;
+    expect(armCols).toEqual([
+      { table_name: 'outreach_experiment_assignment', column_name: 'arm', character_maximum_length: 16 },
+      { table_name: 'outreach_metric_snapshot', column_name: 'arm', character_maximum_length: 16 },
     ]);
   }, 60_000);
 
@@ -230,40 +245,100 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
         updatedBy: 'u-1',
       },
     });
-    const contactRef = randomUUID();
+    // 确定性覆盖 'treatment'（9 字符，历史 VARCHAR(8) 会触发 P2000 溢出）与 'holdout'（7 字符），
+    // 并在 NOSUPERUSER NOBYPASSRLS + FORCE RLS 下验证落库与跨租户隔离。
     const exp = await experimentsService.create(
       { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
       {
-        name: 'PG16 Holdout',
-        hypothesis: 'Verify workspace_id persistence',
+        name: 'PG16 Holdout & Treatment',
+        hypothesis: 'Verify both treatment (9 chars) and holdout (7 chars) persist with RLS isolation',
         primaryMetric: 'reply_rate',
         campaignId,
-        holdoutRatio: 0.99,
+        holdoutRatio: 0.5,
       },
     );
     await experimentsService.start({ userId: 'u-1', workspaceId: WS_1, role: 'admin' }, exp.id);
+
+    let holdoutRef = '';
+    let treatmentRef = '';
+    for (let attempt = 0; attempt < 200 && (!holdoutRef || !treatmentRef); attempt += 1) {
+      const candidate = randomUUID();
+      const bucket = assignmentBucket(exp.assignmentSalt, exp.id, candidate);
+      if (bucket < 128 && !holdoutRef) holdoutRef = candidate;
+      if (bucket >= 128 && !treatmentRef) treatmentRef = candidate;
+    }
+    expect(holdoutRef).not.toBe('');
+    expect(treatmentRef).not.toBe('');
+
     const assignments = await experimentsService.assign(
       { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
       exp.id,
-      { subjectType: 'contact', subjectRefs: [contactRef] },
+      { subjectType: 'contact', subjectRefs: [holdoutRef, treatmentRef] },
     );
-    expect(assignments).toHaveLength(1);
-    expect(assignments[0]!.workspaceId).toBe(WS_1);
+    expect(assignments).toHaveLength(2);
+    const byRef = new Map(assignments.map((row) => [row.subjectRef, row]));
+    expect(byRef.get(holdoutRef)).toMatchObject({ workspaceId: WS_1, arm: 'holdout' });
+    expect(byRef.get(treatmentRef)).toMatchObject({ workspaceId: WS_1, arm: 'treatment' });
 
-    if (assignments[0]!.arm === 'holdout') {
-      const held1 = await experimentsService.holdoutContacts(
-        { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
+    // 同时验证极端低 holdoutRatio（floor(0.001 * 256) === 0）100% 强制落入 'treatment' 稳定落库
+    const treatmentOnlyExp = await experimentsService.create(
+      { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
+      {
+        name: 'PG16 Treatment Forced',
+        hypothesis: 'Verify treatment-only assignment persists under VARCHAR(16)',
+        primaryMetric: 'reply_rate',
         campaignId,
-        [contactRef],
-      );
-      expect(held1).toEqual(new Set([contactRef]));
-    }
+        holdoutRatio: 0.001,
+      },
+    );
+    await experimentsService.start({ userId: 'u-1', workspaceId: WS_1, role: 'admin' }, treatmentOnlyExp.id);
+    const forcedTreatmentRef = randomUUID();
+    const forcedAssignments = await experimentsService.assign(
+      { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
+      treatmentOnlyExp.id,
+      { subjectType: 'contact', subjectRefs: [forcedTreatmentRef] },
+    );
+    expect(forcedAssignments).toHaveLength(1);
+    expect(forcedAssignments[0]).toMatchObject({ workspaceId: WS_1, arm: 'treatment' });
+
+    // 验证 WS_1 仅排除 holdoutRef（不误排 treatmentRef），且 WS_2 受 FORCE RLS 隔离不可见任何分配
+    const held1 = await experimentsService.holdoutContacts(
+      { userId: 'u-1', workspaceId: WS_1, role: 'admin' },
+      campaignId,
+      [holdoutRef, treatmentRef, forcedTreatmentRef],
+    );
+    expect(held1).toEqual(new Set([holdoutRef]));
+
     const held2 = await experimentsService.holdoutContacts(
       { userId: 'u-2', workspaceId: WS_2, role: 'admin' },
       campaignId,
-      [contactRef],
+      [holdoutRef, treatmentRef, forcedTreatmentRef],
     );
     expect(held2).toEqual(new Set());
+
+    // 同步验证 outreach_metric_snapshot.arm='treatment'（9 字符）在 FORCE RLS 下落库且跨租户不可见
+    const snapshot = await appPrisma.withWorkspace(WS_1, (tx) =>
+      tx.outreachMetricSnapshot.create({
+        data: {
+          workspaceId: WS_1,
+          experimentId: exp.id,
+          channel: 'email',
+          arm: 'treatment',
+          metric: 'reply_rate',
+          numerator: 3,
+          denominator: 10,
+          windowStart: new Date('2026-11-19T00:00:00Z'),
+          windowEnd: new Date('2026-11-26T00:00:00Z'),
+          definitionVersion: 'v1',
+        },
+      }),
+    );
+    expect(snapshot.arm).toBe('treatment');
+
+    const crossWsSnapshots = await appPrisma.withWorkspace(WS_2, (tx) =>
+      tx.outreachMetricSnapshot.findMany({ where: { id: snapshot.id } }),
+    );
+    expect(crossWsSnapshots).toEqual([]);
   }, 60_000);
 
   it('backfills pre-existing rows accurately when applying 20261126010000 and 20261126020000 migrations', async () => {

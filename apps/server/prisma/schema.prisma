@@ -694,7 +694,7 @@ model OutreachExperimentAssignment {
   subjectType  String   @default("account") @map("subject_type") @db.VarChar(16)
   subjectRef   String   @map("subject_ref") @db.Uuid
   /// treatment | holdout
-  arm          String   @db.VarChar(8)
+  arm          String   @db.VarChar(16)
   bucket       Int
   assignedAt   DateTime @default(now()) @map("assigned_at")
 
@@ -712,7 +712,7 @@ model OutreachMetricSnapshot {
   workspaceId       String   @map("workspace_id") @db.Uuid
   experimentId      String?  @map("experiment_id") @db.Uuid
   channel           String   @db.VarChar(16)
-  arm               String?  @db.VarChar(8)
+  arm               String?  @db.VarChar(16)
   metric            String   @db.VarChar(64)
   numerator         Int
   denominator       Int
