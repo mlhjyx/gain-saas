@@ -13,17 +13,15 @@ import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import {
+  createCampaignRevision,
   failureText,
   gainosApi,
   type CampaignDetail,
   type CampaignPlanJobView,
   type CampaignRevisionView,
   type Icp,
-} from '#/api/gainos';
-import {
-  createCampaignRevision,
   type ManualCampaignRevisionInput,
-} from '#/api/campaign-revisions';
+} from '#/api/gainos';
 import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 
 defineOptions({ name: 'CampaignDetail' });

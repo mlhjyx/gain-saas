@@ -42,13 +42,14 @@ const TASK = {
 
 test('任务详情：历史运行与重试', async ({ page }) => {
   const backend = await installMockBackend(page);
-  backend.set('GET', '/tasks', [TASK]);
+  backend.set('GET', '/tasks/task-1', TASK);
   backend.set('POST', '/tasks/task-1/runs', { taskRunId: 'tr-3', runId: 'run-3', status: 'QUEUED' });
 
   await loginAs(page);
   await page.goto('/tasks/task-1');
 
   await expect(page.getByRole('heading', { level: 1, name: '德国五金进口商' })).toBeVisible();
+  expect(backend.callsTo('GET', '/tasks/task-1').length).toBe(1);
   await expect(page.getByRole('link', { name: '查看运行' })).toHaveCount(2);
   await expect(page.getByRole('link', { name: '查看运行' }).first()).toHaveAttribute(
     'href',

@@ -230,6 +230,122 @@ export interface EnrichContactsResult {
   results?: Array<{ contactId: string; status: string }>;
 }
 
+export type ContactEnrichmentStatus =
+  | 'PREPARED'
+  | 'RUNNING'
+  | 'RESULT_UNKNOWN'
+  | 'APPLY_PENDING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REDACTED'
+  | string;
+
+export interface ContactEnrichmentSpend {
+  quotedUpperBoundMicrousd: string;
+  knownChargedMicrousd: string | null;
+  unknownUpperBoundMicrousd: string | null;
+  costBasis: string;
+}
+
+export interface ContactEnrichmentSkippedBucket {
+  reasonCode: string;
+  count: number;
+}
+
+export interface ContactEnrichmentPerContact {
+  contactId: string;
+  reasonCode: string;
+  beforeStates?: string[];
+  afterStates?: string[];
+  pointRefs?: string[];
+  eventRefs?: string[];
+  attemptRefs?: string[];
+  newCandidate?: boolean;
+  newValidPersonal?: boolean | null;
+}
+
+export interface ContactEnrichmentResultView {
+  version: number;
+  protocolVersion: number;
+  operationRef: string;
+  companyId: string;
+  entrypoint: 'http' | 'discovery_run' | string;
+  businessRunId: string | null;
+  createdAt: string;
+  status: ContactEnrichmentStatus;
+  resultRevision: number;
+  qualityCoverage: string;
+  summary: {
+    consideredUniqueContacts: number;
+    eligibleUniqueContacts: number;
+    stockValidPersonalContacts: number | null;
+    physicallyAttemptedUniqueContacts: number | null;
+    newCandidatePoints: number;
+    newValidPersonalContacts: number | null;
+    unresolvedUniqueContacts: number | null;
+    skippedByReason: ContactEnrichmentSkippedBucket[];
+  };
+  perContact: ContactEnrichmentPerContact[];
+  spend: ContactEnrichmentSpend;
+  unavailableMetrics: string[];
+}
+
+export interface ContactEnrichmentQualityFactView {
+  version: number;
+  protocolVersion: number;
+  operationRef: string;
+  companyId: string;
+  entrypoint: 'http' | 'discovery_run' | string;
+  businessRunId: string | null;
+  createdAt: string;
+  status: ContactEnrichmentStatus;
+  resultRevision: number;
+  qualityCoverage: string;
+  basis?: string | Record<string, unknown> | null;
+  summary: {
+    consideredUniqueContacts: number;
+    coveredUniqueContacts: number;
+    eligibleUniqueContacts: number | null;
+    stockValidPersonalContacts: number | null;
+    organizationChannelContacts: number | null;
+    unknownEmailTypeContacts: number | null;
+    physicallyAttemptedUniqueContacts: number | null;
+    newCandidatePoints: number;
+    newValidPersonalContacts: number | null;
+    unresolvedUniqueContacts: number | null;
+    skippedByReason: ContactEnrichmentSkippedBucket[] | null;
+  };
+  perContact: Array<Record<string, unknown>>;
+  spend: ContactEnrichmentSpend;
+  unavailableMetrics: string[];
+}
+
+export interface ManualCampaignRevisionInput {
+  schemaVersion: 'campaign-plan/v0';
+  goal: {
+    objective: string;
+    successMetric?: string;
+  };
+  audience: {
+    icpIds: string[];
+    sizeCap: number;
+  };
+  motions: Array<{
+    type: 'discovery';
+    icpIds: string[];
+  }>;
+  budget: {
+    capMicros?: number;
+    currency: 'USD';
+  };
+  approvalPolicy: {
+    required: true;
+  };
+  decisionPolicy: {
+    maxReplans: 0 | 1 | 2;
+  };
+}
+
 export interface GuessEmailsResult {
   emaillessContacts: number;
   attempted: number;
@@ -524,7 +640,40 @@ export interface AcquisitionTaskView {
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
+  runCount?: number;
   runs: TaskRunView[];
+}
+
+export interface UpdateAcquisitionTaskInput {
+  name?: string;
+  status?: 'active' | 'paused' | 'archived';
+}
+
+export interface DiscoveryRunResultView {
+  runId: string;
+  icpId: string;
+  status: string;
+  completedAt?: string | null;
+  candidates: {
+    total: number;
+    truncated: boolean;
+    items: Array<Record<string, unknown>>;
+  };
+  scoring: {
+    thisRun: {
+      available: boolean;
+      label: 'this_run' | 'not_scored_in_run' | string;
+      batches: number;
+      scoredCompanies?: number;
+      truncated?: boolean;
+      scoredAt?: string | null;
+      items: Array<Record<string, unknown>>;
+    };
+    latest: {
+      label: 'latest_not_necessarily_this_run' | string;
+      items: Array<Record<string, unknown>>;
+    };
+  };
 }
 
 export interface QueryPlan {
@@ -1198,6 +1347,36 @@ export const gainosApi = {
     requestClient.post<DiscoverContactsResult>(`/canonical-companies/${companyId}/discover-contacts`, input),
   enrichContacts: (companyId: string, input: EnrichContactsInput) =>
     requestClient.post<EnrichContactsResult>(`/canonical-companies/${companyId}/enrich-contacts`, input),
+  /** B1 联系人补强结果与质量事实（仅管理员可用；调用前必须先经 useWorkspaceAccess().isAdmin 门控）。 */
+  contactEnrichmentResults: (
+    companyId: string,
+    params: { cursor?: string; runId?: string } = {},
+  ) =>
+    pagedGet<ContactEnrichmentResultView>(
+      `/canonical-companies/${encodeURIComponent(companyId)}/contact-enrichment-results`,
+      params,
+    ),
+  contactEnrichmentResultDetail: (companyId: string, operationRef: string) =>
+    requestClient.get<ContactEnrichmentResultView>(
+      `/canonical-companies/${encodeURIComponent(companyId)}/contact-enrichment-results/${encodeURIComponent(operationRef)}`,
+    ),
+  recoverContactEnrichment: (companyId: string, operationRef: string) =>
+    requestClient.post<ContactEnrichmentResultView>(
+      `/canonical-companies/${encodeURIComponent(companyId)}/contact-enrichment-results/${encodeURIComponent(operationRef)}/recover`,
+      {},
+    ),
+  contactEnrichmentQualityFacts: (
+    companyId: string,
+    params: { cursor?: string; runId?: string } = {},
+  ) =>
+    pagedGet<ContactEnrichmentQualityFactView>(
+      `/canonical-companies/${encodeURIComponent(companyId)}/contact-enrichment-quality-facts`,
+      params,
+    ),
+  contactEnrichmentQualityFactDetail: (companyId: string, operationRef: string) =>
+    requestClient.get<ContactEnrichmentQualityFactView>(
+      `/canonical-companies/${encodeURIComponent(companyId)}/contact-enrichment-quality-facts/${encodeURIComponent(operationRef)}`,
+    ),
   guessEmails: (companyId: string, input: ContactComplianceInput & { maxContacts?: number; maxProbe?: number }) =>
     requestClient.post<GuessEmailsResult>(`/canonical-companies/${companyId}/guess-emails`, input),
   verifyContactPoint: (pointId: string, input?: ContactComplianceInput) =>
@@ -1353,6 +1532,10 @@ export const gainosApi = {
   /** Run 2.0（M0②）：任务列表（含最近运行）。 */
   acquisitionTasks: (icpId?: string) =>
     requestClient.get<AcquisitionTaskView[]>('/tasks', { params: icpId ? { icpId } : {} }),
+  getTask: (taskId: string) =>
+    requestClient.get<AcquisitionTaskView>(`/tasks/${encodeURIComponent(taskId)}`),
+  updateTask: (taskId: string, body: UpdateAcquisitionTaskInput) =>
+    requestClient.patch<AcquisitionTaskView>(`/tasks/${encodeURIComponent(taskId)}`, body),
   createAcquisitionTask: (input: { icpId?: string; name: string }) =>
     requestClient.post<AcquisitionTaskView>('/tasks', input),
   /**
@@ -1374,6 +1557,10 @@ export const gainosApi = {
     requestClient.get<{ data: OutreachReplyView[] }>('/outreach/replies'),
 
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
+  discoveryRunResultView: (runId: string) =>
+    requestClient.get<DiscoveryRunResultView>(
+      `/discovery-runs/${encodeURIComponent(runId)}/result-view`,
+    ),
   /** Phase 2A：方案 B 流式三段进度只读投影（L0/L1/L2 + 实时候选买家）。 */
   streamingProgress: (runId: string) =>
     requestClient.get<import('@gain-saas/shared').StreamingProgressDto>(
@@ -1479,6 +1666,11 @@ export const gainosApi = {
     requestClient.post<CampaignPlanJobView>(`/campaigns/${campaignId}/plan-drafts`, input),
   campaignPlanDraft: (campaignId: string, jobId: string) =>
     requestClient.get<CampaignPlanJobView>(`/campaigns/${campaignId}/plan-drafts/${jobId}`),
+  createCampaignRevision: (campaignId: string, plan: ManualCampaignRevisionInput) =>
+    requestClient.post<CampaignRevisionView>(
+      `/campaigns/${encodeURIComponent(campaignId)}/revisions`,
+      plan,
+    ),
   submitCampaignRevision: (campaignId: string, revisionId: string) =>
     requestClient.post<{
       revision: { id: string; revisionNo: number; state: string };
@@ -2174,6 +2366,14 @@ export type QgoOutcomeValue =
   | 'LOST'
   | 'NO_RESPONSE'
   | 'DISQUALIFIED';
+
+/** 人工提交一版严格符合 campaignPlanV0Schema 的战役计划草稿（自 campaign-revisions.ts 收归）。 */
+export function createCampaignRevision(
+  campaignId: string,
+  plan: ManualCampaignRevisionInput,
+): Promise<CampaignRevisionView> {
+  return gainosApi.createCampaignRevision(campaignId, plan);
+}
 
 /** 引擎/合同错误信息提取(三层文案优先:发生了什么/为什么/怎么办;code 供技术详情折叠) */
 export function failureText(error: unknown): {

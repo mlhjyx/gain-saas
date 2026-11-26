@@ -389,7 +389,11 @@ test('运营台工作空间治理：跨库对账、存储配额更新与整空�
     return true;
   });
 
-  page.on('dialog', (dialog) => dialog.accept());
+  const nativeDialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    nativeDialogs.push(`${dialog.type()}:${dialog.message()}`);
+    void dialog.dismiss();
+  });
 
   await page.goto('/ops');
   await page.getByRole('button', { name: '工作空间' }).click();
@@ -408,10 +412,13 @@ test('运营台工作空间治理：跨库对账、存储配额更新与整空�
   });
 
   await page.locator('[data-gs="ops-purge-btn"]').click();
+  await expect(page.locator('.ant-modal-confirm')).toBeVisible();
+  await page.locator('.ant-modal-confirm-btns button').last().click();
   await expect.poll(() => purgePayload).toMatchObject({
     force: false,
     idempotencyKey: `purge-${OPS_WS_ID}`,
   });
   await expect(page.locator('[data-gs="ops-purge-receipt"]')).toContainText('COMPLETED');
   await expect(page.locator('[data-gs="ops-purge-receipt"]')).toContainText('吊销会话：2');
+  expect(nativeDialogs, '不应触发原生浏览器弹窗').toEqual([]);
 });

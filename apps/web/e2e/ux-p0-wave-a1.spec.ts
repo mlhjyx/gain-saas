@@ -824,17 +824,17 @@ test('tasks list and detail display real buyer profile name instead of icpId pre
   backend.set('GET', '/icps', [
     { id: ICP_ID, companyId: 'co-1', name: '意大利光伏总包商', status: 'ACTIVE', targetMarkets: ['IT'] },
   ]);
-  backend.set('GET', '/tasks', [
-    {
-      id: TASK_ID,
-      name: '意大利光伏首轮挖掘',
-      status: 'active',
-      icpId: ICP_ID,
-      createdAt: NOW,
-      lastRunAt: NOW,
-      runs: [],
-    },
-  ]);
+  const taskRow = {
+    id: TASK_ID,
+    name: '意大利光伏首轮挖掘',
+    status: 'active',
+    icpId: ICP_ID,
+    createdAt: NOW,
+    lastRunAt: NOW,
+    runs: [],
+  };
+  backend.set('GET', '/tasks', [taskRow]);
+  backend.set('GET', `/tasks/${TASK_ID}`, taskRow);
 
   await loginAs(page);
   await page.goto('/tasks');

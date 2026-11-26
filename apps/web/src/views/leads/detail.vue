@@ -7,15 +7,21 @@
  * 2026-11-23：档案页改为「判断结果」优先——把引擎的五维聚合文本解析成
  * 业务维度（雷达图 + 逐维理由），机器结论码收进折叠的技术详情。
  */
-import type { LeadDecisionInput, LeadPackage, PromoteQgoInput } from '#/api/gainos';
+import type {
+  ContactEnrichmentResultView,
+  LeadDecisionInput,
+  LeadPackage,
+  PromoteQgoInput,
+  QgoView,
+  T0TouchRecord,
+} from '#/api/gainos';
 import type { JudgeSummary, ScoreGrade } from './judge';
 
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { useAccessStore } from '@vben/stores';
-
 import {
+  Alert,
   Button,
   Descriptions,
   DescriptionsItem,
@@ -46,6 +52,7 @@ import GsTag from '#/components/gainos/ui/gs-tag.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
 import { usePendingAction } from '#/composables/use-pending-action';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { feedback } from '#/feedback';
 import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 
@@ -85,8 +92,7 @@ const ACCEPT_CODES = ['GOOD_FIT', 'WILL_FOLLOW_UP', 'OTHER'] as const;
 
 const route = useRoute();
 const router = useRouter();
-const accessStore = useAccessStore();
-const isAdmin = computed(() => accessStore.accessCodes.includes('ADMIN'));
+const { isAdmin, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
 
 const leadId = computed(() => String(route.params.leadId ?? ''));
 const tab = ref<TabKey>(readTab());
@@ -595,10 +601,263 @@ function goOutreach(): void {
   void router.push({ path: '/outreach', query: { tab: 'batches', lead: leadId.value } });
 }
 
-onMounted(load);
+// ── ?tab=outcomes 真实聚合时间线（研判 + 制裁 + 联系人补强[管理员] + T0 轻触达 + QGO/SAO/Outcome）──
+type TimelineTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
+interface OutcomeTimelineItem {
+  id: string;
+  at: string;
+  typeLabel: string;
+  tone: TimelineTone;
+  title: string;
+  detail?: string;
+}
+
+const outcomesLoading = ref(false);
+const outcomesLoaded = ref(false);
+const outcomesPartialError = ref(false);
+const outcomeTouches = ref<T0TouchRecord[]>([]);
+const outcomeEnrichments = ref<ContactEnrichmentResultView[]>([]);
+const outcomeQgos = ref<QgoView[]>([]);
+
+function onTouchesUpdated(rows: T0TouchRecord[]): void {
+  outcomeTouches.value = Array.isArray(rows) ? rows : [];
+}
+
+function enrichmentTimelineStatus(status?: string): string {
+  const normalized = (status ?? 'UNKNOWN').toUpperCase();
+  const key = `gainosB4.leadsDetail.enrichment.status.${normalized}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? $t('gainosB4.leadsDetail.enrichment.status.UNKNOWN') : translated;
+}
+
+function dealOutcomeText(outcome?: string): string {
+  const key = `gainosB4.leadsDetail.outcomes.dealOutcome.${outcome ?? ''}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? (outcome ?? '—') : translated;
+}
+
+function saoStateText(state?: string): string {
+  const key = `gainosB4.leadsDetail.outcomes.saoState.${state ?? ''}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? (state ?? '—') : translated;
+}
+
+async function loadOutcomes(): Promise<void> {
+  if (!pkg.value) return;
+  outcomesLoading.value = true;
+  outcomesPartialError.value = false;
+  await ensureLoaded();
+  const companyId = pkg.value.company?.canonical_company_id;
+  const currentLeadId = leadId.value;
+  let partial = false;
+
+  const touchesPromise = gainosApi
+    .listT0Touches(currentLeadId)
+    .then((rows) => (Array.isArray(rows) ? rows : []))
+    .catch(() => {
+      partial = true;
+      return outcomeTouches.value;
+    });
+
+  const qgosPromise = gainosApi
+    .qgos({ limit: 50 })
+    .then(async (rows) => {
+      const list = Array.isArray(rows) ? rows : [];
+      const matched = list.filter(
+        (item) =>
+          item.leadRef === currentLeadId ||
+          (Boolean(companyId) && item.canonicalCompanyRef === companyId),
+      );
+      const hydrated = await Promise.all(
+        matched.map(async (item) => {
+          if (Array.isArray(item.outcomes)) return item;
+          try {
+            const detailQgo = await gainosApi.qgo(item.id);
+            return detailQgo && typeof detailQgo === 'object' ? detailQgo : item;
+          } catch {
+            return item;
+          }
+        }),
+      );
+      return hydrated;
+    })
+    .catch(() => {
+      partial = true;
+      return [] as QgoView[];
+    });
+
+  // 严格门控：仅管理员查询联系人补强作业，防止 member 触发 403。
+  const enrichmentPromise =
+    isAdmin.value && companyId
+      ? gainosApi
+          .contactEnrichmentResults(companyId)
+          .then((page) => (Array.isArray(page?.data) ? page.data : []))
+          .catch(() => {
+            partial = true;
+            return [] as ContactEnrichmentResultView[];
+          })
+      : Promise.resolve([] as ContactEnrichmentResultView[]);
+
+  try {
+    const [touchesRows, qgoRows, enrichmentRows] = await Promise.all([
+      touchesPromise,
+      qgosPromise,
+      enrichmentPromise,
+    ]);
+    outcomeTouches.value = touchesRows;
+    outcomeQgos.value = qgoRows;
+    outcomeEnrichments.value = enrichmentRows;
+    outcomesPartialError.value = partial;
+    outcomesLoaded.value = true;
+  } finally {
+    outcomesLoading.value = false;
+  }
+}
+
+const outcomeTimeline = computed<OutcomeTimelineItem[]>(() => {
+  const items: OutcomeTimelineItem[] = [];
+  const currentPkg = pkg.value;
+  if (currentPkg) {
+    const latestEvidenceAt = (currentPkg.evidence ?? [])
+      .map((item) => item.fetched_at)
+      .filter((ts): ts is string => typeof ts === 'string' && Boolean(ts))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+
+    items.push({
+      id: `lead-status-${currentPkg.lead_id}`,
+      at: latestEvidenceAt ?? currentPkg.sanctions?.screened_at ?? '',
+      typeLabel: $t('gainosB4.leadsDetail.outcomes.type.leadDecision'),
+      tone: statusTone.value,
+      title: $t('gainosB4.leadsDetail.outcomes.leadStatusTitle', {
+        status: statusLabel(currentPkg.status),
+      }),
+      detail: $t('gainosB4.leadsDetail.outcomes.leadScoreDetail', {
+        score: totalScore.value ?? '—',
+        verdict: fitLabel.value,
+      }),
+    });
+
+    if (currentPkg.sanctions?.screened_at) {
+      items.push({
+        id: `sanctions-${currentPkg.lead_id}`,
+        at: currentPkg.sanctions.screened_at,
+        typeLabel: $t('gainosB4.leadsDetail.outcomes.type.sanctions'),
+        tone: sanctionBlocked.value ? 'warning' : 'success',
+        title: $t('gainosB4.leadsDetail.outcomes.sanctionsTitle', {
+          status: sanctionLabel(currentPkg.sanctions.status),
+        }),
+      });
+    }
+  }
+
+  for (const job of outcomeEnrichments.value) {
+    const normalized = String(job.status ?? '').toUpperCase();
+    const tone: TimelineTone =
+      normalized === 'COMPLETED'
+        ? 'success'
+        : normalized === 'FAILED'
+          ? 'danger'
+          : normalized === 'RESULT_UNKNOWN'
+            ? 'warning'
+            : 'info';
+    items.push({
+      id: `enrich-${job.operationRef}`,
+      at: job.createdAt ?? '',
+      typeLabel: $t('gainosB4.leadsDetail.outcomes.type.enrichment'),
+      tone,
+      title: $t('gainosB4.leadsDetail.outcomes.enrichmentTitle', {
+        status: enrichmentTimelineStatus(job.status),
+      }),
+      detail: $t('gainosB4.leadsDetail.outcomes.enrichmentDetail', {
+        candidates: job.summary?.newCandidatePoints ?? 0,
+        considered: job.summary?.consideredUniqueContacts ?? 0,
+      }),
+    });
+  }
+
+  for (const touch of outcomeTouches.value) {
+    const channelText = $t(`gainos.leads.t0.channel.${touch.channel}` as Parameters<typeof $t>[0]);
+    const outcomeText = $t(`gainos.leads.t0.outcome.${touch.outcome}` as Parameters<typeof $t>[0]);
+    const detailParts = [touch.targetMasked, touch.note].filter(Boolean).join(' · ');
+    items.push({
+      id: `touch-${touch.id}`,
+      at: touch.createdAt ?? '',
+      typeLabel: $t('gainosB4.leadsDetail.outcomes.type.t0Touch'),
+      tone: touch.outcome === 'REPLIED' ? 'success' : 'info',
+      title: $t('gainosB4.leadsDetail.outcomes.t0TouchTitle', {
+        channel: channelText,
+        outcome: outcomeText,
+      }),
+      detail: detailParts || undefined,
+    });
+  }
+
+  for (const qgo of outcomeQgos.value) {
+    items.push({
+      id: `qgo-${qgo.id}`,
+      at: qgo.createdAt ?? '',
+      typeLabel: $t('gainosB4.leadsDetail.outcomes.type.qgoPromoted'),
+      tone: qgo.state === 'CONVERTED' ? 'success' : qgo.state === 'DROPPED' ? 'danger' : 'info',
+      title: $t('gainosB4.leadsDetail.outcomes.qgoTitle', { title: qgo.title }),
+      detail: qgo.nextStep
+        ? $t('gainosB4.leadsDetail.outcomes.qgoNextStep', { step: qgo.nextStep })
+        : undefined,
+    });
+    if (qgo.sao) {
+      items.push({
+        id: `sao-${qgo.sao.id}`,
+        at: qgo.sao.decidedAt ?? qgo.updatedAt ?? '',
+        typeLabel: $t('gainosB4.leadsDetail.outcomes.type.saoDecision'),
+        tone: qgo.sao.state === 'ACCEPTED' ? 'success' : qgo.sao.state === 'DECLINED' ? 'danger' : 'neutral',
+        title: $t('gainosB4.leadsDetail.outcomes.saoTitle', {
+          state: saoStateText(qgo.sao.state),
+        }),
+        detail: qgo.sao.reason || undefined,
+      });
+    }
+    for (const outcome of qgo.outcomes ?? []) {
+      const positive = ['MEETING_BOOKED', 'QUOTE_SENT', 'WON'].includes(outcome.outcome);
+      const negative = ['DISQUALIFIED', 'LOST', 'NO_RESPONSE'].includes(outcome.outcome);
+      items.push({
+        id: `outcome-${outcome.id}`,
+        at: outcome.occurredAt || outcome.createdAt || '',
+        typeLabel: $t('gainosB4.leadsDetail.outcomes.type.dealOutcome'),
+        tone: positive ? 'success' : negative ? 'danger' : 'info',
+        title: $t('gainosB4.leadsDetail.outcomes.dealOutcomeTitle', {
+          outcome: dealOutcomeText(outcome.outcome),
+        }),
+        detail: outcome.note || undefined,
+      });
+    }
+  }
+
+  return items.sort((a, b) => {
+    const ta = a.at ? Date.parse(a.at) : 0;
+    const tb = b.at ? Date.parse(b.at) : 0;
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+});
+
+onMounted(async () => {
+  await Promise.all([ensureLoaded(), load()]);
+  if (tab.value === 'outcomes') {
+    void loadOutcomes();
+  }
+});
 
 watch(tab, (next) => {
   if (next === 'draft' && !draft.value) void loadDraft();
+  if (next === 'outcomes' && pkg.value) void loadOutcomes();
+});
+
+watch(leadId, () => {
+  outcomesLoaded.value = false;
+  outcomeTouches.value = [];
+  outcomeEnrichments.value = [];
+  outcomeQgos.value = [];
+  void load().then(() => {
+    if (tab.value === 'outcomes') void loadOutcomes();
+  });
 });
 </script>
 
@@ -638,8 +897,8 @@ watch(tab, (next) => {
       class="relative z-[1] -mt-13"
       @retry="load"
     >
+      <div v-if="pkg" class="grid gap-4">
       <Tabs
-        v-if="pkg"
         :active-key="tab"
         data-gs="lead-tabs"
         @change="selectTab"
@@ -847,14 +1106,6 @@ watch(tab, (next) => {
               </GsCard>
             </div>
 
-            <!-- T0 四通道轻外联工作台（无需企业邮箱即可直达并留痕） -->
-            <T0OutreachPanel
-              v-if="tab === 'package'"
-              :draft="draft"
-              :is-admin="isAdmin"
-              :pkg="pkg"
-            />
-
             <GsCard :title="$t('gainos.leads.evidenceTitle')" data-gs="evidence">
               <ul v-if="evidenceItems.length > 0" class="m-0 grid list-none gap-2 p-0">
                 <li
@@ -1019,26 +1270,130 @@ watch(tab, (next) => {
         </TabPane>
 
         <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
-          <!-- 决策人卡片自带页头与逐人白卡，不再套一层卡片 -->
-          <DecisionMakerCard
-            v-if="isAdmin && pkg.company.canonical_company_id"
-            :company-id="pkg.company.canonical_company_id"
-          />
-          <GsCard v-else>
-            <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-              {{ $t('gainos.leads.peopleAdminOnly') }}
-            </p>
-          </GsCard>
+          <div class="grid gap-4">
+            <!-- 公司级公开渠道：全员（含 member）可见，独立于具名决策人权限边界 -->
+            <GsCard
+              :title="$t('gainosB4.leadsDetail.publicChannelsTitle')"
+              data-gs="people-public-channels"
+            >
+              <p class="m-0 mb-3 text-xs text-[var(--gs-fg-muted)]">
+                {{ $t('gainosB4.leadsDetail.publicChannelsDesc') }}
+              </p>
+              <div v-if="hasAnyContactPath" class="grid gap-3 @min-[700px]:grid-cols-2">
+                <div v-if="companyEmails.length > 0" class="grid gap-1.5">
+                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                    {{ $t('gainos.leads.channelEmailsTitle') }}
+                  </p>
+                  <p
+                    v-for="(item, index) in companyEmails"
+                    :key="`pub-em-${index}`"
+                    class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
+                  >
+                    <a
+                      v-if="contactEmailMailtoAllowed"
+                      class="break-all text-[var(--gs-accent-fg)]"
+                      :href="`mailto:${item.value}`"
+                    >
+                      {{ item.value }}
+                    </a>
+                    <span v-else class="break-all text-[var(--gs-fg-muted)]">
+                      {{ item.value }}
+                    </span>
+                    <Tag v-if="item.email_type" :bordered="false" class="m-0 text-xs">
+                      {{ item.email_type }}
+                    </Tag>
+                  </p>
+                </div>
+
+                <div v-if="companyPhones.length > 0" class="grid gap-1.5">
+                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                    {{ $t('gainos.leads.channelPhonesTitle') }}
+                  </p>
+                  <p
+                    v-for="(item, index) in companyPhones"
+                    :key="`pub-ph-${index}`"
+                    class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
+                  >
+                    <a class="text-[var(--gs-fg)]" :href="`tel:${item.value}`">
+                      {{ item.value }}
+                    </a>
+                  </p>
+                </div>
+
+                <div v-if="companySocials.length > 0" class="grid gap-1.5">
+                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                    {{ $t('gainos.leads.channelSocialsTitle') }}
+                  </p>
+                  <div class="flex flex-wrap gap-2">
+                    <a
+                      v-for="(social, index) in companySocials"
+                      :key="`pub-soc-${index}`"
+                      class="inline-flex items-center rounded-md bg-[var(--gs-accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                      :href="social.url"
+                      rel="noreferrer"
+                      target="_blank"
+                      :title="social.url"
+                    >
+                      {{ social.label }}
+                    </a>
+                  </div>
+                </div>
+
+                <div v-if="contactPaths.length > 0" class="grid gap-1.5">
+                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
+                    {{ $t('gainos.leads.channelFormsTitle') }}
+                  </p>
+                  <p
+                    v-for="(point, index) in contactPaths"
+                    :key="`pub-path-${index}`"
+                    class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
+                  >
+                    <a
+                      class="break-all text-[var(--gs-accent-fg)]"
+                      :href="point.url"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {{ point.url }}
+                    </a>
+                  </p>
+                </div>
+              </div>
+              <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                {{ $t('gainosB4.leadsDetail.publicChannelsEmpty') }}
+              </p>
+              <p
+                v-if="pkg.suggested_contact_path"
+                class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
+              >
+                {{ pkg.suggested_contact_path.legal_note }}
+              </p>
+            </GsCard>
+
+            <!-- 具名决策人个人联系点与联系人补强操作：严格由 useWorkspaceAccess().isAdmin 门控 -->
+            <DecisionMakerCard
+              v-if="isAdmin && pkg.company.canonical_company_id"
+              :company-id="pkg.company.canonical_company_id"
+              hide-official-channels
+              @enrichment-updated="loadOutcomes"
+            />
+            <GsCard
+              v-else-if="accessLoaded"
+              :title="$t('gainosB4.leadsDetail.decisionMakersAdminTitle')"
+              data-gs="decision-makers-admin-only"
+            >
+              <p class="m-0 text-[13px] font-medium text-[var(--gs-fg)]">
+                {{ $t('gainos.leads.peopleAdminOnly') }}
+              </p>
+              <p class="mb-0 mt-1.5 text-xs text-[var(--gs-fg-muted)]">
+                {{ $t('gainosB4.leadsDetail.decisionMakersAdminNote') }}
+              </p>
+            </GsCard>
+          </div>
         </TabPane>
 
         <TabPane key="draft" :tab="$t('gainos.leads.tab.draft')">
           <div class="grid gap-4">
-            <T0OutreachPanel
-              v-if="tab === 'draft'"
-              :draft="draft"
-              :is-admin="isAdmin"
-              :pkg="pkg"
-            />
             <GsCard>
               <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
             <template #extra>
@@ -1080,21 +1435,80 @@ watch(tab, (next) => {
         </TabPane>
 
         <TabPane key="outcomes" :tab="$t('gainos.leads.tab.outcomes')">
-          <GsCard :title="$t('gainos.leads.outcomesTitle')">
-            <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-              {{ $t('gainos.leads.outcomesDesc') }}
+          <GsCard
+            :title="$t('gainosB4.leadsDetail.outcomes.timelineTitle')"
+            data-gs="outcomes-timeline-card"
+          >
+            <template #extra>
+              <Space :size="8" wrap>
+                <Button :loading="outcomesLoading" size="small" @click="loadOutcomes">
+                  {{ $t('gainosB4.leadsDetail.outcomes.refresh') }}
+                </Button>
+                <Button size="small" @click="router.push('/opportunities')">
+                  {{ $t('gainos.leads.outcomesQgos') }}
+                </Button>
+                <Button v-if="!GROWTH_PAGE_HIDDEN" size="small" @click="goOutreach">
+                  {{ $t('gainos.leads.outcomesOutreach') }}
+                </Button>
+              </Space>
+            </template>
+
+            <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
+              {{ $t('gainosB4.leadsDetail.outcomes.timelineSubtitle') }}
             </p>
-            <Space class="mt-4" :size="8" wrap>
-              <Button @click="router.push('/opportunities')">
-                {{ $t('gainos.leads.outcomesQgos') }}
-              </Button>
-              <Button v-if="!GROWTH_PAGE_HIDDEN" @click="goOutreach">
-                {{ $t('gainos.leads.outcomesOutreach') }}
-              </Button>
-            </Space>
+
+            <Alert
+              v-if="outcomesPartialError"
+              :message="$t('gainosB4.leadsDetail.outcomes.partialNotice')"
+              class="mt-3"
+              data-gs="outcomes-partial-notice"
+              show-icon
+              type="warning"
+            />
+
+            <p v-if="outcomesLoading && !outcomesLoaded" class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainosB4.leadsDetail.outcomes.loading') }}
+            </p>
+
+            <ol
+              v-else-if="outcomeTimeline.length > 0"
+              class="lead-timeline"
+              data-gs="outcomes-timeline"
+            >
+              <li
+                v-for="entry in outcomeTimeline"
+                :key="entry.id"
+                class="lead-timeline__item"
+                data-gs="outcomes-timeline-item"
+              >
+                <div class="lead-timeline__head">
+                  <GsTag :tone="entry.tone">{{ entry.typeLabel }}</GsTag>
+                  <span v-if="entry.at" class="text-xs text-[var(--gs-fg-subtle)]">
+                    {{ formatDateTime(entry.at) }}
+                  </span>
+                </div>
+                <p class="lead-timeline__title">{{ entry.title }}</p>
+                <p v-if="entry.detail" class="lead-timeline__detail">{{ entry.detail }}</p>
+              </li>
+            </ol>
+
+            <p v-else class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainosB4.leadsDetail.outcomes.empty') }}
+            </p>
           </GsCard>
         </TabPane>
       </Tabs>
+
+      <!-- 单一受控挂载 T0OutreachPanel：切换任意 Tab 均不销毁/重置草稿与已选渠道 -->
+      <T0OutreachPanel
+        v-show="tab === 'package' || tab === 'draft'"
+        :key="pkg.lead_id"
+        :draft="draft"
+        :is-admin="isAdmin"
+        :pkg="pkg"
+        @touches-updated="onTouchesUpdated"
+      />
+      </div>
     </AsyncSection>
 
     <!-- 接受/拒绝 -->
@@ -1374,4 +1788,38 @@ watch(tab, (next) => {
 .is-warn {
   border-color: var(--gs-warn);
   background: var(--gs-warn-bg);
-}</style>
+}
+.lead-timeline {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lead-timeline__item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface-2);
+}
+.lead-timeline__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lead-timeline__title {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gs-fg);
+}
+.lead-timeline__detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gs-fg-muted);
+}
+</style>

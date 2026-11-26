@@ -186,18 +186,18 @@ function restoreFocus() {
   target.focus();
 }
 function focusout(event: FocusEvent) {
-  if (props.hidden || leaveConfirmOpen.value) return;
+  if (props.hidden || leaveConfirmOpen.value || state.confirmDialogOpen.value) return;
   const related = event.relatedTarget;
   const boundary = focusBoundary();
   if (boundary && related instanceof Node && boundary.contains(related)) return;
   void nextTick(() => {
-    if (!props.hidden && !leaveConfirmOpen.value) restoreFocus();
+    if (!props.hidden && !leaveConfirmOpen.value && !state.confirmDialogOpen.value) restoreFocus();
   });
 }
 function keydown(event: KeyboardEvent) {
   // 面板是模态目标，键盘事件不向全局命令面板/布局冒泡；否则全局 Enter 会触发无关导航。
   event.stopPropagation();
-  if (leaveConfirmOpen.value || feedbackCandidate.value) return;
+  if (leaveConfirmOpen.value || state.confirmDialogOpen.value || feedbackCandidate.value) return;
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();

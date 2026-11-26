@@ -51,6 +51,10 @@ const props = defineProps<{
   pkg: LeadPackage;
 }>();
 
+const emit = defineEmits<{
+  'touches-updated': [touches: T0TouchRecord[]];
+}>();
+
 interface TargetOption {
   contactName: string;
   contactRef: string;
@@ -452,6 +456,7 @@ async function loadTouches(): Promise<void> {
   try {
     const rows = await gainosApi.listT0Touches(props.pkg.lead_id);
     touches.value = Array.isArray(rows) ? rows : [];
+    emit('touches-updated', touches.value);
   } catch {
     touches.value = [];
   } finally {
@@ -483,6 +488,7 @@ async function saveTouch(
       outcome,
     });
     touches.value = [created, ...touches.value.filter((item) => item.id !== created.id)];
+    emit('touches-updated', touches.value);
     if (props.pkg.status === 'QUALIFIED') {
       void gainosApi
         .leadOutcome(props.pkg.lead_id, {
@@ -580,6 +586,17 @@ watch(
         contactName: activeTarget.value.contactName,
         body: body.value,
       });
+    }
+  },
+);
+
+watch(
+  () => props.isAdmin,
+  (admin) => {
+    if (admin) {
+      void loadContacts();
+    } else {
+      namedContacts.value = [];
     }
   },
 );

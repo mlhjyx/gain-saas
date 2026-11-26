@@ -1,4 +1,5 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from "vue";
+import { feedback } from "#/feedback";
 import { $t } from "#/locales";
 import { newAttemptId } from "#/utils/attempt-id";
 import {
@@ -452,9 +453,34 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       if (e === epoch) busy.value = false;
     }
   }
+  const confirmDialogOpen = ref(false);
+  function confirmAction(content: string, danger = false): Promise<boolean> {
+    if (confirmDialogOpen.value) return Promise.resolve(false);
+    confirmDialogOpen.value = true;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (allowed: boolean) => {
+        if (settled) return;
+        settled = true;
+        confirmDialogOpen.value = false;
+        resolve(allowed);
+      };
+      feedback.confirm({
+        content,
+        okText: danger ? $t("gainos.marketCandidates.close") : $t("gainos.marketCandidates.newIntent"),
+        cancelText: $t("gainos.marketCandidates.cancel"),
+        okType: danger ? "danger" : "primary",
+        zIndex: 1400,
+        onOk: () => finish(true),
+        onCancel: () => finish(false),
+      });
+    });
+  }
   async function newIntent() {
-    if (!canStartNew.value || !window.confirm($t("gainos.marketCandidates.newIntentConfirm")))
-      return;
+    if (!canStartNew.value) return;
+    const e = epoch;
+    const confirmed = await confirmAction($t("gainos.marketCandidates.newIntentConfirm"), false);
+    if (!confirmed || e !== epoch || !canStartNew.value) return;
     generationIdentity = null;
     recoveryAvailable.value = false;
     pending.value = null;
@@ -562,7 +588,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     ownDraft.value = structuredClone(value);
     draftDirty.value = true;
   }
-  function openFeedback(c: Candidate) {
+  async function openFeedback(c: Candidate) {
     if (
       feedbackBusy.value ||
       historical.value ||
@@ -571,12 +597,20 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
       reviewDenied.value
     )
       return;
-    if (
-      draftDirty.value &&
-      ownDraft.value &&
-      !window.confirm($t("gainos.marketCandidates.leaveWarning"))
-    )
-      return;
+    if (draftDirty.value && ownDraft.value) {
+      const e = epoch;
+      const confirmed = await confirmAction($t("gainos.marketCandidates.leaveWarning"), true);
+      if (
+        !confirmed ||
+        e !== epoch ||
+        feedbackBusy.value ||
+        historical.value ||
+        readDenied.value ||
+        !document.value ||
+        reviewDenied.value
+      )
+        return;
+    }
     closeFeedback();
     feedbackCandidate.value = c;
     feedbackRevision.value = document.value.revision;
@@ -812,6 +846,7 @@ export function useMarketCandidates(company: Ref<string>, context: Ref<string>) 
     document,
     canExecute,
     canStartNew,
+    confirmDialogOpen,
     newIntent,
     refresh,
     prepare,
