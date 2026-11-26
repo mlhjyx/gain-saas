@@ -1,19 +1,4 @@
-<script lang="ts" setup>
-import { computed } from 'vue';
-
-import { useAntdDesignTokens } from '@vben/hooks';
-import { preferences, usePreferences } from '@vben/preferences';
-
-import { App, ConfigProvider, theme } from 'ant-design-vue';
-
-import FeedbackInit from '#/components/feedback-init.vue';
-import { antdLocale } from '#/locales';
-
-defineOptions({ name: 'App' });
-
-const { isDark } = usePreferences();
-const { tokens } = useAntdDesignTokens();
-
+<script lang="ts">
 /**
  * GainOS 品牌令牌桥：antd 组件的色板与 gainos.css 的 --gs-* 同源取值。
  * 数值来源：docs/evidence/ui-restyle/token-mapping.md（AgentSDR AlignUI token）。
@@ -21,10 +6,10 @@ const { tokens } = useAntdDesignTokens();
  * 但 .dark 类的施加与 computed 重算存在时序竞态，会读到切换前的颜色）。
  * 修改品牌色时需同步 gainos.css 的两套 --gs-* 令牌。
  *
- * 对比度口径：主行动 #335CFF + 白字 5.10:1；错误/警告/成功文字用 600/700 档，
- * 不用 500 档做正文色（500 档只做图标、边框、浅底）。
+ * 对比度口径：主行动 #335CFF + 白字 5.10:1；浅色错误/警告/成功文字用 600/700 档，
+ * 暗色在 #1C1C1C 卡片面上提亮至 AA（≥4.5:1）。
  */
-const GS_BRAND = {
+export const GS_BRAND = {
   light: {
     primary: '#335CFF',
     primaryHover: '#3559E9',
@@ -49,7 +34,7 @@ const GS_BRAND = {
     bgBase: '#FFFFFF',
     bgContainer: '#FFFFFF',
     bgElevated: '#FFFFFF',
-    bgLayout: '#F7F7F7',
+    bgLayout: '#F7F8FB',
     bgSpotlight: '#171717',
     tableHeaderBg: '#F7F7F7',
     fg: '#171717',
@@ -74,19 +59,19 @@ const GS_BRAND = {
     primaryActive: '#3559E9',
     primaryBg: 'rgba(51, 92, 255, 0.16)',
     primaryBorder: 'rgba(51, 92, 255, 0.24)',
-    link: '#335CFF',
-    linkHover: '#3559E9',
-    linkActive: '#3559E9',
-    success: '#1A7544',
-    successText: '#FFFFFF',
+    link: '#6B8EFF',
+    linkHover: '#8FA8FF',
+    linkActive: '#8FA8FF',
+    success: '#4ADE80',
+    successText: '#4ADE80',
     successBg: 'rgba(26, 117, 68, 0.18)',
     successBorder: 'rgba(26, 117, 68, 0.32)',
-    warning: '#B75310',
-    warningText: '#B75310',
+    warning: '#FBBF24',
+    warningText: '#FBBF24',
     warningBg: 'rgba(183, 83, 16, 0.18)',
     warningBorder: 'rgba(183, 83, 16, 0.32)',
-    error: '#D02533',
-    errorText: '#D02533',
+    error: '#F87171',
+    errorText: '#F87171',
     errorBg: 'rgba(208, 37, 51, 0.18)',
     errorBorder: 'rgba(208, 37, 51, 0.32)',
     bgBase: '#171717',
@@ -112,6 +97,23 @@ const GS_BRAND = {
     shadowTertiary: '0 2px 4px rgba(0, 0, 0, 0.5)',
   },
 } as const;
+</script>
+
+<script lang="ts" setup>
+import { computed } from 'vue';
+
+import { useAntdDesignTokens } from '@vben/hooks';
+import { preferences, usePreferences } from '@vben/preferences';
+
+import { App, ConfigProvider, theme } from 'ant-design-vue';
+
+import FeedbackInit from '#/components/feedback-init.vue';
+import { antdLocale } from '#/locales';
+
+defineOptions({ name: 'App' });
+
+const { isDark } = usePreferences();
+const { tokens } = useAntdDesignTokens();
 
 const brandTokens = computed(() => {
   const c = isDark.value ? GS_BRAND.dark : GS_BRAND.light;
@@ -215,10 +217,20 @@ function componentTokens(c: (typeof GS_BRAND)['light' | 'dark']) {
   };
 }
 
+const darkSemanticAAAlgorithm: typeof theme.darkAlgorithm = (seedToken, mapToken) => {
+  const base = theme.darkAlgorithm(seedToken, mapToken);
+  return {
+    ...base,
+    colorError: GS_BRAND.dark.error,
+    colorSuccess: GS_BRAND.dark.success,
+    colorWarning: GS_BRAND.dark.warning,
+  };
+};
+
 const tokenTheme = computed(() => {
   const c = isDark.value ? GS_BRAND.dark : GS_BRAND.light;
   const algorithm = isDark.value
-    ? [theme.darkAlgorithm]
+    ? [darkSemanticAAAlgorithm]
     : [theme.defaultAlgorithm];
 
   // antd 紧凑模式算法
