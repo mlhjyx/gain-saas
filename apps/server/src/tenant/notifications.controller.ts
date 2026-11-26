@@ -1,5 +1,9 @@
-import { Controller, Delete, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { Request } from 'express';
+import type { AppConfig } from '../config/configuration.js';
+import { APP_CONFIG } from '../shared/config.module.js';
+import { LEGACY_WORKSPACE_QUOTA_ALERT_TYPES, legacyWorkspaceQuotaAlertsEnabled } from '../shared/legacy-workspace-quota-alerts.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { TenantGuard } from './tenant.guard.js';
 
@@ -18,19 +22,29 @@ function linkFor(type: string, refId: string | null): string | undefined {
 @Controller('api/notifications')
 @UseGuards(TenantGuard)
 export class NotificationsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
+
+  private visibleNotifications(workspaceId: string): Prisma.NotificationWhereInput {
+    return legacyWorkspaceQuotaAlertsEnabled(this.config)
+      ? { workspaceId }
+      : { workspaceId, type: { notIn: [...LEGACY_WORKSPACE_QUOTA_ALERT_TYPES] } };
+  }
 
   @Get()
   async list(@Req() req: Request) {
     const tenant = req.tenant!;
+    const visible = this.visibleNotifications(tenant.workspaceId);
     const { rows, unreadCount } = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       const items = await tx.notification.findMany({
-        where: { workspaceId: tenant.workspaceId },
+        where: visible,
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
       const count = await tx.notification.count({
-        where: { workspaceId: tenant.workspaceId, readAt: null },
+        where: { ...visible, readAt: null },
       });
       return { rows: items, unreadCount: count };
     });
@@ -56,7 +70,7 @@ export class NotificationsController {
     const tenant = req.tenant!;
     const result = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
       tx.notification.updateMany({
-        where: { workspaceId: tenant.workspaceId, readAt: null },
+        where: { ...this.visibleNotifications(tenant.workspaceId), readAt: null },
         data: { readAt: new Date() },
       }),
     );

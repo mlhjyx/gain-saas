@@ -302,6 +302,7 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
     usedRuns?: number;
     existing?: boolean;
     enforce?: boolean;
+    budgetMode?: AppConfig['LEGACY_EXECUTION_BUDGET_MODE'];
   }) {
     const notificationCreate = vi.fn(async () => ({}));
     const notificationFindFirst = vi.fn(async () => (options.existing ? { id: 'n1' } : null));
@@ -329,6 +330,7 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
       EVENT_CONSUMER_ENABLED: true,
       EVENT_CONSUMER_PAGE_LIMIT: 100,
       ENGINE_ORIGIN: 'http://engine.test',
+      LEGACY_EXECUTION_BUDGET_MODE: options.budgetMode ?? 'enforce',
       WORKSPACE_QUOTA_ENFORCE: options.enforce ?? true,
     } as AppConfig;
     const signer = { mint: vi.fn(async () => 'token') } as unknown as EngineTokenSigner;
@@ -361,6 +363,19 @@ describe('P5：配额告警（80% 预警 / 100% 耗尽，每窗口每档一条�
     expect(notificationCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ type: 'WorkspaceQuotaExceeded' }),
     });
+  });
+
+  it('does not notify about old workspace quotas in bypass mode', async () => {
+    const { service, notificationCreate } = createQuotaService({
+      policy: POLICY,
+      spentMicros: 16_000_000,
+      usedRuns: 30,
+      budgetMode: 'bypass',
+    });
+
+    await service.consumeOnce();
+
+    expect(notificationCreate).not.toHaveBeenCalled();
   });
 
   it('同窗口已有同类通知时不重复写入', async () => {
