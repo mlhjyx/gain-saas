@@ -210,7 +210,7 @@ describe('1b 花费维度：成本落账', () => {
 });
 
 describe('P1：完成事件回填与停止文案', () => {
-  it('backfills engineRunId from payload.taskRef and mirrors CANCELLED', async () => {
+  it('mirrors CANCELLED with a single write whether the engine run has been linked or needs backfill', async () => {
     const TASK_RUN_ID = '55555555-5555-4555-8555-555555555555';
     const RUN_ID = '77777777-7777-4777-8777-777777777777';
     const body = {
@@ -235,12 +235,17 @@ describe('P1：完成事件回填与停止文案', () => {
 
     await service.consumeOnce();
 
-    expect(tx.taskRun.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: TASK_RUN_ID, engineRunId: null }),
-        data: expect.objectContaining({ engineRunId: RUN_ID, status: 'CANCELLED' }),
-      }),
-    );
+    expect(tx.taskRun.updateMany).toHaveBeenCalledOnce();
+    expect(tx.taskRun.updateMany).toHaveBeenCalledWith({
+      where: {
+        workspaceId: WORKSPACE,
+        OR: [
+          { engineRunId: RUN_ID, status: 'RUNNING' },
+          { id: TASK_RUN_ID, engineRunId: null },
+        ],
+      },
+      data: { engineRunId: RUN_ID, status: 'CANCELLED', finishedAt: expect.any(Date) },
+    });
     expect(tx.notification.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('已停止') }) }),
     );
