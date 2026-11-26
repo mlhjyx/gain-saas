@@ -70,6 +70,7 @@
   "qgos": {
     "source": {
       "MANUAL": "Manual entry",
+      "SYSTEM": "System sync",
       "AUTO": "Automatic sync",
       "REPLY": "Synced from reply",
       "OUTREACH": "Synced from outreach",

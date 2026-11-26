@@ -743,6 +743,13 @@ test('qgos translates outcome source, uses green badge for CONVERTED, and suppor
         occurredAt: NOW,
         note: '客户索要样品报价',
       },
+      {
+        id: 'out-2',
+        outcome: 'QUOTE_SENT',
+        source: 'SYSTEM',
+        occurredAt: NOW,
+        note: '报价单已同步回写',
+      },
     ],
   };
 
@@ -754,6 +761,8 @@ test('qgos translates outcome source, uses green badge for CONVERTED, and suppor
 
   const rowButton = page.locator('.qg__list').getByRole('button', { name: /Muster Pumpen 采购商机/ });
   await expect(rowButton).toBeVisible();
+  // Button must only contain phrasing content (no nested header/h2/p/div).
+  await expect(rowButton.locator('header, h1, h2, h3, p, div')).toHaveCount(0);
 
   // CONVERTED badge must use green semantic color, distinct from OPEN accent blue.
   const badgeColor = await page
@@ -769,7 +778,9 @@ test('qgos translates outcome source, uses green badge for CONVERTED, and suppor
   const drawer = page.locator('.ant-drawer-content');
   await expect(drawer).toBeVisible();
   await expect(drawer).toContainText('人工登记');
+  await expect(drawer).toContainText('系统自动回写');
   await expect(drawer).not.toContainText('· MANUAL');
+  await expect(drawer).not.toContainText('· SYSTEM');
 });
 
 test('audit translates all 14 KNOWN_ACTIONS with GsSelect and preserves getByLabel(动作)', async ({

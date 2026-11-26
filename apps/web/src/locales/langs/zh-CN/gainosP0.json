@@ -70,6 +70,7 @@
   "qgos": {
     "source": {
       "MANUAL": "人工登记",
+      "SYSTEM": "系统自动回写",
       "AUTO": "系统自动同步",
       "REPLY": "买家回信同步",
       "OUTREACH": "外联自动回写",
