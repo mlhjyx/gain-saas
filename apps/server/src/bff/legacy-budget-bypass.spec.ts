@@ -291,6 +291,7 @@ describe('LEGACY_EXECUTION_BUDGET_MODE=bypass 旁路开关', () => {
         ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: false,
         ENGINE_MANUFACTURER_NETWORK_ENABLED: false,
       } as AppConfig,
+      { billingEnabled: false } as WalletService,
     );
 
     const result = await controller.startRun(

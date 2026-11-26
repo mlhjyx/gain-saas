@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/configuration.js';
 import type { PrismaService } from '../shared/prisma.service.js';
+import type { WalletService } from '../wallet/wallet.service.js';
 import { EventConsumerService } from './event-consumer.service.js';
 import type { EngineTokenSigner } from './engine-token.signer.js';
 
@@ -8,14 +9,17 @@ const WORKSPACE = '33fe8b32-e417-4355-af91-96fc042d59e0';
 const EVENT_ID = '47dfb9b2-cdca-490f-b36b-bab68e019a50';
 const DISCOVERY_RUN_ID = 'a09a873f-ff25-432c-9ecb-bef2ab867048';
 
-function createService(cursor: string | null) {
+function createService(cursor: string | null, wallet?: Pick<WalletService, 'billingEnabled' | 'settleHoldByRef'>) {
   const update = vi.fn(async () => ({}));
   const tx = {
     eventInbox: { updateMany: vi.fn(async () => ({ count: 1 })) },
     notification: { create: vi.fn(async () => ({})), findFirst: vi.fn(async () => null) },
     qualifiedLead: { create: vi.fn(async () => ({})) },
     costLedger: { createMany: vi.fn(async () => ({ count: 1 })) },
-    taskRun: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    taskRun: {
+      updateMany: vi.fn(async () => ({ count: 0 })),
+      findUnique: vi.fn<() => Promise<{ id: string } | null>>(async () => null),
+    },
     campaignPlanJob: { updateMany: vi.fn(async () => ({ count: 1 })) },
   };
   const prismaObj: Record<string, unknown> = {
@@ -49,7 +53,7 @@ function createService(cursor: string | null) {
     ENGINE_ORIGIN: 'http://engine.test',
   } as AppConfig;
   const signer = { mint: vi.fn(async () => 'token') } as unknown as EngineTokenSigner;
-  return { service: new EventConsumerService(config, signer, prisma), update, tx };
+  return { service: new EventConsumerService(config, signer, prisma, wallet as WalletService | undefined), update, tx };
 }
 
 function pageBody(nextCursor: string | null) {
@@ -210,6 +214,47 @@ describe('1b 花费维度：成本落账', () => {
 });
 
 describe('P1：完成事件回填与停止文案', () => {
+  it.each([
+    { status: 'DONE', units: 2 },
+    { status: 'FAILED', units: 0 },
+    { status: 'CANCELLED', units: 0 },
+  ])('settles $status against the linked attempt before a start response is needed', async ({ status, units }) => {
+    const taskRunId = '55555555-5555-4555-8555-555555555555';
+    const body = pageBody(null);
+    Object.assign(body.data[0]!.payload, { status, taskRef: { taskRunId }, stats: { fit: { match: 2 } } });
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }))));
+    const settleHoldByRef = vi.fn<WalletService['settleHoldByRef']>().mockResolvedValue(null);
+    const { service, tx } = createService(null, { billingEnabled: true, settleHoldByRef });
+    tx.taskRun.findUnique.mockResolvedValueOnce({ id: taskRunId });
+
+    await service.consumeOnce();
+
+    expect(tx.taskRun.findUnique).toHaveBeenCalledWith({
+      where: { workspaceId: WORKSPACE, engineRunId: DISCOVERY_RUN_ID }, select: { id: true },
+    });
+    expect(settleHoldByRef).toHaveBeenCalledWith(
+      WORKSPACE, 'discovery_task_run', taskRunId, units, `DiscoveryRunCompleted:${status}`, 'system:event-consumer',
+    );
+  });
+
+  it('retains settlement by engine run for existing BFF reservations', async () => {
+    const body = pageBody(null);
+    Object.assign(body.data[0]!.payload, { stats: { quickScan: { leads: 3 } } });
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(body)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { acked: 1 } }))));
+    const settleHoldByRef = vi.fn<WalletService['settleHoldByRef']>().mockResolvedValue(null);
+    const { service } = createService(null, { billingEnabled: true, settleHoldByRef });
+
+    await service.consumeOnce();
+
+    expect(settleHoldByRef).toHaveBeenCalledExactlyOnceWith(
+      WORKSPACE, 'discovery_run', DISCOVERY_RUN_ID, 3, 'DiscoveryRunCompleted:DONE', 'system:event-consumer',
+    );
+  });
+
   it('mirrors CANCELLED with a single write whether the engine run has been linked or needs backfill', async () => {
     const TASK_RUN_ID = '55555555-5555-4555-8555-555555555555';
     const RUN_ID = '77777777-7777-4777-8777-777777777777';

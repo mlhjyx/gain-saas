@@ -392,7 +392,10 @@ describe('BffHandler wallet integration', () => {
       { billingEnabled: true, settleHoldByRef } as unknown as WalletService,
     );
     const tx = {
-      taskRun: { updateMany: vi.fn(async () => ({ count: 1 })) },
+      taskRun: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        findUnique: vi.fn(async () => null),
+      },
       notification: { create: vi.fn(async () => ({})) },
     };
 

@@ -5,6 +5,8 @@ import {
   Controller,
   Get,
   HttpException,
+  Inject,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -13,14 +15,16 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import type { TaskRun } from '@prisma/client';
 import type { Request } from 'express';
-import { Inject } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
+import { DISCOVERY_TASK_RUN_WALLET_REF, DISCOVERY_WALLET_ACTION } from '../wallet/bff-wallet-billing.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
@@ -31,6 +35,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const UNSCOPED_TASK_ICP_ID = '00000000-0000-4000-8000-000000000000';
 const MAX_TASK_NAME = 200;
 type AcquisitionTaskStatus = 'active' | 'paused' | 'archived';
+type TaskRunAllocation =
+  | { replayed: true; run: Pick<TaskRun, 'id' | 'engineRunId' | 'status'> }
+  | { replayed: false; run: Pick<TaskRun, 'id' | 'attempt'>; previousAttempt: string | null; holdId: string | null };
 const TASK_STATUSES = new Set<AcquisitionTaskStatus>(['active', 'paused', 'archived']);
 const ALLOWED_PATCH_FIELDS = new Set(['name', 'status']);
 const ALLOWED_TASK_STATUS_TRANSITIONS: Record<AcquisitionTaskStatus, ReadonlySet<AcquisitionTaskStatus>> = {
@@ -104,12 +111,15 @@ function taskView(row: TaskRow) {
 @Controller('api/tasks')
 @UseGuards(TenantGuard)
 export class AcquisitionTasksController {
+  private readonly logger = new Logger(AcquisitionTasksController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly engine: EngineHttp,
     private readonly budget: EngineBudgetGrantService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly wallet: WalletService,
   ) {}
 
   @Get()
@@ -339,13 +349,12 @@ export class AcquisitionTasksController {
 
     const allocated = await this.allocateRun(tenant.workspaceId, task.id, planId, tenant.userId, attemptId, executionRequestSha256);
     if (allocated.replayed) {
-      const replayed = allocated.run as { id: string; engineRunId?: string | null; status?: string };
+      const replayed = allocated.run;
       return {
         data: { taskRunId: replayed.id, runId: replayed.engineRunId ?? null, status: replayed.status ?? 'RUNNING', replayed: true },
       };
     }
-    const run = allocated.run as { id: string; attempt?: number };
-    const previousAttempt = allocated.previousAttempt;
+    const { run, previousAttempt, holdId } = allocated;
 
     // W2 旁路模式（LEGACY_EXECUTION_BUDGET_MODE=bypass）：跳过二次 /quote 与旧 RS256 Grant 签发，
     // 直接以纯租户身份转发，避免重试撞上 409 GRANT_REUSED。
@@ -360,7 +369,7 @@ export class AcquisitionTasksController {
           ...(Object.keys(canonical).length ? { body: canonical } : {}),
         });
       } catch (error) {
-        await this.failRun(tenant.workspaceId, run.id);
+        await this.failRun(tenant, run.id, holdId, 'BUDGET_GRANT_FAILED');
         if (error instanceof WorkspaceBudgetQuotaExceededError) {
           throw new HttpException(
             { error: { code: error.code, message: error.message, details: error.details } },
@@ -387,7 +396,8 @@ export class AcquisitionTasksController {
         ...(grant ? { headers: { 'x-execution-budget-grant': grant } } : {}),
       });
     } catch {
-      await this.failRun(tenant.workspaceId, run.id);
+      // The engine may have accepted the request. Keep the hold for its completion event.
+      await this.failRun(tenant, run.id);
       throw new HttpException(
         { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: '引擎不可达' } },
         502,
@@ -396,7 +406,11 @@ export class AcquisitionTasksController {
 
     const data = (response.body as { data?: { runId?: unknown; status?: unknown; icpId?: unknown } } | null)?.data;
     if (response.status !== 202 || !data || typeof data.runId !== 'string' || !UUID.test(data.runId)) {
-      await this.failRun(tenant.workspaceId, run.id);
+      const code = (response.body as { error?: { code?: unknown } } | null)?.error?.code;
+      const rejectedBeforeStart =
+        (response.status >= 400 && response.status < 500 && response.status !== 408)
+        || (response.status === 503 && code === 'RUNTIME_ADMISSION_CLOSED');
+      await this.failRun(tenant, run.id, rejectedBeforeStart ? holdId : null, `DISPATCH_FAILED_HTTP_${response.status}`);
       throw new HttpException(
         this.engine.toClientError(response.status, response.body),
         this.engine.toClientStatus(response.status, response.body),
@@ -477,7 +491,7 @@ export class AcquisitionTasksController {
         taskRunId: run.id,
         runId: data.runId,
         status: persistedStatus,
-        attempt: run.attempt ?? 1,
+        attempt: run.attempt,
         rerunOf: previousAttempt,
         replayed: false,
       },
@@ -495,7 +509,7 @@ export class AcquisitionTasksController {
     requestedBy: string,
     attemptId: string | undefined,
     executionRequestSha256: string | undefined,
-  ): Promise<{ run: Record<string, unknown>; previousAttempt: string | null; replayed?: boolean }> {
+  ): Promise<TaskRunAllocation> {
     try {
       return await this.prisma.withWorkspace(workspaceId, async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "acquisition_task" WHERE "id" = ${taskId}::uuid FOR UPDATE`;
@@ -522,7 +536,18 @@ export class AcquisitionTasksController {
             ...(previous ? { rerunOf: previous.id } : {}),
           },
         });
-        return { run: created as unknown as Record<string, unknown>, previousAttempt: previous?.id ?? null };
+        // WalletService reuses this workspace transaction. An unfunded attempt leaves neither row nor hold.
+        // The TaskRun ID exists before dispatch and stays valid if completion beats the engine response.
+        const reservation = this.wallet.billingEnabled
+          ? await this.wallet.holdCredits(workspaceId, {
+            idempotencyKey: `${DISCOVERY_TASK_RUN_WALLET_REF}:${created.id}`,
+            actionCode: DISCOVERY_WALLET_ACTION,
+            refType: DISCOVERY_TASK_RUN_WALLET_REF,
+            refId: created.id,
+            actorId: requestedBy,
+          })
+          : null;
+        return { replayed: false, run: created, previousAttempt: previous?.id ?? null, holdId: reservation?.hold?.id ?? null };
       });
     } catch (error) {
       if (attemptId && (error as { code?: string } | null)?.code === 'P2002') {
@@ -534,7 +559,7 @@ export class AcquisitionTasksController {
         );
         if (replayed) {
           this.assertReplayBinding(replayed, planId, executionRequestSha256);
-          return { run: replayed as unknown as Record<string, unknown>, previousAttempt: null, replayed: true };
+          return { replayed: true, run: replayed };
         }
       }
       throw error;
@@ -552,14 +577,24 @@ export class AcquisitionTasksController {
     }
   }
 
-  private async failRun(workspaceId: string, taskRunId: string): Promise<void> {
-    await this.prisma
-      .withWorkspace(workspaceId, (tx) =>
-        tx.taskRun.updateMany({
+  private async failRun(
+    { workspaceId, userId }: NonNullable<Request['tenant']>,
+    taskRunId: string,
+    holdId?: string | null,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.withWorkspace(workspaceId, async (tx) => {
+        const failed = await tx.taskRun.updateMany({
           where: { id: taskRunId, workspaceId, status: 'RUNNING' },
           data: { status: 'FAILED', finishedAt: new Date() },
-        }),
-      )
-      .catch(() => undefined);
+        });
+        if (failed.count && holdId && reason) {
+          await this.wallet.releaseHold(workspaceId, holdId, reason, userId);
+        }
+      });
+    } catch {
+      this.logger.warn(`Failed to record dispatch failure for discovery task run ${taskRunId}`);
+    }
   }
 }
