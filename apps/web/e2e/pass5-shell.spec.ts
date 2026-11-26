@@ -28,10 +28,11 @@ test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ p
   });
   expect(topHit, '视口顶部应是标签栏').toBe(true);
 
+  // 「留痕」的前提是新标签已经登记。固定等 600ms 在较慢的机器上会赶在登记前就跳走，
+  // 下一个页面恢复不到这个标签（实测加载完成后还要 0.7–0.8s 才登记）。按数量等，不按时间等。
   await page.goto('/find-buyers');
-  await settle(page);
+  await expect(page.locator('[data-tab-item]')).toHaveCount(2);
   await page.goto('/leads');
-  await settle(page);
   await expect(page.locator('[data-tab-item]')).toHaveCount(3);
 
   // active 是反白实心药丸（浅色：近黑底白字；深色：白底深字），一眼可辨；
