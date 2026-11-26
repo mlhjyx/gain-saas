@@ -256,11 +256,18 @@ test('跨标签换账号后禁止从旧启航表单写入', async ({ context, pa
   await expect(page.locator('[data-gs="setup-save"]')).toBeEnabled();
 
   const otherTab = await context.newPage();
-  await installMockBackend(otherTab);
+  const replacement = await installMockBackend(otherTab);
   await otherTab.goto('/workspace');
   await otherTab.locator('[data-gs="account-trigger"]').click();
   await otherTab.getByRole('menuitem', { name: '退出登录' }).click();
-  await loginAs(otherTab, 'another-account@example.test');
+  await expect(otherTab).toHaveURL(/\/auth\/login$/);
+  await otherTab.locator('input[type="email"]').fill('another-account@example.test');
+  await submitPassword(otherTab);
+  await expect(otherTab).toHaveURL(/\/workspace$/);
+  expect(replacement.callsTo('POST', '/auth/logout')).toHaveLength(1);
+  expect(replacement.take('POST', '/auth/login')?.body).toMatchObject({
+    email: 'another-account@example.test',
+  });
   await otherTab.close();
 
   await expect(page.getByText(/登录状态已变化/)).toBeVisible();
