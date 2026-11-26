@@ -61,6 +61,22 @@ function fillParams(enginePath: string, params: Record<string, string>): string 
   return enginePath.replace(/:([A-Za-z]+)/g, (_, name: string) => encodeURIComponent(params[name] ?? ''));
 }
 
+/**
+ * Phase 2 多模态冷启动与选国推荐：未完成引导前仅允许访问绑定到本工作空间草稿公司
+ * (`onboardingCompanyId`) 的 PDF 画册上传/读取与 UN Comtrade 选国推荐路由，其余业务路由继续 409 拦截。
+ */
+const ONBOARDING_COMPANY_READ_ROUTES: ReadonlySet<string> = new Set([
+  'GET companies/:companyId/seller-documents',
+  'GET companies/:companyId/market-recommendations',
+]);
+const ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES: ReadonlySet<string> = new Set([
+  'POST companies/:companyId/seller-documents/presign',
+  'PUT companies/:companyId/seller-documents/:documentId/content',
+  'POST companies/:companyId/seller-documents/:documentId/commit',
+  'POST companies/:companyId/seller-documents/:documentId/claim-previews',
+  'POST companies/:companyId/seller-documents/:documentId/claim-drafts',
+]);
+
 @Injectable()
 export class BffGuard implements CanActivate {
   constructor(private readonly tenantGuard: TenantGuard, private readonly adminGuard: AdminGuard) {}
@@ -69,17 +85,31 @@ export class BffGuard implements CanActivate {
     if (!(await this.tenantGuard.canActivate(ctx))) return false;
     const req = ctx.switchToHttp().getRequest<Request>();
     const matched = matchRoute(req.method, req.path.replace(/^\/api\//, ''));
-    // SD11：未完成注册引导的工作空间拒绝一切业务请求（引导端点走 /api/onboarding，不进 BFF）。
+    // SD11：未完成注册引导的工作空间拒绝一切业务请求（引导端点走 /api/onboarding，不进 BFF）；
+    // 例外：仅放行绑定至本工作空间草稿公司 ID 的画册上传（admin）与选国推荐只读查询。
     if (req.tenant && req.tenant.onboardingCompleted === false) {
-      throw new HttpException(
-        {
-          error: {
-            code: 'ONBOARDING_INCOMPLETE',
-            message: '请先完成注册引导（企业建档），再使用获客功能',
+      const routeSignature = matched ? `${matched.route.method} ${matched.route.saasPath}` : '';
+      const sameDraftCompany =
+        Boolean(req.tenant.onboardingCompanyId) &&
+        matched?.params.companyId === req.tenant.onboardingCompanyId;
+      const allowedRead = sameDraftCompany && ONBOARDING_COMPANY_READ_ROUTES.has(routeSignature);
+      const allowedAdminWrite =
+        sameDraftCompany && ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES.has(routeSignature);
+      if (!allowedRead && !allowedAdminWrite) {
+        throw new HttpException(
+          {
+            error: {
+              code: 'ONBOARDING_INCOMPLETE',
+              message: '请先完成注册引导（企业建档），再使用获客功能',
+            },
           },
-        },
-        409,
-      );
+          409,
+        );
+      }
+      if (allowedAdminWrite) {
+        return this.adminGuard.canActivate(ctx);
+      }
+      return true;
     }
     if (matched?.route.access === 'admin') {
       return this.adminGuard.canActivate(ctx);

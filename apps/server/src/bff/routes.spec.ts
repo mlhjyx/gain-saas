@@ -131,6 +131,23 @@ describe('seller documents BFF routes', () => {
       expect(route?.grant).toBeUndefined();
     }
   });
+
+  it('registers Phase 2A read-only market-recommendations and streaming-progress routes as member passthroughs without grants', () => {
+    const expected: Array<[string, string]> = [
+      ['GET', 'companies/:companyId/market-recommendations'],
+      ['GET', 'discovery-runs/:runId/streaming-progress'],
+    ];
+    for (const [method, saasPath] of expected) {
+      const route = find(method, saasPath);
+      expect(route, `${method} ${saasPath}`).toMatchObject({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
+  });
 });
 
 describe('P1 attempt 维度：三类写路由的 attemptId 透传与剥离', () => {

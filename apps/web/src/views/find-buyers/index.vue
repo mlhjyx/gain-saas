@@ -10,12 +10,18 @@
  *
  * 业务逻辑（规则、回测、方案、发起寻源、本机运行记录）保持不变。
  */
-import type { StatusTone } from '@gain-saas/shared';
+import type {
+  ComtradeMarketRecommendation,
+  ProcurementScenarioCode,
+  StatusTone,
+  StreamingProgressDto,
+} from '@gain-saas/shared';
 
 import type {
   AcquisitionTaskView,
   Backtest,
   CompanyProfile,
+  DiscoveryRun,
   Icp,
   IcpFeedbackReport,
   IcpRule,
@@ -25,16 +31,26 @@ import type {
 } from '#/api/gainos';
 import type { FbTone, IcpCardRow, SummaryState } from './icp-card-types';
 
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
-import { formatDateTime, glossaryStatus, glossaryTerm } from '@gain-saas/shared';
+import {
+  BUYER_ROLE_CODES,
+  deriveStreamingFunnelProgress,
+  extractThreeLayerFromIcp,
+  formatDateTime,
+  glossaryStatus,
+  glossaryTerm,
+  normalizeComtradeRecommendations,
+  PROCUREMENT_SCENARIO_CODES,
+} from '@gain-saas/shared';
 import { RotateCw } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
 import {
   Alert,
   Button,
+  Checkbox,
   Collapse,
   CollapsePanel,
   Descriptions,
@@ -49,6 +65,8 @@ import {
 } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
+import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
+import ThreeLayerProfileCard from '#/components/gainos/ThreeLayerProfileCard.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
@@ -65,6 +83,7 @@ import IcpCard from './icp-card.vue';
 
 defineOptions({ name: 'FindBuyers' });
 
+const route = useRoute();
 const router = useRouter();
 
 const RULE_KINDS = ['MUST_HAVE', 'NICE_TO_HAVE', 'EXCLUSION'] as const;
@@ -72,12 +91,19 @@ const RULE_OPERATORS = ['eq', 'neq', 'in', 'not_in', 'contains', 'not_contains',
 
 const icps = ref<Icp[]>([]);
 const companies = ref<CompanyProfile[]>([]);
+const activeCompanyFilter = ref('');
 const loading = ref(true);
 const loadError = ref<{ title: string; next?: string } | null>(null);
 
 const createOpen = ref(false);
 const selectedCompanyId = ref('');
+const createName = ref('');
+const createProductLines = ref('');
 const createTargetMarkets = ref('');
+const createBuyerRoles = ref<string[]>([]);
+const createScenario = ref<'' | ProcurementScenarioCode>('');
+const createComtradeRecs = ref<ComtradeMarketRecommendation[]>([]);
+const keepExistingActive = ref(true);
 const creating = ref(false);
 const createError = ref<ReturnType<typeof failureText> | null>(null);
 const approvedClaimCount = ref<number | null>(null);
@@ -85,6 +111,14 @@ const claimsChecking = ref(false);
 const claimsCheckError = ref<string | null>(null);
 const quickApprovingFacts = ref(false);
 let claimsCheckToken = 0;
+
+// Phase 2 方案 B 流式三段进度看板态（详情抽屉内实时跟踪，运行中 4 秒轮询）
+const detailStreamRunId = ref<string | null>(null);
+const detailStreamDto = ref<StreamingProgressDto | null>(null);
+const detailStreamRun = ref<DiscoveryRun | null>(null);
+const detailStreamCancelling = ref(false);
+let detailStreamTimer: ReturnType<typeof setInterval> | null = null;
+let detailStreamSeq = 0;
 
 const selected = ref<Icp | null>(null);
 const detailLoading = ref(false);
@@ -450,7 +484,75 @@ async function loadPlans(icpId: string): Promise<void> {
   }
 }
 
-async function openDetail(icp: Icp): Promise<void> {
+const selectedThreeLayer = computed(() =>
+  selected.value
+    ? extractThreeLayerFromIcp({
+        ...selected.value,
+        companyName: companyName(selected.value.companyId),
+      })
+    : null,
+);
+
+const detailStreamingProgress = computed(() =>
+  detailStreamDto.value || detailStreamRun.value
+    ? deriveStreamingFunnelProgress({
+        streamingProgress: detailStreamDto.value,
+        run: detailStreamRun.value,
+      })
+    : null,
+);
+
+function stopDetailStreamPoll(): void {
+  if (detailStreamTimer) {
+    clearInterval(detailStreamTimer);
+    detailStreamTimer = null;
+  }
+}
+
+async function loadDetailStreamingProgress(runId: string): Promise<void> {
+  const seq = ++detailStreamSeq;
+  detailStreamRunId.value = runId;
+  const [spRes, runRes] = await Promise.allSettled([
+    gainosApi.streamingProgress(runId),
+    gainosApi.discoveryRun(runId),
+  ]);
+  if (seq !== detailStreamSeq) return;
+  const sp = spRes.status === 'fulfilled' ? spRes.value : null;
+  detailStreamDto.value = sp && typeof sp === 'object' && 'stages' in sp ? sp : null;
+  detailStreamRun.value = runRes.status === 'fulfilled' ? runRes.value : null;
+
+  const progress = detailStreamingProgress.value;
+  if (progress?.isRunning) {
+    if (!detailStreamTimer) {
+      detailStreamTimer = setInterval(() => {
+        if (detailStreamRunId.value) void loadDetailStreamingProgress(detailStreamRunId.value);
+      }, 4000);
+    }
+  } else {
+    stopDetailStreamPoll();
+  }
+}
+
+async function cancelDetailStreamRun(): Promise<void> {
+  if (!detailStreamRunId.value || detailStreamCancelling.value) return;
+  detailStreamCancelling.value = true;
+  try {
+    await gainosApi.cancelDiscoveryRun(detailStreamRunId.value);
+    await loadDetailStreamingProgress(detailStreamRunId.value);
+    if (selected.value) await loadTaskRuns(selected.value.id);
+  } catch (err) {
+    detailError.value = failureText(err);
+  } finally {
+    detailStreamCancelling.value = false;
+  }
+}
+
+function goSelectedIcpLeads(): void {
+  if (!selected.value) return;
+  void router.push({ path: '/leads', query: { icp: selected.value.id } });
+}
+
+async function openDetail(icp: Icp, focusRunId?: string): Promise<void> {
   selected.value = icp;
   detailError.value = null;
   detailLoading.value = true;
@@ -461,9 +563,21 @@ async function openDetail(icp: Icp): Promise<void> {
   taskRuns.value = [];
   feedback.value = null;
   profileEdited.value = false;
+  stopDetailStreamPoll();
+  detailStreamRunId.value = null;
+  detailStreamDto.value = null;
+  detailStreamRun.value = null;
   try {
     selected.value = await gainosApi.icp(icp.id);
     await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id), loadFeedback(icp.id)]);
+    const latestRunId =
+      focusRunId ||
+      taskRuns.value.find((r) => Boolean(r.runId))?.runId ||
+      Object.values(runRefs.value)[0]?.runId ||
+      null;
+    if (latestRunId) {
+      void loadDetailStreamingProgress(latestRunId);
+    }
   } catch (error) {
     detailError.value = failureText(error);
   } finally {
@@ -471,6 +585,10 @@ async function openDetail(icp: Icp): Promise<void> {
   }
 }
 function closeDetail(): void {
+  stopDetailStreamPoll();
+  detailStreamRunId.value = null;
+  detailStreamDto.value = null;
+  detailStreamRun.value = null;
   selected.value = null;
   plans.value = [];
   taskRuns.value = [];
@@ -500,8 +618,40 @@ async function checkApprovedClaims(companyId: string): Promise<void> {
     if (token === claimsCheckToken) claimsChecking.value = false;
   }
 }
+async function loadCreateComtrade(companyId: string): Promise<void> {
+  if (!companyId) {
+    createComtradeRecs.value = [];
+    return;
+  }
+  try {
+    const raw = await gainosApi.marketRecommendations(companyId, { limit: 6 });
+    createComtradeRecs.value = normalizeComtradeRecommendations(raw);
+  } catch {
+    createComtradeRecs.value = [];
+  }
+}
+
+function toggleCreateComtradeMarket(code: string): void {
+  const upper = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(upper)) return;
+  const current = commas(createTargetMarkets.value)
+    .map((item) => item.toUpperCase())
+    .filter((item) => /^[A-Z]{2}$/.test(item));
+  const next = current.includes(upper)
+    ? current.filter((item) => item !== upper)
+    : [...current, upper];
+  createTargetMarkets.value = next.join(', ');
+}
+
+function toggleCreateBuyerRole(role: string): void {
+  createBuyerRoles.value = createBuyerRoles.value.includes(role)
+    ? createBuyerRoles.value.filter((item) => item !== role)
+    : [...createBuyerRoles.value, role];
+}
+
 watch(selectedCompanyId, (companyId) => {
   void checkApprovedClaims(companyId);
+  if (createOpen.value) void loadCreateComtrade(companyId);
 });
 
 const canCreateIcp = computed(() =>
@@ -511,13 +661,23 @@ const canCreateIcp = computed(() =>
   approvedClaimCount.value !== null &&
   approvedClaimCount.value > 0);
 
-function openCreate(): void {
-  selectedCompanyId.value = orderedCompanies.value[0]?.id ?? '';
+function openCreate(presetCompanyId?: string): void {
+  const defaultId =
+    (typeof presetCompanyId === 'string' && presetCompanyId) ||
+    activeCompanyFilter.value ||
+    orderedCompanies.value[0]?.id ||
+    '';
+  selectedCompanyId.value = defaultId;
   const selectedCompany = orderedCompanies.value.find((c) => c.id === selectedCompanyId.value);
+  createName.value = '';
+  createProductLines.value = '';
+  createBuyerRoles.value = [];
+  createScenario.value = '';
   createTargetMarkets.value = (selectedCompany?.targetMarkets ?? []).join(', ');
   createError.value = null;
   createOpen.value = true;
   void checkApprovedClaims(selectedCompanyId.value);
+  void loadCreateComtrade(selectedCompanyId.value);
 }
 
 async function quickApproveOnboardingFacts(): Promise<void> {
@@ -561,9 +721,14 @@ async function createIcp(): Promise<void> {
     const markets = commas(createTargetMarkets.value)
       .map((item) => item.toUpperCase())
       .filter((code) => /^[A-Z]{2}$/.test(code));
+    const productLines = commas(createProductLines.value);
     const icp = await gainosApi.createIcp(selectedCompanyId.value, {
       attemptId: mintAttemptId(),
       ...(markets.length > 0 ? { confirmedTargetMarkets: markets } : {}),
+      ...(createName.value.trim() ? { name: createName.value.trim() } : {}),
+      ...(productLines.length > 0 ? { productLines } : {}),
+      ...(createBuyerRoles.value.length > 0 ? { buyerRoles: [...createBuyerRoles.value] } : {}),
+      ...(createScenario.value ? { procurementScenario: createScenario.value } : {}),
     });
     createOpen.value = false;
     uiFeedback.message.success($t('gainos.findBuyers.created'));
@@ -581,7 +746,16 @@ async function activate(): Promise<void> {
   planBusy.value = 'activate';
   detailError.value = null;
   try {
-    selected.value = await gainosApi.activateIcp(selected.value.id);
+    const hasSiblingActive = icps.value.some(
+      (item) =>
+        item.companyId === selected.value?.companyId &&
+        item.id !== selected.value?.id &&
+        item.status === 'ACTIVE',
+    );
+    selected.value = await gainosApi.activateIcp(
+      selected.value.id,
+      hasSiblingActive && keepExistingActive.value ? { keepExistingActive: true } : undefined,
+    );
     uiFeedback.message.success($t('gainos.findBuyers.activated'));
     await load();
     await loadPlans(selected.value.id);
@@ -950,11 +1124,30 @@ async function loadPrimaryCompany(): Promise<void> {
     isAdmin.value = false;
   }
 }
-onMounted(() => {
+const filteredRows = computed(() =>
+  activeCompanyFilter.value
+    ? rows.value.filter((row) => row.icp.companyId === activeCompanyFilter.value)
+    : rows.value,
+);
+
+const companiesWithIcps = computed(() =>
+  orderedCompanies.value.filter((company) => (icpCountByCompany.value.get(company.id) ?? 0) > 0),
+);
+
+onMounted(async () => {
   loadRunRefs();
   void loadPrimaryCompany();
-  void load();
+  await load();
+  const routeIcpRaw = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
+  const routeRunRaw = Array.isArray(route.query.run) ? route.query.run[0] : route.query.run;
+  if (typeof routeIcpRaw === 'string' && routeIcpRaw) {
+    const target = icps.value.find((item) => item.id === routeIcpRaw);
+    if (target) {
+      await openDetail(target, typeof routeRunRaw === 'string' ? routeRunRaw : undefined);
+    }
+  }
 });
+onUnmounted(stopDetailStreamPoll);
 </script>
 
 <template>
@@ -986,11 +1179,54 @@ onMounted(() => {
           </template>
           {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
         </Button>
-        <Button v-if="icps.length > 0" class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="new-icp" type="primary" @click="openCreate">
+        <Button v-if="icps.length > 0" class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="new-icp" type="primary" @click="openCreate()">
           {{ $t('gainos.findBuyers.newIcp') }}
         </Button>
       </div>
     </GsToolbar>
+
+    <!-- 1 公司多画像切换栏（同公司多市场/多产品线并列管理） -->
+    <div
+      v-if="!loading && !loadError && companiesWithIcps.length > 0 && rows.length > 1"
+      class="fb-company-switcher"
+      data-gs="company-icp-switcher"
+    >
+      <div class="fb-company-switcher__pills">
+        <button
+          :class="{ active: activeCompanyFilter === '' }"
+          class="fb-pill"
+          data-gs="company-filter-all"
+          type="button"
+          @click="activeCompanyFilter = ''"
+        >
+          {{ $t('gainos.findBuyers.companyFilterAll', { count: rows.length }) }}
+        </button>
+        <button
+          v-for="co in companiesWithIcps"
+          :key="co.id"
+          :class="{ active: activeCompanyFilter === co.id }"
+          :data-gs="`company-filter-${co.id}`"
+          class="fb-pill"
+          type="button"
+          @click="activeCompanyFilter = co.id"
+        >
+          {{
+            $t('gainos.findBuyers.companyFilterItem', {
+              name: co.name || co.website || $t('gainos.findBuyers.unknownCompany'),
+              count: icpCountByCompany.get(co.id) ?? 0,
+            })
+          }}
+        </button>
+      </div>
+      <Button
+        v-if="activeCompanyFilter"
+        data-gs="new-icp-for-company"
+        size="small"
+        @click="openCreate(activeCompanyFilter)"
+      >
+        {{ $t('gainos.findBuyers.newIcpForCompany') }}
+      </Button>
+    </div>
 
     <div v-if="loadError" class="grid gap-3" data-gs="load-error">
       <ErrorNotice :next="loadError.next" :title="loadError.title" />
@@ -1005,7 +1241,7 @@ onMounted(() => {
     <GsCard v-else-if="rows.length === 0" data-gs="icp-empty" padding="40px 24px">
       <GsEmpty :description="$t('gainos.findBuyers.emptyDesc')" :title="$t('gainos.findBuyers.emptyTitle')">
         <template #actions>
-          <Button type="primary" @click="openCreate">{{ $t('gainos.findBuyers.emptyCta') }}</Button>
+          <Button type="primary" @click="openCreate()">{{ $t('gainos.findBuyers.emptyCta') }}</Button>
           <Button @click="router.push('/companies')">{{ $t('gainos.companies.title') }}</Button>
           <Button @click="router.push('/tasks')">{{ $t('gainos.tasks.title') }}</Button>
         </template>
@@ -1013,7 +1249,7 @@ onMounted(() => {
     </GsCard>
 
     <template v-else>
-      <IcpCard v-for="row in rows" :key="row.id" :row="row" @open="openDetail(row.icp)" />
+      <IcpCard v-for="row in filteredRows" :key="row.id" :row="row" @open="openDetail(row.icp)" />
     </template>
 
     <!-- 详情：右侧抽屉，内容按卡片分区 -->
@@ -1039,6 +1275,13 @@ onMounted(() => {
       </template>
       <template #extra>
         <Space :size="8" wrap>
+          <Checkbox
+            v-if="selected && canActivate(selected) && icps.some((item) => item.companyId === selected?.companyId && item.id !== selected?.id && item.status === 'ACTIVE')"
+            v-model:checked="keepExistingActive"
+            data-gs="keep-existing-active"
+          >
+            <span class="text-xs">{{ $t('gainos.findBuyers.keepExistingActive') }}</span>
+          </Checkbox>
           <Button
             v-if="selected && canActivate(selected)"
             :loading="planBusy === 'activate'"
@@ -1056,6 +1299,28 @@ onMounted(() => {
       <Skeleton v-if="detailLoading" active :paragraph="{ rows: 8 }" />
       <ErrorNotice v-else-if="detailError" :next="detailError.next" :title="detailError.title" />
       <div v-else-if="selected" class="fb-drawer__body">
+        <!-- 方案 B 流式三段实时进度看板（有运行记录时直接可见，不等黑盒结束） -->
+        <StreamingProgressBoard
+          v-if="detailStreamingProgress"
+          :cancelling="detailStreamCancelling"
+          :progress="detailStreamingProgress"
+          :show-cancel-action="detailStreamingProgress.isRunning"
+          :title="$t('gainos.findBuyers.streamingProgressTitle')"
+          @cancel="cancelDetailStreamRun"
+          @refresh="detailStreamRunId && loadDetailStreamingProgress(detailStreamRunId)"
+          @view-leads="goSelectedIcpLeads"
+        />
+
+        <!-- 三层画像结构（卖方 / 买方 / 同行排除彻底解耦） -->
+        <GsCard
+          v-if="selectedThreeLayer"
+          :title="$t('gainos.findBuyers.threeLayerTitle')"
+          data-gs="icp-three-layer"
+        >
+          <p class="fb-muted" style="margin-bottom: 10px">{{ $t('gainos.findBuyers.threeLayerDesc') }}</p>
+          <ThreeLayerProfileCard :profile="selectedThreeLayer" />
+        </GsCard>
+
         <!-- 画像概览 -->
         <GsCard :title="$t('gainos.findBuyers.overviewTitle')" data-gs="icp-overview">
           <div class="fb-sections">
@@ -1401,11 +1666,79 @@ onMounted(() => {
           />
         </label>
         <label v-if="orderedCompanies.length > 0" class="fb-field">
+          <span>{{ $t('gainos.findBuyers.createName') }}</span>
+          <Input
+            v-model:value="createName"
+            :maxlength="120"
+            :placeholder="$t('gainos.findBuyers.createNameHint')"
+            data-gs="icp-create-name"
+          />
+        </label>
+        <label v-if="orderedCompanies.length > 0" class="fb-field">
+          <span>{{ $t('gainos.findBuyers.createProductLines') }}</span>
+          <Input
+            v-model:value="createProductLines"
+            :placeholder="$t('gainos.findBuyers.createProductLinesHint')"
+            data-gs="icp-create-products"
+          />
+        </label>
+        <label v-if="orderedCompanies.length > 0" class="fb-field">
           <span>{{ $t('gainos.findBuyers.createTargetMarkets') }}</span>
           <Input
             v-model:value="createTargetMarkets"
             :placeholder="$t('gainos.findBuyers.createTargetMarketsHint')"
             data-gs="icp-create-markets"
+          />
+          <div
+            v-if="createComtradeRecs.length > 0"
+            class="fb-comtrade-chips"
+            data-gs="create-comtrade-badges"
+          >
+            <button
+              v-for="rec in createComtradeRecs.slice(0, 6)"
+              :key="rec.code"
+              :class="{ active: commas(createTargetMarkets).map((m) => m.toUpperCase()).includes(rec.code) }"
+              :data-gs="`create-comtrade-${rec.code}`"
+              :title="rec.reason ?? undefined"
+              class="fb-pill fb-pill--sm"
+              type="button"
+              @click="toggleCreateComtradeMarket(rec.code)"
+            >
+              + {{ rec.name }} ({{ rec.code }})
+            </button>
+          </div>
+        </label>
+        <div v-if="orderedCompanies.length > 0" class="fb-field">
+          <span>{{ $t('gainos.findBuyers.createBuyerRoles') }}</span>
+          <div class="fb-comtrade-chips" data-gs="icp-create-roles">
+            <button
+              v-for="role in BUYER_ROLE_CODES"
+              :key="role"
+              :aria-pressed="createBuyerRoles.includes(role)"
+              :class="{ active: createBuyerRoles.includes(role) }"
+              :data-gs="`create-buyer-role-${role}`"
+              class="fb-pill fb-pill--sm"
+              type="button"
+              @click="toggleCreateBuyerRole(role)"
+            >
+              {{ createBuyerRoles.includes(role) ? '✓' : '+' }} {{ $t(`gainos.threeLayer.role.${role}`) }}
+            </button>
+          </div>
+        </div>
+        <label v-if="orderedCompanies.length > 0" class="fb-field">
+          <span>{{ $t('gainos.findBuyers.createScenario') }}</span>
+          <GsSelect
+            v-model="createScenario"
+            :ariaLabel="$t('gainos.findBuyers.createScenario')"
+            :options="[
+              { label: $t('gainos.findBuyers.createScenarioAuto'), value: '' },
+              ...PROCUREMENT_SCENARIO_CODES.map((code) => ({
+                label: $t(`gainos.threeLayer.scenario.${code}`),
+                value: code,
+              })),
+            ]"
+            class="w-full"
+            data-gs="icp-create-scenario"
           />
         </label>
         <p v-if="companies.length === 0" class="fb-muted">{{ $t('gainos.findBuyers.noCompanies') }}</p>
@@ -1884,6 +2217,38 @@ onMounted(() => {
 }
 .fb-field--wide {
   grid-column: 1 / -1;
+}
+.fb-company-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fb-company-switcher__pills,
+.fb-comtrade-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fb-pill {
+  padding: 5px 12px;
+  border: 1px solid var(--gs-divider, #d1d5db);
+  border-radius: 999px;
+  background: var(--gs-surface, #fff);
+  color: var(--gs-fg-2, #374151);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.fb-pill--sm {
+  padding: 3px 9px;
+  font-size: 11.5px;
+}
+.fb-pill.active {
+  border-color: var(--gs-accent, #2563eb);
+  background: var(--gs-accent-soft, #eff6ff);
+  color: var(--gs-accent-fg, #1d4ed8);
+  font-weight: 600;
 }
 
 @media (max-width: 719px) {

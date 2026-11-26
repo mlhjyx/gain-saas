@@ -732,6 +732,8 @@ export interface OnboardingCompanyInput {
   industryCode?: string;
   targetMarkets?: string[];
   products?: string[];
+  /** Phase 2 多模态冷启动：简短主营产品描述（1–2000 字）。 */
+  productDescription?: string;
   businessEmail?: string;
 }
 
@@ -753,11 +755,36 @@ export interface OnboardingIndustrySuggestion {
   matched: boolean;
 }
 
+export interface OnboardingPreviewDocumentSummary {
+  total: number;
+  ready: number;
+  processing: number;
+  failed: number;
+  items: Array<{
+    id: string;
+    filename: string;
+    status: string;
+    mime?: string;
+    chunkCount?: number;
+    createdAt?: string;
+  }>;
+  extractedClaims?: Array<{
+    claimId: string;
+    type: string;
+    statement: string;
+    status: string;
+    documentId?: string;
+    filename?: string;
+  }>;
+}
+
 /** 理解预览（BFF 透传引擎 GET /companies/:id/understanding-preview）。 */
 export interface OnboardingPreview {
   companyId: string;
   name: string;
   website: string | null;
+  websiteChannel?: 'alibaba_1688' | 'alibaba_intl' | 'official_website' | null;
+  summary?: string | null;
   status: string;
   state: 'not_started' | 'queued' | 'running' | 'ready' | 'failed';
   failure: { stage: string; code: string } | null;
@@ -781,6 +808,7 @@ export interface OnboardingPreview {
     evidence: string;
     sourceUrl?: string | null;
   }>;
+  documents?: OnboardingPreviewDocumentSummary | null;
   updatedAt?: string;
 }
 
@@ -1148,8 +1176,33 @@ export const gainosApi = {
   icp: (icpId: string) => requestClient.get<Icp>(`/icps/${icpId}`),
   createIcp: (
     companyId: string,
-    input?: { attemptId?: string; confirmedTargetMarkets?: string[] },
+    input?: {
+      attemptId?: string;
+      confirmedTargetMarkets?: string[];
+      name?: string;
+      productLines?: string[];
+      buyerRoles?: string[];
+      procurementScenario?: 'distribution' | 'equipment_integration' | 'factory_direct';
+      peerExclusionNotes?: string[];
+    },
   ) => requestClient.post<Icp>(`/companies/${companyId}/icps`, input ?? {}),
+  /** Phase 2A：UN Comtrade 目标国推荐（只读，零 Grant）。 */
+  marketRecommendations: (companyId: string, params?: { hsCodes?: string; limit?: number }) =>
+    requestClient.get<Record<string, unknown>>(
+      `/companies/${companyId}/market-recommendations`,
+      { params: params ?? {} },
+    ),
+  /** Phase 2A：PDF 画册提取待审事实预览与草稿（PR #205 已挂通）。 */
+  sellerDocumentClaimPreviews: (companyId: string, documentId: string) =>
+    requestClient.post<Record<string, unknown>>(
+      `/companies/${companyId}/seller-documents/${documentId}/claim-previews`,
+      {},
+    ),
+  sellerDocumentClaimDrafts: (companyId: string, documentId: string) =>
+    requestClient.post<Record<string, unknown>>(
+      `/companies/${companyId}/seller-documents/${documentId}/claim-drafts`,
+      {},
+    ),
   exportBattleCsv: async (params: {
     icpId: string;
     week?: string;
@@ -1179,7 +1232,8 @@ export const gainosApi = {
   },
   updateIcp: (icpId: string, input: IcpUpdateInput) =>
     requestClient.request<Icp>(`/icps/${icpId}`, { data: input, method: 'PATCH' }),
-  activateIcp: (icpId: string) => requestClient.post<Icp>(`/icps/${icpId}/activate`, {}),
+  activateIcp: (icpId: string, options?: { keepExistingActive?: boolean }) =>
+    requestClient.post<Icp>(`/icps/${icpId}/activate`, options ?? {}),
   createIcpRule: (icpId: string, input: IcpRuleInput) =>
     requestClient.post<IcpRule>(`/icps/${icpId}/rules`, input),
   updateIcpRule: (ruleId: string, input: Partial<IcpRuleInput>) =>
@@ -1223,6 +1277,11 @@ export const gainosApi = {
     requestClient.get<{ data: OutreachReplyView[] }>('/outreach/replies'),
 
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
+  /** Phase 2A：方案 B 流式三段进度只读投影（L0/L1/L2 + 实时候选买家）。 */
+  streamingProgress: (runId: string) =>
+    requestClient.get<import('@gain-saas/shared').StreamingProgressDto>(
+      `/discovery-runs/${runId}/streaming-progress`,
+    ),
   /** M0⑤：增量拉取 run 事件（after=上次的 nextAfter；事件可重放）。 */
   runEvents: (runId: string, after = 0, limit = 200) =>
     requestClient.get<DiscoveryRunEventsPage>(`/discovery-runs/${runId}/events`, {
@@ -1294,8 +1353,8 @@ export const gainosApi = {
     requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),
   completeOnboarding: (input: OnboardingCompanyInput) =>
     requestClient.post<CompanyProfile>('/onboarding/company', input),
-  /** 注册即建档：先官网（或名称）建草稿档案并触发理解，返回可轮询的预览。 */
-  startOnboardingPreview: (input: { website?: string; name?: string }) =>
+  /** 注册即建档：先官网/店铺/产品描述建草稿档案并触发理解，返回可轮询的预览。 */
+  startOnboardingPreview: (input: { website?: string; name?: string; productDescription?: string }) =>
     requestClient.post<{ started: true; preview: OnboardingPreview }>('/onboarding/preview', input),
   /** 恢复进行中的理解预览；未开始时返回 { started: false }。 */
   onboardingPreview: () => requestClient.get<OnboardingPreviewState>('/onboarding/preview'),

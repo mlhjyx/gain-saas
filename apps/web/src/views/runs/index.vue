@@ -2,11 +2,16 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { glossaryStatus } from '@gain-saas/shared';
+import {
+  deriveRunActions,
+  deriveStreamingFunnelProgress,
+  formatDateTime,
+  glossaryStatus,
+  type StreamingProgressDto,
+} from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
-import { deriveRunActions, formatDateTime } from '@gain-saas/shared';
-
+import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
@@ -21,7 +26,17 @@ const router = useRouter();
 const runId = String(route.params.runId ?? '');
 
 const run = ref<DiscoveryRun | null>(null);
+const streamingDto = ref<StreamingProgressDto | null>(null);
 const loading = ref(true);
+const streamingFunnel = computed(() =>
+  run.value || streamingDto.value
+    ? deriveStreamingFunnelProgress({
+        streamingProgress: streamingDto.value,
+        run: run.value,
+        jobs: jobs.value,
+      })
+    : null,
+);
 const error = ref<{ title: string; next?: string } | null>(null);
 const auto = ref(true);
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -60,7 +75,8 @@ function jobVerdictLabel(verdict?: string | null): string {
 
 async function loadJobs(): Promise<void> {
   try {
-    jobs.value = await gainosApi.runJobs(runId);
+    const rows = await gainosApi.runJobs(runId);
+    jobs.value = Array.isArray(rows) ? rows : [];
     jobError.value = null;
   } catch (err) {
     jobError.value = failureText(err).title;
@@ -79,9 +95,9 @@ async function loadTrace(): Promise<void> {
   traceLoading.value = true;
   try {
     const page = await gainosApi.runTrace(runId, { limit: 50 });
-    traceRows.value = page.data ?? [];
-    traceCursor.value = page.page?.next_cursor ?? null;
-    traceHasMore.value = page.page?.has_more ?? false;
+    traceRows.value = Array.isArray(page?.data) ? page.data : [];
+    traceCursor.value = page?.page?.next_cursor ?? null;
+    traceHasMore.value = page?.page?.has_more ?? false;
     traceError.value = null;
   } catch (err) {
     traceError.value = failureText(err).title;
@@ -291,7 +307,7 @@ const traceEntries = computed<TraceEntry[]>(() =>
 async function pollEvents(): Promise<void> {
   try {
     const page = await gainosApi.runEvents(runId, lastSeq.value);
-    if (page.events.length > 0) {
+    if (Array.isArray(page?.events) && page.events.length > 0) {
       lastSeq.value = page.nextAfter;
       await Promise.all([loadJobs(), loadTrace()]);
     }
@@ -827,6 +843,14 @@ async function load(): Promise<void> {
     error.value = null;
     await Promise.all([
       pollEvents(),
+      gainosApi
+        .streamingProgress(runId)
+        .then((res) => {
+          streamingDto.value = res && typeof res === 'object' && 'stages' in res ? res : null;
+        })
+        .catch(() => {
+          streamingDto.value = null;
+        }),
       jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
       traceRows.value.length === 0 ? loadTrace() : Promise.resolve(),
       loadTaskAttempts(),
@@ -898,6 +922,16 @@ onUnmounted(() => {
     </div>
 
     <template v-else-if="run">
+      <StreamingProgressBoard
+        v-if="streamingFunnel"
+        :cancelling="stopping"
+        :progress="streamingFunnel"
+        :show-cancel-action="false"
+        :show-refresh-action="false"
+        @cancel="stopDeep"
+        @refresh="load"
+        @view-leads="goLeads"
+      />
       <section class="run__summary">
         <article class="run__status-card">
           <span class="run__badge" :class="statusTone">{{ statusLabel(run.status) }}</span>
