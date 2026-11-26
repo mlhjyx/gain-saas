@@ -165,3 +165,295 @@ test('raw template braces are not rendered on suppressions and sources loading s
   await expect(srcSr).toHaveText('正在加载…');
   releaseChannels();
 });
+
+test('campaigns detail stops polling on NEEDS_HUMAN and submits schema-valid manual revision', async ({
+  page,
+}, testInfo) => {
+  const CAMPAIGN_ID = '11111111-1111-4111-8111-111111111111';
+  const ICP_A = '22222222-2222-4222-8222-222222222222';
+  const ICP_B = '33333333-3333-4333-8333-333333333333';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  let pollHits = 0;
+  let createdPlanBody: Record<string, unknown> | null = null;
+  const campaignState: Record<string, unknown> = {
+    id: CAMPAIGN_ID,
+    name: '德国工业泵 Q4 战役',
+    objective: '发现德国工业泵区域分销商',
+    status: 'DRAFT',
+    createdAt: NOW,
+    updatedAt: NOW,
+    revisions: [],
+    authorizations: [],
+    recentTrace: [
+      {
+        traceId: 'tr-1',
+        stepType: 'approval.decided',
+        actor: 'user-e2e',
+        actorType: 'user',
+        decisionType: 'approve',
+        chosenOption: null,
+        reasonCode: null,
+        createdAt: NOW,
+      },
+      {
+        traceId: 'tr-2',
+        stepType: 'authorization.issued',
+        actor: 'service:campaign-plan',
+        actorType: 'service',
+        decisionType: 'issue',
+        chosenOption: null,
+        reasonCode: null,
+        createdAt: NOW,
+      },
+    ],
+  };
+
+  backend.set('GET', '/icps', [
+    { id: ICP_A, companyId: 'co-1', name: '德国工业泵分销商', status: 'ACTIVE', targetMarkets: ['DE'] },
+    { id: ICP_B, companyId: 'co-1', name: '欧洲阀门代理商', status: 'ACTIVE', targetMarkets: ['NL'] },
+  ]);
+  backend.set('GET', `/campaigns/${CAMPAIGN_ID}`, async ({ route }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: campaignState }),
+    });
+    return true;
+  });
+  backend.set('POST', `/campaigns/${CAMPAIGN_ID}/plan-drafts`, {
+    id: 'job-nh-1',
+    campaignId: CAMPAIGN_ID,
+    state: 'RUNNING',
+    objective: '发现德国工业泵区域分销商',
+    error: null,
+    issues: null,
+    planHash: null,
+    revisionId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  backend.set('GET', `/campaigns/${CAMPAIGN_ID}/plan-drafts/job-nh-1`, async ({ route }) => {
+    pollHits += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: 'job-nh-1',
+          campaignId: CAMPAIGN_ID,
+          state: 'NEEDS_HUMAN',
+          objective: '发现德国工业泵区域分销商',
+          error: 'MAX_REPLANS_REACHED',
+          issues: [{ path: 'audience.sizeCap', message: '单画像上限超出配额' }],
+          planHash: null,
+          revisionId: null,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    });
+    return true;
+  });
+  backend.set('POST', `/campaigns/${CAMPAIGN_ID}/revisions`, async ({ body, route }) => {
+    createdPlanBody = body as Record<string, unknown>;
+    const rev = {
+      id: 'rev-manual-1',
+      revisionNo: 1,
+      state: 'DRAFT',
+      planHash: 'hash-manual-1',
+      plan: createdPlanBody,
+      createdAt: NOW,
+      audience: (createdPlanBody as { audience: unknown }).audience,
+      approvals: [],
+    };
+    campaignState.revisions = [rev];
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: rev }),
+    });
+    return true;
+  });
+
+  await loginAs(page);
+  await page.goto(`/campaigns/${CAMPAIGN_ID}`);
+
+  // Back button copy & translated actorType
+  await expect(page.getByRole('button', { name: /返回战役列表/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /去触达批次/ })).toHaveCount(0);
+  await expect(page.locator('.cd__timeline')).toContainText('成员');
+  await expect(page.locator('.cd__timeline')).toContainText('系统服务');
+  await expect(page.locator('.cd__timeline')).not.toContainText('· user');
+  await expect(page.locator('.cd__timeline')).not.toContainText('· service');
+
+  // Start AI draft -> poll returns NEEDS_HUMAN
+  await page.getByRole('button', { name: '让系统起草计划' }).click();
+  const draftModal = page.locator('.ant-modal-content').last();
+  await draftModal.locator('.ant-modal-footer .ant-btn-primary').click();
+
+  const needsHumanPanel = page.locator('[data-gs="campaign-needs-human-panel"]');
+  await expect(needsHumanPanel).toBeVisible({ timeout: 6000 });
+  await expect(needsHumanPanel).toContainText('单画像上限超出配额');
+
+  // Wait >3.5s after NEEDS_HUMAN to confirm polling stopped immediately and busy released.
+  await page.waitForTimeout(3600);
+  expect(pollHits).toBe(1);
+  await expect(page.getByRole('button', { name: '让系统起草计划' })).toBeEnabled();
+
+  // Submit manual revision form inside needs-human panel.
+  await needsHumanPanel.locator('[data-gs="manual-revision-objective"]').fill('人工修订：德国工业泵分销商发现');
+  await needsHumanPanel.locator('[data-gs="manual-revision-submit"]').click();
+
+  await expect.poll(() => createdPlanBody !== null).toBe(true);
+  const plan = createdPlanBody as unknown as {
+    schemaVersion: string;
+    goal: { objective: string };
+    audience: { icpIds: string[]; sizeCap: number };
+    motions: Array<{ type: string; icpIds: string[] }>;
+    budget: { capMicros?: number; currency: string };
+    approvalPolicy: { required: boolean };
+    decisionPolicy: { maxReplans: number };
+  };
+  expect(plan.schemaVersion).toBe('campaign-plan/v0');
+  expect(plan.goal.objective).toBe('人工修订：德国工业泵分销商发现');
+  expect(plan.audience.icpIds.length).toBeGreaterThanOrEqual(1);
+  expect(plan.audience.sizeCap).toBeGreaterThanOrEqual(1);
+  expect(plan.motions.length).toBeGreaterThanOrEqual(1);
+  for (const motion of plan.motions) {
+    expect(motion.type).toBe('discovery');
+    for (const id of motion.icpIds) {
+      expect(plan.audience.icpIds).toContain(id);
+    }
+  }
+  expect(plan.budget.currency).toBe('USD');
+  expect(plan.approvalPolicy).toEqual({ required: true });
+  expect([0, 1, 2]).toContain(plan.decisionPolicy.maxReplans);
+});
+
+test('campaigns detail shows draftSucceeded notice on SUCCEEDED and renders motions dynamically', async ({
+  page,
+}, testInfo) => {
+  const CAMPAIGN_ID = '11111111-1111-4111-8111-111111111112';
+  const ICP_A = '22222222-2222-4222-8222-222222222222';
+  const ICP_B = '33333333-3333-4333-8333-333333333333';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  let draftReady = false;
+
+  backend.set('GET', '/icps', [
+    { id: ICP_A, companyId: 'co-1', name: '德国工业泵分销商', status: 'ACTIVE', targetMarkets: ['DE'] },
+    { id: ICP_B, companyId: 'co-1', name: '欧洲阀门代理商', status: 'ACTIVE', targetMarkets: ['NL'] },
+  ]);
+  backend.set('GET', `/campaigns/${CAMPAIGN_ID}`, async ({ route }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: CAMPAIGN_ID,
+          name: '欧洲流体设备战役',
+          objective: '拓展德荷流体设备渠道',
+          status: 'DRAFT',
+          createdAt: NOW,
+          updatedAt: NOW,
+          revisions: draftReady
+            ? [
+                {
+                  id: 'rev-ok-1',
+                  revisionNo: 1,
+                  state: 'DRAFT',
+                  planHash: 'hash-ok-1',
+                  createdAt: NOW,
+                  audience: { icpIds: [ICP_A, ICP_B], sizeCap: 40 },
+                  approvals: [],
+                  plan: {
+                    schemaVersion: 'campaign-plan/v0',
+                    goal: { objective: '拓展德荷流体设备渠道' },
+                    audience: { icpIds: [ICP_A, ICP_B], sizeCap: 40 },
+                    motions: [
+                      { type: 'discovery', icpIds: [ICP_A] },
+                      { type: 'outreach', icpIds: [ICP_B] },
+                    ],
+                    budget: { capMicros: 50_000_000, currency: 'USD' },
+                    approvalPolicy: { required: true },
+                    decisionPolicy: { maxReplans: 1 },
+                  },
+                },
+              ]
+            : [],
+          authorizations: [],
+          recentTrace: [
+            {
+              traceId: 'tr-eng',
+              stepType: 'superseded',
+              actor: 'engine:planner',
+              actorType: 'engine',
+              decisionType: 'plan',
+              chosenOption: null,
+              reasonCode: null,
+              createdAt: NOW,
+            },
+          ],
+        },
+      }),
+    });
+    return true;
+  });
+  backend.set('POST', `/campaigns/${CAMPAIGN_ID}/plan-drafts`, {
+    id: 'job-ok-1',
+    campaignId: CAMPAIGN_ID,
+    state: 'RUNNING',
+    objective: '拓展德荷流体设备渠道',
+    error: null,
+    issues: null,
+    planHash: null,
+    revisionId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  backend.set('GET', `/campaigns/${CAMPAIGN_ID}/plan-drafts/job-ok-1`, async ({ route }) => {
+    draftReady = true;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: 'job-ok-1',
+          campaignId: CAMPAIGN_ID,
+          state: 'SUCCEEDED',
+          objective: '拓展德荷流体设备渠道',
+          error: null,
+          issues: null,
+          planHash: 'hash-ok-1',
+          revisionId: 'rev-ok-1',
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    });
+    return true;
+  });
+
+  await loginAs(page);
+  await page.goto(`/campaigns/${CAMPAIGN_ID}`);
+
+  await page.getByRole('button', { name: '让系统起草计划' }).click();
+  await page.locator('.ant-modal-content').last().locator('.ant-modal-footer .ant-btn-primary').click();
+
+  const statusAlert = page.locator('[role="status"]').first();
+  await expect(statusAlert).toContainText('计划草稿已生成', { timeout: 6000 });
+  await expect(statusAlert).not.toContainText('已提交审批');
+
+  const facts = page.locator('.cd__facts');
+  await expect(facts).toContainText('发现潜在买家（只检索，不联系）（德国工业泵分销商）');
+  await expect(facts).toContainText('受控外联触达（欧洲阀门代理商）');
+  await expect(page.locator('.cd__timeline').last()).toContainText('引擎');
+  await expect(page.locator('.cd__timeline').last()).not.toContainText('· engine');
+});
