@@ -315,7 +315,7 @@ export interface paths {
         put?: never;
         /**
          * 写入平台级外联抑制（退订/投诉/退信）
-         * @description 规范化邮箱后只存 SHA-256；同一邮箱重复写入幂等。调用方必须已确认退订/投诉事实。
+         * @description 规范化邮箱后只存带 pepper HMAC-SHA256；同一邮箱重复写入幂等。调用方必须已确认退订/投诉事实。
          */
         post: operations["OutreachDncController_suppress_v1"];
         delete?: never;
@@ -568,6 +568,26 @@ export interface paths {
          * @description 理解阶段抽取出的结构化产品/服务，每条带来源页 URL 与原文片段。数组响应，不分页。
          */
         get: operations["CompanyController_listOfferings_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/market-recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * UN Comtrade / HS 贸易流目标国推荐（只读，不消费 Grant，不自动写入确认市场）
+         * @description 根据显式传入的 4-6 位 HS 码，或按卖家已勾选产品与行业确定性反推的 HS 码，返回基于 UN Comtrade 贸易流基线的目标出口国排序建议（进口规模、同比增速、全球份额与业务理由）。本接口纯只读、零预算消耗，固定返回 isRecommendationOnly=true，绝不自动写入公司确认目标市场。
+         */
+        get: operations["MarketRecommendationsController_recommend_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1038,7 +1058,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 激活 ICP（→ ACTIVE，同企业旧 ACTIVE → SUPERSEDED），发 ICPActivated 事件
+         * 激活 ICP（→ ACTIVE；默认同企业旧 ACTIVE → SUPERSEDED，keepExistingActive=true 支持多 ICP 并行），发 ICPActivated 事件
          * @description 激活 ICP：→ ACTIVE；同一企业原先 ACTIVE 的 ICP 置 SUPERSEDED，并发出 ICPActivated 事件。需要 acquisition:review。
          */
         post: operations["IcpController_activate_v1"];
@@ -1140,6 +1160,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/icps/{icpId}/rejudge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 触发审计合规的存量 Lead 重判（走 WORKSPACE_GRANT + Outbox + rejudgeWorkflow，保护人工决策）
+         * @description 要求 JUDGE_CONTRACT_MODE=enforce 且 ICP 处于 ACTIVE 状态。先对 Grant 验签并做候选与预算预检（无候选返回 409 NO_REJUDGE_CANDIDATES、超帽返回 409 REJUDGE_COST_CAP_EXCEEDED，均不消耗 Grant），通过后在单事务内原子核销 Grant 并投递 LeadRejudgeRequested。
+         */
+        post: operations["IcpController_rejudgeLeads_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/icps/{icpId}/feedback": {
         parameters: {
             query?: never;
@@ -1174,6 +1214,46 @@ export interface paths {
          * @description 重算该 ICP 的反馈聚合（幂等；通常由接受/拒绝动作自动触发，这里是手动补偿入口）。
          */
         post: operations["IcpController_recomputeFeedback_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icps/{icpId}/feedback/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 记录线索真实驳回或外联结果反馈，自动沉淀 ICP 排除规则与反例
+         * @description 接收人工驳回（同行/行业不符/失效站点等）、退订、退信或正向回复反馈，自动将确认的排除域名、关键词与最多 5 条脱敏反例写入 ICP 的 peer_exclusions 与 fit_counter_examples，供后续发现与 fit-v3 自动避坑。
+         */
+        post: operations["IcpController_recordFeedbackLearning_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icps/{icpId}/feedback/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 只读查看该 ICP 已沉淀的排除规则、反例与真实反馈统计摘要
+         * @description 返回指定 ICP 当前累积的同行排除域名、排除关键词、最多 5 条高信息量反例、正向转化样例以及按结果与驳回原因分组的统计摘要，不触发模型调用或数据变更。
+         */
+        get: operations["IcpController_feedbackLearningSummary_v1"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1501,6 +1581,26 @@ export interface paths {
          * @description 平台级数据源注册表（状态与成本）。DISABLED 相当于该数据源的 Kill Switch。需要 ops:read。
          */
         get: operations["DiscoveryController_listProviders_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery-runs/{runId}/streaming-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 方案 B 流式三段进度（L0 召回 / L1 单活动抽取+fit-v3 / L2 Top-K 富集）；兼容历史非流式 run
+         * @description 只读投影一次发现任务的流式三段漏斗进度（L0 召回入池、L1 Raw HTTP 优先单活动抓取与 fit-v3 买家判定、L2 Top-K 联系人补全与监控注册）以及最新处理的候选企业卡片；对历史非流式 discoveryWorkflow 任务自动返回 pipelineMode=legacy，零预算消耗。
+         */
+        get: operations["StreamingProgressController_getStreamingProgress_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1909,7 +2009,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 查看渠道最近物化的抓取记录（含观察名单状态与计数；PII 按 OWNER-DECISION-2026-11-05 明文存储）
+         * 查看渠道最近物化的抓取记录（含观察名单状态与计数；联系人 PII 经平台密钥加密存储并在读路径解密）
          * @description 渠道最近物化的抓取记录（默认最近 50 条，limit 1–100，可按 reviewStatus=PENDING/APPROVED/REJECTED 过滤）：公司/官网/国家/行业/产品/关键词与联系人（人名/职位/邮箱/电话，均为渠道页公开信息），附观察名单状态与三态计数。仅运营身份（ops:read），用于选择器校验、抽检与获客联系；同一公司跨轮去重合并（渠道+去重键 upsert），重跑不重复且不覆盖人工抽检结论。
          */
         get: operations["ChannelsController_records_v1"];
@@ -3607,11 +3707,11 @@ export interface components {
             /** @enum {string} */
             authorityKind: "WORKSPACE_GRANT";
             /** @enum {string} */
-            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/enrich-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts" | "POST /companies/:companyId/understanding/retry" | "POST /site-builder/intake" | "POST /campaigns/:campaignId/plan-drafts" | "POST /market-candidate-generations/:generationId/execute";
+            operation: "POST /companies" | "POST /companies/:companyId/icps" | "POST /icps/:icpId/query-plans" | "POST /icps/:icpId/rejudge" | "POST /query-plans/:planId/execute" | "POST /canonical-companies/:id/discover-contacts" | "POST /canonical-companies/:id/enrich-contacts" | "POST /canonical-companies/:id/guess-emails" | "POST /contact-points/:pointId/verify" | "POST /leads/:leadId/outreach-drafts" | "POST /companies/:companyId/understanding/retry" | "POST /site-builder/intake" | "POST /campaigns/:campaignId/plan-drafts" | "POST /market-candidate-generations/:generationId/execute";
             /** Format: uuid */
             workspaceId: string;
             /** @enum {string} */
-            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "discovery.run" | "contact.verify" | "contact.enrich" | "outreach.draft" | "campaign.plan" | "market.candidates.generate";
+            purpose: "understanding.run" | "icp.design" | "icp.query_plan" | "icp.rejudge" | "discovery.run" | "contact.verify" | "contact.enrich" | "outreach.draft" | "campaign.plan" | "market.candidates.generate";
             /** @enum {string} */
             subjectType: "company" | "icp" | "discovery_run" | "contact_point" | "lead" | "campaign" | "market_candidate_generation";
             subjectId: string;
@@ -3658,7 +3758,7 @@ export interface components {
             emails: string[];
         };
         SuppressOutreachDncDto: {
-            /** @description 需要平台级抑制的收件邮箱（服务端只落 SHA-256，不存明文） */
+            /** @description 需要平台级抑制的收件邮箱（服务端只落带 pepper HMAC-SHA256，不存明文） */
             email: string;
             /** @enum {string} */
             reason: "unsubscribe" | "bounce" | "complaint" | "manual" | "legal";
@@ -3707,6 +3807,11 @@ export interface components {
             name: string;
             /** @example https://acme-tech.com */
             website: string | null;
+            /**
+             * @description 卖家网站渠道类型（由 website 派生；仅卖家建档允许 1688 / 阿里国际站店铺链接）
+             * @enum {string|null}
+             */
+            websiteChannel?: "official_website" | "alibaba_1688" | "alibaba_intl" | null;
             /** @enum {string} */
             status: "DRAFT" | "ENRICHING" | "REVIEW" | "ACTIVE";
             /** @description 行业（注册引导填写或理解工作流回填） */
@@ -3767,6 +3872,11 @@ export interface components {
              * @example sales@acme-tech.com
              */
             businessEmail?: string;
+            /**
+             * @description 可选：简短产品与工厂描述（1~2000 字；无官网冷启动或补充说明时落入档案简介并生成待审事实草稿）
+             * @example 专业生产 HJT 700W+ 光伏组件与工商业储能系统，通过 IEC 61215 与 TÜV 认证，主要出口欧洲与拉美。
+             */
+            productDescription?: string;
         };
         RetryUnderstandingDto: {
             /**
@@ -3821,6 +3931,8 @@ export interface components {
              * @example sales@acme-tech.com
              */
             businessEmail?: string;
+            /** @description 简短产品与工厂描述（1~2000 字；落入企业简介并生成待审 Claim 草稿） */
+            productDescription?: string;
         };
         UpdateCompanyDto: {
             /** @description 企业名称 */
@@ -3841,6 +3953,8 @@ export interface components {
              * @description 业务邮箱
              */
             businessEmail?: string;
+            /** @description 简短产品与工厂描述（1~2000 字；写回企业简介） */
+            productDescription?: string;
         };
         OfferingDto: {
             /** Format: uuid */
@@ -4094,6 +4208,26 @@ export interface components {
             attemptId?: string;
             /** @description 本次生成中由用户明确确认的目标市场（ISO 3166-1 alpha-2）。AI 预填与历史档案不算确认；缺省时按未确认处理。 */
             confirmedTargetMarkets?: string[];
+            /** @description 可选自定义 ICP 名称（1 公司多 ICP 场景） */
+            name?: string;
+            /** @description 可选：本 ICP 绑定的卖方产品线子集 */
+            productLines?: string[];
+            /** @description 可选：本 ICP 聚焦的下游买家角色（如 distributor / epc_integrator） */
+            buyerRoles?: string[];
+            /**
+             * @description 可选：预选采购场景
+             * @enum {string}
+             */
+            procurementScenario?: "distribution" | "factory_direct" | "equipment_integration";
+            /** @description 可选：卖方补充的同行/竞品排除说明 */
+            peerExclusionNotes?: string[];
+        };
+        ActivateIcpDto: {
+            /**
+             * @description 为 true 时保留同公司其他已激活 ICP（支持 1 公司多 ICP 并行）；默认 false 保持旧单活语义。
+             * @default false
+             */
+            keepExistingActive: boolean;
         };
         UpdateIcpDto: {
             name?: string;
@@ -4226,6 +4360,82 @@ export interface components {
              * @description 「重新生成」的幂等键（BFF 或客户端生成）。
              */
             attemptId?: string;
+        };
+        RejudgeIcpLeadsResponseDto: {
+            /** Format: uuid */
+            rejudgeId: string;
+            /** Format: uuid */
+            icpId: string;
+            /** @enum {string} */
+            status: "ACCEPTED";
+            candidateCount: number;
+            batchCount: number;
+            estimatedCostMicros: string;
+            refreshCorroboration: boolean;
+            refreshWebsiteProfile: boolean;
+        };
+        RejudgeIcpLeadsDto: {
+            /** @description 必填幂等键（每次触发生成新值，保证同 ICP 多次重判拥有独立预算账户与防重复扣账） */
+            attemptId: string;
+            /**
+             * @description 本次重判最大公司数（硬顶 100；越界直接 400 拒绝，不静默夹取）
+             * @default 100
+             */
+            maxCompanies: number;
+            /**
+             * @description 每批公司数（1..25，默认 25，透传给 planRejudgeBatches）
+             * @default 25
+             */
+            batchSize: number;
+            /**
+             * @description 重判前是否刷新缺失的 T1/T2 核验（VIES / GLEIF / Wikidata）
+             * @default true
+             */
+            refreshCorroboration: boolean;
+            /**
+             * @description 为 true 时对尚未升级到 website-profile/v3 且缺 vat_id 的公司重抓首页与欧盟法律页
+             * @default false
+             */
+            refreshWebsiteProfile: boolean;
+            /**
+             * @description 仅允许与显式 companyIds 联用：强制重判当前 input_digest 已新鲜的指定公司
+             * @default false
+             */
+            includeFresh: boolean;
+            /** @description 可选定向公司 UUID v4 白名单（用于小批灰度；空数组直接 400 拒绝） */
+            companyIds?: string[];
+        };
+        RecordIcpFeedbackDto: {
+            /**
+             * Format: uuid
+             * @description 关联的线索 ID（可选，服务端可自动补齐公司信息）
+             */
+            leadId?: string;
+            /**
+             * Format: uuid
+             * @description 关联的规范公司 ID（可选）
+             */
+            companyId?: string;
+            /** @description 公司域名或官网地址（服务端自动规范化去 www.） */
+            domain?: string;
+            /** @description 公司名称（可选；若提供 companyId/leadId 可自动回填） */
+            companyName?: string;
+            /** @description 公司所属行业（可选，用于反例上下文与排除沉淀） */
+            industry?: string;
+            /**
+             * @description 真实外联或人工审核结果类型
+             * @enum {string}
+             */
+            outcome: "rejected" | "replied_positive" | "booked_meeting" | "opt_out" | "wrong_contact" | "bounced";
+            /**
+             * @description 当 outcome 为 rejected 时的结构化驳回原因
+             * @enum {string}
+             */
+            rejectionReason?: "wrong_role_peer" | "wrong_industry" | "too_small" | "wrong_country" | "dead_company" | "bounced_unreachable";
+            /** @description 可选：补充沉淀到 peer_exclusions.excluded_keywords 的排除关键词 */
+            excludedKeywords?: string[];
+            /** @description 可选人工备注（写入反例前会自动脱敏去除个人邮箱与电话） */
+            note?: string;
         };
         ExecuteTaskRefDto: {
             /** Format: uuid */
@@ -5947,6 +6157,20 @@ export interface operations {
                     icpId: string;
                 } | {
                     /** @enum {string} */
+                    operation: "POST /icps/:icpId/rejudge";
+                    /** Format: uuid */
+                    icpId: string;
+                    body: {
+                        attemptId: string;
+                        maxCompanies?: number;
+                        batchSize?: number;
+                        refreshCorroboration?: boolean;
+                        refreshWebsiteProfile?: boolean;
+                        includeFresh?: boolean;
+                        companyIds?: string[];
+                    };
+                } | {
+                    /** @enum {string} */
                     operation: "POST /query-plans/:planId/execute";
                     /** Format: uuid */
                     planId: string;
@@ -6999,6 +7223,9 @@ export interface operations {
                             companyId: string;
                             name?: string;
                             website?: string | null;
+                            /** @enum {string|null} */
+                            websiteChannel?: "official_website" | "alibaba_1688" | "alibaba_intl" | null;
+                            summary?: string | null;
                             /** @enum {string} */
                             status?: "DRAFT" | "ENRICHING" | "REVIEW" | "ACTIVE";
                             /** @enum {string} */
@@ -7044,6 +7271,32 @@ export interface operations {
                                 evidence?: string;
                                 sourceUrl?: string | null;
                             }[];
+                            documents?: {
+                                total: number;
+                                ready: number;
+                                processing: number;
+                                failed: number;
+                                items: {
+                                    /** Format: uuid */
+                                    id?: string;
+                                    filename?: string;
+                                    status?: string;
+                                    mime?: string;
+                                    chunkCount?: number;
+                                    /** Format: date-time */
+                                    createdAt?: string;
+                                }[];
+                                extractedClaims: {
+                                    /** Format: uuid */
+                                    claimId?: string;
+                                    type?: string;
+                                    statement?: string;
+                                    status?: string;
+                                    /** Format: uuid */
+                                    documentId?: string | null;
+                                    filename?: string | null;
+                                }[];
+                            };
                             /** Format: date-time */
                             updatedAt?: string;
                         };
@@ -7176,6 +7429,67 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["OfferingDto"][];
+                    };
+                };
+            };
+        };
+    };
+    MarketRecommendationsController_recommend_v1: {
+        parameters: {
+            query?: {
+                /** @description 逗号分隔的 4-6 位 HS 码（如 854143,850440）；缺省时按公司产品与行业确定性反推 */
+                hsCodes?: string;
+                /** @description 返回推荐国家上限（1..20，默认 8） */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            companyId: string;
+                            isRecommendationOnly: boolean;
+                            basis: {
+                                hsCodes: {
+                                    code: string;
+                                    label: string;
+                                    labelZh: string;
+                                    matchedFrom: string;
+                                }[];
+                                /** @enum {string} */
+                                inferredFrom: "query_hs" | "offerings_and_industry" | "fallback_general";
+                                /** @enum {string} */
+                                dataSource: "un_comtrade_baseline_v1" | "un_comtrade_live";
+                                referenceYear: number;
+                            };
+                            recommendations: {
+                                code: string;
+                                name: string;
+                                labelEn: string;
+                                rank: number;
+                                hsCodes: string[];
+                                importVolumeUsd: number;
+                                yoyGrowthPct: number;
+                                globalImportSharePct: number;
+                                rationale: string;
+                                /** @enum {string} */
+                                confidence: "high" | "medium" | "low";
+                                alreadySelected: boolean;
+                            }[];
+                            /** Format: date-time */
+                            generatedAt: string;
+                        };
                     };
                 };
             };
@@ -7959,7 +8273,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ActivateIcpDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -8230,6 +8548,92 @@ export interface operations {
             };
         };
     };
+    IcpController_rejudgeLeads_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description SaaS signed authority bound to this exact workspace mutation */
+                "X-Execution-Budget-Grant": string;
+            };
+            path: {
+                icpId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejudgeIcpLeadsDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RejudgeIcpLeadsResponseDto"];
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_SCOPE_MISMATCH or EXECUTION_BUDGET_AUTHORITY_REVOKED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_GRANT_REUSED, INVALID_STATE, NO_REJUDGE_CANDIDATES or REJUDGE_COST_CAP_EXCEEDED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description EXECUTION_BUDGET_VERIFICATION_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
     IcpController_feedbackReport_v1: {
         parameters: {
             query?: never;
@@ -8274,6 +8678,159 @@ export interface operations {
                     "application/json": {
                         data: {
                             [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    IcpController_recordFeedbackLearning_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                icpId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordIcpFeedbackDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            icpId: string;
+                            icpVersion: number;
+                            recorded: {
+                                /** @enum {string} */
+                                outcome: "rejected" | "replied_positive" | "booked_meeting" | "opt_out" | "wrong_contact" | "bounced";
+                                /** @enum {string|null} */
+                                rejectionReason: "wrong_role_peer" | "wrong_industry" | "too_small" | "wrong_country" | "dead_company" | "bounced_unreachable" | null;
+                                domain: string | null;
+                                /** Format: uuid */
+                                companyId: string | null;
+                                /** Format: uuid */
+                                leadId: string | null;
+                                /** Format: date-time */
+                                recordedAt: string;
+                            };
+                            appliedRules: {
+                                addedExcludedDomain: string | null;
+                                addedExcludedKeywords: string[];
+                                addedCounterExample: boolean;
+                            };
+                            summary: {
+                                /** Format: uuid */
+                                icpId: string;
+                                icpName: string;
+                                icpVersion: number;
+                                excludedDomains: string[];
+                                excludedKeywords: string[];
+                                excludedBusinessModels: string[];
+                                counterExamples: {
+                                    domain: string | null;
+                                    companyName: string | null;
+                                    industry: string | null;
+                                    /** @enum {string} */
+                                    outcome: "rejected" | "replied_positive" | "booked_meeting" | "opt_out" | "wrong_contact" | "bounced";
+                                    /** @enum {string} */
+                                    reason: "wrong_role_peer" | "wrong_industry" | "too_small" | "wrong_country" | "dead_company" | "bounced_unreachable" | "unspecified";
+                                    note: string | null;
+                                    /** Format: date-time */
+                                    recordedAt: string;
+                                }[];
+                                positiveExamples: {
+                                    domain: string | null;
+                                    companyName: string | null;
+                                    industry: string | null;
+                                    /** @enum {string} */
+                                    outcome: "replied_positive" | "booked_meeting";
+                                    /** Format: date-time */
+                                    recordedAt: string;
+                                }[];
+                                stats: {
+                                    totalRecorded: number;
+                                    outcomeCounts: {
+                                        [key: string]: number;
+                                    };
+                                    rejectionReasonCounts: {
+                                        [key: string]: number;
+                                    };
+                                    /** Format: date-time */
+                                    lastRecordedAt: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+    IcpController_feedbackLearningSummary_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                icpId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            icpId: string;
+                            icpName: string;
+                            icpVersion: number;
+                            excludedDomains: string[];
+                            excludedKeywords: string[];
+                            excludedBusinessModels: string[];
+                            counterExamples: {
+                                domain: string | null;
+                                companyName: string | null;
+                                industry: string | null;
+                                /** @enum {string} */
+                                outcome: "rejected" | "replied_positive" | "booked_meeting" | "opt_out" | "wrong_contact" | "bounced";
+                                /** @enum {string} */
+                                reason: "wrong_role_peer" | "wrong_industry" | "too_small" | "wrong_country" | "dead_company" | "bounced_unreachable" | "unspecified";
+                                note: string | null;
+                                /** Format: date-time */
+                                recordedAt: string;
+                            }[];
+                            positiveExamples: {
+                                domain: string | null;
+                                companyName: string | null;
+                                industry: string | null;
+                                /** @enum {string} */
+                                outcome: "replied_positive" | "booked_meeting";
+                                /** Format: date-time */
+                                recordedAt: string;
+                            }[];
+                            stats: {
+                                totalRecorded: number;
+                                outcomeCounts: {
+                                    [key: string]: number;
+                                };
+                                rejectionReasonCounts: {
+                                    [key: string]: number;
+                                };
+                                /** Format: date-time */
+                                lastRecordedAt: string | null;
+                            };
                         };
                     };
                 };
@@ -9319,6 +9876,108 @@ export interface operations {
                         data: {
                             [key: string]: unknown;
                         }[];
+                    };
+                };
+            };
+        };
+    };
+    StreamingProgressController_getStreamingProgress_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            runId: string;
+                            /** @enum {string} */
+                            pipelineMode: "streaming" | "legacy";
+                            runStatus: string;
+                            /** @enum {string} */
+                            currentStage: "l0_recall" | "l1_extract_fit" | "l2_topk_enrich" | "finalizing" | "done" | "cancelled" | "failed";
+                            /** Format: date-time */
+                            updatedAt: string;
+                            stages: {
+                                l0Recall: {
+                                    /** @enum {string} */
+                                    status: "pending" | "running" | "done" | "skipped" | "failed" | "cancelled";
+                                    queriesTotal: number;
+                                    queriesCompleted: number;
+                                    candidatesRecalled: number;
+                                    canonicalUpserted: number;
+                                    /** Format: date-time */
+                                    startedAt: string | null;
+                                    /** Format: date-time */
+                                    completedAt: string | null;
+                                };
+                                l1ExtractFit: {
+                                    /** @enum {string} */
+                                    status: "pending" | "running" | "done" | "skipped" | "failed" | "cancelled";
+                                    total: number;
+                                    processed: number;
+                                    rawHttpHits: number;
+                                    crawl4aiFallbacks: number;
+                                    pdfSkipped: number;
+                                    wwwRetries: number;
+                                    fitMatch: number;
+                                    fitWeak: number;
+                                    fitMismatch: number;
+                                    failed: number;
+                                    /** Format: date-time */
+                                    startedAt: string | null;
+                                    /** Format: date-time */
+                                    completedAt: string | null;
+                                };
+                                l2TopKEnrich: {
+                                    /** @enum {string} */
+                                    status: "pending" | "running" | "done" | "skipped" | "failed" | "cancelled";
+                                    topKCap: number;
+                                    selected: number;
+                                    enriched: number;
+                                    contactsFound: number;
+                                    watchesRegistered: number;
+                                    failed: number;
+                                    /** Format: date-time */
+                                    startedAt: string | null;
+                                    /** Format: date-time */
+                                    completedAt: string | null;
+                                };
+                            };
+                            recentCandidates: {
+                                /** Format: uuid */
+                                companyId: string;
+                                name: string;
+                                domain: string | null;
+                                country: string | null;
+                                /** @enum {string} */
+                                stage: "l0_recalled" | "l1_extracting" | "l1_scored" | "l2_enriching" | "done" | "failed" | "skipped";
+                                /** @enum {string|null} */
+                                fitVerdict: "match" | "weak" | "mismatch" | null;
+                                fitScore: number | null;
+                                /** @enum {string|null} */
+                                fetchMethod: "raw_http" | "crawl4ai" | "skipped" | null;
+                                channelsFound: {
+                                    emails: number;
+                                    phones: number;
+                                    forms: number;
+                                    socials: number;
+                                };
+                                reasonSummary: string | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
                     };
                 };
             };
@@ -10690,6 +11349,16 @@ export interface operations {
                                 legal_note: string;
                             } | null;
                             signals: Record<string, never>[];
+                            /** @description 基于真实企业公开信号生成的零捏造、零 PII 中英文外联破冰首句建议 */
+                            icebreakerSuggestions?: {
+                                signalType: string;
+                                signalTitle: string;
+                                signalUrl: string | null;
+                                /** Format: date-time */
+                                detectedAt: string;
+                                openerZh: string;
+                                openerEn: string;
+                            }[];
                             scores: {
                                 [key: string]: unknown;
                             };
