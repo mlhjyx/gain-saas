@@ -38,11 +38,30 @@ async function installSelfContainedApiMock(
     workspaces: [{ id: 'ws-e2e', name: '钱包测试企业', role: 'admin' }],
   };
 
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const path = url.pathname.replace(/^\/api/, '');
+    const defaultOrigin = `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT || 4173}`;
+    if (url.origin !== (process.env.PLAYWRIGHT_BASE_URL ?? defaultOrigin)) {
+      await route.continue();
+      return;
+    }
+    if (req.isNavigationRequest() && req.resourceType() === 'document') {
+      await route.continue();
+      return;
+    }
+    // 兼容本地（VITE_GLOB_API_URL=/api）与 CI（无 /api 前缀）两套静态构建产物。
+    const path = url.pathname.startsWith('/api/') ? url.pathname.slice(4) : url.pathname;
     const method = req.method().toUpperCase();
+    if (
+      method === 'GET' &&
+      (path === '/' ||
+        path.startsWith('/assets/') ||
+        /\.(?:css|ico|js|json|map|png|svg|woff2?)$/.test(path))
+    ) {
+      await route.continue();
+      return;
+    }
     let body: unknown = null;
     try {
       body = req.postDataJSON();
@@ -71,6 +90,10 @@ async function installSelfContainedApiMock(
     if (method === 'POST' && path === '/auth/login') {
       signedIn = true;
       await json({ data: session });
+      return;
+    }
+    if (method === 'GET' && path === '/auth/registration-policy') {
+      await json({ data: { inviteCodeRequired: false } });
       return;
     }
     if (method === 'GET' && path === '/auth/session') {
