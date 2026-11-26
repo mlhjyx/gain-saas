@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Optional,
   Param,
   Patch,
   Post,
@@ -12,12 +13,14 @@ import {
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { OpsGuard, type OpsRequest } from './ops.guard.js';
 import { OpsChannelsService } from './ops-channels.service.js';
 import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
+import { OpsWorkspacePurgeService } from './ops-workspace-purge.service.js';
 import { OpsService } from './ops.service.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,6 +34,7 @@ export class OpsController {
     private readonly ops: OpsService,
     private readonly opsChannels: OpsChannelsService,
     private readonly campaignMetrics: OpsCampaignMetricsService,
+    @Optional() private readonly workspacePurge?: OpsWorkspacePurgeService,
   ) {}
 
   @Get('overview')
@@ -213,6 +217,31 @@ export class OpsController {
     @Req() req: OpsRequest,
   ) {
     return { data: await this.ops.updateWorkspaceStorageQuota(id, body, req.opsUser!.id) };
+  }
+
+  @Get('workspaces/:id/purge')
+  async getWorkspacePurgeReceipt(@Param('id') id: string) {
+    if (!this.workspacePurge) {
+      throw new ServiceUnavailableException({
+        error: { code: 'WORKSPACE_PURGE_NOT_CONFIGURED', message: '工作空间物理清理服务未就绪' },
+      });
+    }
+    return { data: await this.workspacePurge.getPurgeReceipt(id) };
+  }
+
+  @Post('workspaces/:id/purge')
+  @HttpCode(202)
+  async purgeWorkspace(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: OpsRequest,
+  ) {
+    if (!this.workspacePurge) {
+      throw new ServiceUnavailableException({
+        error: { code: 'WORKSPACE_PURGE_NOT_CONFIGURED', message: '工作空间物理清理服务未就绪' },
+      });
+    }
+    return { data: await this.workspacePurge.purgeWorkspace(id, body, req.opsUser!.id) };
   }
 
   @Get('users')

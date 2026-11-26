@@ -150,6 +150,12 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'deletion-requests', enginePath: '/deletion-requests', access: 'admin' },
   { method: 'GET', saasPath: 'deletion-requests/:id', enginePath: '/deletion-requests/:id', access: 'admin' },
 
+  // ── 异步租户数据导出(MT-P1: scope acquisition:read + acquisition:export, 仅管理员)──
+  { method: 'POST', saasPath: 'data-exports', enginePath: '/data-exports', access: 'admin' },
+  { method: 'GET', saasPath: 'data-exports', enginePath: '/data-exports', access: 'admin' },
+  { method: 'GET', saasPath: 'data-exports/:exportId', enginePath: '/data-exports/:exportId', access: 'admin' },
+  { method: 'GET', saasPath: 'data-exports/:exportId/download', enginePath: '/data-exports/:exportId/download', access: 'admin', stream: true, timeoutMs: 180_000 },
+
   // ── 判定复核队列(引擎 P3 J17;scope acquisition:review / acquisition:read)──
   // 两个 scope 都映射给 saas-admin 与 saas-member,队列与裁决对成员开放
   // (与 leads accept/reject 的裁决面同一授权口径)。

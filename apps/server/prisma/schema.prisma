@@ -56,6 +56,7 @@ model Workspace {
   complianceDeclarations WorkspaceComplianceDeclaration[]
   budgetPolicy WorkspaceBudgetPolicy?
   storageQuota WorkspaceStorageQuota?
+  offboardingRequests WorkspaceOffboardingRequest[]
   tasks       AcquisitionTask[]
   taskRuns    TaskRun[]
   campaigns   Campaign[]
@@ -970,6 +971,53 @@ model WorkspaceStorageQuota {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("workspace_storage_quota")
+}
+
+/// 租户工作空间离网注销申请（MT-P1：7 天冷却期，期间管理员可自助撤回；到期后由运营执行物理清理）。
+model WorkspaceOffboardingRequest {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  /// SCHEDULED | CANCELLED | PURGED
+  status        String    @default("SCHEDULED") @db.VarChar(24)
+  requestedBy   String    @map("requested_by") @db.Uuid
+  reason        String?   @db.VarChar(500)
+  requestedAt   DateTime  @default(now()) @map("requested_at")
+  coolOffEndsAt DateTime  @map("cool_off_ends_at")
+  cancelledBy   String?   @map("cancelled_by") @db.Uuid
+  cancelledAt   DateTime? @map("cancelled_at")
+  purgedBy      String?   @map("purged_by") @db.Uuid
+  purgedAt      DateTime? @map("purged_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([status, coolOffEndsAt])
+  @@map("workspace_offboarding_request")
+}
+
+/// 租户整空间物理清理无 PII 回执（MT-P1：记录清理计数、吊销会话数与引擎清理回执，不含任何个人数据）。
+model WorkspacePurgeReceipt {
+  id                   String    @id @default(uuid()) @db.Uuid
+  workspaceId          String    @map("workspace_id") @db.Uuid
+  idempotencyKey       String    @map("idempotency_key") @db.VarChar(128)
+  /// IN_PROGRESS | COMPLETED | FAILED
+  status               String    @default("IN_PROGRESS") @db.VarChar(24)
+  requestedBy          String    @map("requested_by") @db.Uuid
+  offboardingRequestId String?   @map("offboarding_request_id") @db.Uuid
+  forced               Boolean   @default(false)
+  revokedSessions      Int       @default(0) @map("revoked_sessions")
+  deletedCounts        Json      @map("deleted_counts")
+  enginePurgeReceiptId String?   @map("engine_purge_receipt_id") @db.Uuid
+  enginePurgeStatus    String?   @map("engine_purge_status") @db.VarChar(32)
+  errorCode            String?   @map("error_code") @db.VarChar(64)
+  startedAt            DateTime  @default(now()) @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, startedAt])
+  @@map("workspace_purge_receipt")
 }
 
 /// D6 per-tenant 合法依据声明（数据处理声明）：每次（重新）声明新增一版，

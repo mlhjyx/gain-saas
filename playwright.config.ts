@@ -5,23 +5,26 @@ import { defineConfig } from '@playwright/test';
  * 全部用例走 BFF mock（不需要引擎与数据库）；CI job `e2e` 负责浏览器安装与运行。
  * 本机用系统 Chrome（channel: 'chrome'），CI 用 Playwright 内置 chromium。
  */
+const E2E_PORT = Number(process.env.PLAYWRIGHT_PORT || 4173);
+const E2E_ORIGIN = `http://127.0.0.1:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: './apps/web/e2e',
   timeout: 120_000,
   fullyParallel: false,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: E2E_ORIGIN,
     channel: process.env.CI ? undefined : 'chrome',
     headless: true,
     locale: 'zh-CN',
     viewport: { height: 900, width: 1440 },
   },
   webServer: {
-    command: 'pnpm --filter @vben/web-antd preview --port 4173 --strictPort',
-    reuseExistingServer: !process.env.CI,
+    command: `pnpm --filter @vben/web-antd preview --port ${E2E_PORT} --strictPort`,
+    reuseExistingServer: !process.env.CI && !process.env.PLAYWRIGHT_PORT,
     timeout: 300_000,
-    url: 'http://127.0.0.1:4173',
+    url: E2E_ORIGIN,
   },
   /**
    * P5b-19：按形态分 project——桌面为主；移动端冒烟与深色模式各自独立，

@@ -41,11 +41,13 @@ describe('campaign execution wiring（P4 首波接线后的结构断言）', () 
       .filter((source) => source.text.includes('campaignExecutionAuthorization'))
       .map((source) => source.rel)
       .sort();
-    // campaign 服务负责签发/撤销/校验；ops 只在 workspace 停用时联动撤销；
+    // campaign 服务负责签发/撤销/校验；ops 只在 workspace 停用时联动撤销，
+    // ops-workspace-purge 只在整空间物理清理时 deleteMany 清表；
     // outreach 侧的 OutreachAuthorizationConsumer 是执行器唯一的只读消费点。
     expect(referencing).toEqual([
       'campaign/campaign.service.ts',
       'campaign/outreach-authorization.issuer.ts',
+      'ops/ops-workspace-purge.service.ts',
       'ops/ops.service.ts',
       'outreach/outreach-authorization.consumer.ts',
     ]);
@@ -58,7 +60,7 @@ describe('campaign execution wiring（P4 首波接线后的结构断言）', () 
     expect(incrementers).toEqual(['outreach/outreach-authorization.consumer.ts']);
   });
 
-  it('ops 侧的引用仍是「置 REVOKED」的联动撤销，不是任何消费/执行', () => {
+  it('ops 侧的引用仍是「置 REVOKED」的联动撤销，purge 侧仅为整空间清表 deleteMany', () => {
     const ops = sources.find((source) => source.rel === 'ops/ops.service.ts')!;
     const occurrences = ops.text.split('campaignExecutionAuthorization').length - 1;
     expect(occurrences).toBe(1);
@@ -67,6 +69,15 @@ describe('campaign execution wiring（P4 首波接线后的结构断言）', () 
       ops.text.indexOf('campaignExecutionAuthorization') + 200,
     );
     expect(around).toContain("state: 'REVOKED'");
+
+    const purge = sources.find((source) => source.rel === 'ops/ops-workspace-purge.service.ts')!;
+    const purgeOccurrences = purge.text.split('campaignExecutionAuthorization').length - 1;
+    expect(purgeOccurrences).toBe(1);
+    const purgeAround = purge.text.slice(
+      Math.max(0, purge.text.indexOf('campaignExecutionAuthorization') - 100),
+      purge.text.indexOf('campaignExecutionAuthorization') + 120,
+    );
+    expect(purgeAround).toContain('campaignExecutionAuthorization.deleteMany');
   });
 
   it('the only consumer of verifyAuthorization is the read-only internal verify endpoint', () => {

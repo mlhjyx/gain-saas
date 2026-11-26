@@ -336,3 +336,34 @@ describe('MT-P1 metrics & understanding recompute BFF routes', () => {
     }
   });
 });
+
+describe('MT-P1 async data-exports BFF routes', () => {
+  it('registers POST/GET data-exports, GET data-exports/:exportId, and streaming download as admin passthroughs without grants', () => {
+    const nonStream: Array<[string, string]> = [
+      ['POST', 'data-exports'],
+      ['GET', 'data-exports'],
+      ['GET', 'data-exports/:exportId'],
+    ];
+    for (const [method, saasPath] of nonStream) {
+      const route = BFF_ROUTES.find((candidate) => candidate.method === method && candidate.saasPath === saasPath);
+      expect(route, `${method} ${saasPath}`).toEqual({
+        method,
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'admin',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
+    const download = BFF_ROUTES.find(
+      (candidate) => candidate.method === 'GET' && candidate.saasPath === 'data-exports/:exportId/download',
+    );
+    expect(download).toEqual({
+      method: 'GET',
+      saasPath: 'data-exports/:exportId/download',
+      enginePath: '/data-exports/:exportId/download',
+      access: 'admin',
+      stream: true,
+      timeoutMs: 180_000,
+    });
+  });
+});

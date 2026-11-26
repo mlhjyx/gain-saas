@@ -13,6 +13,9 @@ import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsTable from '#/components/gainos/ui/gs-table.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 
+import DataExportsCard from './components/data-exports-card.vue';
+import WorkspaceOffboardingCard from './components/workspace-offboarding-card.vue';
+
 import { formatDateTime } from '@gain-saas/shared';
 
 import { failureText, gainosApi, type DeletionRequestView } from '#/api/gainos';
@@ -41,6 +44,32 @@ const listError = ref<{ title: string; next?: string } | null>(null);
 
 const lookupId = ref('');
 const lookupError = ref<{ title: string; next?: string } | null>(null);
+const workspaceId = ref('');
+const workspaceName = ref('');
+const isAdmin = ref(false);
+
+async function loadWorkspaceMeta(): Promise<void> {
+  try {
+    const ctx = await gainosApi.workspaceContext();
+    if (ctx?.workspace?.id) {
+      workspaceId.value = ctx.workspace.id;
+      workspaceName.value = ctx.workspace.name ?? '';
+      isAdmin.value = ctx.workspace.role === 'admin';
+      return;
+    }
+  } catch {
+    // fallback to session
+  }
+  try {
+    const session = await gainosApi.session();
+    const activeWs = session.workspaces?.find((w) => w.id === session.workspace?.id) ?? session.workspaces?.[0];
+    workspaceId.value = session.workspace?.id ?? activeWs?.id ?? '';
+    workspaceName.value = activeWs?.name ?? '';
+    isAdmin.value = session.workspace?.role === 'admin';
+  } catch {
+    // ignore
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -246,6 +275,7 @@ const columns = computed(() => [
 ]);
 
 onMounted(() => {
+  void loadWorkspaceMeta();
   void loadBuyers();
   void loadRequests(true);
 });
@@ -446,6 +476,14 @@ onMounted(() => {
           <p class="m-0 text-xs leading-relaxed text-[var(--gs-fg-subtle)]">{{ $t('gainos.privacy.trackedNote') }}</p>
         </div>
       </GsCard>
+
+      <DataExportsCard :is-admin="isAdmin" />
+
+      <WorkspaceOffboardingCard
+        :is-admin="isAdmin"
+        :workspace-id="workspaceId"
+        :workspace-name="workspaceName"
+      />
     </div>
   </SettingsShell>
 </template>

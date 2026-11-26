@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 
+import OpsWorkspaceGovernance from './components/ops-workspace-governance.vue';
+
 defineOptions({ name: 'OpsConsole' });
 
 type Row = Record<string, any>;
@@ -461,6 +463,7 @@ async function loadBudget(): Promise<void> {
   }
 }
 const workspaceBusy = ref('');
+const selectedGovWorkspaceId = ref('');
 
 async function loadWorkspaceAdmin(): Promise<void> {
   try {
@@ -1304,31 +1307,44 @@ onMounted(checkSession);
             </div>
           </section>
 
-          <section v-else-if="active === 'workspaces'" class="ops__table-wrap">
-            <table class="ops__table">
-              <thead><tr><th>工作空间</th><th>成员</th><th>状态</th><th>状态更新</th><th>备注</th><th></th></tr></thead>
-              <tbody>
-                <tr v-for="workspace in workspaces" :key="workspace.id">
-                  <td><strong>{{ workspace.name || workspace.id }}</strong><br /><small class="ops__muted">{{ workspace.id }}</small></td>
-                  <td>{{ workspace.members ?? '-' }}</td>
-                  <td><span class="ops__badge" :class="badgeClass(workspace.status)">{{ workspace.status ?? 'ACTIVE' }}</span></td>
-                  <td>{{ fmt(workspace.status_updated_at) }}</td>
-                  <td class="ops__muted">{{ workspace.status_note ?? '' }}</td>
-                  <td>
-                    <select
-                      :value="workspace.status ?? 'ACTIVE'"
-                      :disabled="workspaceBusy === String(workspace.id)"
-                      @change="handleWorkspaceStatus(workspace, $event)"
-                    >
-                      <option value="ACTIVE">ACTIVE</option>
-                      <option value="DISABLED">DISABLED</option>
-                      <option value="ARCHIVED">ARCHIVED</option>
-                    </select>
-                  </td>
-                </tr>
-                <tr v-if="workspaces.length === 0"><td colspan="6" class="ops__muted">没有工作空间</td></tr>
-              </tbody>
-            </table>
+          <section v-else-if="active === 'workspaces'" class="ops__stack">
+            <div class="ops__table-wrap">
+              <table class="ops__table">
+                <thead><tr><th>工作空间</th><th>成员</th><th>状态</th><th>状态更新</th><th>备注</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr v-for="workspace in workspaces" :key="workspace.id">
+                    <td><strong>{{ workspace.name || workspace.id }}</strong><br /><small class="ops__muted">{{ workspace.id }}</small></td>
+                    <td>{{ workspace.members ?? '-' }}</td>
+                    <td><span class="ops__badge" :class="badgeClass(workspace.status)">{{ workspace.status ?? 'ACTIVE' }}</span></td>
+                    <td>{{ fmt(workspace.status_updated_at) }}</td>
+                    <td class="ops__muted">{{ workspace.status_note ?? '' }}</td>
+                    <td class="ops__row-actions">
+                      <select
+                        :value="workspace.status ?? 'ACTIVE'"
+                        :disabled="workspaceBusy === String(workspace.id)"
+                        @change="handleWorkspaceStatus(workspace, $event)"
+                      >
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="DISABLED">DISABLED</option>
+                        <option value="ARCHIVED">ARCHIVED</option>
+                      </select>
+                      <button
+                        type="button"
+                        class="ops__btn"
+                        @click="selectedGovWorkspaceId = String(workspace.id)"
+                      >治理</button>
+                    </td>
+                  </tr>
+                  <tr v-if="workspaces.length === 0"><td colspan="6" class="ops__muted">没有工作空间</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <OpsWorkspaceGovernance
+              :selected-workspace-id="selectedGovWorkspaceId"
+              @error="error = $event"
+              @notice="notice = $event"
+              @purged="loadWorkspaceAdmin"
+            />
           </section>
 
           <section v-else-if="active === 'providers'" class="ops__stack">

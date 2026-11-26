@@ -15,6 +15,7 @@ import { SaoController } from '../qgo/sao.controller.js';
 import { QgoService } from '../qgo/qgo.service.js';
 import { WorkspacesController } from './workspaces.controller.js';
 import { WorkspaceContextController } from './workspace-context.controller.js';
+import { WorkspaceOffboardingService } from './workspace-offboarding.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SessionService } from './session.service.js';
@@ -31,7 +32,7 @@ import { ServiceModule } from '../service/service.module.js';
 @Module({
   imports: [ConfigModule, ServiceModule],
   controllers: [AuthController, MembersController, AuditController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, RunTraceController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
-  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService],
+  providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService, WorkspaceOffboardingService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService, EngineHttp],
 })
 export class TenantModule {}
