@@ -3,6 +3,7 @@ import type { components } from "@gain-saas/engine-client";
 import type { Page, Locator } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import { installMockBackend } from "./mock-backend";
+import { TEST_ORIGIN } from "./test-origin";
 
 type S = components["schemas"];
 export const ID = {
@@ -122,7 +123,7 @@ export function generation(
   };
 }
 export async function setup(page: Page, cell: Cell) {
-  const origin = process.env.B3_TEST_ORIGIN ?? "http://127.0.0.1:4173";
+  const origin = process.env.B3_TEST_ORIGIN ?? TEST_ORIGIN;
   const errors: string[] = [],
     forbidden: string[] = [],
     blockedOrigins: string[] = [];

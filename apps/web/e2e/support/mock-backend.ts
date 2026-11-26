@@ -9,6 +9,8 @@
 import type { Page, Route } from '@playwright/test';
 import { evaluateT0Channels } from '@gain-saas/shared';
 
+import { TEST_ORIGIN } from './test-origin';
+
 export interface RecordedCall {
   body: unknown;
   /** 请求头（小写键），供幂等键等断言使用。 */
@@ -168,8 +170,7 @@ export async function installMockBackend(
   await page.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const defaultOrigin = `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT || 4173}`;
-    if (url.origin !== (options.origin ?? process.env.PLAYWRIGHT_BASE_URL ?? defaultOrigin)) return route.continue();
+    if (url.origin !== (options.origin ?? process.env.PLAYWRIGHT_BASE_URL ?? TEST_ORIGIN)) return route.continue();
     // 整页导航（document 请求）交给 vite preview 的 SPA fallback，不当 API 拦截。
     if (request.isNavigationRequest() && request.resourceType() === 'document') return route.continue();
     // 构建带 `VITE_GLOB_API_URL=/api` 时请求会带 /api 前缀；统一去掉再匹配，

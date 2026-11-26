@@ -16,6 +16,7 @@ import {
   revision,
   setup,
 } from "./support/market-candidates-fixtures";
+import { TEST_ORIGIN } from "./support/test-origin";
 // 构建产物的 API 前缀取决于 .env.production 是否在场（CI 无该文件），两条形态都要命中。
 const apiRoute = (path: string) =>
   new RegExp(
@@ -330,7 +331,7 @@ for (const cell of matrix) {
         const network: Array<{ method: string; path: string }> = [];
         page.on("request", (request) => {
           const url = new URL(request.url());
-          if (url.origin === "http://127.0.0.1:4173") {
+          if (url.origin === TEST_ORIGIN) {
             network.push({ method: request.method(), path: url.pathname });
           }
         });
