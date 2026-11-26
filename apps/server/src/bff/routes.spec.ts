@@ -83,7 +83,7 @@ describe('seller documents BFF routes', () => {
     expect(delDoc?.grant).toBeUndefined();
     expect(find('PUT', 'companies/:companyId/seller-documents/:documentId/content')).toMatchObject({
       binary: true,
-      timeoutMs: 180_000,
+      timeoutMs: 600_000,
     });
     expect(find('GET', 'seller-documents/:documentId/content')).toEqual({
       method: 'GET',

@@ -48,6 +48,22 @@ type IntakeMode = 'website' | 'store' | 'brief';
 
 const MAX_BROCHURES = 5;
 const MAX_BROCHURE_BYTES = 50 * 1024 * 1024;
+const LARGE_BROCHURE_HINT_BYTES = 30 * 1024 * 1024;
+
+type BrochureTransferState = 'queued_upload' | 'uploading' | 'committing' | 'failed' | 'cancelled';
+
+interface BrochureTransfer {
+  localId: string;
+  file: File;
+  filename: string;
+  size: number;
+  state: BrochureTransferState;
+  loadedBytes: number;
+  percent: number;
+  speedBps: number;
+  error?: string;
+  abort?: () => void;
+}
 
 const view = ref<View>('start');
 const intakeMode = ref<IntakeMode>('website');
@@ -72,12 +88,14 @@ const productDraft = ref('');
 const targetMarkets = ref<string[]>([]);
 const preview = ref<OnboardingPreview | null>(null);
 
-// PDF 画册附件态（可随官网/店铺/简介一起提交，也可单独附画册进入第 2 步）
+// PDF 画册附件与后台双轨上传态（不阻塞跳转，实时进度条 + 取消/重试 + 解析状态轮询）
 const brochureInputRef = ref<HTMLInputElement | null>(null);
-const brochureUploading = ref(false);
 const pendingBrochures = ref<Array<{ localId: string; file: File; filename: string; size: number }>>([]);
-const uploadedBrochures = ref<Array<{ id: string; filename: string; status: string }>>([]);
+const brochureTransfers = ref<BrochureTransfer[]>([]);
+const uploadedBrochures = ref<Array<{ id: string; filename: string; status: string; chunkCount?: number }>>([]);
 let localBrochureSeq = 0;
+let uploadQueueRunning = false;
+let docPollTimer: ReturnType<typeof setInterval> | undefined;
 
 // UN Comtrade 目标国推荐（只读参考，默认绝不自动代选）
 const comtradeBundle = ref<ComtradeRecommendationBundle | null>(null);
@@ -265,11 +283,49 @@ const storeUrlError = computed(() =>
     : '',
 );
 
+const activeBrochureTransfers = computed(() =>
+  brochureTransfers.value.filter(
+    (item) => item.state === 'queued_upload' || item.state === 'uploading' || item.state === 'committing',
+  ),
+);
+const brochureUploading = computed(() => activeBrochureTransfers.value.length > 0);
 const hasAnyBrochure = computed(
-  () => pendingBrochures.value.length > 0 || uploadedBrochures.value.length > 0,
+  () =>
+    pendingBrochures.value.length > 0 ||
+    activeBrochureTransfers.value.length > 0 ||
+    uploadedBrochures.value.length > 0,
 );
 const totalBrochureCount = computed(
-  () => pendingBrochures.value.length + uploadedBrochures.value.length,
+  () =>
+    pendingBrochures.value.length +
+    activeBrochureTransfers.value.length +
+    uploadedBrochures.value.length,
+);
+const totalPendingBrochureBytes = computed(() =>
+  pendingBrochures.value.reduce((sum, item) => sum + item.size, 0),
+);
+const extractedDocClaims = computed(() => preview.value?.documents?.extractedClaims ?? []);
+const parsingBrochureCount = computed(
+  () =>
+    uploadedBrochures.value.filter(
+      (doc) =>
+        doc.status === 'queued' ||
+        doc.status === 'processing' ||
+        doc.status === 'UPLOADED' ||
+        doc.status === 'committing',
+    ).length,
+);
+const readyBrochureCount = computed(
+  () => uploadedBrochures.value.filter((doc) => doc.status === 'ready').length,
+);
+const hasBrochurePanel = computed(
+  () =>
+    brochureTransfers.value.length > 0 ||
+    uploadedBrochures.value.length > 0 ||
+    extractedDocClaims.value.length > 0,
+);
+const waitingBrochureTotal = computed(
+  () => activeBrochureTransfers.value.length + uploadedBrochures.value.length,
 );
 
 const startValid = computed(() => {
@@ -297,7 +353,9 @@ const websitePrimaryLabel = computed(() => {
       : $t('gainos.onboarding.startUnderstanding');
   }
   if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
-  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  if (uploadedBrochures.value.length > 0 || activeBrochureTransfers.value.length > 0) {
+    return $t('gainos.onboarding.continueWithBrochure');
+  }
   return $t('gainos.onboarding.startUnderstanding');
 });
 
@@ -308,20 +366,74 @@ const storePrimaryLabel = computed(() => {
       : $t('gainos.onboarding.startUnderstanding');
   }
   if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
-  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  if (uploadedBrochures.value.length > 0 || activeBrochureTransfers.value.length > 0) {
+    return $t('gainos.onboarding.continueWithBrochure');
+  }
   return $t('gainos.onboarding.startUnderstanding');
 });
 
 const briefPrimaryLabel = computed(() => {
   if (productDescription.value.trim().length > 0) return $t('gainos.onboarding.briefStartBtn');
   if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
-  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  if (uploadedBrochures.value.length > 0 || activeBrochureTransfers.value.length > 0) {
+    return $t('gainos.onboarding.continueWithBrochure');
+  }
   return $t('gainos.onboarding.briefStartBtn');
 });
 
 function formatBrochureSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function formatTransferSpeed(bytesPerSec: number): string {
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return '';
+  if (bytesPerSec >= 1024 * 1024) return ` · ${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  return ` · ${Math.max(1, Math.round(bytesPerSec / 1024))} KB/s`;
+}
+
+function transferStatusText(item: BrochureTransfer): string {
+  if (item.state === 'queued_upload') return $t('gainos.onboarding.brochureStatusQueuedUpload');
+  if (item.state === 'uploading') {
+    return $t('gainos.onboarding.brochureStatusUploading', {
+      percent: item.percent,
+      loaded: formatBrochureSize(item.loadedBytes),
+      total: formatBrochureSize(item.size),
+      speed: formatTransferSpeed(item.speedBps),
+    });
+  }
+  if (item.state === 'committing') return $t('gainos.onboarding.brochureStatusCommitting');
+  if (item.state === 'cancelled') return $t('gainos.onboarding.brochureStatusCancelled');
+  return $t('gainos.onboarding.brochureStatusFailed', {
+    reason: item.error || $t('gainos.onboarding.submitFailed'),
+  });
+}
+
+function serverDocStatusText(doc: { status: string; chunkCount?: number }): string {
+  if (doc.status === 'ready') {
+    return doc.chunkCount && doc.chunkCount > 0
+      ? $t('gainos.onboarding.brochureStatusServerReady', { chunks: doc.chunkCount })
+      : $t('gainos.onboarding.brochureStatusServerReadyNoCount');
+  }
+  if (doc.status === 'processing') return $t('gainos.onboarding.brochureStatusServerProcessing');
+  if (doc.status === 'failed_terminal' || doc.status === 'rejected') {
+    return $t('gainos.onboarding.brochureStatusServerFailed');
+  }
+  return $t('gainos.onboarding.brochureStatusServerQueued');
+}
+
+function claimTypeLabel(type: string): string {
+  const known = new Set([
+    'certification',
+    'param',
+    'capability',
+    'moq',
+    'lead_time',
+    'market',
+    'company_fact',
+  ]);
+  const key = known.has(type) ? type : 'other';
+  return $t(`gainos.onboarding.brochureClaimType.${key}`);
 }
 const manualValid = computed(
   () =>
@@ -457,18 +569,33 @@ function toggleProduct(value: string) {
   addProduct(value);
 }
 
+function syncDocumentsFromPreview(next: OnboardingPreview) {
+  const serverItems = next.documents?.items ?? [];
+  if (serverItems.length === 0) return;
+  const byId = new Map<
+    string,
+    { id: string; filename: string; status: string; chunkCount?: number }
+  >();
+  for (const existing of uploadedBrochures.value) {
+    byId.set(existing.id, existing);
+  }
+  for (const item of serverItems) {
+    byId.set(item.id, {
+      id: item.id,
+      filename: item.filename,
+      status: item.status,
+      chunkCount: item.chunkCount,
+    });
+  }
+  uploadedBrochures.value = Array.from(byId.values());
+}
+
 function applyPreview(next: OnboardingPreview) {
   preview.value = next;
   if (!name.value && next.name) name.value = next.name;
   if (next.website && !website.value) website.value = next.website;
   if (next.summary && !productDescription.value) productDescription.value = next.summary;
-  if (next.documents?.items?.length) {
-    uploadedBrochures.value = next.documents.items.map((item) => ({
-      id: item.id,
-      filename: item.filename,
-      status: item.status,
-    }));
-  }
+  syncDocumentsFromPreview(next);
   if (manualChosen.value) {
     stopPolling();
     view.value = 'manual';
@@ -517,6 +644,49 @@ function stopPolling() {
   }
 }
 
+function stopDocPolling() {
+  if (docPollTimer) {
+    clearInterval(docPollTimer);
+    docPollTimer = undefined;
+  }
+}
+
+async function pollDocumentsOnly() {
+  if (view.value !== 'preview' && view.value !== 'manual') {
+    stopDocPolling();
+    return;
+  }
+  if (parsingBrochureCount.value === 0) {
+    stopDocPolling();
+    return;
+  }
+  try {
+    const state = await gainosApi.onboardingPreview();
+    if (!state.started) return;
+    if (preview.value) {
+      preview.value = {
+        ...preview.value,
+        documents: state.preview.documents,
+      };
+    } else {
+      preview.value = state.preview;
+    }
+    syncDocumentsFromPreview(state.preview);
+  } catch {
+    // 后台状态轮询失败不打断当前表单操作
+  }
+}
+
+function syncDocPolling() {
+  const shouldPoll =
+    (view.value === 'preview' || view.value === 'manual') && parsingBrochureCount.value > 0;
+  if (shouldPoll && !docPollTimer) {
+    docPollTimer = setInterval(() => void pollDocumentsOnly(), 5000);
+  } else if (!shouldPoll && docPollTimer) {
+    stopDocPolling();
+  }
+}
+
 async function pollPreview() {
   const reqSeq = ++previewRequestSeq;
   try {
@@ -528,6 +698,7 @@ async function pollPreview() {
       return;
     }
     preview.value = state.preview;
+    syncDocumentsFromPreview(state.preview);
     if (state.preview.state !== 'queued' && state.preview.state !== 'running') {
       applyPreview(state.preview);
     }
@@ -567,50 +738,171 @@ async function loadContext() {
   }
 }
 
-async function uploadPendingBrochures(companyId: string): Promise<number> {
-  if (pendingBrochures.value.length === 0) return 0;
-  brochureUploading.value = true;
-  let uploadedCount = 0;
+function putFileWithProgress(
+  url: string,
+  file: File,
+  onProgress: (loaded: number, total: number, speedBps: number) => void,
+): { promise: Promise<void>; abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  const startedAt = Date.now();
+  const promise = new Promise<void>((resolve, reject) => {
+    xhr.open('PUT', url, true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('content-type', 'application/pdf');
+    xhr.upload.onprogress = (event) => {
+      const total = event.lengthComputable && event.total > 0 ? event.total : file.size;
+      const elapsedSec = Math.max(0.25, (Date.now() - startedAt) / 1000);
+      onProgress(event.loaded, total, event.loaded / elapsedSec);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(file.size, file.size, 0);
+        resolve();
+        return;
+      }
+      let message = `HTTP ${xhr.status}`;
+      try {
+        const parsed = JSON.parse(xhr.responseText) as {
+          error?: { message?: string; userCopy?: { title?: string } };
+        };
+        message = parsed?.error?.userCopy?.title ?? parsed?.error?.message ?? message;
+      } catch {
+        // ignore non-json response
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.onabort = () => reject(Object.assign(new Error('cancelled'), { cancelled: true }));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
+
+function updateTransfer(localId: string, patch: Partial<BrochureTransfer>) {
+  brochureTransfers.value = brochureTransfers.value.map((item) =>
+    item.localId === localId ? { ...item, ...patch } : item,
+  );
+}
+
+function enqueuePendingBrochures(companyId: string) {
+  if (pendingBrochures.value.length === 0) return;
+  const queued: BrochureTransfer[] = pendingBrochures.value.map((item) => ({
+    localId: item.localId,
+    file: item.file,
+    filename: item.filename,
+    size: item.size,
+    state: 'queued_upload',
+    loadedBytes: 0,
+    percent: 0,
+    speedBps: 0,
+  }));
+  brochureTransfers.value = [...brochureTransfers.value, ...queued];
+  pendingBrochures.value = [];
+  void drainBrochureUploadQueue(companyId);
+}
+
+async function drainBrochureUploadQueue(companyId: string) {
+  if (uploadQueueRunning) return;
+  uploadQueueRunning = true;
+  let completedCount = 0;
   try {
-    const queue = [...pendingBrochures.value];
-    for (const item of queue) {
-      const signed = await gainosApi.presignSellerDocument(companyId, {
-        filename: item.filename,
-        mime: 'application/pdf',
-        size: item.size,
+    while (true) {
+      const next = brochureTransfers.value.find((item) => item.state === 'queued_upload');
+      if (!next) break;
+      const localId = next.localId;
+      updateTransfer(localId, {
+        state: 'uploading',
+        loadedBytes: 0,
+        percent: 0,
+        speedBps: 0,
+        error: undefined,
       });
-      const put = await fetch(
-        `/api/companies/${companyId}/seller-documents/${signed.documentId}/content`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/pdf' },
-          body: item.file,
-        },
-      );
-      if (!put.ok) throw new Error(`upload ${put.status}`);
-      const committed = await gainosApi.commitSellerDocument(companyId, signed.documentId);
-      const docId = committed.id ?? signed.documentId;
-      uploadedBrochures.value = [
-        { id: docId, filename: item.filename, status: committed.status ?? 'UPLOADED' },
-        ...uploadedBrochures.value.filter((doc) => doc.id !== docId),
-      ];
-      pendingBrochures.value = pendingBrochures.value.filter((p) => p.localId !== item.localId);
-      uploadedCount += 1;
+      try {
+        const signed = await gainosApi.presignSellerDocument(companyId, {
+          filename: next.filename,
+          mime: 'application/pdf',
+          size: next.size,
+        });
+        const currentAfterPresign = brochureTransfers.value.find((item) => item.localId === localId);
+        if (!currentAfterPresign || currentAfterPresign.state === 'cancelled') continue;
+
+        const transfer = putFileWithProgress(
+          `/api/companies/${companyId}/seller-documents/${signed.documentId}/content`,
+          next.file,
+          (loaded, total, speedBps) => {
+            const pct = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
+            updateTransfer(localId, { loadedBytes: loaded, percent: pct, speedBps });
+          },
+        );
+        updateTransfer(localId, { abort: transfer.abort });
+        await transfer.promise;
+
+        updateTransfer(localId, { state: 'committing', percent: 100, abort: undefined });
+        const committed = await gainosApi.commitSellerDocument(companyId, signed.documentId);
+        const docId = committed.id ?? signed.documentId;
+        uploadedBrochures.value = [
+          {
+            id: docId,
+            filename: next.filename,
+            status: committed.status ?? 'queued',
+            chunkCount: 0,
+          },
+          ...uploadedBrochures.value.filter((doc) => doc.id !== docId),
+        ];
+        brochureTransfers.value = brochureTransfers.value.filter((item) => item.localId !== localId);
+        completedCount += 1;
+        syncDocPolling();
+      } catch (err) {
+        const isCancelled = Boolean((err as { cancelled?: boolean } | null)?.cancelled);
+        if (isCancelled) {
+          updateTransfer(localId, { state: 'cancelled', abort: undefined });
+          continue;
+        }
+        const body = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data;
+        const reason =
+          body?.error?.message ?? (err instanceof Error ? err.message : $t('gainos.onboarding.submitFailed'));
+        updateTransfer(localId, { state: 'failed', error: reason, abort: undefined });
+      }
     }
-    if (uploadedCount > 0) {
+    if (completedCount > 0) {
       feedback.message.success(
-        $t('gainos.onboarding.brochureUploadedCount', { count: uploadedCount }),
+        $t('gainos.onboarding.brochureUploadedCount', { count: completedCount }),
       );
     }
-    return uploadedCount;
   } finally {
-    brochureUploading.value = false;
+    uploadQueueRunning = false;
   }
+}
+
+function cancelBrochureTransfer(localId: string) {
+  const target = brochureTransfers.value.find((item) => item.localId === localId);
+  if (!target) return;
+  if (target.state === 'uploading') {
+    target.abort?.();
+  }
+  updateTransfer(localId, { state: 'cancelled', abort: undefined });
+}
+
+function retryBrochureTransfer(localId: string) {
+  const companyId = preview.value?.companyId;
+  if (!companyId) return;
+  updateTransfer(localId, {
+    state: 'queued_upload',
+    loadedBytes: 0,
+    percent: 0,
+    speedBps: 0,
+    error: undefined,
+  });
+  void drainBrochureUploadQueue(companyId);
+}
+
+function dismissBrochureTransfer(localId: string) {
+  brochureTransfers.value = brochureTransfers.value.filter((item) => item.localId !== localId);
 }
 
 async function startUnderstanding() {
   normalizeWebsiteField();
-  if (!startValid.value || starting.value || brochureUploading.value) return;
+  if (!startValid.value || starting.value) return;
   const hasWebsite = website.value.trim().length > 0;
   starting.value = true;
   errorText.value = '';
@@ -624,11 +916,9 @@ async function startUnderstanding() {
     });
     if (reqSeq !== previewRequestSeq) return;
     preview.value = state.preview;
-    await uploadPendingBrochures(state.preview.companyId);
-    if (reqSeq === previewRequestSeq) {
-      applyPreview(state.preview);
-      if (!hasWebsite) view.value = 'manual';
-    }
+    enqueuePendingBrochures(state.preview.companyId);
+    applyPreview(state.preview);
+    if (!hasWebsite) view.value = 'manual';
   } catch (error) {
     handleError(error);
   } finally {
@@ -638,7 +928,7 @@ async function startUnderstanding() {
 
 async function startStoreUnderstanding() {
   normalizeStoreUrlField();
-  if (!storeStartValid.value || starting.value || brochureUploading.value) return;
+  if (!storeStartValid.value || starting.value) return;
   const hasStore = storeUrl.value.trim().length > 0;
   starting.value = true;
   errorText.value = '';
@@ -654,11 +944,9 @@ async function startStoreUnderstanding() {
     });
     if (reqSeq !== previewRequestSeq) return;
     preview.value = state.preview;
-    await uploadPendingBrochures(state.preview.companyId);
-    if (reqSeq === previewRequestSeq) {
-      applyPreview(state.preview);
-      if (!hasStore) view.value = 'manual';
-    }
+    enqueuePendingBrochures(state.preview.companyId);
+    applyPreview(state.preview);
+    if (!hasStore) view.value = 'manual';
   } catch (error) {
     handleError(error);
   } finally {
@@ -667,7 +955,7 @@ async function startStoreUnderstanding() {
 }
 
 async function startBriefOnboarding() {
-  if (!briefStartValid.value || starting.value || brochureUploading.value) return;
+  if (!briefStartValid.value || starting.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = true;
@@ -681,18 +969,16 @@ async function startBriefOnboarding() {
     });
     if (reqSeq !== previewRequestSeq) return;
     preview.value = state.preview;
-    await uploadPendingBrochures(state.preview.companyId);
-    if (reqSeq === previewRequestSeq) {
-      if (desc && !productsTouched.value && products.value.length === 0) {
-        const extracted = desc
-          .split(/[、,，;；\n]+/)
-          .map((item) => item.trim().slice(0, 60))
-          .filter((item) => item.length >= 2);
-        if (extracted.length > 0) products.value = extracted.slice(0, 3);
-      }
-      applyPreview(state.preview);
-      view.value = 'manual';
+    enqueuePendingBrochures(state.preview.companyId);
+    if (desc && !productsTouched.value && products.value.length === 0) {
+      const extracted = desc
+        .split(/[、,，;；\n]+/)
+        .map((item) => item.trim().slice(0, 60))
+        .filter((item) => item.length >= 2);
+      if (extracted.length > 0) products.value = extracted.slice(0, 3);
     }
+    applyPreview(state.preview);
+    view.value = 'manual';
   } catch (error) {
     handleError(error);
   } finally {
@@ -752,22 +1038,20 @@ function onBrochureSelected(event: Event) {
 }
 
 async function enterManual() {
-  if (!name.value.trim() || starting.value || brochureUploading.value) return;
+  if (!name.value.trim() || starting.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = true;
   stopPolling();
   const reqSeq = ++previewRequestSeq;
   try {
-    // 手动模式不带官网：建名称草稿（不触发理解），若有已选画册则一并上传，受控词表随预览响应下发。
+    // 手动模式不带官网：建名称草稿（不触发理解），若有已选画册则后台并行上传，受控词表随预览响应下发。
     const state = await gainosApi.startOnboardingPreview({ name: name.value.trim() });
     if (reqSeq !== previewRequestSeq) return;
     preview.value = state.preview;
-    await uploadPendingBrochures(state.preview.companyId);
-    if (reqSeq === previewRequestSeq) {
-      applyPreview(state.preview);
-      view.value = 'manual';
-    }
+    enqueuePendingBrochures(state.preview.companyId);
+    applyPreview(state.preview);
+    view.value = 'manual';
   } catch (error) {
     handleError(error);
   } finally {
@@ -777,6 +1061,7 @@ async function enterManual() {
 
 function backToStart() {
   stopPolling();
+  stopDocPolling();
   previewRequestSeq += 1;
   manualChosen.value = false;
   errorText.value = '';
@@ -785,7 +1070,7 @@ function backToStart() {
 
 async function retryUnderstanding() {
   normalizeWebsiteField();
-  if (starting.value || brochureUploading.value || !websiteValid.value) return;
+  if (starting.value || !websiteValid.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = false;
@@ -797,8 +1082,7 @@ async function retryUnderstanding() {
     });
     if (reqSeq !== previewRequestSeq) return;
     preview.value = state.preview;
-    await uploadPendingBrochures(state.preview.companyId);
-    if (reqSeq !== previewRequestSeq) return;
+    enqueuePendingBrochures(state.preview.companyId);
     if (state.preview.state === 'failed') {
       preview.value = state.preview;
       view.value = 'waiting';
@@ -989,8 +1273,16 @@ async function logout() {
   await authStore.logout();
 }
 
+watch([view, parsingBrochureCount], syncDocPolling);
+
 onMounted(loadContext);
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => {
+  stopPolling();
+  stopDocPolling();
+  for (const item of brochureTransfers.value) {
+    item.abort?.();
+  }
+});
 </script>
 
 <template>
@@ -1120,17 +1412,12 @@ onBeforeUnmount(stopPolling);
             <div class="brochure-box__head">
               <p class="brochure-box__title">{{ $t('gainos.onboarding.brochureTitle') }}</p>
               <Button
-                :disabled="starting || brochureUploading || totalBrochureCount >= MAX_BROCHURES"
-                :loading="brochureUploading"
+                :disabled="starting || totalBrochureCount >= MAX_BROCHURES"
                 data-gs="brochure-upload-btn"
                 size="small"
                 @click="triggerBrochurePick"
               >
-                {{
-                  brochureUploading
-                    ? $t('gainos.onboarding.brochureUploading')
-                    : $t('gainos.onboarding.brochurePickBtn')
-                }}
+                {{ $t('gainos.onboarding.brochurePickBtn') }}
               </Button>
             </div>
             <p class="section-desc">{{ $t('gainos.onboarding.brochureHint') }}</p>
@@ -1159,7 +1446,7 @@ onBeforeUnmount(stopPolling);
                 </span>
                 <button
                   :aria-label="$t('gainos.onboarding.brochureRemoveAria', { name: item.filename })"
-                  :disabled="starting || brochureUploading"
+                  :disabled="starting"
                   class="brochure-chip__remove"
                   type="button"
                   @click="removePendingBrochure(item.localId)"
@@ -1168,25 +1455,50 @@ onBeforeUnmount(stopPolling);
                 </button>
               </span>
             </div>
+            <p
+              v-if="totalPendingBrochureBytes > LARGE_BROCHURE_HINT_BYTES"
+              class="brochure-large-hint"
+              data-gs="brochure-large-hint"
+            >
+              {{
+                $t('gainos.onboarding.brochureLargeHint', {
+                  size: formatBrochureSize(totalPendingBrochureBytes),
+                })
+              }}
+            </p>
+            <div
+              v-if="brochureTransfers.length > 0"
+              class="brochure-list"
+              data-gs="start-brochure-transfers"
+            >
+              <span
+                v-for="item in brochureTransfers"
+                :key="item.localId"
+                class="brochure-chip"
+              >
+                <span class="brochure-chip__name">{{ item.filename }}</span>
+                <span class="brochure-chip__meta">{{ transferStatusText(item) }}</span>
+              </span>
+            </div>
             <div
               v-if="uploadedBrochures.length > 0"
               class="brochure-list"
               data-gs="brochure-uploaded-badge"
             >
               <Tag v-for="doc in uploadedBrochures" :key="doc.id" :bordered="false" color="blue">
-                {{ doc.filename }} · {{ $t('gainos.onboarding.brochureUploadedTag') }}
+                {{ doc.filename }} · {{ serverDocStatusText(doc) }}
               </Tag>
             </div>
           </div>
 
           <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
 
-          <!-- 主操作按钮区（按当前主来源模式） -->
+          <!-- 主操作按钮区（按当前主来源模式；提交后立即进入下一步，画册在后台继续上传与解析） -->
           <template v-if="intakeMode === 'website'">
             <div class="onboarding-actions">
               <Button
                 :disabled="!startValid"
-                :loading="starting || brochureUploading"
+                :loading="starting"
                 class="primary-action"
                 data-gs="website-start-btn"
                 type="primary"
@@ -1207,7 +1519,7 @@ onBeforeUnmount(stopPolling);
             <div class="onboarding-actions">
               <Button
                 :disabled="!storeStartValid"
-                :loading="starting || brochureUploading"
+                :loading="starting"
                 class="primary-action"
                 data-gs="store-start-btn"
                 type="primary"
@@ -1222,7 +1534,7 @@ onBeforeUnmount(stopPolling);
             <div class="onboarding-actions">
               <Button
                 :disabled="!briefStartValid"
-                :loading="starting || brochureUploading"
+                :loading="starting"
                 class="primary-action"
                 data-gs="brief-start-btn"
                 type="primary"
@@ -1242,13 +1554,107 @@ onBeforeUnmount(stopPolling);
             {{ $t('gainos.onboarding.progressPages', { count: preview?.pagesAnalyzed ?? 0 }) }}
           </p>
           <p
-            v-if="uploadedBrochures.length > 0"
+            v-if="waitingBrochureTotal > 0"
             class="field-hint hint-accent"
             data-gs="waiting-brochure-hint"
           >
-            {{ $t('gainos.onboarding.waitingBrochureLinked', { count: uploadedBrochures.length }) }}
+            {{ $t('gainos.onboarding.waitingBrochureLinked', { count: waitingBrochureTotal }) }}
           </p>
           <p class="section-desc">{{ $t('gainos.onboarding.progressHint') }}</p>
+
+          <div
+            v-if="hasBrochurePanel"
+            class="brochure-panel"
+            data-gs="brochure-progress-panel"
+          >
+            <div class="brochure-panel__head">
+              <span class="brochure-panel__title">{{ $t('gainos.onboarding.brochurePanelTitle') }}</span>
+              <span class="brochure-panel__summary">
+                <span v-if="activeBrochureTransfers.length > 0" class="brochure-pill brochure-pill--active">
+                  {{ $t('gainos.onboarding.brochurePanelUploading', { count: activeBrochureTransfers.length }) }}
+                </span>
+                <span v-if="parsingBrochureCount > 0" class="brochure-pill brochure-pill--parsing">
+                  {{ $t('gainos.onboarding.brochurePanelParsing', { count: parsingBrochureCount }) }}
+                </span>
+                <span v-if="readyBrochureCount > 0" class="brochure-pill brochure-pill--ready">
+                  {{ $t('gainos.onboarding.brochurePanelReady', { count: readyBrochureCount }) }}
+                </span>
+              </span>
+            </div>
+
+            <div v-if="brochureTransfers.length > 0" class="brochure-rows">
+              <div
+                v-for="item in brochureTransfers"
+                :key="item.localId"
+                class="brochure-row"
+                :class="`brochure-row--${item.state}`"
+                data-gs="brochure-transfer-row"
+              >
+                <div class="brochure-row__top">
+                  <span class="brochure-row__name" :title="item.filename">{{ item.filename }}</span>
+                  <span class="brochure-row__actions">
+                    <button
+                      v-if="item.state === 'queued_upload' || item.state === 'uploading'"
+                      class="brochure-row__btn"
+                      data-gs="brochure-cancel-btn"
+                      type="button"
+                      @click="cancelBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureCancelBtn') }}
+                    </button>
+                    <button
+                      v-if="item.state === 'failed' || item.state === 'cancelled'"
+                      class="brochure-row__btn brochure-row__btn--primary"
+                      data-gs="brochure-retry-btn"
+                      type="button"
+                      @click="retryBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureRetryBtn') }}
+                    </button>
+                    <button
+                      v-if="item.state === 'failed' || item.state === 'cancelled'"
+                      class="brochure-row__btn"
+                      type="button"
+                      @click="dismissBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureDismissBtn') }}
+                    </button>
+                  </span>
+                </div>
+                <div
+                  v-if="item.state === 'queued_upload' || item.state === 'uploading' || item.state === 'committing'"
+                  class="brochure-progress"
+                  role="progressbar"
+                  :aria-valuenow="item.percent"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <div class="brochure-progress__bar" :style="{ width: `${item.percent}%` }"></div>
+                </div>
+                <span class="brochure-row__status">{{ transferStatusText(item) }}</span>
+              </div>
+            </div>
+
+            <div v-if="uploadedBrochures.length > 0" class="brochure-docs">
+              <div
+                v-for="doc in uploadedBrochures"
+                :key="doc.id"
+                class="brochure-doc"
+                data-gs="brochure-server-doc"
+              >
+                <span class="brochure-row__name" :title="doc.filename">{{ doc.filename }}</span>
+                <span
+                  class="brochure-doc__status"
+                  :class="{
+                    'brochure-doc__status--ready': doc.status === 'ready',
+                    'brochure-doc__status--failed': doc.status === 'failed_terminal' || doc.status === 'rejected',
+                  }"
+                >
+                  {{ serverDocStatusText(doc) }}
+                </span>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 理解失败 -->
@@ -1316,6 +1722,14 @@ onBeforeUnmount(stopPolling);
           />
           <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
 
+          <div
+            v-if="brochureUploading"
+            class="brochure-warn"
+            data-gs="brochure-active-upload-warn"
+          >
+            {{ $t('gainos.onboarding.brochureActiveUploadWarn', { count: activeBrochureTransfers.length }) }}
+          </div>
+
           <div class="onboarding-actions">
             <Button :disabled="launching" data-gs="review-back-btn" @click="backFromReview">
               {{ $t('gainos.onboarding.reviewBack') }}
@@ -1332,16 +1746,131 @@ onBeforeUnmount(stopPolling);
           </div>
         </section>
 
-        <!-- 第二步：预览确认 / 手动填写（集成 UN Comtrade 推荐国徽章 + 行内一键事实确认） -->
+        <!-- 第二步：预览确认 / 手动填写（集成 UN Comtrade 推荐国徽章 + 画册实时上传/解析面板） -->
         <section v-else class="onboarding-section">
           <p v-if="view === 'preview'" class="preview-banner">
             {{ $t('gainos.onboarding.previewTitle') }}
           </p>
 
-          <div v-if="uploadedBrochures.length > 0" class="brochure-list" data-gs="step2-brochure-badges">
-            <Tag v-for="doc in uploadedBrochures" :key="doc.id" :bordered="false">
-              {{ doc.filename }}
-            </Tag>
+          <div
+            v-if="hasBrochurePanel"
+            class="brochure-panel"
+            data-gs="brochure-progress-panel"
+          >
+            <div class="brochure-panel__head">
+              <span class="brochure-panel__title">{{ $t('gainos.onboarding.brochurePanelTitle') }}</span>
+              <span class="brochure-panel__summary">
+                <span v-if="activeBrochureTransfers.length > 0" class="brochure-pill brochure-pill--active">
+                  {{ $t('gainos.onboarding.brochurePanelUploading', { count: activeBrochureTransfers.length }) }}
+                </span>
+                <span v-if="parsingBrochureCount > 0" class="brochure-pill brochure-pill--parsing">
+                  {{ $t('gainos.onboarding.brochurePanelParsing', { count: parsingBrochureCount }) }}
+                </span>
+                <span v-if="readyBrochureCount > 0" class="brochure-pill brochure-pill--ready">
+                  {{ $t('gainos.onboarding.brochurePanelReady', { count: readyBrochureCount }) }}
+                </span>
+              </span>
+            </div>
+
+            <div v-if="brochureTransfers.length > 0" class="brochure-rows">
+              <div
+                v-for="item in brochureTransfers"
+                :key="item.localId"
+                class="brochure-row"
+                :class="`brochure-row--${item.state}`"
+                data-gs="brochure-transfer-row"
+              >
+                <div class="brochure-row__top">
+                  <span class="brochure-row__name" :title="item.filename">{{ item.filename }}</span>
+                  <span class="brochure-row__actions">
+                    <button
+                      v-if="item.state === 'queued_upload' || item.state === 'uploading'"
+                      class="brochure-row__btn"
+                      data-gs="brochure-cancel-btn"
+                      type="button"
+                      @click="cancelBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureCancelBtn') }}
+                    </button>
+                    <button
+                      v-if="item.state === 'failed' || item.state === 'cancelled'"
+                      class="brochure-row__btn brochure-row__btn--primary"
+                      data-gs="brochure-retry-btn"
+                      type="button"
+                      @click="retryBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureRetryBtn') }}
+                    </button>
+                    <button
+                      v-if="item.state === 'failed' || item.state === 'cancelled'"
+                      class="brochure-row__btn"
+                      type="button"
+                      @click="dismissBrochureTransfer(item.localId)"
+                    >
+                      {{ $t('gainos.onboarding.brochureDismissBtn') }}
+                    </button>
+                  </span>
+                </div>
+                <div
+                  v-if="item.state === 'queued_upload' || item.state === 'uploading' || item.state === 'committing'"
+                  class="brochure-progress"
+                  role="progressbar"
+                  :aria-valuenow="item.percent"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <div class="brochure-progress__bar" :style="{ width: `${item.percent}%` }"></div>
+                </div>
+                <span class="brochure-row__status">{{ transferStatusText(item) }}</span>
+              </div>
+            </div>
+
+            <div
+              v-if="uploadedBrochures.length > 0"
+              class="brochure-docs"
+              data-gs="step2-brochure-badges"
+            >
+              <div
+                v-for="doc in uploadedBrochures"
+                :key="doc.id"
+                class="brochure-doc"
+                data-gs="brochure-server-doc"
+              >
+                <span class="brochure-row__name" :title="doc.filename">{{ doc.filename }}</span>
+                <span
+                  class="brochure-doc__status"
+                  :class="{
+                    'brochure-doc__status--ready': doc.status === 'ready',
+                    'brochure-doc__status--failed': doc.status === 'failed_terminal' || doc.status === 'rejected',
+                  }"
+                >
+                  {{ serverDocStatusText(doc) }}
+                </span>
+              </div>
+            </div>
+
+            <div
+              v-if="extractedDocClaims.length > 0"
+              class="brochure-claims"
+              data-gs="brochure-extracted-claims"
+            >
+              <p class="brochure-claims__title">
+                {{ $t('gainos.onboarding.brochureClaimsTitle', { count: extractedDocClaims.length }) }}
+              </p>
+              <ul class="brochure-claims__list">
+                <li
+                  v-for="claim in extractedDocClaims.slice(0, 8)"
+                  :key="claim.claimId"
+                  class="brochure-claim"
+                >
+                  <Tag :bordered="false" class="brochure-claim__type">{{ claimTypeLabel(claim.type) }}</Tag>
+                  <span class="brochure-claim__text">{{ claim.statement }}</span>
+                  <span v-if="claim.filename" class="brochure-claim__src" :title="claim.filename">
+                    {{ claim.filename }}
+                  </span>
+                </li>
+              </ul>
+            </div>
           </div>
 
           <label v-if="view === 'manual'" class="field">
@@ -1535,6 +2064,14 @@ onBeforeUnmount(stopPolling);
 
           <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
 
+          <div
+            v-if="brochureUploading"
+            class="brochure-warn"
+            data-gs="brochure-active-upload-warn"
+          >
+            {{ $t('gainos.onboarding.brochureActiveUploadWarn', { count: activeBrochureTransfers.length }) }}
+          </div>
+
           <div class="onboarding-actions">
             <Button
               :disabled="submitting"
@@ -1579,18 +2116,17 @@ onBeforeUnmount(stopPolling);
 <style scoped>
 .onboarding {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-height: 100vh;
-  padding: 24px;
+  padding: 32px 24px;
   background: var(--gs-bg-soft, #f5f6f7);
 }
 
 .onboarding-card {
   width: 640px;
   max-width: 100%;
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
+  margin: auto 0;
   padding: 32px;
   background: var(--gs-bg, #fff);
   border: 1px solid var(--gs-border, var(--gs-border));
@@ -1786,6 +2322,226 @@ onBeforeUnmount(stopPolling);
 
 .sr-only-input {
   display: none;
+}
+
+.brochure-large-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--gs-warn, #d97706) 35%, var(--gs-border, #e5e7eb));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gs-warn, #d97706) 8%, var(--gs-surface, #fff));
+  color: var(--gs-fg, #111827);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.brochure-panel {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--gs-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--gs-bg-soft, #f9fafb);
+  text-align: left;
+}
+
+.brochure-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brochure-panel__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gs-fg, #111827);
+}
+
+.brochure-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.brochure-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.brochure-pill--active,
+.brochure-pill--parsing {
+  color: var(--gs-primary, var(--gs-accent));
+  background: color-mix(in srgb, var(--gs-primary, var(--gs-accent)) 12%, var(--gs-surface, #fff));
+}
+
+.brochure-pill--ready {
+  color: var(--gs-success, #15803d);
+  background: color-mix(in srgb, var(--gs-success, #15803d) 12%, var(--gs-surface, #fff));
+}
+
+.brochure-rows,
+.brochure-docs {
+  display: grid;
+  gap: 8px;
+}
+
+.brochure-row,
+.brochure-doc {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--gs-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--gs-bg, #fff);
+}
+
+.brochure-doc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brochure-row__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brochure-row__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--gs-fg, #111827);
+}
+
+.brochure-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.brochure-row__btn {
+  padding: 2px 8px;
+  border: 1px solid var(--gs-border, #d1d5db);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gs-fg-subtle, var(--gs-fg-muted));
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.brochure-row__btn:hover {
+  color: var(--gs-fg, #111827);
+  border-color: var(--gs-fg-subtle, #9ca3af);
+}
+
+.brochure-row__btn--primary {
+  border-color: var(--gs-primary, var(--gs-accent));
+  color: var(--gs-primary, var(--gs-accent));
+}
+
+.brochure-progress {
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--gs-bg-soft, #e5e7eb);
+}
+
+.brochure-progress__bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gs-primary, var(--gs-accent));
+  transition: width 0.2s ease;
+}
+
+.brochure-row__status,
+.brochure-doc__status {
+  font-size: 11.5px;
+  color: var(--gs-fg-subtle, var(--gs-fg-muted));
+}
+
+.brochure-row--failed .brochure-row__status,
+.brochure-doc__status--failed {
+  color: var(--gs-danger, #dc2626);
+}
+
+.brochure-doc__status--ready {
+  color: var(--gs-success, #15803d);
+  font-weight: 500;
+}
+
+.brochure-claims {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--gs-border, #e5e7eb);
+}
+
+.brochure-claims__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gs-fg, #111827);
+}
+
+.brochure-claims__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.brochure-claim {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gs-fg, #111827);
+}
+
+.brochure-claim__type {
+  flex-shrink: 0;
+  margin-inline-end: 0;
+}
+
+.brochure-claim__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.brochure-claim__src {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--gs-fg-subtle, var(--gs-fg-muted));
+}
+
+.brochure-warn {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--gs-warn, #d97706) 40%, var(--gs-border, #e5e7eb));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gs-warn, #d97706) 10%, var(--gs-surface, #fff));
+  color: var(--gs-fg, #111827);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .comtrade-box {

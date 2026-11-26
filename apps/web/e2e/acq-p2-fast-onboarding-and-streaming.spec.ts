@@ -313,7 +313,7 @@ test('多模态冷启动：官网+PDF画册组合提交、仅画册建档、返�
   await loginAs(page);
   await page.waitForURL(/\/onboarding/);
 
-  // 1. 官网 + PDF 画册组合提交：先填官网再附 PDF，不提前跳转，点主按钮后同时提交官网与画册
+  // 1. 官网 + PDF 画册组合提交：先填官网再附 PDF，不提前跳转，点主按钮后立即推进且画册在后台上传并展示实时面板
   await page.locator('.onboarding-section input').first().fill('具安泵业');
   await page.locator('input[placeholder*="https://"]').fill('lianstech.com');
   await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
@@ -323,12 +323,58 @@ test('多模态冷启动：官网+PDF画册组合提交、仅画册建档、返�
   });
   await expect(page.locator('[data-gs="pending-brochure-list"]')).toContainText('industrial-pumps-2026.pdf');
   expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(0);
+
+  // 后台轮询返回已解析画册（带分段数）与自动提取的企业要点
+  backend.set('GET', '/onboarding/preview', {
+    started: true,
+    preview: {
+      companyId: COMPANY_ID,
+      name: '具安泵业',
+      website: 'https://lianstech.com',
+      status: 'DRAFT',
+      state: 'not_started',
+      failure: null,
+      pagesAnalyzed: 0,
+      industry: { raw: null, suggested: { raw: null, code: null, label: null, labelEn: null, matched: false }, options: [] },
+      products: [],
+      markets: [],
+      documents: {
+        total: 1,
+        ready: 1,
+        processing: 0,
+        failed: 0,
+        items: [
+          {
+            id: DOC_ID,
+            filename: 'industrial-pumps-2026.pdf',
+            status: 'ready',
+            chunkCount: 14,
+          },
+        ],
+        extractedClaims: [
+          {
+            claimId: 'doc-claim-1',
+            type: 'certification',
+            statement: '通过 ISO 9001 与 CE 工业泵认证',
+            status: 'NEEDS_REVIEW',
+            documentId: DOC_ID,
+            filename: 'industrial-pumps-2026.pdf',
+          },
+        ],
+      },
+    },
+  });
+
   await page.locator('[data-gs="website-start-btn"]').click();
 
   await expect.poll(() => backend.callsTo('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`).length).toBe(1);
   const combinedPreview = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
   expect(combinedPreview.website).toBe('https://lianstech.com');
+  await expect(page.locator('[data-gs="brochure-progress-panel"]')).toBeVisible();
   await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('industrial-pumps-2026.pdf');
+  // 轮询回填已解析段数与画册自动提取的要点
+  await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('14', { timeout: 10_000 });
+  await expect(page.locator('[data-gs="brochure-extracted-claims"]')).toContainText('通过 ISO 9001 与 CE 工业泵认证');
 
   // 2. 第 2 步可点击「返回修改资料」回到第 1 步，且保留已上传画册标记
   await page.locator('[data-gs="back-to-start-btn"]').click();
