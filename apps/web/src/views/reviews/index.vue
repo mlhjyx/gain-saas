@@ -653,7 +653,7 @@ onBeforeUnmount(() => {
 .rv__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
 .rv__empty-link {
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 999px; padding: 8px 16px;
+  border: 1px solid var(--gs-border); border-radius: 8px; padding: 8px 16px;
   background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
 }
 .rv__empty-link.is-primary { border-color: transparent; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }

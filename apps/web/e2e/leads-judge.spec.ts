@@ -175,15 +175,16 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await page.goto('/leads');
   await page.waitForLoadState('networkidle').catch(() => {});
 
-  // 渐变页头 + 药丸页签（当前队列以 aria-pressed 标记）
+  // PR-UI1：紧凑页头 + 侧栏底部主流程进度芯片（点开 Popover 展示全部 5 步，无裸数字序号）
   await expect(page.getByRole('heading', { level: 1, name: '买家线索' })).toBeVisible();
-  // 2026-11-26：步骤条从页面里挪到底部进度浮窗（主流程页面共用）
-  await expect(page.locator("[data-gs='flow-bar']")).toBeVisible();
-  // 当前步不显示序号（用户看不懂「5」指什么），用圆点标记
-  await expect(
-    page.locator("[data-gs='flow-bar'] .ant-steps-icon").filter({ hasText: /\d/ }),
-  ).toHaveCount(0);
-  await expect(page.locator("[data-gs='flow-bar']").getByText('判断线索')).toBeVisible();
+  const flowChip = page.locator("[data-gs='flow-progress-chip']");
+  await expect(flowChip).toBeVisible();
+  await flowChip.click();
+  const flowPopover = page.locator("[data-gs='flow-progress-popover']");
+  await expect(flowPopover).toBeVisible();
+  await expect(flowPopover.getByRole('button', { exact: true, name: '判断线索' })).toBeVisible();
+  await flowChip.click();
+  await expect(flowPopover).toBeHidden();
   await expect(
     page.locator("[data-gs='queue-switch'] [aria-pressed='true']"),
   ).toHaveText(/待我判断\s*2/);
@@ -257,8 +258,10 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
     path: 'docs/evidence/ui-restyle/antd-system/leads-detail-judge-light.png',
   });
 
-  // 深色主题：同一屏再拍一张，确认雷达/评分/维度色都跟主题走
-  await page.getByRole('button', { name: 'dark' }).click();
+  // 深色主题：从账号菜单切入深色，确认雷达/评分/维度色都跟主题走
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='theme-toggle']").click();
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
   await page.screenshot({
     fullPage: true,

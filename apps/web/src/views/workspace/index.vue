@@ -2003,13 +2003,13 @@ onUnmounted(() => {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--gs-surface-2);
 }
 .wk__seg button {
   padding: 5px 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
   color: var(--gs-fg-muted);
   font-size: 12px;
@@ -2133,7 +2133,7 @@ onUnmounted(() => {
   align-self: center;
   padding: 4px 10px;
   border: 1px solid var(--gs-border);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--gs-surface);
   color: var(--gs-accent-strong);
   font-size: 12px;
@@ -2176,7 +2176,7 @@ onUnmounted(() => {
   width: 100%;
   min-height: 40px;
   border: 0;
-  border-radius: var(--gs-radius-pill);
+  border-radius: var(--gs-radius-btn);
   background: var(--gs-accent-cta);
   color: var(--gs-accent-cta-fg);
   font-size: 14px;

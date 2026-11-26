@@ -19,11 +19,15 @@ import { overridesPreferences, preferencesExtension } from './preferences';
  * 其余字段（theme.mode 明暗、sidebar.width/collapsed、语言等用户偏好）尊重缓存。
  */
 const BRAND_PREFERENCES = {
-  app: { layout: 'sidebar-nav' },
-  // pass5：header.height 与 tabbar.height 必须同为 40，否则老缓存（50）
-  // 会让侧栏品牌行高于标签栏，接缝错位。
-  header: { height: 40, hidden: true },
+  app: {
+    enablePreferences: false,
+    layout: 'sidebar-nav',
+  },
+  breadcrumb: { enable: false },
+  // PR-UI1：48px 极简面包屑顶栏 + 关闭顶部多标签栏，确保新老访客刷新即刻生效。
+  header: { enable: true, height: 48, hidden: false },
   logo: {
+    enable: false,
     source: '/logo-gainos.svg?v=pass3',
     sourceDark: '/logo-gainos.svg?v=pass3',
   },
@@ -31,21 +35,23 @@ const BRAND_PREFERENCES = {
   // 不归一的话 SDR 覆盖层会永远浮在内容上。
   sidebar: { collapsedButton: false, hidden: false },
   tabbar: {
-    enable: true,
+    enable: false,
     height: 40,
     middleClickToClose: false,
     showMaximize: false,
   },
   theme: { builtinType: 'default', colorPrimary: '#335CFF' },
-  // pass4：顶栏部件清单也归一——老缓存里的 themeToggle/languageToggle=true
-  // 会让顶栏重新长出主题/语言按钮（与侧栏重复）。
-  // pass5：notification 同理（移入侧栏底部），tabbar.enable/header.hidden
-  // 也一并归一（老缓存存的是 tabbar=false 的旧默认）。
   widget: {
+    fullscreen: false,
     globalSearch: false,
     languageToggle: false,
+    lockScreen: false,
+    logoutButtonPosition: 'none',
     notification: false,
+    refresh: false,
+    sidebarToggle: false,
     themeToggle: false,
+    timezone: false,
   },
 } as const;
 

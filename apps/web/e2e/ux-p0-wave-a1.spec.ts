@@ -18,7 +18,7 @@ test('dark mode semantic tokens reach WCAG AA and GS_BRAND unifies light bgLayou
     'utf8',
   );
   expect(appVueSource).toMatch(/export\s+const\s+GS_BRAND\s*=/);
-  expect(appVueSource).toMatch(/light:\s*\{[\s\S]*?bgLayout:\s*['"]#F7F8FB['"]/);
+  expect(appVueSource).toMatch(/light:\s*\{[\s\S]*?bgLayout:\s*['"]#FFFFFF['"]/);
 
   const zhP0 = JSON.parse(
     readFileSync(resolve(process.cwd(), 'apps/web/src/locales/langs/zh-CN/gainosP0.json'), 'utf8'),
@@ -57,7 +57,9 @@ test('dark mode semantic tokens reach WCAG AA and GS_BRAND unifies light bgLayou
   await page.goto('/settings/suppressions');
   await expect(page.getByText('blocked@example.com')).toBeVisible();
 
-  await page.getByRole('button', { name: 'dark' }).click();
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='theme-toggle']").click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
 
   // Trigger an inline AntDV error Alert by submitting an empty suppression entry.

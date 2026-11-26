@@ -1,34 +1,38 @@
 <script lang="ts" setup>
 /**
- * 侧栏内容：搜索 + 分组导航 + 底部账号区（AgentSDR Sidebar 同款）。
+ * 侧栏内容面板（PR-UI1 对标 Linear / Attio）：
  *
- * 桌面覆盖层与手机抽屉共用这一份，所以手机上同样有通知 / 设置 / 帮助，
- * 以及带「退出登录」的工作空间账号卡。容器（固定覆盖层 / 抽屉）由 sdr-sidebar 提供，
- * 这里只要求父级是纵向 flex 且高度受限：滚动区 flex:1，底部账号区常驻。
+ * - 快捷搜索框（⌘K）
+ * - 顶区高频核心项（无分组标题：工作台 / 通知 + 未读数字徽标）
+ * - 分组 1：获客主线（企业档案 / 买家画像 / 买家线索 / 寻源记录）
+ * - 分组 2：触达与转化（外发与战役 / 商机管线 / 成效复盘，受 GROWTH_PAGE_HIDDEN 门控）
+ * - 底部固定区：主流程进度芯片（仅主流程页显示）+ 设置 + 紧凑账号条（弹出主题/语言/帮助/退出）
+ *
+ * 桌面展开侧栏与手机抽屉共用本组件；全部图标使用静态打包组件（零外网 Iconify 拉取）。
  */
 import { computed, ref } from 'vue';
 
-import { preferences } from '@vben/preferences';
-
-import { IconifyIcon } from '@vben/icons';
-
+import { ChevronDown, Search, Settings } from '@vben/icons';
 import { Popover } from 'ant-design-vue';
 
-import SdrAccountMenu from './sdr-account-menu.vue';
+import { isFlowPath } from '#/composables/use-main-chain-progress';
 import { $t } from '#/locales';
 
+import FlowProgressBar from './flow-progress-bar.vue';
+import SdrAccountMenu from './sdr-account-menu.vue';
+import SdrIcon from './sdr-icon.vue';
 import { useSdrNav } from './use-sdr-nav';
 
 defineOptions({ name: 'SdrNavPanel' });
 
 const props = defineProps<{
-  /** 通知未读数（basic.vue 轮询，>0 显示红点）。 */
+  /** 通知未读数（>0 在顶区「通知」右侧显示紧凑数字徽标）。 */
   unreadCount?: number;
   /** 用户头像 URL（空则用首字母兜底）。 */
   userAvatar?: string;
-  /** 账号（邮箱/用户名），账号卡第二行。 */
+  /** 账号邮箱。 */
   userEmail?: string;
-  /** 工作空间名，账号卡第一行。 */
+  /** 工作空间名称。 */
   workspaceName?: string;
 }>();
 
@@ -36,39 +40,22 @@ const emit = defineEmits<{
   logout: [];
   openSearch: [];
   openSettings: [];
+  toggleLocale: [];
+  toggleTheme: [];
 }>();
 
 const { go, isActive, route, sections } = useSdrNav();
 
-const isEnglish = computed(() => preferences.app.locale === 'en-US');
-const searchLabel = computed(() =>
-  isEnglish.value ? 'Search or jump to…' : '搜索或跳转…',
-);
+const searchLabel = computed(() => $t('gainosUi1.nav.searchPlaceholder'));
+const settingsLabel = computed(() => $t('gainosUi1.nav.settings'));
+const showFlowChip = computed(() => isFlowPath(route.path));
 
-const footerLabels = computed(() =>
-  isEnglish.value
-    ? { help: 'Help', notifications: 'Notifications', settings: 'Settings' }
-    : { help: '帮助', notifications: '通知', settings: '设置' },
-);
-const accountLabels = computed(() => ({
-  expand: isEnglish.value ? 'Expand sidebar' : '展开侧栏',
-  shortcuts: isEnglish.value ? 'Shortcuts' : '快捷键',
-}));
-
-const versionLabel = `${__APP_VERSION__}${
-  __APP_COMMIT__ ? ` · ${__APP_COMMIT__}` : ''
-}`;
-
-/** 账号卡首字母兜底（无头像时）。 */
 const initial = computed(() =>
-  (props.workspaceName || props.userEmail || 'G').trim().slice(0, 1).toUpperCase(),
+  (props.userEmail || props.workspaceName || 'G').trim().slice(0, 1).toUpperCase(),
 );
 
 const settingsActive = computed(() => route.path.startsWith('/settings'));
 
-const helpOpen = ref(false);
-
-// 账号菜单（SdrAccountMenu）的动作：先收起浮层再执行。
 const accountOpen = ref(false);
 function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings') {
   accountOpen.value = false;
@@ -81,14 +68,15 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
 
 <template>
   <div class="sdr-panel">
-    <!-- SDR「Jump to」搜索框（⌘K） -->
+    <!-- 快捷搜索框（⌘K） -->
     <button
-      type="button"
-      class="sdr-search"
       :aria-label="searchLabel"
+      class="sdr-search"
+      data-gs="nav-search"
+      type="button"
       @click="emit('openSearch')"
     >
-      <IconifyIcon icon="lucide:search" />
+      <Search :size="14" aria-hidden="true" />
       <span class="sdr-search__label">{{ searchLabel }}</span>
       <kbd>⌘K</kbd>
     </button>
@@ -103,73 +91,53 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
         <ul class="sdr-section__list">
           <li v-for="item in section.items" :key="item.path">
             <RouterLink
+              :aria-current="isActive(item.path) ? 'page' : undefined"
+              :class="{ 'is-active': isActive(item.path) }"
               :to="item.path"
               class="sdr-row"
-              :class="{ 'is-active': isActive(item.path) }"
               role="menuitem"
-              :aria-current="isActive(item.path) ? 'page' : undefined"
             >
-              <IconifyIcon :icon="item.icon ?? 'lucide:circle-dot'" />
+              <SdrIcon :name="item.icon" :size="16" />
               <span class="sdr-row__label">{{ $t(item.label) }}</span>
+              <span
+                v-if="item.path === '/notifications' && (unreadCount ?? 0) > 0"
+                :aria-label="$t('gainosUi1.nav.unreadBadge', { count: unreadCount })"
+                class="sdr-row__badge"
+                data-gs="nav-unread"
+              >
+                {{ (unreadCount ?? 0) > 99 ? '99+' : unreadCount }}
+              </span>
             </RouterLink>
           </li>
         </ul>
       </div>
     </div>
 
-    <!-- ── 底部：通知 / 设置 / 帮助 + 工作空间账号卡（AgentSDR 同款布局）── -->
+    <!-- 底部固定区：主流程进度芯片 + 设置 + 紧凑账号条 -->
     <footer class="sdr-footer">
-      <div class="sdr-footer__rows" role="menu" :aria-label="footerLabels.settings">
-        <RouterLink
-          to="/notifications"
-          class="sdr-row sdr-footer__row"
-          role="menuitem"
-        >
-          <IconifyIcon icon="lucide:bell" />
-          <span class="sdr-row__label">{{ footerLabels.notifications }}</span>
-          <span
-            v-if="(unreadCount ?? 0) > 0"
-            class="sdr-footer__dot"
-            data-gs="nav-unread"
-            aria-hidden="true"
-          ></span>
-        </RouterLink>
-        <!-- Wave B3：设置直达整页 /settings/account（单轨整页模式，不再弹弹窗）。 -->
+      <FlowProgressBar v-if="showFlowChip" />
+
+      <div :aria-label="settingsLabel" class="sdr-footer__rows" role="menu">
         <button
-          type="button"
-          class="sdr-row sdr-footer__row"
-          :class="{ 'is-active': settingsActive }"
-          role="menuitem"
           :aria-current="settingsActive ? 'page' : undefined"
+          :class="{ 'is-active': settingsActive }"
+          class="sdr-row sdr-footer__row"
+          data-gs="nav-settings"
+          role="menuitem"
+          type="button"
           @click="emit('openSettings')"
         >
-          <IconifyIcon icon="lucide:settings" />
-          <span class="sdr-row__label">{{ footerLabels.settings }}</span>
+          <Settings :size="16" aria-hidden="true" />
+          <span class="sdr-row__label">{{ settingsLabel }}</span>
         </button>
-        <Popover v-model:open="helpOpen" placement="rightTop" trigger="click">
-          <template #content>
-            <div class="sdr-help">
-              <p class="sdr-help__title">{{ accountLabels.shortcuts }}</p>
-              <p><kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> — {{ searchLabel }}</p>
-              <p class="sdr-help__muted">
-                {{ isEnglish ? 'Theme, language and account live in the sidebar.' : '主题、语言与账号都在侧边栏。' }}
-              </p>
-              <p class="sdr-help__version">v{{ versionLabel }}</p>
-            </div>
-          </template>
-          <button type="button" class="sdr-row sdr-footer__row" role="menuitem">
-            <IconifyIcon icon="lucide:circle-help" />
-            <span class="sdr-row__label">{{ footerLabels.help }}</span>
-          </button>
-        </Popover>
       </div>
 
       <Popover
         v-model:open="accountOpen"
-        trigger="click"
-        placement="topLeft"
         :arrow="false"
         overlay-class-name="gs-account-pop"
+        placement="topLeft"
+        trigger="click"
       >
         <template #content>
           <SdrAccountMenu
@@ -180,26 +148,27 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
             @notifications="accountAction('notifications')"
             @search="accountAction('search')"
             @settings="accountAction('settings')"
+            @toggle-locale="emit('toggleLocale')"
+            @toggle-theme="emit('toggleTheme')"
           />
         </template>
         <button
-          type="button"
+          :aria-expanded="accountOpen"
+          :aria-label="userEmail || workspaceName || $t('gainosUi1.nav.account')"
           class="sdr-account"
-          :aria-label="workspaceName || userEmail || 'Account'"
+          data-gs="account-trigger"
+          type="button"
         >
-          <img v-if="userAvatar" class="sdr-account__avatar" :src="userAvatar" alt="" />
-          <span v-else class="sdr-account__avatar sdr-account__avatar--fallback" aria-hidden="true">
+          <img v-if="userAvatar" :src="userAvatar" alt="" class="sdr-account__avatar" />
+          <span
+            v-else
+            aria-hidden="true"
+            class="sdr-account__avatar sdr-account__avatar--fallback"
+          >
             {{ initial }}
           </span>
-          <span class="sdr-account__body">
-            <strong class="sdr-account__name">{{ workspaceName || 'GainOS' }}</strong>
-            <small class="sdr-account__email">{{ userEmail || '—' }}</small>
-          </span>
-          <svg class="sdr-account__more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none" />
-            <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-            <circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none" />
-          </svg>
+          <span class="sdr-account__email">{{ userEmail || workspaceName || 'GainOS' }}</span>
+          <ChevronDown :size="14" aria-hidden="true" class="sdr-account__more" />
         </button>
       </Popover>
     </footer>
@@ -207,47 +176,58 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
 </template>
 
 <style scoped>
-/* 父级是纵向 flex：滚动区吃掉剩余高度，底部账号区常驻。 */
 .sdr-panel {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   width: 100%;
+  padding: 10px 10px 10px;
+  box-sizing: border-box;
 }
+
 .sdr-panel__scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  pointer-events: auto;
   scrollbar-width: thin;
 }
 
-/* SDR「Jump to」搜索框：h-9 ring-1 白底 subtle 阴影 */
 .sdr-search {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
-  margin-bottom: 8px;
-  padding: 0 10px;
+  height: 34px;
+  margin-bottom: 10px;
+  padding: 0 9px;
   border: 1px solid var(--gs-border);
   border-radius: 8px;
   background: var(--gs-surface);
   color: var(--gs-fg-muted);
   font-size: 13px;
   cursor: pointer;
-  box-shadow: var(--gs-shadow-xs);
-  pointer-events: auto;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
+
 .sdr-search:hover {
-  border-color: var(--gs-accent);
-  color: var(--gs-accent-strong);
+  border-color: var(--gs-border-strong);
+  color: var(--gs-fg);
 }
-.sdr-search :deep(svg) { width: 15px; height: 15px; flex: none; }
+
+.sdr-search:focus-visible {
+  outline: none;
+  box-shadow: var(--gs-shadow-focus);
+}
+
+.sdr-search :deep(svg) {
+  flex: none;
+}
+
 .sdr-search__label {
   flex: 1;
   min-width: 0;
@@ -256,8 +236,8 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sdr-search kbd,
-.sdr-help kbd {
+
+.sdr-search kbd {
   padding: 0 5px;
   border: 1px solid var(--gs-border);
   border-radius: 5px;
@@ -268,17 +248,23 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
   line-height: 15px;
 }
 
-/* 分组：小标签（SDR 12px 灰）+ 行列表 */
-.sdr-section { margin-top: 12px; }
-.sdr-section:first-child { margin-top: 0; }
+.sdr-section {
+  margin-top: 14px;
+}
+
+.sdr-section:first-child {
+  margin-top: 0;
+}
+
 .sdr-section__label {
-  margin: 0 0 2px;
+  margin: 0 0 4px;
   padding: 0 8px;
   color: var(--gs-fg-subtle);
-  font-size: 12px;
-  line-height: 20px;
+  font-size: 11.5px;
+  line-height: 18px;
   font-weight: 500;
 }
+
 .sdr-section__list {
   display: grid;
   gap: 2px;
@@ -287,46 +273,55 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
   list-style: none;
 }
 
-/* SDR 菜单行：h-9 / rounded-lg(8px) / px-2 / 500 */
 .sdr-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
   padding: 0 8px;
+  border: 0;
   border-radius: 8px;
-  color: var(--gs-fg-muted);
-  font-size: 14px;
+  background: transparent;
+  color: var(--gs-fg-2);
+  font-size: 13.5px;
   font-weight: 500;
   text-decoration: none;
   outline: none;
-  background: transparent;
-  border: 0;
-  width: 100%;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
+
 .sdr-row :deep(svg) {
-  width: 18px;
-  height: 18px;
   flex: none;
   color: var(--gs-fg-subtle);
   transition: color 0.15s ease;
 }
+
 .sdr-row:hover {
-  background: var(--gs-surface-2);
+  background: var(--gs-sidebar-hover);
   color: var(--gs-fg);
 }
-.sdr-row:hover :deep(svg) { color: var(--gs-fg-muted); }
-/* SDR active：灰底药丸 + 近黑文字 + 实心图标（无彩条） */
+
+.sdr-row:hover :deep(svg) {
+  color: var(--gs-fg-2);
+}
+
 .sdr-row.is-active {
-  background: var(--gs-surface-2);
+  background: var(--gs-sidebar-active);
   color: var(--gs-fg);
 }
-.sdr-row.is-active :deep(svg) { color: var(--gs-fg); }
-.sdr-row:focus-visible {
-  box-shadow: 0 0 0 2px var(--gs-surface), 0 0 0 4px var(--gs-accent);
+
+.sdr-row.is-active :deep(svg) {
+  color: var(--gs-fg);
 }
+
+.sdr-row:focus-visible {
+  box-shadow: var(--gs-shadow-focus);
+}
+
 .sdr-row__label {
   flex: 1;
   min-width: 0;
@@ -336,94 +331,108 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
   white-space: nowrap;
 }
 
-/* ── 底部账号区（AgentSDR：分隔线 + 固定行 + 工作空间卡）── */
+.sdr-row__badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--gs-accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .sdr-footer {
   flex: none;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--gs-divider);
   display: grid;
-  gap: 8px;
-  pointer-events: auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gs-border);
 }
-.sdr-footer__rows { display: grid; gap: 2px; }
-.sdr-footer__row { height: 32px; font-size: 13px; }
-.sdr-footer__row :deep(svg) { width: 16px; height: 16px; }
-.sdr-footer__dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  margin-right: 2px;
-  border-radius: 50%;
-  background: var(--gs-accent);
+
+.sdr-footer__rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 2px;
 }
+
+.sdr-footer__row {
+  height: 32px;
+  font-size: 13px;
+}
+
 .sdr-account {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--gs-border);
-  border-radius: 12px;
-  background: var(--gs-surface);
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gs-fg);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
+
 .sdr-account:hover {
-  border-color: var(--gs-border-strong);
-  background: var(--gs-surface-2);
+  border-color: var(--gs-border);
+  background: var(--gs-surface);
 }
+
+.sdr-account:focus-visible {
+  outline: none;
+  box-shadow: var(--gs-shadow-focus);
+}
+
 .sdr-account__avatar {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   flex: none;
-  border-radius: 8px;
+  border-radius: 6px;
   object-fit: cover;
 }
+
 .sdr-account__avatar--fallback {
   display: grid;
   place-items: center;
   background: var(--gs-accent);
-  color: #fff;
-  font-size: 13px;
+  color: #ffffff;
+  font-size: 11.5px;
   font-weight: 600;
 }
-.sdr-account__body {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
-}
-.sdr-account__name {
-  overflow: hidden;
-  color: var(--gs-fg);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .sdr-account__email {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  color: var(--gs-fg-subtle);
-  font-size: 11px;
+  color: var(--gs-fg-2);
+  font-size: 12.5px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.sdr-account:hover .sdr-account__email {
+  color: var(--gs-fg);
+}
+
 .sdr-account__more {
-  width: 16px;
-  height: 16px;
   flex: none;
   color: var(--gs-fg-subtle);
 }
-.sdr-help {
-  display: grid;
-  gap: 6px;
-  max-width: 250px;
-  font-size: 12.5px;
-}
-.sdr-help p { margin: 0; }
-.sdr-help__title { font-weight: 600; }
-.sdr-help__muted { color: var(--gs-fg-muted); }
-.sdr-help__version { color: var(--gs-fg-subtle); font-size: 11px; }
 </style>

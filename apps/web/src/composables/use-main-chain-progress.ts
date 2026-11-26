@@ -113,26 +113,18 @@ function stop(): void {
   window.removeEventListener(CHAIN_CHANGED_EVENT, refresh);
 }
 
-/** 浮窗的高度（px）。滚动区底部留出这么多，页面最后一段不会被盖住。 */
-export const FLOW_BAR_HEIGHT = 40;
-let spaceUsers = 0;
+/** PR-UI1：主流程进度已收敛至侧栏底部轻芯片，不再占用主内容区底部高度，--gs-flow-bar-h 恒为 0px。 */
+export const FLOW_BAR_HEIGHT = 0;
 
 function writeBarHeight(height: number): void {
   document.documentElement.style.setProperty('--gs-flow-bar-h', `${height}px`);
 }
 
-/**
- * 浮窗一挂载就把高度留出来，不等进度数据：否则页面上贴底的元素（如买家画像页的「下一步」）
- * 会先按没有浮窗摆放，等浮窗出来再往上跳一次；组件重新挂载时也能恢复（那时数据已就绪，
- * 「是否显示」不再变化，靠状态变化触发的写入不会发生）。最后一个实例卸载时归零。
- */
 function enterSpace(): void {
-  spaceUsers += 1;
-  writeBarHeight(FLOW_BAR_HEIGHT);
+  writeBarHeight(0);
 }
 function leaveSpace(): void {
-  spaceUsers = Math.max(0, spaceUsers - 1);
-  if (spaceUsers === 0) writeBarHeight(0);
+  writeBarHeight(0);
 }
 
 /** 共享的进度状态。`start` / `stop` 由进度浮窗在挂载、卸载时调用（只在主流程页面挂载）。 */

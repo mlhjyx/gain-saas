@@ -313,7 +313,7 @@ test('admin 全链路：整页设置导航、Review Focus #7 改密 401 不登�
   await page.locator('[data-gs="workspace-rename-save"]').click();
   await expect(page.locator('[data-gs="workspace-rename-success"]')).toBeVisible();
   await expect(page.locator('[data-gs="account-workspace-name"]')).toHaveText('远航智能科技');
-  await expect(page.locator('.sdr-account__name')).toHaveText('远航智能科技');
+  await expect(page.locator('[data-gs="sidebar-workspace-name"]')).toHaveText('远航智能科技');
 
   await expect(page.locator('[data-gs="account-usage-alert-tag"]')).toContainText('接近上限');
   await expect(page.locator('[data-gs="account-usage-docs"]')).toContainText('420 / 500');
@@ -484,7 +484,9 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
 
   await page.goto('/settings/account');
   await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('总览');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('获客主线');
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('设置');
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('账号与空间');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '买家画像' }),
   ).toBeVisible();
@@ -497,19 +499,21 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
     (window as unknown as { __noReloadToken?: string }).__noReloadToken = 'keep-alive-b3';
   });
 
-  // 切换到 English（零刷新）
-  await page.getByRole('button', { name: '切换到 English' }).click();
+  // 切换到 English（零刷新，通过账号菜单 data-gs="locale-toggle"）
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='locale-toggle']").click();
 
-  await expect(page.locator('.sdr-brandtools__lang')).toHaveText('EN');
+  await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('EN');
   await expect(page.getByRole('heading', { level: 1, name: 'Account & workspace' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('Overview');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('Acquisition');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: 'Buyer profiles' }),
   ).toBeVisible();
   await expect(
     page.locator('[data-gs="settings-subnav"] [data-gs="settings-nav-item"]').first(),
   ).toContainText('Account & workspace');
-  await expect(page.locator('[data-tab-item].is-active')).toContainText('Account & workspace');
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('Settings');
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('Account & workspace');
 
   // 确认未重载且草稿完好无损
   const reloadedToEn = await page.evaluate(
@@ -519,13 +523,15 @@ test('4 环节零刷新双语热切换：未保存草稿与 window.__noReloadTok
   await expect(draftInput).toHaveValue('未保存草稿-Draft-2026');
 
   // 切回中文同样零刷新且保留草稿
-  await page.getByRole('button', { name: 'Switch to Chinese' }).click();
-  await expect(page.locator('.sdr-brandtools__lang')).toHaveText('中');
+  await page.locator("[data-gs='locale-toggle']").click();
+  await expect(page.locator("[data-gs='locale-indicator']")).toHaveText('中');
   await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
-  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('总览');
+  await expect(page.locator('[data-sdr-nav] .sdr-section__label').first()).toHaveText('获客主线');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '买家画像' }),
   ).toBeVisible();
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('设置');
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toContainText('账号与空间');
 
   const reloadedToZh = await page.evaluate(
     () => (window as unknown as { __noReloadToken?: string }).__noReloadToken !== 'keep-alive-b3',

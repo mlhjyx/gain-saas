@@ -189,8 +189,10 @@ test('1. /ops 暗色模式无白底、Tab 同步 URL、PR #215 配额对账与�
   });
 
   await loginAs(page);
-  // 切换暗色模式，并等待 Vben 150ms debouncedSave 将偏好落盘后再做整页跳转
-  await page.getByRole('button', { name: 'dark' }).click();
+  // 切换暗色模式（PR-UI1 收纳在账号弹出菜单内），并等待 Vben 150ms debouncedSave 落盘后再整页跳转
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='theme-toggle']").click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
   await expect
     .poll(() =>

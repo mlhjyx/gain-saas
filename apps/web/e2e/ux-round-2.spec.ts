@@ -121,13 +121,13 @@ test('建议 3：「买家画像」取代「找买家」，和「买家线索」
   await expect(page.getByRole('heading', { level: 1, name: '买家画像' })).toBeVisible();
   await expect(page.getByText('目标客户画像').first()).toHaveCount(0);
 
-  // 侧栏：「公司档案」「买家画像」「挖掘任务」「买家线索」同在「获客与筛选」组，没有「找买家」
+  // 侧栏：「企业档案」「买家画像」「买家线索」「寻源记录」同在「获客主线」组，没有「找买家」
   const nav = page.locator('[data-sdr-nav]');
-  await expect(nav.getByText('获客与筛选', { exact: true })).toBeVisible();
-  await expect(nav.getByRole('menuitem', { name: '公司档案' })).toBeVisible();
+  await expect(nav.getByText('获客主线', { exact: true })).toBeVisible();
+  await expect(nav.getByRole('menuitem', { name: '企业档案' })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '买家画像' })).toBeVisible();
-  await expect(nav.getByRole('menuitem', { name: '挖掘任务' })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '买家线索' })).toBeVisible();
+  await expect(nav.getByRole('menuitem', { name: '寻源记录' })).toBeVisible();
   await expect(nav.getByRole('menuitem', { name: '找买家' })).toHaveCount(0);
   await nav.getByRole('menuitem', { name: '买家画像' }).click();
   await page.waitForURL(/\/find-buyers$/);
@@ -259,13 +259,11 @@ test('#9 #12 没激活的画像只看内容和激活；下一步贴在底部引�
   const next = page.locator("[data-gs='icp-next']");
   await expect(next).toContainText('下一步：激活买家画像');
   await expect(next).toContainText('确认上面的内容没问题后激活');
-  // 贴在视口底部、浮在底部进度浮窗上方：页面在顶部时也看得见（浮窗一挂载就留出高度，「下一步」不会再跳）
-  await expect(page.locator("[data-gs='flow-bar']")).toBeVisible();
+  // 贴在视口底部（主流程进度已移至侧栏底部芯片，不再压主内容区底部）
+  await expect(page.locator("[data-gs='flow-progress-chip']")).toBeVisible();
   const box = (await next.boundingBox())!;
-  const flowBar = (await page.locator("[data-gs='flow-bar']").boundingBox())!;
   const viewport = page.viewportSize()!;
-  expect(Math.abs(flowBar.y + flowBar.height - viewport.height)).toBeLessThan(2);
-  expect(Math.abs(box.y + box.height - (flowBar.y - 12))).toBeLessThan(2);
+  expect(Math.abs(box.y + box.height - (viewport.height - 12))).toBeLessThan(3);
 
   await page.locator("[data-gs='icp-next-button']").click();
   await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);

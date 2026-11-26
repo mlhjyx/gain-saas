@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 /**
- * 卡片（设计系统 §4/§5）：白卡浮于画布——不画线边框，靠 1px 环 + 柔和投影
- * 分层。`dense` 用于步骤条/工具行这类薄面板（body 12px 24px）。
+ * 卡片（PR-UI1 去套娃细线表面）：统一 1px solid var(--gs-border) 极细描边 + 轻阴影。
+ * `dense` 用于步骤条/工具行这类薄面板（body 12px 24px）。
  */
 import { computed } from 'vue';
 
@@ -21,9 +21,9 @@ const bodyStyle = computed(() => ({
 </script>
 
 <template>
-  <Card class="gs-card" :bordered="false" :body-style="bodyStyle">
+  <Card :body-style="bodyStyle" :bordered="false" class="gs-card">
     <template v-if="title || $slots.title" #title>
-      <span class="gs-card__title" role="heading" aria-level="2">
+      <span aria-level="2" class="gs-card__title" role="heading">
         <slot name="title">{{ title }}</slot>
       </span>
     </template>
@@ -36,17 +36,22 @@ const bodyStyle = computed(() => ({
 
 <style scoped>
 .gs-card {
+  border: 1px solid var(--gs-border);
   border-radius: 10px;
-  box-shadow: var(--gs-shadow-float);
+  background: var(--gs-surface);
+  box-shadow: var(--gs-shadow-card);
 }
+
 .gs-card :deep(.ant-card-head) {
-  min-height: 52px;
-  border-bottom-color: var(--gs-divider);
+  min-height: 48px;
+  border-bottom-color: var(--gs-border);
 }
+
 .gs-card :deep(.ant-card-head-title) {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
+
 .gs-card__title {
   display: inline-block;
 }

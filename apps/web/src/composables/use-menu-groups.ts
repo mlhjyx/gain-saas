@@ -10,19 +10,16 @@ import { $t } from '#/locales';
 import { navKeyFromTitle, resolveNavTitle } from '#/router/routes/nav';
 
 /**
- * 侧边栏业务分组（Wave B2「3 组 8 项」一级信息架构 + Wave B3 零刷新语言热切换）。
+ * 侧边栏业务分组（PR-UI1 新版极简 B2B 展示目录 + Wave B3 零刷新语言热切换）。
  *
  * 路由本身保持扁平（path/name/component 一律不动），这里只在 Vben 的菜单数据层
- * 把一级菜单收进 3 个业务组 + 设置：
- * - 总览（overview）：/workspace、/analytics
- * - 获客与筛选（acquisition）：/companies、/find-buyers、/tasks、/leads
- * - 触达与转化（engagement）：/outreach、/opportunities（受 GROWTH_PAGE_HIDDEN 控制；无可见子项时整组自动隐藏）
- * - 设置（settings）：/settings
+ * 将菜单收进新版目录结构：
+ * - 顶区高频核心项（core，无分组标题）：/workspace、/notifications
+ * - 获客主线（acquisition）：/companies、/find-buyers、/leads、/tasks
+ * - 触达与转化（engagement）：/outreach、/opportunities、/analytics（全部受 GROWTH_PAGE_HIDDEN 统一门控；无可见子项时整组自动隐藏）
+ * - 设置（settings）：/settings（主侧栏过滤，由底部「设置」直达 /settings/account）
  *
  * 组节点使用第一个子项的真实 path，避免全局搜索把用户带到不存在的路径。
- * 分组是纯展示层：不新增路由、不改权限、不改菜单元数据；未匹配到的未来菜单
- * 会原样留在顶层，避免新增页面被静默吞掉。
- *
  * 零刷新热切换：用 WeakMap 记住原始未翻译名称（如 gainosNav.workspace / gainos.menu.members），
  * 监听 preferences.app.locale 与 i18n.global.locale 变化时重新构建分组标签与子菜单名，
  * 不被 alreadyGrouped 锁死。
@@ -37,26 +34,26 @@ export interface MenuGroup {
 export const MENU_GROUPS: MenuGroup[] = [
   {
     icon: 'lucide:layout-dashboard',
-    key: 'overview',
-    labelKey: 'gainos.menu.groupOverview',
-    paths: ['/workspace', '/analytics'],
+    key: 'core',
+    labelKey: '',
+    paths: ['/workspace', '/notifications'],
   },
   {
     icon: 'lucide:radar',
     key: 'acquisition',
-    labelKey: 'gainos.menu.groupAcquisition',
-    paths: ['/companies', '/find-buyers', '/tasks', '/leads'],
+    labelKey: 'gainosUi1.nav.groupAcquisition',
+    paths: ['/companies', '/find-buyers', '/leads', '/tasks'],
   },
   {
     icon: 'lucide:send',
     key: 'engagement',
-    labelKey: 'gainos.menu.groupEngagement',
-    paths: ['/outreach', '/opportunities'],
+    labelKey: 'gainosUi1.nav.groupEngagement',
+    paths: ['/outreach', '/opportunities', '/analytics'],
   },
   {
     icon: 'lucide:settings',
     key: 'settings',
-    labelKey: 'gainos.menu.groupSettings',
+    labelKey: 'gainosUi1.nav.groupSettings',
     paths: ['/settings'],
   },
 ];
@@ -151,6 +148,7 @@ export function groupMenus(
 
     // 组节点借用第一个子项的真实 path：全局搜索命中组名时也能落到有效页面。
     const groupPath = children[0]!.path;
+    const groupName = group.labelKey ? $t(group.labelKey) : '';
     const groupedNode: MenuRecordRaw = {
       children: children.map((child) => {
         const translated = translateMenuTree(child, locale);
@@ -164,7 +162,7 @@ export function groupMenus(
         return leaf;
       }),
       icon: group.icon,
-      name: $t(group.labelKey),
+      name: groupName,
       order: order++,
       path: groupPath,
       query: { __uiGroup: group.key },

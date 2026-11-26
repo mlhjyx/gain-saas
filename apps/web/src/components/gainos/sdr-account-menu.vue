@@ -1,15 +1,24 @@
 <script lang="ts" setup>
 /**
- * 左下角账号菜单（AgentSDR Dropdown 同款，pass5 精修）。
- *
- * SDR 的账号卡点开后是：抬头（名称 + 邮箱）→ 分隔线 → 带图标的分区条目
- * （设置 / 搜索或跳转 ⌘K）→ 分隔线 → 退出登录（红色 + 红色 hover）。
- * 这里用同一套语言，标题/图标/分隔线/危险态全部对齐。
+ * 侧栏底部账号弹出菜单（PR-UI1）：
+ * 优雅收纳深浅主题切换、中英文零刷新热切换、快捷键与帮助、设置与退出登录。
+ * 全部图标走 @vben/icons 静态导出（零外网 Iconify 拉取）。
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
-import { IconifyIcon } from '@vben/icons';
-import { preferences } from '@vben/preferences';
+import {
+  Bell,
+  CircleHelp,
+  Languages,
+  LogOut,
+  MoonStar,
+  Search,
+  Settings,
+  Sun,
+} from '@vben/icons';
+import { preferences, usePreferences } from '@vben/preferences';
+
+import { $t } from '#/locales';
 
 defineOptions({ name: 'SdrAccountMenu' });
 
@@ -24,99 +33,177 @@ const emit = defineEmits<{
   notifications: [];
   search: [];
   settings: [];
+  toggleLocale: [];
+  toggleTheme: [];
 }>();
 
+const { isDark } = usePreferences();
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
-const labels = computed(() =>
+const helpExpanded = ref(false);
+
+const versionLabel = `${__APP_VERSION__}${
+  __APP_COMMIT__ ? ` · ${__APP_COMMIT__}` : ''
+}`;
+
+const themeAriaLabel = computed(() =>
+  isDark.value
+    ? $t('gainosUi1.accountMenu.switchToLight')
+    : $t('gainosUi1.accountMenu.switchToDark'),
+);
+
+const localeAriaLabel = computed(() =>
   isEnglish.value
-    ? {
-        logout: 'Sign out',
-        notifications: 'Notifications',
-        search: 'Search or jump to',
-        settings: 'Settings',
-      }
-    : {
-        logout: '退出登录',
-        notifications: '通知',
-        search: '搜索或跳转',
-        settings: '设置',
-      },
+    ? $t('gainosUi1.accountMenu.switchToZh')
+    : $t('gainosUi1.accountMenu.switchToEn'),
 );
 </script>
 
 <template>
-  <div class="gs-account-menu" role="menu">
+  <div class="gs-account-menu" data-gs="account-menu" role="menu">
     <div class="gs-account-menu__head">
       <p class="gs-account-menu__name">{{ workspaceName || 'GainOS' }}</p>
       <p class="gs-account-menu__mail">{{ userEmail || '—' }}</p>
     </div>
 
-    <div class="gs-account-menu__sep" aria-hidden="true"></div>
+    <div aria-hidden="true" class="gs-account-menu__sep"></div>
+
+    <!-- 外观主题切换（深浅双主题） -->
+    <button
+      :aria-label="themeAriaLabel"
+      class="gs-account-menu__item"
+      data-gs="theme-toggle"
+      role="menuitem"
+      type="button"
+      @click="emit('toggleTheme')"
+    >
+      <Sun v-if="isDark" :size="16" aria-hidden="true" />
+      <MoonStar v-else :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.themeLabel') }}
+      </span>
+      <span class="gs-account-menu__pill">
+        {{ isDark ? $t('gainosUi1.accountMenu.themeDark') : $t('gainosUi1.accountMenu.themeLight') }}
+      </span>
+    </button>
+
+    <!-- 中英文零刷新热切换（保留 Wave B3 保草稿能力） -->
+    <button
+      :aria-label="localeAriaLabel"
+      class="gs-account-menu__item"
+      data-gs="locale-toggle"
+      role="menuitem"
+      type="button"
+      @click="emit('toggleLocale')"
+    >
+      <Languages :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.localeLabel') }}
+      </span>
+      <span class="gs-account-menu__pill" data-gs="locale-indicator">
+        {{ isEnglish ? 'EN' : '中' }}
+      </span>
+    </button>
+
+    <div aria-hidden="true" class="gs-account-menu__sep"></div>
 
     <button
-      type="button"
       class="gs-account-menu__item"
       role="menuitem"
+      type="button"
       @click="emit('notifications')"
     >
-      <IconifyIcon icon="lucide:bell" />
-      <span class="gs-account-menu__label">{{ labels.notifications }}</span>
+      <Bell :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.notifications') }}
+      </span>
       <span
         v-if="(unreadCount ?? 0) > 0"
-        class="gs-account-menu__dot"
-        aria-hidden="true"
-      ></span>
+        class="gs-account-menu__count"
+      >
+        {{ (unreadCount ?? 0) > 99 ? '99+' : unreadCount }}
+      </span>
     </button>
+
     <button
-      type="button"
       class="gs-account-menu__item"
       role="menuitem"
+      type="button"
       @click="emit('settings')"
     >
-      <IconifyIcon icon="lucide:settings" />
-      <span class="gs-account-menu__label">{{ labels.settings }}</span>
+      <Settings :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.settings') }}
+      </span>
     </button>
+
     <button
-      type="button"
       class="gs-account-menu__item"
       role="menuitem"
+      type="button"
       @click="emit('search')"
     >
-      <IconifyIcon icon="lucide:search" />
-      <span class="gs-account-menu__label">{{ labels.search }}</span>
+      <Search :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.search') }}
+      </span>
       <kbd class="gs-account-menu__kbd">⌘K</kbd>
     </button>
 
-    <div class="gs-account-menu__sep" aria-hidden="true"></div>
+    <button
+      :aria-expanded="helpExpanded"
+      class="gs-account-menu__item"
+      data-gs="account-help-toggle"
+      role="menuitem"
+      type="button"
+      @click="helpExpanded = !helpExpanded"
+    >
+      <CircleHelp :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.help') }}
+      </span>
+    </button>
+
+    <div v-if="helpExpanded" class="sdr-help" data-gs="account-help-panel">
+      <p class="sdr-help__title">{{ $t('gainosUi1.accountMenu.shortcutsTitle') }}</p>
+      <p>
+        <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> — {{ $t('gainosUi1.nav.searchPlaceholder') }}
+      </p>
+      <p class="sdr-help__muted">{{ $t('gainosUi1.accountMenu.shortcutsHint') }}</p>
+      <p class="sdr-help__version">v{{ versionLabel }}</p>
+    </div>
+
+    <div aria-hidden="true" class="gs-account-menu__sep"></div>
 
     <button
-      type="button"
       class="gs-account-menu__item gs-account-menu__item--danger"
       role="menuitem"
+      type="button"
       @click="emit('logout')"
     >
-      <IconifyIcon icon="lucide:log-out" />
-      <span class="gs-account-menu__label">{{ labels.logout }}</span>
+      <LogOut :size="16" aria-hidden="true" />
+      <span class="gs-account-menu__label">
+        {{ $t('gainosUi1.accountMenu.logout') }}
+      </span>
     </button>
   </div>
 </template>
 
 <style scoped>
-/* SDR：rounded-2xl + p-2 + ring-1 + 中阴影；条目 36px、圆角 8、图标 18。 */
 .gs-account-menu {
   display: grid;
   gap: 2px;
-  width: 264px;
-  padding: 8px;
-  border-radius: 16px;
+  width: 260px;
+  padding: 6px;
+  border-radius: 12px;
   background: var(--gs-surface);
 }
 
 .gs-account-menu__head {
   display: grid;
   gap: 2px;
-  padding: 4px 8px 8px;
+  padding: 6px 8px;
 }
+
 .gs-account-menu__name {
   margin: 0;
   overflow: hidden;
@@ -127,10 +214,11 @@ const labels = computed(() =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .gs-account-menu__mail {
   margin: 0;
   overflow: hidden;
-  color: var(--gs-fg-subtle);
+  color: var(--gs-fg-muted);
   font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -138,7 +226,7 @@ const labels = computed(() =>
 
 .gs-account-menu__sep {
   height: 1px;
-  margin: 4px -8px;
+  margin: 4px -6px;
   background: var(--gs-border);
 }
 
@@ -147,33 +235,38 @@ const labels = computed(() =>
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 36px;
+  height: 34px;
   padding: 0 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--gs-fg);
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
+
 .gs-account-menu__item :deep(svg) {
-  width: 18px;
-  height: 18px;
   flex: none;
   color: var(--gs-fg-subtle);
   transition: color 0.15s ease;
 }
+
 .gs-account-menu__item:hover {
   background: var(--gs-surface-2);
 }
+
 .gs-account-menu__item:hover :deep(svg) {
-  color: var(--gs-fg-muted);
+  color: var(--gs-fg);
 }
+
 .gs-account-menu__item:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--gs-surface), 0 0 0 4px var(--gs-accent);
+  box-shadow: var(--gs-shadow-focus);
 }
 
 .gs-account-menu__label {
@@ -183,31 +276,86 @@ const labels = computed(() =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gs-account-menu__dot {
+
+.gs-account-menu__pill {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gs-accent);
+  padding: 1px 7px;
+  border: 1px solid var(--gs-border);
+  border-radius: 6px;
+  background: var(--gs-surface-2);
+  color: var(--gs-fg-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
 }
-.gs-account-menu__kbd {
+
+.gs-account-menu__count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--gs-accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gs-account-menu__kbd,
+.sdr-help kbd {
   padding: 0 5px;
   border: 1px solid var(--gs-border);
   border-radius: 5px;
   background: var(--gs-surface-2);
-  color: var(--gs-fg-subtle);
+  color: var(--gs-fg-muted);
   font-family: inherit;
   font-size: 10.5px;
   line-height: 16px;
 }
 
-/* 危险条目：红字 + 红色 hover 底（AlignUI destructive 同款）。 */
+.sdr-help {
+  display: grid;
+  gap: 5px;
+  margin: 2px 4px 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-surface-3);
+  font-size: 12px;
+  color: var(--gs-fg);
+}
+
+.sdr-help p {
+  margin: 0;
+}
+
+.sdr-help__title {
+  font-weight: 600;
+}
+
+.sdr-help__muted {
+  color: var(--gs-fg-muted);
+  line-height: 17px;
+}
+
+.sdr-help__version {
+  color: var(--gs-fg-subtle);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .gs-account-menu__item--danger {
-  color: var(--gs-danger);
+  color: var(--gs-danger-fg);
 }
+
 .gs-account-menu__item--danger :deep(svg) {
-  color: var(--gs-danger);
+  color: var(--gs-danger-fg);
 }
+
 .gs-account-menu__item--danger:hover {
   background: var(--gs-danger-bg);
 }

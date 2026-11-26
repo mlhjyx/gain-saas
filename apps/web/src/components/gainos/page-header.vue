@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-/** 统一页头（AgentSDR 规格）：可选眉题、H1 24/500、副标题 16/24、右侧动作插槽。 */
+/** 统一页头（PR-UI1 与 GsPage 保持一致的 56px 紧凑现代页头规格）。 */
 defineProps<{ title: string; subtitle?: string; kicker?: string }>();
 </script>
 
@@ -17,31 +17,51 @@ defineProps<{ title: string; subtitle?: string; kicker?: string }>();
 </template>
 
 <style scoped>
-.gph { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.gph__main { min-width: 0; }
+.gph {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-height: 56px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--gs-border);
+}
+
+.gph__main {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
 .gph__kicker {
-  margin: 0 0 6px;
+  margin: 0 0 2px;
   font-size: 12px;
   line-height: 16px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  color: var(--gs-accent-strong);
+  color: var(--gs-fg-subtle);
 }
+
 .gph__title {
   margin: 0;
-  font-size: 24px;
-  line-height: 32px;
-  font-weight: 500;
-  letter-spacing: -0.011em;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   color: var(--gs-fg);
 }
+
 .gph__sub {
-  margin: 6px 0 0;
-  max-width: 680px;
-  font-size: 16px;
-  line-height: 24px;
-  letter-spacing: -0.011em;
+  margin: 2px 0 0;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 20px;
   color: var(--gs-fg-muted);
 }
-.gph__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.gph__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 </style>

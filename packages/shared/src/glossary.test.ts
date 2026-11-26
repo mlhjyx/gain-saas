@@ -64,26 +64,33 @@ describe('glossary 词表（M2 步 14 §4）', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('一级导航按 3 组 8 项 + 设置固定顺序', () => {
+  it('一级导航按新展示目录固定顺序（高频 2 项 + 获客主线 4 项 + 触达与转化 3 项 + 设置）', () => {
     expect(Object.keys(NAV)).toEqual([
       'workspace',
-      'analytics',
+      'notifications',
       'companies',
       'findBuyers',
-      'tasks',
       'leads',
+      'tasks',
       'outreach',
       'opportunities',
+      'analytics',
       'settings',
     ]);
-    expect(navLabel('analytics')).toBe('成效复盘');
-    expect(navLabel('analytics', 'en-US')).toBe('Analytics');
+    expect(navLabel('notifications')).toBe('通知');
+    expect(navLabel('notifications', 'en-US')).toBe('Notifications');
+    expect(navLabel('companies')).toBe('企业档案');
+    expect(navLabel('companies', 'en-US')).toBe('Company profile');
     expect(navLabel('findBuyers')).toBe('买家画像');
     expect(navLabel('findBuyers', 'en-US')).toBe('Buyer profiles');
+    expect(navLabel('tasks')).toBe('寻源记录');
+    expect(navLabel('tasks', 'en-US')).toBe('Sourcing history');
     expect(navLabel('outreach')).toBe('外发与战役');
     expect(navLabel('outreach', 'en-US')).toBe('Outreach & campaigns');
     expect(navLabel('opportunities')).toBe('商机管线');
     expect(navLabel('opportunities', 'en-US')).toBe('Opportunities');
+    expect(navLabel('analytics')).toBe('成效复盘');
+    expect(navLabel('analytics', 'en-US')).toBe('Analytics');
   });
 
   it('取词按语言切换，未登记状态返回 null（不得把裸枚举写上界面）', () => {

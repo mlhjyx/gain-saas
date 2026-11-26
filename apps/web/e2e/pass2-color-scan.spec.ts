@@ -177,7 +177,9 @@ test('pass2 color scan + evidence screenshots', async ({ page }) => {
 
   for (const theme of ['light', 'dark'] as const) {
     if (theme === 'dark') {
-      await page.getByRole('button', { name: 'dark' }).click();
+      await page.locator("[data-gs='account-trigger']").click();
+      await page.locator("[data-gs='theme-toggle']").click();
+      await page.keyboard.press('Escape');
       await page.waitForTimeout(800);
     }
     for (const path of PAGES) {

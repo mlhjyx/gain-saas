@@ -1620,8 +1620,8 @@ onUnmounted(() => {
       :title="$t('gainos.companies.title')"
     />
 
-    <!-- 内容压在页头渐变上（与买家线索/找买家同一层次处理） -->
-    <div class="relative z-[1] -mt-12 grid gap-3">
+    <!-- 内容自然衔接 56px 紧凑页头 -->
+    <div class="grid gap-3">
     <Alert
       v-if="createdNotice"
       :message="createdNotice"

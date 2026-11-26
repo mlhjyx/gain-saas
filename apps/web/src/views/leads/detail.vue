@@ -894,7 +894,6 @@ watch(leadId, () => {
       :loading="loading"
       :loading-text="$t('gainos.common.loading')"
       :retry-text="$t('gainos.common.retry')"
-      class="relative z-[1] -mt-13"
       @retry="load"
     >
       <div v-if="pkg" class="grid gap-4">

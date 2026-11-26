@@ -1,0 +1,48 @@
+{
+  "nav": {
+    "mainNav": "Main navigation",
+    "searchPlaceholder": "Search or jump to…",
+    "groupAcquisition": "Acquisition",
+    "groupEngagement": "Engagement",
+    "groupSettings": "Settings",
+    "toggleSidebar": "Toggle sidebar",
+    "expandSidebar": "Expand sidebar",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "account": "Account",
+    "unreadBadge": "{count} unread notifications"
+  },
+  "header": {
+    "breadcrumbLabel": "Breadcrumb",
+    "refresh": "Refresh page"
+  },
+  "accountMenu": {
+    "themeLabel": "Appearance",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "switchToDark": "Switch to dark theme",
+    "switchToLight": "Switch to light theme",
+    "localeLabel": "Language",
+    "switchToEn": "Switch to English",
+    "switchToZh": "Switch to Chinese",
+    "help": "Shortcuts & help",
+    "shortcutsTitle": "Shortcuts",
+    "shortcutsHint": "Appearance, language, and sign out live in this account menu.",
+    "search": "Search or jump to",
+    "settings": "Settings",
+    "notifications": "Notifications",
+    "logout": "Sign out"
+  },
+  "flow": {
+    "chipPrefix": "Workflow",
+    "chipText": "Workflow · Step {current}/{total} · {step}",
+    "chipAria": "View workflow progress, step {current} of {total}: {step}",
+    "popoverTitle": "Acquisition workflow",
+    "popoverSubtitle": "Click any step to jump directly",
+    "stepCompleted": "Done",
+    "stepCurrent": "Current",
+    "stepPending": "Upcoming"
+  }
+}

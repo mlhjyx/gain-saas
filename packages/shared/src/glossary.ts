@@ -97,16 +97,17 @@ export const GLOSSARY = {
 
 export type GlossaryKey = keyof typeof GLOSSARY;
 
-/** 一级导航（3 组 8 项 + 设置）。顺序即菜单顺序。 */
+/** 一级导航（顶区高频 2 项 + 获客主线 4 项 + 触达与转化 3 项 + 设置）。顺序即菜单顺序。 */
 export const NAV = {
   workspace: { zh: '工作台', en: 'Workspace' },
-  analytics: { zh: '成效复盘', en: 'Analytics' },
-  companies: { zh: '公司档案', en: 'Companies' },
+  notifications: { zh: '通知', en: 'Notifications' },
+  companies: { zh: '企业档案', en: 'Company profile' },
   findBuyers: { zh: '买家画像', en: 'Buyer profiles' },
-  tasks: { zh: '挖掘任务', en: 'Tasks' },
   leads: { zh: '买家线索', en: 'Buyer leads' },
+  tasks: { zh: '寻源记录', en: 'Sourcing history' },
   outreach: { zh: '外发与战役', en: 'Outreach & campaigns' },
   opportunities: { zh: '商机管线', en: 'Opportunities' },
+  analytics: { zh: '成效复盘', en: 'Analytics' },
   settings: { zh: '设置', en: 'Settings' },
 } as const satisfies Record<string, GlossaryTerm>;
 

@@ -1323,7 +1323,7 @@ onMounted(async () => {
 .ob__empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ob__secondary {
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 999px; padding: 7px 16px;
+  border: 1px solid var(--gs-border); border-radius: 8px; padding: 7px 16px;
   background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
 }
 .ob__secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }

@@ -123,20 +123,20 @@ test('pass2 measurable specs', async ({ page }) => {
   );
   console.log('PASS2_MEASUREMENTS', JSON.stringify(report));
 
-  expect(workspace.groupLabel.titleFontSize).toBe('12px');
+  expect(workspace.groupLabel.titleFontSize).toBe('11.5px');
   expect(workspace.items.fontWeight).toBe('500');
-  expect(workspace.items.heights).toContain(36);
-  // SDR active：灰底药丸 + 近黑文字（无彩条）。
-  expect(workspace.active?.background).toBe('rgb(245, 245, 245)');
+  expect(workspace.items.heights).toContain(34);
+  // PR-UI1 侧栏激活态：半透中性灰底 + 近黑文字（无彩条）。
+  expect(workspace.active?.background).toBe('rgba(23, 23, 23, 0.08)');
   expect(workspace.active?.color).toBe('rgb(23, 23, 23)');
-  expect(workspace.mainCtaRadius).toBe('9999px');
+  // PR-UI1：全站主按钮与普通按钮统一 8px 圆角（清零 9999px 椭圆大胶囊按钮）。
+  expect(workspace.mainCtaRadius).toBe('8px');
   expect(workspace.card?.radius).toBe('10px');
   expect(workspace.card?.shadow).not.toBe('none');
   expect(leads.queueSwitch).toBe(1);
   expect(leads.toolbar).toBe(1);
   expect(leads.search).toBe(1);
-  // 企业系统统一 10px 圆角 + 40px 标准控件（设计系统 §4）
-  expect(leads.acceptRadius).toBe('10px');
+  expect(leads.acceptRadius).toBe('8px');
   expect(leads.acceptHeight).toBe(40);
   expect(leads.cardRadius).toBe('10px');
   expect(leads.cardShadow).not.toBe('none');
