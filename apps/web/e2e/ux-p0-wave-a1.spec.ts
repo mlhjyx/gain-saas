@@ -102,11 +102,11 @@ test('onboarding guard redirects unauthenticated users and allows logged-in inco
     await page.waitForURL(/\/auth\/login/, { timeout: 5000 });
   }
 
-  // 3. Logged-in user with onboardingComplete: false can stay on /onboarding.
+  // 3. 已登录且未完成建档时，旧链接定位到工作台清单。
   await loginAs(page);
-  await page.waitForURL(/\/onboarding/, { timeout: 5000 });
-  await page.waitForTimeout(300);
-  expect(new URL(page.url()).pathname).toBe('/onboarding');
+  await page.goto('/onboarding');
+  await expect(page).toHaveURL(/\/workspace\?setup=1$/);
+  await expect(page.getByRole('heading', { name: '企业启航清单' })).toBeFocused();
 });
 
 test('raw template braces are not rendered on suppressions and sources loading states', async ({

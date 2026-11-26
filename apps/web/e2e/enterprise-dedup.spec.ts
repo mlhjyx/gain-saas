@@ -67,13 +67,13 @@ test('后缀"+1"式重名同样命中引导（服务端归一化包含判断,e2e
   await expect(page.locator('.g-enterprise-exists')).toContainText('琏升科技股份有限公司');
 });
 
-test('全新企业注册成功 → 照常进入引导向导（查重不误伤）', async ({ page }) => {
+test('全新企业注册成功 → 直接进入工作台（查重不误伤）', async ({ page }) => {
   await installMockBackend(page, { onboardingComplete: false });
   await page.goto('/auth/register');
   await page.locator('input[type="text"]').first().fill('全新企业有限公司');
   await page.locator('input[type="email"]').fill('owner@gainos.local');
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
-  await page.waitForURL(/\/onboarding/);
-  await expect(page.getByRole('heading', { name: '完善公司档案' })).toBeVisible();
+  await page.waitForURL(/\/workspace$/);
+  await expect(page.getByRole('heading', { name: '企业启航清单' })).toBeVisible();
 });

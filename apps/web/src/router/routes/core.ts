@@ -48,15 +48,13 @@ const coreRoutes: RouteRecordRaw[] = [
     },
   },
   {
-    name: 'OnboardingWizard',
+    name: 'LegacyOnboarding',
     path: '/onboarding',
-    component: () => import('#/views/onboarding/index.vue'),
-    meta: {
-      hideInMenu: true,
-      hideInTab: true,
-      noBasicLayout: true,
-      title: 'gainos.onboarding.title',
-    },
+    redirect: (to) => ({
+      hash: to.hash,
+      path: '/workspace',
+      query: { ...to.query, setup: '1' },
+    }),
   },
   {
     component: AuthPageLayout,

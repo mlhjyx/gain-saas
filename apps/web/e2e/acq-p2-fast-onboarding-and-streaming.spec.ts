@@ -1,6 +1,6 @@
 /**
  * Phase 2 Track 2C E2E 回归测试：
- * 1. 3 步 ≤3 分钟极速上手（1688/阿里店铺白名单校验 → UN Comtrade 推荐国徽章 → 三栏审阅卡片 → 一键建档+自动审事实+生画像+启动流式寻源）
+ * 1. 工作台建档（店铺链接校验、显式采用目标市场、独立生成和激活买家画像）
  * 2. 多模态冷启动（PDF 画册三步直传 + 简短主营产品描述）
  * 3. 1 公司多画像并行管理（公司切换栏 + 多画像创建与并存激活 + 三层画像卡片 + 方案 B 流式三段进度在 /find-buyers、/leads 与 /runs/:runId 贯通）
  */
@@ -113,333 +113,192 @@ const COMTRADE_FIXTURE = {
   generatedAt: NOW,
 };
 
-test('3 步极速上手：1688/阿里店铺白名单 → UN Comtrade 选国 → 三栏审阅 → 一键启动流式寻源', async ({ page }) => {
+test('店铺建档：市场推荐显式确认，初稿生成和激活由管理员分别发起', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
-
-  backend.set('POST', '/onboarding/preview', {
-    started: true,
-    preview: {
-      companyId: COMPANY_ID,
-      name: '琏升新能源',
-      website: 'https://solarfactory.en.alibaba.com',
-      websiteChannel: 'alibaba_intl',
-      status: 'REVIEW',
-      state: 'ready',
-      failure: null,
-      pagesAnalyzed: 3,
-      industry: {
-        raw: '光伏组件制造',
-        suggested: { raw: '光伏组件制造', code: '27', label: '电气设备制造', labelEn: 'Electrical equipment', matched: true },
-        options: [{ code: '27', label: '电气设备制造', labelEn: 'Electrical equipment', nace: ['27'] }],
-      },
-      products: [
-        { name: 'HJT 700W 双面光伏组件', source: 'understanding', sourceUrl: 'https://solarfactory.en.alibaba.com', evidence: 'HJT 700W' },
-      ],
-      markets: [],
-    },
-  });
-  backend.set('GET', `/companies/${COMPANY_ID}/market-recommendations`, COMTRADE_FIXTURE);
-  backend.set('POST', '/onboarding/company', { id: COMPANY_ID, name: '琏升新能源', status: 'REVIEW' });
-  backend.set('POST', `/onboarding/companies/${COMPANY_ID}/claim-drafts`, { created: 1, skipped: 0, claims: [] });
-  backend.set('GET', `/companies/${COMPANY_ID}/claims`, [
-    { id: 'claim-1', companyId: COMPANY_ID, type: 'capability', statement: 'HJT 700W 双面光伏组件', status: 'NEEDS_REVIEW', version: 1 },
-  ]);
-  backend.set('POST', '/claims/claim-1/approve', { id: 'claim-1', status: 'APPROVED' });
-  backend.set('POST', `/companies/${COMPANY_ID}/icps`, {
-    id: ICP_IT,
-    companyId: COMPANY_ID,
-    name: '意大利光伏分销与 EPC',
-    status: 'HYPOTHESIS',
+  const product = 'HJT 700W 双面光伏组件';
+  const website = 'https://solarfactory.en.alibaba.com';
+  const company = { id: COMPANY_ID, name: '日光新能源', industry: '电气设备制造', website };
+  const claim = { id: 'claim-1', companyId: COMPANY_ID, type: 'capability', statement: product, version: 1 };
+  const profile = {
+    id: ICP_IT, companyId: COMPANY_ID, name: '意大利光伏分销与 EPC', status: 'HYPOTHESIS',
     companyAttributes: {
-      seller_profile: { company_name: '琏升新能源', offerings: ['HJT 700W 双面光伏组件'], technical_specs: ['HJT', '0BB'] },
-      buyer_spec: { target_roles: ['distributor', 'epc'], target_markets: ['IT'], procurement_scenario: 'distribution' },
-      peer_exclusions: { excluded_business_models: ['同类光伏组件制造商'], excluded_keywords: ['cell OEM'], excluded_domains: [] },
+      seller_profile: { company_name: company.name, offerings: [product] },
+      buyer_spec: { target_roles: ['distributor', 'epc'], target_markets: ['IT'] },
     },
-    painPoints: [],
-    triggerSignals: [],
-    exclusions: ['硅片代工厂'],
-    valueProps: [],
-    targetMarkets: ['IT'],
-    version: 1,
-    personas: [],
-    buyingCommittee: [],
-    rules: [],
-    ruleLint: [],
-    createdAt: NOW,
-  });
-  backend.set('POST', `/icps/${ICP_IT}/activate`, { id: ICP_IT, status: 'ACTIVE' });
-  backend.set('POST', `/icps/${ICP_IT}/query-plans`, { id: PLAN_ID, icpId: ICP_IT, status: 'READY', queries: [], version: 1, createdAt: NOW });
-  backend.set('POST', '/tasks', { id: TASK_ID, icpId: ICP_IT, name: '意大利光伏分销与 EPC', status: 'active', createdBy: 'user-e2e', lastRunAt: NOW, createdAt: NOW, updatedAt: NOW, runs: [] });
-  backend.set('POST', `/tasks/${TASK_ID}/runs`, { taskRunId: 'tr-1', runId: RUN_STREAM, status: 'RUNNING' });
+    targetMarkets: ['IT'], createdAt: NOW, version: 1, rules: [], ruleLint: [], personas: [],
+    buyingCommittee: [], exclusions: [], painPoints: [], triggerSignals: [], valueProps: [],
+  };
 
-  // 跳转到 /find-buyers 后需要的只读数据
-  backend.set('GET', '/companies', [{ id: COMPANY_ID, name: '琏升新能源', targetMarkets: ['IT'] }]);
-  backend.set('GET', '/icps', [
-    {
-      id: ICP_IT,
-      companyId: COMPANY_ID,
-      name: '意大利光伏分销与 EPC',
-      status: 'ACTIVE',
-      companyAttributes: {
-        seller_profile: { company_name: '琏升新能源', offerings: ['HJT 700W 双面光伏组件'], technical_specs: ['HJT', '0BB'] },
-        buyer_spec: { target_roles: ['distributor', 'epc'], target_markets: ['IT'], procurement_scenario: 'distribution' },
-        peer_exclusions: { excluded_business_models: ['同类光伏组件制造商'], excluded_keywords: [], excluded_domains: [] },
-      },
-      painPoints: [],
-      triggerSignals: [],
-      exclusions: ['硅片代工厂'],
-      valueProps: [],
-      targetMarkets: ['IT'],
-      version: 1,
-      personas: [],
-      buyingCommittee: [],
-      rules: [],
-      ruleLint: [],
-      createdAt: NOW,
+  backend.set('POST', '/onboarding/preview', { started: true, preview: companyPreview({
+    name: company.name,
+    website,
+    state: 'ready',
+    status: 'REVIEW',
+    industry: {
+      raw: company.industry,
+      suggested: { raw: company.industry, code: '27', label: company.industry, labelEn: 'Electrical equipment', matched: true },
+      options: [{ code: '27', label: company.industry, labelEn: 'Electrical equipment' }],
     },
-  ]);
-  backend.set('GET', `/icps/${ICP_IT}`, {
-    id: ICP_IT,
-    companyId: COMPANY_ID,
-    name: '意大利光伏分销与 EPC',
-    status: 'ACTIVE',
-    companyAttributes: {
-      seller_profile: { company_name: '琏升新能源', offerings: ['HJT 700W 双面光伏组件'], technical_specs: ['HJT', '0BB'] },
-      buyer_spec: { target_roles: ['distributor', 'epc'], target_markets: ['IT'], procurement_scenario: 'distribution' },
-      peer_exclusions: { excluded_business_models: ['同类光伏组件制造商'], excluded_keywords: [], excluded_domains: [] },
-    },
-    painPoints: [],
-    triggerSignals: [],
-    exclusions: ['硅片代工厂'],
-    valueProps: [],
-    targetMarkets: ['IT'],
-    version: 1,
-    personas: [],
-    buyingCommittee: [],
-    rules: [],
-    ruleLint: [],
-    createdAt: NOW,
+    products: [{ name: product, sourceUrl: website }],
+  }) });
+  backend.set('GET', '/companies/' + COMPANY_ID + '/market-recommendations', COMTRADE_FIXTURE);
+  backend.set('POST', '/onboarding/company', async ({ body, route }) => {
+    const markets = (body as { targetMarkets: string[] }).targetMarkets;
+    backend.onboardingComplete = true;
+    backend.set('GET', '/companies', [{ ...company, targetMarkets: markets }]);
+    backend.set('GET', '/companies/' + COMPANY_ID + '/offerings', [{ id: 'offering-1', name: product }]);
+    await route.fulfill({ json: { data: { ...company, targetMarkets: markets } } });
+    return true;
   });
-  backend.set('GET', `/discovery-runs/${RUN_STREAM}/streaming-progress`, STREAMING_PROGRESS_FIXTURE);
-  backend.set('GET', `/discovery-runs/${RUN_STREAM}/jobs`, []);
-  backend.set('GET', `/discovery-runs/${RUN_STREAM}/events`, { events: [], nextAfter: 0 });
-  backend.set('GET', `/discovery-runs/${RUN_STREAM}/trace`, { data: [], page: { next_cursor: null, has_more: false } });
-  backend.set('GET', `/discovery-runs/${RUN_STREAM}`, {
-    id: RUN_STREAM,
-    planId: PLAN_ID,
-    icpId: ICP_IT,
-    status: 'RUNNING',
-    mode: 'streaming',
-    stats: {},
-    createdAt: NOW,
+  backend.set('GET', '/companies/' + COMPANY_ID + '/claims', async ({ route, url }) => {
+    const status = url.searchParams.get('status');
+    await route.fulfill({ json: { data: status === 'APPROVED' ? [] : [{ ...claim, status: 'NEEDS_REVIEW' }] } });
+    return true;
+  });
+  backend.set('POST', '/claims/claim-1/approve', async ({ route }) => {
+    backend.set('GET', '/companies/' + COMPANY_ID + '/claims', [{ ...claim, status: 'APPROVED' }]);
+    await route.fulfill({ json: { data: { ...claim, status: 'APPROVED' } } });
+    return true;
+  });
+  backend.set('POST', '/companies/' + COMPANY_ID + '/icps', async ({ route }) => {
+    backend.set('GET', '/icps', [profile]);
+    backend.set('GET', '/icps/' + ICP_IT, profile);
+    await route.fulfill({ json: { data: profile } });
+    return true;
+  });
+  backend.set('POST', '/icps/' + ICP_IT + '/activate', async ({ route }) => {
+    const active = { ...profile, status: 'ACTIVE' };
+    backend.set('GET', '/icps', [active]);
+    backend.set('GET', '/icps/' + ICP_IT, active);
+    await route.fulfill({ json: { data: active } });
+    return true;
   });
 
   await loginAs(page);
-  await page.waitForURL(/\/onboarding/);
-
-  // Step 1：切换至 1688/阿里国际站店铺模式，验证伪造域名被拦，合法店铺链接放行
-  await page.locator('.onboarding-section input').first().fill('琏升新能源');
   await page.locator('[data-gs="intake-mode-store"]').click();
-  await page.locator('[data-gs="store-url-input"]').fill('https://evil.example/1688.com/shop');
-  await expect(page.locator('[data-gs="store-start-btn"]')).toBeDisabled();
+  const source = page.locator('[data-gs="setup-website"]');
+  await source.fill('https://example.org/1688.com/shop');
+  await expect(page.locator('[data-gs="setup-start"]')).toBeDisabled();
+  await source.fill('solarfactory.en.alibaba.com');
+  await page.locator('[data-gs="setup-start"]').click();
+  await expect(page.locator('[data-gs="setup-product-option"]')).toHaveText(product);
+  const italy = page.locator('[data-gs="comtrade-market-IT"]');
+  await expect(italy).toHaveAttribute('aria-pressed', 'false');
+  await italy.click();
+  await expect(italy).toHaveAttribute('aria-pressed', 'true');
 
-  await page.locator('[data-gs="store-url-input"]').fill('solarfactory.en.alibaba.com');
-  await expect(page.locator('[data-gs="store-start-btn"]')).toBeEnabled();
-  await page.locator('[data-gs="store-start-btn"]').click();
+  await page.locator('[data-gs="setup-save"]').click();
+  expect(backend.callsTo('POST', '/discovery-runs')).toHaveLength(0);
+  await page.getByRole('link', { name: '建立首个买家画像' }).click();
+  const dialog = page.getByRole('dialog', { name: '设定买家画像' });
+  await expect(dialog.locator('[data-gs="icp-create-markets"]')).toHaveValue('IT');
+  await dialog.locator('[data-gs="quick-approve-facts"]').click();
+  await dialog.locator('[data-gs="create-buyer-role-distributor"]').click();
+  await dialog.locator('[data-gs="create-buyer-role-epc"]').click();
+  await dialog.getByRole('button', { name: '生成初稿' }).click();
+  await expect(page.locator('[data-gs="icp-three-layer"]')).toContainText(product);
+  await expect(page.locator('[data-gs="icp-next"]')).toContainText('激活买家画像');
+  await page.locator('[data-gs="icp-next-button"]').click();
 
-  // Step 2：展示 UN Comtrade 推荐国徽章（默认不自动代选），点击 IT 选中
-  await expect(page.locator('[data-gs="comtrade-recommendations"]')).toBeVisible();
-  await expect(page.locator('[data-gs="comtrade-market-IT"]')).toHaveAttribute('aria-pressed', 'false');
-  await page.locator('[data-gs="comtrade-market-IT"]').click();
-  await expect(page.locator('[data-gs="comtrade-market-IT"]')).toHaveAttribute('aria-pressed', 'true');
-
-  // 进入 Step 3：三栏审阅卡片（我是谁 / 我找谁 / 排除谁）
-  await page.locator('[data-gs="go-step-review"]').click();
-  await expect(page.locator('[data-gs="three-layer-review"]')).toBeVisible();
-  await expect(page.locator('[data-gs="three-layer-seller"]')).toContainText('HJT 700W 双面光伏组件');
-  await expect(page.locator('[data-gs="three-layer-buyer"]')).toContainText('IT');
-  await page.locator('[data-gs="three-layer-exclusion-input"]').fill('硅片代工厂');
-  await page.locator('[data-gs="three-layer-add-exclusion"]').click();
-  await expect(page.locator('[data-gs="three-layer-exclusions"]')).toContainText('硅片代工厂');
-
-  // 一键启动寻源 → 自动完成建档、审事实、建画像、激活、启动并落入流式进度看板
-  await page.locator('[data-gs="onboarding-launch-discovery"]').click();
-  await page.waitForURL(/\/find-buyers/);
-
-  await expect.poll(() => backend.callsTo('POST', '/claims/claim-1/approve').length).toBe(1);
-  const icpCall = backend.callsTo('POST', `/companies/${COMPANY_ID}/icps`)[0]!.body as Record<string, unknown>;
-  expect(icpCall.confirmedTargetMarkets).toEqual(['IT']);
-  expect(icpCall.buyerRoles).toEqual(['distributor', 'epc']);
-  expect(icpCall.peerExclusionNotes).toEqual(['硅片代工厂']);
-
-  const activateCall = backend.callsTo('POST', `/icps/${ICP_IT}/activate`)[0]!.body as Record<string, unknown>;
-  expect(activateCall.keepExistingActive).toBe(true);
-
-  await expect(page.locator('[data-gs="streaming-progress-board"]')).toBeVisible();
-  await expect(page.locator('[data-gs="streaming-stage-l0"]')).toContainText('48');
-  await expect(page.locator('[data-gs="streaming-stage-l1"]')).toContainText('12');
-  await expect(page.locator('[data-gs="streaming-recent-candidates"]')).toContainText('Memodo Italia S.r.l.');
+  expect(backend.callsTo('POST', '/onboarding/preview')[0]?.body).toMatchObject({ website });
+  expect(backend.callsTo('POST', '/onboarding/company')[0]?.body).toMatchObject({ products: [product], targetMarkets: ['IT'] });
+  expect(backend.callsTo('POST', '/claims/claim-1/approve')).toHaveLength(1);
+  expect(backend.callsTo('POST', '/companies/' + COMPANY_ID + '/icps')[0]?.body).toMatchObject({
+    confirmedTargetMarkets: ['IT'], buyerRoles: ['distributor', 'epc'],
+  });
+  await expect.poll(() => backend.callsTo('POST', '/icps/' + ICP_IT + '/activate').length).toBe(1);
+  expect(backend.callsTo('POST', '/tasks')).toHaveLength(0);
 });
 
-test('多模态冷启动：官网+PDF画册组合提交、仅画册建档、返回修改资料与产品简介建档', async ({ page }) => {
-  const backend = await installMockBackend(page, { onboardingComplete: false });
-  backend.set('POST', '/onboarding/preview', {
-    started: true,
-    preview: {
-      companyId: COMPANY_ID,
-      name: '具安泵业',
-      website: null,
-      status: 'DRAFT',
-      state: 'not_started',
-      failure: null,
-      pagesAnalyzed: 0,
-      industry: { raw: null, suggested: { raw: null, code: null, label: null, labelEn: null, matched: false }, options: [] },
-      products: [],
-      markets: [],
-    },
+function companyPreview(overrides: Record<string, unknown> = {}) {
+  return {
+    companyId: COMPANY_ID,
+    name: '具安泵业',
+    website: null,
+    status: 'DRAFT',
+    state: 'not_started',
+    failure: null,
+    pagesAnalyzed: 0,
+    industry: { raw: null, suggested: null, options: [] },
+    products: [],
+    markets: [],
+    ...overrides,
+  };
+}
+
+for (const withWebsite of [true, false]) {
+  test(withWebsite ? '官网和 PDF 画册可组合提交，切页后上传继续' : '仅凭 PDF 建档，在确认页改用产品简介', async ({ page }) => {
+    const backend = await installMockBackend(page, { onboardingComplete: false });
+    const documentPath = '/companies/' + COMPANY_ID + '/seller-documents/' + DOC_ID;
+    let releasePreview!: () => void;
+    const previewGate = new Promise<void>((resolve) => { releasePreview = resolve; });
+    let releaseUpload!: () => void;
+    const uploadGate = new Promise<void>((resolve) => { releaseUpload = resolve; });
+    backend.set('POST', '/onboarding/preview', async ({ body, route }) => {
+      if (withWebsite) await previewGate;
+      const input = body as { website?: string; productDescription?: string };
+      await route.fulfill({ json: { data: { started: true, preview: companyPreview({
+        website: input.website,
+        products: input.productDescription ? [{ name: '化工离心泵' }] : [],
+      }) } } });
+      return true;
+    });
+    backend.set('POST', '/companies/' + COMPANY_ID + '/seller-documents/presign', {
+      documentId: DOC_ID,
+      uploadMode: 'direct',
+      directUploadSupported: true,
+      uploadUrl: '/api' + documentPath + '/content',
+      expiresAt: NOW,
+    });
+    backend.set('PUT', documentPath + '/content', async ({ route }) => {
+      if (withWebsite) await uploadGate;
+      await route.fulfill({ json: { data: { ok: true } } });
+      return true;
+    });
+    backend.set('POST', documentPath + '/commit', { id: DOC_ID, filename: 'pumps.pdf', status: 'queued' });
+    backend.set('GET', '/seller-documents/' + DOC_ID, { id: DOC_ID, filename: 'pumps.pdf', status: 'ready' });
+
+    await loginAs(page);
+    if (withWebsite) await page.locator('[data-gs="setup-website"]').fill('pumps.example.org');
+    else await expect(page.locator('[data-gs="setup-start"]')).toBeDisabled();
+    await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
+      name: 'pumps.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+    });
+    await expect(page.locator('[data-gs="pending-brochure-list"]')).toContainText('pumps.pdf');
+    await page.locator('[data-gs="setup-start"]').click();
+    if (withWebsite) {
+      await expect.poll(() => backend.callsTo('POST', '/onboarding/preview').length).toBe(1);
+      await page.getByRole('link', { name: '查看企业档案' }).click();
+      await expect(page).toHaveURL(/\/companies\?/);
+      releasePreview();
+    } else {
+      await expect(page.locator('[data-gs="setup-brochure-summary"]')).toContainText('pumps.pdf');
+    }
+    await expect.poll(() => backend.callsTo('PUT', documentPath + '/content').length).toBe(1);
+    expect((backend.callsTo('POST', '/onboarding/preview')[0]?.body as { website?: string }).website)
+      .toBe(withWebsite ? 'https://pumps.example.org' : undefined);
+
+    if (withWebsite) {
+      expect(backend.callsTo('POST', documentPath + '/commit')).toHaveLength(0);
+      await expect(page.locator('[data-gs="upload-queue-tray"]')).toBeVisible();
+      releaseUpload();
+    }
+    await expect.poll(() => backend.callsTo('POST', documentPath + '/commit').length).toBe(1);
+
+    if (!withWebsite) {
+      await page.locator('[data-gs="back-to-start-btn"]').click();
+      await expect(page.locator('[data-gs="setup-brochure-summary"]')).toContainText('pumps.pdf');
+      await page.locator('[data-gs="product-brief-input"]').fill('化工离心泵、磁力驱动泵');
+      await page.locator('[data-gs="setup-start"]').click();
+      await expect(page.locator('[data-gs="setup-product-option"]')).toHaveText('化工离心泵');
+      expect(backend.callsTo('POST', '/onboarding/preview').at(-1)?.body).toMatchObject({
+        productDescription: '化工离心泵、磁力驱动泵',
+      });
+      expect(backend.callsTo('POST', documentPath + '/commit')).toHaveLength(1);
+    }
+    expect(backend.callsTo('POST', '/onboarding/company')).toHaveLength(0);
   });
-  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/presign`, {
-    documentId: DOC_ID,
-    uploadUrl: `/api/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`,
-    expiresAt: NOW,
-  });
-  backend.set('PUT', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`, { ok: true });
-  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`, {
-    id: DOC_ID,
-    filename: 'industrial-pumps-2026.pdf',
-    status: 'UPLOADED',
-  });
-
-  await loginAs(page);
-  await page.waitForURL(/\/onboarding/);
-
-  // 1. 官网 + PDF 画册组合提交：先填官网再附 PDF，不提前跳转，点主按钮后立即推进且画册在后台上传并展示实时面板
-  await page.locator('.onboarding-section input').first().fill('具安泵业');
-  await page.locator('input[placeholder*="https://"]').fill('lianstech.com');
-  await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
-    name: 'industrial-pumps-2026.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'),
-  });
-  await expect(page.locator('[data-gs="pending-brochure-list"]')).toContainText('industrial-pumps-2026.pdf');
-  expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(0);
-
-  // 后台轮询返回已解析画册（带分段数）与自动提取的企业要点
-  backend.set('GET', '/onboarding/preview', {
-    started: true,
-    preview: {
-      companyId: COMPANY_ID,
-      name: '具安泵业',
-      website: 'https://lianstech.com',
-      status: 'DRAFT',
-      state: 'not_started',
-      failure: null,
-      pagesAnalyzed: 0,
-      industry: { raw: null, suggested: { raw: null, code: null, label: null, labelEn: null, matched: false }, options: [] },
-      products: [],
-      markets: [],
-      documents: {
-        total: 1,
-        ready: 1,
-        processing: 0,
-        failed: 0,
-        items: [
-          {
-            id: DOC_ID,
-            filename: 'industrial-pumps-2026.pdf',
-            status: 'ready',
-            chunkCount: 14,
-          },
-        ],
-        extractedClaims: [
-          {
-            claimId: 'doc-claim-1',
-            type: 'certification',
-            statement: '通过 ISO 9001 与 CE 工业泵认证',
-            status: 'NEEDS_REVIEW',
-            documentId: DOC_ID,
-            filename: 'industrial-pumps-2026.pdf',
-          },
-        ],
-      },
-    },
-  });
-
-  await page.locator('[data-gs="website-start-btn"]').click();
-
-  await expect.poll(() => backend.callsTo('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`).length).toBe(1);
-  const combinedPreview = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
-  expect(combinedPreview.website).toBe('https://lianstech.com');
-  await expect(page.locator('[data-gs="brochure-progress-panel"]')).toBeVisible();
-  await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('industrial-pumps-2026.pdf');
-  // 轮询回填已解析段数与画册自动提取的要点
-  await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('14', { timeout: 10_000 });
-  await expect(page.locator('[data-gs="brochure-extracted-claims"]')).toContainText('通过 ISO 9001 与 CE 工业泵认证');
-
-  // 2. 第 2 步可点击「返回修改资料」回到第 1 步，且保留已上传画册标记
-  await page.locator('[data-gs="back-to-start-btn"]').click();
-  await expect(page.locator('[data-gs="brochure-uploaded-badge"]')).toContainText('industrial-pumps-2026.pdf');
-
-  // 3. 切换简短产品描述模式（透传 productDescription 并自动拆出产品标签）
-  await page.locator('[data-gs="intake-mode-brief"]').click();
-  await page.locator('[data-gs="product-brief-input"]').fill('化工离心泵、磁力驱动泵、耐腐蚀阀门');
-  await page.locator('[data-gs="brief-start-btn"]').click();
-
-  await expect.poll(() =>
-    backend.callsTo('POST', '/onboarding/preview').some((c) => Boolean((c.body as Record<string, unknown>)?.productDescription)),
-  ).toBe(true);
-  await expect(page.locator('.product-tags')).toContainText('化工离心泵');
-});
-
-test('多模态冷启动：不填官网仅附 PDF 画册可直接进入第 2 步', async ({ page }) => {
-  const backend = await installMockBackend(page, { onboardingComplete: false });
-  backend.set('POST', '/onboarding/preview', {
-    started: true,
-    preview: {
-      companyId: COMPANY_ID,
-      name: '画册冷启动测试',
-      website: null,
-      status: 'DRAFT',
-      state: 'not_started',
-      failure: null,
-      pagesAnalyzed: 0,
-      industry: { raw: null, suggested: { raw: null, code: null, label: null, labelEn: null, matched: false }, options: [] },
-      products: [],
-      markets: [],
-    },
-  });
-  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/presign`, {
-    documentId: DOC_ID,
-    uploadUrl: `/api/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`,
-    expiresAt: NOW,
-  });
-  backend.set('PUT', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`, { ok: true });
-  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`, {
-    id: DOC_ID,
-    filename: 'brochure-only.pdf',
-    status: 'UPLOADED',
-  });
-
-  await loginAs(page);
-  await page.waitForURL(/\/onboarding/);
-
-  await page.locator('.onboarding-section input').first().fill('画册冷启动测试');
-  await expect(page.locator('[data-gs="website-start-btn"]')).toBeDisabled();
-
-  await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
-    name: 'brochure-only.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'),
-  });
-  await expect(page.locator('[data-gs="website-start-btn"]')).toBeEnabled();
-  await expect(page.locator('[data-gs="website-start-btn"]')).toContainText('上传画册并继续');
-  await page.locator('[data-gs="website-start-btn"]').click();
-
-  await expect.poll(() => backend.callsTo('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`).length).toBe(1);
-  const previewBody = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
-  expect(previewBody.website).toBeUndefined();
-  await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('brochure-only.pdf');
-});
+}
 
 test('1 公司多画像管理与方案 B 流式进度贯通（/find-buyers → /leads → /runs/:runId）', async ({ page }) => {
   const backend = await installMockBackend(page);

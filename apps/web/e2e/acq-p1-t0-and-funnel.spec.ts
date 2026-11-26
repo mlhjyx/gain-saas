@@ -349,10 +349,10 @@ test('触达批次页：支持 route.query.lead 预选、读取真实联系人/�
 test('注册建档：自动补全 https:// 与解锁手动输入自定义行业', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
   await loginAs(page);
-  await page.waitForURL(/\/onboarding/);
+  await page.waitForURL(/\/workspace$/);
 
   await page.getByPlaceholder('https://example.com 或 example.com').fill('solar-factory.example');
-  await page.getByRole('button', { name: '开始理解' }).click();
+  await page.getByRole('button', { name: '开始后台分析' }).click();
 
   await expect.poll(() => backend.callsTo('POST', '/onboarding/preview').length).toBe(1);
   const previewCall = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
