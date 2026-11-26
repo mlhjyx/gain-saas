@@ -55,6 +55,7 @@ model Workspace {
   runLinks    DiscoveryRunLink[]
   complianceDeclarations WorkspaceComplianceDeclaration[]
   budgetPolicy WorkspaceBudgetPolicy?
+  storageQuota WorkspaceStorageQuota?
   tasks       AcquisitionTask[]
   taskRuns    TaskRun[]
   campaigns   Campaign[]
@@ -953,6 +954,22 @@ model WorkspaceBudgetPolicy {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("workspace_budget_policy")
+}
+
+/// workspace 存储与导出配额覆写（MT-P1 运营配额管理；缺行使用平台默认值）。
+model WorkspaceStorageQuota {
+  workspaceId              String   @id @map("workspace_id") @db.Uuid
+  maxDocumentsPerWorkspace Int      @default(500) @map("max_documents_per_workspace")
+  maxDocumentsPerCompany   Int      @default(200) @map("max_documents_per_company")
+  maxBytesPerWorkspace     BigInt   @default(2147483648) @map("max_bytes_per_workspace")
+  maxExportsPerDay         Int      @default(10) @map("max_exports_per_day")
+  updatedBy                String?  @map("updated_by")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_storage_quota")
 }
 
 /// D6 per-tenant 合法依据声明（数据处理声明）：每次（重新）声明新增一版，

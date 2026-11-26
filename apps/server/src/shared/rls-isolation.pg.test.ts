@@ -87,9 +87,10 @@ const TENANT_TABLES = [
   'workspace_budget_policy',
   'workspace_compliance_declaration',
   'workspace_registry',
+  'workspace_storage_quota',
 ] as const;
 
-describe.skipIf(!available)('PG16 50-table FORCE RLS, gain_saas_app & SECURITY DEFINER isolation', () => {
+describe.skipIf(!available)('PG16 51-table FORCE RLS, gain_saas_app & SECURITY DEFINER isolation', () => {
   let pg: DisposablePostgres;
   let adminPrisma: PrismaClient;
   let appPrisma: PrismaService;
@@ -132,8 +133,8 @@ describe.skipIf(!available)('PG16 50-table FORCE RLS, gain_saas_app & SECURITY D
     await unsafeOwnerService.onModuleDestroy().catch(() => undefined);
   }, 60_000);
 
-  it('enforces ENABLE + FORCE RLS + policy on all 50 tenant tables, security_invoker on 3 views, and revokes _prisma_migrations', async () => {
-    expect(TENANT_TABLES).toHaveLength(50);
+  it('enforces ENABLE + FORCE RLS + policy on all 51 tenant tables, security_invoker on 3 views, and revokes _prisma_migrations', async () => {
+    expect(TENANT_TABLES).toHaveLength(51);
 
     const rlsRows = await adminPrisma.$queryRaw<
       Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>

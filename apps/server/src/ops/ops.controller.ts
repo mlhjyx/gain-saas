@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -188,6 +189,30 @@ export class OpsController {
   @Get('workspaces')
   async workspaces() {
     return { workspaces: await this.ops.workspaces() };
+  }
+
+  @Get('reconcile/workspaces')
+  async reconcileWorkspaces() {
+    return { data: await this.ops.reconcileWorkspaces() };
+  }
+
+  @Get('workspaces/:id/detail')
+  async workspaceDetail(@Param('id') id: string) {
+    return { data: await this.ops.workspaceDetail(id) };
+  }
+
+  @Get('workspaces/:id/storage-quota')
+  async getWorkspaceStorageQuota(@Param('id') id: string) {
+    return { data: await this.ops.getWorkspaceStorageQuota(id) };
+  }
+
+  @Put('workspaces/:id/storage-quota')
+  async updateWorkspaceStorageQuota(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: OpsRequest,
+  ) {
+    return { data: await this.ops.updateWorkspaceStorageQuota(id, body, req.opsUser!.id) };
   }
 
   @Get('users')

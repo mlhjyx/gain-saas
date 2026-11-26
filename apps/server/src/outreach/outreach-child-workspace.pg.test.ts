@@ -285,12 +285,7 @@ describe.skipIf(!available)('PR 1 真库迁移、回填与 workspace_id 隔离�
         .map((d) => d.name)
         .sort();
 
-      const preDirs = migrationDirs.filter(
-        (name) =>
-          name !== '20261126010000_audit_log_workspace_id' &&
-          name !== '20261126020000_outreach_child_workspace_id' &&
-          name !== '20261126030000_gain_saas_rls_and_app_role',
-      );
+      const preDirs = migrationDirs.filter((name) => name < '20261126010000');
       for (const dir of preDirs) {
         const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8');
         await probeClient.query(sql);

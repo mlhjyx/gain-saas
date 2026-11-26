@@ -41,6 +41,46 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function jsonContainsUuidRef(value: unknown, refs: ReadonlySet<string>, depth = 0): boolean {
+  if (depth > 8 || value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    return refs.has(value.toLowerCase());
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => jsonContainsUuidRef(item, refs, depth + 1));
+  }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some((entry) =>
+      jsonContainsUuidRef(entry, refs, depth + 1),
+    );
+  }
+  return false;
+}
+
+function scrubAuditPackageDrafts(
+  pkg: unknown,
+  contactRefs: ReadonlySet<string>,
+): { changed: boolean; value: unknown } {
+  if (!isObject(pkg) || !Array.isArray(pkg.drafts)) {
+    return { changed: false, value: pkg };
+  }
+  let changed = false;
+  const drafts = pkg.drafts.map((entry) => {
+    if (!isObject(entry)) return entry;
+    const ref = typeof entry.contactRef === 'string' ? entry.contactRef.toLowerCase() : '';
+    if (!ref || !contactRefs.has(ref)) return entry;
+    changed = true;
+    return {
+      ...entry,
+      recipientEmail: '[ERASED]',
+      companyName: '[ERASED]',
+      subject: '[ERASED]',
+      body: '[ERASED]',
+    };
+  });
+  return changed ? { changed: true, value: { ...pkg, drafts } } : { changed: false, value: pkg };
+}
+
 function discoveryRunId(payload: Record<string, unknown>, aggregateId: string | null): string {
   return text(payload.run_id) || text(payload.runId) || aggregateId || '';
 }
@@ -521,7 +561,10 @@ export class EventConsumerService implements OnModuleInit {
 
     if (type === 'DeletionCompleted') {
       const refId =
-        (typeof payload.deletionRequestId === 'string' && payload.deletionRequestId) || aggregateId;
+        (typeof payload.deletion_request_id === 'string' && payload.deletion_request_id) ||
+        (typeof payload.deletionRequestId === 'string' && payload.deletionRequestId) ||
+        aggregateId;
+      await this.cascadeDeletionCompleted(tx, event, refId);
       await this.notify(
         tx,
         workspaceId,
@@ -591,6 +634,193 @@ export class EventConsumerService implements OnModuleInit {
 
     // 单条事实审批不生成站内通知：一次理解会产生上百条 Claim，逐条通知会把铃铛淹没。
     // 审批结果仍在企业事实页与审计中可见。
+  }
+
+  private async cascadeDeletionCompleted(
+    tx: Prisma.TransactionClient,
+    event: ProjectionEvent,
+    refId: string,
+  ): Promise<void> {
+    const workspaceId = event.workspaceId;
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const rawSubjectType = text(payload.subject_type) || text(payload.subjectType);
+    const rawSubjectRef = text(payload.subject_ref) || text(payload.subjectRef);
+    const rawErasedContacts = Array.isArray(payload.erased_contact_refs)
+      ? payload.erased_contact_refs
+      : Array.isArray(payload.erasedContactRefs)
+        ? payload.erasedContactRefs
+        : [];
+
+    const contactRefSet = new Set<string>();
+    if (rawSubjectType === 'contact' && UUID.test(rawSubjectRef)) {
+      contactRefSet.add(rawSubjectRef.toLowerCase());
+    }
+    for (const item of rawErasedContacts) {
+      if (typeof item === 'string' && UUID.test(item)) {
+        contactRefSet.add(item.toLowerCase());
+      }
+    }
+    const contactRefs = [...contactRefSet];
+    const companyRef =
+      rawSubjectType === 'company' && UUID.test(rawSubjectRef)
+        ? rawSubjectRef.toLowerCase()
+        : null;
+
+    if (!companyRef && contactRefs.length === 0) {
+      return;
+    }
+
+    let saasDeleted = 0;
+    const targetRefs = new Set<string>([...contactRefs, ...(companyRef ? [companyRef] : [])]);
+
+    if (contactRefs.length > 0) {
+      const matchedDrafts = await tx.outreachDraft.findMany({
+        where: { workspaceId, contactRef: { in: contactRefs } },
+        select: { id: true, batchId: true, contactPointId: true },
+      });
+      const draftIds = matchedDrafts.map((d) => d.id);
+      const contactPointIds = [
+        ...new Set(matchedDrafts.map((d) => d.contactPointId).filter((id): id is string => typeof id === 'string' && id.length > 0)),
+      ];
+
+      if (draftIds.length > 0) {
+        saasDeleted += (await tx.outreachSendJob.deleteMany({ where: { workspaceId, draftId: { in: draftIds } } })).count;
+        saasDeleted += (await tx.outreachSend.deleteMany({ where: { workspaceId, draftId: { in: draftIds } } })).count;
+      }
+      if (contactPointIds.length > 0) {
+        saasDeleted += (
+          await tx.outreachBounceWriteback.deleteMany({
+            where: { workspaceId, contactPointId: { in: contactPointIds } },
+          })
+        ).count;
+      }
+
+      saasDeleted += (await tx.outreachDraft.deleteMany({ where: { workspaceId, contactRef: { in: contactRefs } } })).count;
+      saasDeleted += (await tx.outreachReply.deleteMany({ where: { workspaceId, contactRef: { in: contactRefs } } })).count;
+      saasDeleted += (
+        await tx.outreachUnsubscribeToken.deleteMany({ where: { workspaceId, contactRef: { in: contactRefs } } })
+      ).count;
+      saasDeleted += (await tx.outreachConsent.deleteMany({ where: { workspaceId, contactRef: { in: contactRefs } } })).count;
+
+      const matchedBases = await tx.outreachCallBasis.findMany({
+        where: { workspaceId, contactRef: { in: contactRefs } },
+        select: { id: true },
+      });
+      const basisIds = matchedBases.map((b) => b.id);
+      if (basisIds.length > 0) {
+        saasDeleted += (
+          await tx.outreachCallAttempt.deleteMany({ where: { workspaceId, basisId: { in: basisIds } } })
+        ).count;
+      }
+      saasDeleted += (await tx.outreachCallBasis.deleteMany({ where: { workspaceId, contactRef: { in: contactRefs } } })).count;
+      saasDeleted += (
+        await tx.outreachExperimentAssignment.deleteMany({
+          where: { workspaceId, subjectType: 'contact', subjectRef: { in: contactRefs } },
+        })
+      ).count;
+
+      const auditPackages = await tx.outreachAuditPackage.findMany({
+        where: { workspaceId },
+        select: { id: true, package: true },
+      });
+      for (const pkgRow of auditPackages) {
+        const scrubbed = scrubAuditPackageDrafts(pkgRow.package, contactRefSet);
+        if (scrubbed.changed) {
+          await tx.outreachAuditPackage.update({
+            where: { id: pkgRow.id },
+            data: { package: scrubbed.value as Prisma.InputJsonValue },
+          });
+          saasDeleted += 1;
+        }
+      }
+    }
+
+    if (companyRef) {
+      const matchedQgos = await tx.qgo.findMany({
+        where: { workspaceId, canonicalCompanyRef: companyRef },
+        select: { id: true, leadRef: true, sao: { select: { id: true } } },
+      });
+      const qgoIds = matchedQgos.map((q) => q.id);
+      const saoIds = matchedQgos
+        .map((q) => q.sao?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      const matchedLeadRefs = new Set(matchedQgos.map((q) => q.leadRef.toLowerCase()));
+
+      if (saoIds.length > 0) {
+        saasDeleted += (
+          await tx.opportunityOutcome.deleteMany({ where: { workspaceId, saoId: { in: saoIds } } })
+        ).count;
+      }
+      if (qgoIds.length > 0) {
+        saasDeleted += (await tx.sao.deleteMany({ where: { workspaceId, qgoId: { in: qgoIds } } })).count;
+      }
+      saasDeleted += (await tx.qgo.deleteMany({ where: { workspaceId, canonicalCompanyRef: companyRef } })).count;
+      saasDeleted += (
+        await tx.outreachExperimentAssignment.deleteMany({
+          where: { workspaceId, subjectType: 'account', subjectRef: companyRef },
+        })
+      ).count;
+
+      const qualifiedLeads = await tx.qualifiedLead.findMany({
+        where: { workspaceId },
+        select: { id: true, leadId: true, snapshot: true },
+      });
+      const matchedQualifiedIds = qualifiedLeads
+        .filter(
+          (row) =>
+            matchedLeadRefs.has(row.leadId.toLowerCase()) ||
+            jsonContainsUuidRef(row.snapshot, targetRefs),
+        )
+        .map((row) => row.id);
+      if (matchedQualifiedIds.length > 0) {
+        saasDeleted += (
+          await tx.qualifiedLead.deleteMany({
+            where: { workspaceId, id: { in: matchedQualifiedIds } },
+          })
+        ).count;
+      }
+    }
+
+    const inboxRows = await tx.eventInbox.findMany({
+      where: {
+        workspaceId,
+        eventId: { not: event.eventId },
+        type: { not: 'DeletionCompleted' },
+      },
+      select: { id: true, eventId: true, type: true, payload: true },
+    });
+    for (const row of inboxRows) {
+      if (jsonContainsUuidRef(row.payload, targetRefs)) {
+        await tx.eventInbox.update({
+          where: { id: row.id },
+          data: {
+            payload: {
+              redacted: true,
+              reason: 'GDPR_ART17',
+              deletionRequestId: refId || event.eventId,
+            },
+          },
+        });
+        saasDeleted += 1;
+      }
+    }
+
+    if (refId) {
+      await tx.deletionMirror.upsert({
+        where: { engineRequestId: refId },
+        create: {
+          workspaceId,
+          engineRequestId: refId,
+          status: 'COMPLETED',
+          saasDeleted,
+        },
+        update: {
+          status: 'COMPLETED',
+          saasDeleted,
+          at: new Date(),
+        },
+      });
+    }
   }
 
   private async notify(

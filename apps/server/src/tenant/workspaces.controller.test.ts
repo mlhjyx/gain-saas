@@ -82,8 +82,18 @@ function makeController(
     }),
     clearCookieOptions: vi.fn(() => ({ httpOnly: true, sameSite: 'lax' as const, path: '/', secure: true })),
   };
-  const controller = new WorkspacesController(prisma as never, audit as never, sessionService as never);
-  return { controller, prisma, audit, sessionService, sessionUpdateMany };
+  const engine = {
+    call: vi.fn(async () => ({
+      status: 200,
+      body: { data: { id: WS_CURR, name: 'Synced Name' } },
+      contentType: 'application/json',
+      headers: {},
+    })),
+    toClientStatus: vi.fn((status: number) => (status === 401 || status === 403 ? 502 : status)),
+    toClientError: vi.fn((_status: number, body: unknown) => body),
+  };
+  const controller = new WorkspacesController(prisma as never, audit as never, sessionService as never, engine as never);
+  return { controller, prisma, audit, sessionService, sessionUpdateMany, engine };
 }
 
 describe('WorkspacesController.leave', () => {
@@ -150,5 +160,60 @@ describe('WorkspacesController.leave', () => {
     expect(sessions.find((s) => s.jti === 'jti-curr-legacy')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-curr-tab2')?.revokedAt).toBeInstanceOf(Date);
     expect(sessions.find((s) => s.jti === 'jti-other-ws')?.revokedAt).toBeNull();
+  });
+});
+
+describe('WorkspacesController.rename engine sync (PATCH /api/workspaces/:id)', () => {
+  it('syncs workspace name to engine PATCH /api/v1/workspace before updating local DB and records audit', async () => {
+    const { controller, prisma, audit, engine } = makeController([], 'admin');
+    const workspaceUpdate = vi.fn(async ({ data }: { data: { name: string } }) => ({ id: WS_OTHER, name: data.name }));
+    (prisma.workspace as Record<string, unknown>).update = workspaceUpdate;
+    const req = {
+      tenant: { userId: USER_ID, workspaceId: WS_CURR, role: 'admin', jti: 'jti-1', exp: 9_999_999_999 },
+      headers: { 'accept-language': 'zh-CN' },
+    } as unknown as Request;
+
+    const result = await controller.rename(req, WS_OTHER, { name: '  Acme Export Co.  ' });
+
+    expect(engine.call).toHaveBeenCalledWith(
+      { userId: USER_ID, workspaceId: WS_OTHER, role: 'admin' },
+      'PATCH',
+      '/workspace',
+      { body: { name: 'Acme Export Co.' } },
+    );
+    expect(workspaceUpdate).toHaveBeenCalledWith({
+      where: { id: WS_OTHER },
+      data: { name: 'Acme Export Co.' },
+    });
+    expect(result).toEqual({ data: { id: WS_OTHER, name: 'Acme Export Co.' } });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        realm: 'tenant',
+        actorId: USER_ID,
+        workspaceId: WS_OTHER,
+        action: 'workspaces.rename',
+        detail: { name: 'Acme Export Co.', engineSynced: true },
+      }),
+    );
+  });
+
+  it('does not mutate local workspace name when engine PATCH /api/v1/workspace rejects, and maps 401/403 to 502', async () => {
+    const { controller, prisma, engine } = makeController([], 'admin');
+    const workspaceUpdate = vi.fn();
+    (prisma.workspace as Record<string, unknown>).update = workspaceUpdate;
+    engine.call.mockResolvedValueOnce({
+      status: 403,
+      body: { error: { code: 'SCOPE_REQUIRED', message: 'missing acquisition:write' } },
+      contentType: 'application/json',
+      headers: {},
+    });
+    const req = {
+      tenant: { userId: USER_ID, workspaceId: WS_CURR, role: 'admin', jti: 'jti-1', exp: 9_999_999_999 },
+      headers: {},
+    } as unknown as Request;
+
+    const err = await controller.rename(req, WS_CURR, { name: 'New Name' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 502 });
+    expect(workspaceUpdate).not.toHaveBeenCalled();
   });
 });
