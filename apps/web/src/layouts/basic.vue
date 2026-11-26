@@ -21,12 +21,10 @@ import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
 import UploadQueueTray from '#/components/gainos/upload-queue-tray.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
 import { $t } from '#/locales';
+import { LOGO_SRC } from '#/preferences';
 import { resolveNavTitle } from '#/router/routes/nav';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
-
-// 侧栏标记显式传入：覆盖 localStorage 里可能残留的旧 logo
-const logoGainos = '/logo-gainos.svg?v=workspace';
 
 const notifications = ref<NotificationItem[]>([]);
 const notificationLoading = ref(false);
@@ -408,8 +406,8 @@ onUnmounted(() => {
 <template>
   <BasicLayout
     :avatar
-    :logo-src="logoGainos"
-    :logo-src-dark="logoGainos"
+    :logo-src="LOGO_SRC"
+    :logo-src-dark="LOGO_SRC"
     :text="companyName"
     logo-text="GainOS"
     @clear-preferences-and-logout="handleLogout"
@@ -498,7 +496,7 @@ onUnmounted(() => {
 
   <SdrSidebar
     v-model:open="mobileNavOpen"
-    :logo-src="logoGainos"
+    :logo-src="LOGO_SRC"
     :unread-count="unreadCount"
     :user-avatar="avatar"
     :user-email="userStore.userInfo?.username ?? ''"

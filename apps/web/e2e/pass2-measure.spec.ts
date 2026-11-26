@@ -127,11 +127,12 @@ test('pass2 measurable specs', async ({ page }) => {
   expect(workspace.groupLabel.titleFontSize).toBe('11.5px');
   expect(workspace.items.fontWeight).toBe('500');
   expect(workspace.items.heights).toContain(34);
-  // PR-UI1 侧栏激活态：半透中性灰底 + 近黑文字（无彩条）。
-  expect(workspace.active?.background).toBe('rgba(23, 23, 23, 0.08)');
+  // 新版侧栏激活项使用浅绿底与近黑文字。
+  expect(workspace.active?.background).toBe('rgb(227, 235, 227)');
+  expect(workspace.active?.borderRadius).toBe('8px');
   expect(workspace.active?.color).toBe('rgb(23, 23, 23)');
-  // PR-UI1：全站主按钮与普通按钮统一 8px 圆角（清零 9999px 椭圆大胶囊按钮）。
-  expect(workspace.mainCtaRadius).toBe('8px');
+  // 新版工作台首页主操作使用圆形端点，线索页操作仍在下方按 8px 校验。
+  expect(workspace.mainCtaRadius).toBe('40px');
   expect(workspace.card?.radius).toBe('10px');
   expect(workspace.card?.shadow).not.toBe('none');
   expect(leads.queueSwitch).toBe(1);

@@ -9,9 +9,8 @@ import {
  * vben 会把偏好(含 logo.source)持久化,k 值/内联串一旦变化,
  * 老访客的 localStorage 仍指向旧图。稳定路径随文件内容更新。
  */
-// pass3：URL 带版本号做缓存击穿——logo 内容已改品牌蓝，但浏览器会按同 URL
-// 服务旧的绿色 SVG；老访客（含用户本人）必须拿到新图。
-const LOGO_SRC = '/logo-gainos.svg?v=pass3';
+// 品牌标记更新时提升版本，默认偏好、缓存归一和侧栏共用此路径。
+export const LOGO_SRC = '/logo-gainos.svg?v=workspace';
 
 interface WebAntdPreferencesExtension {
   defaultTableSize: number;

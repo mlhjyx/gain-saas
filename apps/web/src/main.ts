@@ -2,7 +2,7 @@ import './styles/gainos.css';
 import { initPreferences, updatePreferences } from '@vben/preferences';
 import { unmountGlobalLoading } from '@vben/utils';
 
-import { overridesPreferences, preferencesExtension } from './preferences';
+import { LOGO_SRC, overridesPreferences, preferencesExtension } from './preferences';
 
 /**
  * pass3 A2：品牌字段缓存归一（方案 b：initPreferences 后强制 merge）。
@@ -28,8 +28,8 @@ const BRAND_PREFERENCES = {
   header: { enable: true, height: 48, hidden: false },
   logo: {
     enable: false,
-    source: '/logo-gainos.svg?v=pass3',
-    sourceDark: '/logo-gainos.svg?v=pass3',
+    source: LOGO_SRC,
+    sourceDark: LOGO_SRC,
   },
   // sidebar.hidden 归一：用户点过「内容最大化」会把缓存写成 hidden=true，
   // 不归一的话 SDR 覆盖层会永远浮在内容上。

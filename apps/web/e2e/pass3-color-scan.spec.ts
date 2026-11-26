@@ -35,6 +35,8 @@ const LEAD = {
 type ColorClass = 'brand' | 'error' | 'neutral' | 'success' | 'unknown' | 'warning';
 
 function rgbClass(r: number, g: number, b: number): ColorClass {
+  // 新版侧栏的浅色底面（--gs-sidebar-bg）。
+  if (r === 242 && g === 244 && b === 240) return 'neutral';
   if (Math.max(r, g, b) - Math.min(r, g, b) <= 3) return 'neutral';
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);

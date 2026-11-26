@@ -80,7 +80,7 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
 
   // 3) logo URL 已带版本号（击穿图片缓存）。banner 里第一张 img 是用户头像
   //    （mock 数据 URI），品牌 logo 按 src 选择器定位。
-  await expect(page.locator('img[src*="logo-gainos.svg?v=pass3"]').first()).toBeVisible();
+  await expect(page.locator('img[src$="logo-gainos.svg?v=workspace"]').first()).toBeVisible();
 
   // 4) 用户偏好不被破坏：明暗模式仍可切换（缓存归一只动品牌字段）。
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -116,7 +116,7 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
   }, PREFS_KEY);
   expect(persisted?.app?.layout).toBe('sidebar-nav');
   expect(persisted?.theme?.colorPrimary?.toLowerCase()).toContain('335cff');
-  expect(persisted?.logo?.source).toContain('v=pass3');
+  expect(persisted?.logo?.source).toBe('/logo-gainos.svg?v=workspace');
   // PR-UI1：48px 极简面包屑顶栏 + 关闭多标签栏，老缓存立刻归一。
   expect(persisted?.header?.height).toBe(48);
   expect(persisted?.header?.hidden).toBe(false);
