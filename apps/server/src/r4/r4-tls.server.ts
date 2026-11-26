@@ -30,6 +30,7 @@ export function loadTlsOptions(
   config: AppConfig,
   readFile: (path: string) => Buffer = defaultRead,
 ): ServerOptions | null {
+  if (config.PLATFORM_AUTHORITY_MODE === 'internal_db') return null;
   if (!config.R4_TLS_PORT) return null;
   const material = readMaterial(config, readFile);
   if (config.R4_TLS_CLIENT_AUTH === 'required') {
@@ -43,6 +44,7 @@ export function loadMtlsOptions(
   config: AppConfig,
   readFile: (path: string) => Buffer = defaultRead,
 ): ServerOptions | null {
+  if (config.PLATFORM_AUTHORITY_MODE === 'internal_db') return null;
   if (!config.R4_MTLS_PORT) return null;
   const material = readMaterial(config, readFile);
   // 客户端证书由机器客户端 CA 签发，与服务端 CA 不是同一份。
@@ -56,6 +58,7 @@ export async function startR4TlsServers(
   config: AppConfig,
   readFile: (path: string) => Buffer = defaultRead,
 ): Promise<R4TlsHandle[]> {
+  if (config.PLATFORM_AUTHORITY_MODE === 'internal_db') return [];
   if (config.R4_TLS_PORT && config.R4_MTLS_PORT && config.R4_TLS_PORT === config.R4_MTLS_PORT)
     throw new Error('R4_MTLS_PORT 不能与 R4_TLS_PORT 相同');
 
@@ -64,6 +67,7 @@ export async function startR4TlsServers(
   if (tls) targets.push({ port: config.R4_TLS_PORT!, options: tls });
   const mtls = loadMtlsOptions(config, readFile);
   if (mtls) targets.push({ port: config.R4_MTLS_PORT!, options: mtls });
+  if (targets.length === 0) return [];
 
   const handler = app.getHttpAdapter().getInstance() as (
     req: import('node:http').IncomingMessage,

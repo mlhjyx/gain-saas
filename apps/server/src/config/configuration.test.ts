@@ -26,6 +26,8 @@ describe('loadConfig', () => {
     expect(config.EVENT_CONSUMER_ENABLED).toBe(false);
     expect(config.ENGINE_MANUFACTURER_NETWORK_ENABLED).toBe(false);
     expect(config.SESSION_TTL_MINUTES).toBe(60);
+    expect(config.LEGACY_EXECUTION_BUDGET_MODE).toBe('enforce');
+    expect(config.PLATFORM_AUTHORITY_MODE).toBe('r4');
   });
 
   it('only explicitly enables manufacturer evidence on an upgraded engine', () => {
@@ -143,5 +145,53 @@ describe('loadConfig', () => {
     expect(config.MODEL_GATEWAY_TIMEOUT_MS).toBeUndefined();
     expect(config.MODEL_GATEWAY_SETTLEMENT_ORIGIN).toBeUndefined();
     expect(config.MODEL_GATEWAY_SETTLEMENT_API_KEY).toBeUndefined();
+  });
+
+  it('LEGACY_EXECUTION_BUDGET_MODE: enforce 默认强制校验旧 Grant 密钥；bypass 允许全部省略（含生产环境）', () => {
+    const {
+      ENGINE_BUDGET_GRANT_PRIVATE_KEY: _pk,
+      ENGINE_BUDGET_GRANT_KEY_ID: _kid,
+      ENGINE_BUDGET_GRANT_ISSUER: _iss,
+      ...withoutGrantKeys
+    } = baseEnv;
+
+    resetConfigCache();
+    expect(() => loadConfig(withoutGrantKeys as NodeJS.ProcessEnv)).toThrow(/ENGINE_BUDGET_GRANT_PRIVATE_KEY/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({
+        ...withoutGrantKeys,
+        LEGACY_EXECUTION_BUDGET_MODE: 'enforce',
+        ENGINE_BUDGET_GRANT_PRIVATE_KEY: '   ',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/ENGINE_BUDGET_GRANT_PRIVATE_KEY/);
+
+    resetConfigCache();
+    const bypassProd = loadConfig({
+      ...withoutGrantKeys,
+      NODE_ENV: 'production',
+      APP_DATABASE_URL: 'postgresql://gain_saas_app:p@127.0.0.1:5433/db',
+      OPS_SESSION_SECRET: 'y'.repeat(32),
+      LEGACY_EXECUTION_BUDGET_MODE: 'bypass',
+      PLATFORM_AUTHORITY_MODE: 'internal_db',
+    } as NodeJS.ProcessEnv);
+    expect(bypassProd.LEGACY_EXECUTION_BUDGET_MODE).toBe('bypass');
+    expect(bypassProd.PLATFORM_AUTHORITY_MODE).toBe('internal_db');
+    expect(bypassProd.ENGINE_BUDGET_GRANT_PRIVATE_KEY).toBeUndefined();
+    expect(bypassProd.ENGINE_BUDGET_GRANT_KEY_ID).toBeUndefined();
+    expect(bypassProd.ENGINE_BUDGET_GRANT_ISSUER).toBeUndefined();
+  });
+
+  it('LEGACY_EXECUTION_BUDGET_MODE 与 PLATFORM_AUTHORITY_MODE 非法取值拒绝启动', () => {
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, LEGACY_EXECUTION_BUDGET_MODE: 'disabled' } as NodeJS.ProcessEnv),
+    ).toThrow(/LEGACY_EXECUTION_BUDGET_MODE/);
+
+    resetConfigCache();
+    expect(() =>
+      loadConfig({ ...baseEnv, PLATFORM_AUTHORITY_MODE: 'none' } as NodeJS.ProcessEnv),
+    ).toThrow(/PLATFORM_AUTHORITY_MODE/);
   });
 });

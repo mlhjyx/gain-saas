@@ -32,6 +32,15 @@ export class LegacyJwksController {
   }
 
   private serve(name: string): unknown {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: `平台权威运行在 internal_db 轻量化模式，未发布遗留 JWKS: ${name}`,
+        },
+      });
+    }
     const dir = this.config.R4_LEGACY_JWKS_DIR;
     if (!dir) throw new ServiceUnavailableException({ error: { code: 'R4_JWKS_UNAVAILABLE', message: 'legacy JWKS 未配置' } });
     try {

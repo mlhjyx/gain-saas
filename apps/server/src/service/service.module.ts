@@ -1,5 +1,6 @@
-import { Controller, forwardRef, Get, Module } from '@nestjs/common';
-import { ConfigModule } from '../shared/config.module.js';
+import { Controller, forwardRef, Get, Inject, Module, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
 import { EngineBudgetGrantSigner } from './engine-budget-grant.signer.js';
@@ -18,6 +19,7 @@ export class JwksController {
   constructor(
     private readonly signer: EngineTokenSigner,
     private readonly budgetSigner: EngineBudgetGrantSigner,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
   ) {}
 
   @Get('jwks.json')
@@ -25,9 +27,21 @@ export class JwksController {
     return this.signer.publicJwks();
   }
 
-  /** 引擎 EXECUTION_BUDGET_GRANT_JWKS_URI 指向这里(只含预算公钥)。 */
+  /**
+   * 引擎 EXECUTION_BUDGET_GRANT_JWKS_URI 指向这里(只含预算公钥)。
+   * 在 LEGACY_EXECUTION_BUDGET_MODE=bypass 且未配置旧签名钥时返回清晰 503，不抛未捕获 500。
+   */
   @Get('execution-budget-jwks.json')
   executionBudgetJwks() {
+    if (this.config?.LEGACY_EXECUTION_BUDGET_MODE === 'bypass' && !this.budgetSigner.hasPublicJwks) {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'LEGACY_EXECUTION_BUDGET_BYPASSED',
+          mode: 'bypass',
+          message: '旧执行预算已处于旁路模式（LEGACY_EXECUTION_BUDGET_MODE=bypass），未发布 Grant 公钥',
+        },
+      });
+    }
     return this.budgetSigner.publicJwks;
   }
 }

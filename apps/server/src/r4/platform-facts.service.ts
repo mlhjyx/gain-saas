@@ -75,6 +75,9 @@ export class PlatformFactsService {
   ) {}
 
   readBinding(now = Date.now()): DeploymentBinding {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new PlatformFactsUnavailable('平台权威处于 internal_db 模式，不依赖 R4 部署绑定');
+    }
     const file = this.config.R4_DEPLOYMENT_BINDING_FILE;
     if (!file) throw new PlatformFactsUnavailable('未配置部署绑定文件');
     let raw: unknown;

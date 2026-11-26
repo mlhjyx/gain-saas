@@ -35,7 +35,14 @@ export class HealthController {
     return {
       status: ok ? ('ok' as const) : ('degraded' as const),
       checks: { db, engine },
-      capabilities: { event_consumer: this.config.EVENT_CONSUMER_ENABLED },
+      capabilities: {
+        event_consumer: this.config.EVENT_CONSUMER_ENABLED,
+        legacy_execution_budget_mode: this.config.LEGACY_EXECUTION_BUDGET_MODE,
+        platform_authority_mode: this.config.PLATFORM_AUTHORITY_MODE,
+      },
+      platformAuthority: {
+        mode: this.config.PLATFORM_AUTHORITY_MODE,
+      },
     };
   }
 }

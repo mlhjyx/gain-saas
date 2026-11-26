@@ -6,6 +6,8 @@ import {
   Get,
   Headers,
   HttpException,
+  Inject,
+  Optional,
   Post,
   Req,
   Res,
@@ -13,6 +15,8 @@ import {
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { TenantGuard, type TenantRequestContext } from '../tenant/tenant.guard.js';
@@ -241,6 +245,7 @@ export class OnboardingController {
     private readonly audit: AuditService,
     private readonly engine: EngineHttp,
     private readonly budget: EngineBudgetGrantService,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
   ) {}
 
   @Get('status')
@@ -324,9 +329,11 @@ export class OnboardingController {
           : { productDescription: input.productDescription }),
       };
       const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: quoteBody });
+      const headers: Record<string, string> = { 'idempotency-key': previewIdempotencyKey };
+      if (grant) headers['x-execution-budget-grant'] = grant;
       const result = await this.callEngine(tenant, 'POST', '/companies', {
         body: createBody,
-        headers: { 'x-execution-budget-grant': grant, 'idempotency-key': previewIdempotencyKey },
+        headers,
       });
       if (result.status >= 400) throw this.engineHttpError(result.status, result.body);
       const createdId = (result.body as { data?: { id?: unknown } } | null)?.data?.id;
@@ -469,7 +476,8 @@ export class OnboardingController {
     }
     const { productDescription: _ignoredForQuote, ...quoteBody } = body;
     const grant = await this.issueGrant(tenant, { operation: 'POST /companies', body: quoteBody });
-    const headers: Record<string, string> = { 'x-execution-budget-grant': grant };
+    const headers: Record<string, string> = {};
+    if (grant) headers['x-execution-budget-grant'] = grant;
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
 
     let result;
@@ -533,11 +541,14 @@ export class OnboardingController {
     });
   }
 
-  /** quote → Grant；配额与 quote 失败按既有三层文案降级。 */
+  /** quote → Grant；bypass 模式下返回 null 跳过 quote/Grant，enforce 模式下保持三层文案降级。 */
   private async issueGrant(
     tenant: TenantRequestContext,
     quoteRequest: Record<string, unknown>,
-  ): Promise<string> {
+  ): Promise<string | null> {
+    if (this.config?.LEGACY_EXECUTION_BUDGET_MODE === 'bypass') {
+      return null;
+    }
     try {
       return await this.budget.issue(tenant, quoteRequest);
     } catch (err) {
@@ -571,7 +582,7 @@ export class OnboardingController {
     });
     const result = await this.callEngine(tenant, 'POST', `/companies/${companyId}/understanding/retry`, {
       body: { attemptId },
-      headers: { 'x-execution-budget-grant': grant },
+      ...(grant ? { headers: { 'x-execution-budget-grant': grant } } : {}),
     });
     if (result.status >= 400) {
       const code = (result.body as { error?: { code?: unknown } } | null)?.error?.code;

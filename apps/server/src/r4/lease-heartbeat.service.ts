@@ -26,6 +26,7 @@ export class LeaseHeartbeatService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     if (!this.config.R4_LEASE_HEARTBEAT_ENABLED) return;
     void this.beat();
     this.timer = setInterval(() => void this.beat(), LEASE_HEARTBEAT_INTERVAL_MS);
@@ -39,7 +40,7 @@ export class LeaseHeartbeatService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async beat(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     const now = Date.now();
     for (const scheduleId of PLATFORM_SCHEDULES) {
       try {

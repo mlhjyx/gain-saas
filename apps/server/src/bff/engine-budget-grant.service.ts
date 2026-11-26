@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import type { AppConfig } from '../config/configuration.js';
+import { APP_CONFIG } from '../shared/config.module.js';
 import type { TenantRequestContext } from '../tenant/tenant.guard.js';
 import {
   EngineBudgetGrantSigner,
@@ -13,6 +15,9 @@ import { WorkspaceBudgetPolicyService } from './workspace-budget-policy.service.
  * 两步都在服务端完成;前端不接触签名钥,也不缓存 Grant。
  * quote 的 requestSha256 绑定"operation + 精确请求体",所以 quote 与业务请求
  * 必须使用同一份 body/路径参数(见 routes.ts 的 budgetQuoteRequest)。
+ *
+ * 当 LEGACY_EXECUTION_BUDGET_MODE=bypass 时，调用方跳过本服务；若仍被直接调用，
+ * 本服务拒绝发出 /quote 请求并 fail-closed 抛错，杜绝旁路态误签旧 Grant。
  */
 export class EngineBudgetQuoteError extends Error {
   constructor(
@@ -33,12 +38,20 @@ export class EngineBudgetGrantService {
     private readonly engine: EngineHttp,
     private readonly signer: EngineBudgetGrantSigner,
     private readonly quota: WorkspaceBudgetPolicyService,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
   ) {}
+
+  get isBypassed(): boolean {
+    return this.config?.LEGACY_EXECUTION_BUDGET_MODE === 'bypass';
+  }
 
   async issue(
     tenant: Pick<TenantRequestContext, 'userId' | 'workspaceId' | 'role'>,
     quoteRequest: Record<string, unknown>,
   ): Promise<string> {
+    if (this.isBypassed) {
+      throw new Error('LEGACY_EXECUTION_BUDGET_MODE=bypass 模式下不得请求旧执行预算 quote 或签发 Grant');
+    }
     const response = await this.engine.call(tenant, 'POST', '/execution-budget/workspace-technical-quote', {
       body: quoteRequest,
     });

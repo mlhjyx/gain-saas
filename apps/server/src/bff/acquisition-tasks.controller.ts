@@ -347,30 +347,34 @@ export class AcquisitionTasksController {
     const run = allocated.run as { id: string; attempt?: number };
     const previousAttempt = allocated.previousAttempt;
 
-    // 引擎侧 attempt：开关关闭时剥离（兼容未升级镜像，requestSha256 与旧版一致）。
-    let grant: string;
-    try {
-      // 与 BFF execute 路由同一 quote 口径（operation + planId + 可选 attemptId）。
-      grant = await this.budget.issue(tenant, {
-        operation: 'POST /query-plans/:planId/execute',
-        planId,
-        ...(Object.keys(canonical).length ? { body: canonical } : {}),
-      });
-    } catch (error) {
-      await this.failRun(tenant.workspaceId, run.id);
-      if (error instanceof WorkspaceBudgetQuotaExceededError) {
-        throw new HttpException(
-          { error: { code: error.code, message: error.message, details: error.details } },
-          error.status,
-        );
+    // W2 旁路模式（LEGACY_EXECUTION_BUDGET_MODE=bypass）：跳过二次 /quote 与旧 RS256 Grant 签发，
+    // 直接以纯租户身份转发，避免重试撞上 409 GRANT_REUSED。
+    const legacyBudgetBypass = this.config.LEGACY_EXECUTION_BUDGET_MODE === 'bypass';
+    let grant: string | null = null;
+    if (!legacyBudgetBypass) {
+      try {
+        // 与 BFF execute 路由同一 quote 口径（operation + planId + 可选 attemptId）。
+        grant = await this.budget.issue(tenant, {
+          operation: 'POST /query-plans/:planId/execute',
+          planId,
+          ...(Object.keys(canonical).length ? { body: canonical } : {}),
+        });
+      } catch (error) {
+        await this.failRun(tenant.workspaceId, run.id);
+        if (error instanceof WorkspaceBudgetQuotaExceededError) {
+          throw new HttpException(
+            { error: { code: error.code, message: error.message, details: error.details } },
+            error.status,
+          );
+        }
+        const quoteCode = error instanceof EngineBudgetQuoteError
+          ? (error.engineBody as { error?: { code?: unknown } } | null)?.error?.code
+          : undefined;
+        const code = typeof quoteCode === 'string' && quoteCode.startsWith('EXECUTION_BUDGET_')
+          ? quoteCode
+          : 'EXECUTION_BUDGET_GRANT_FAILED';
+        throw new HttpException({ error: { code, message: '执行预算授权签发失败' } }, 502);
       }
-      const quoteCode = error instanceof EngineBudgetQuoteError
-        ? (error.engineBody as { error?: { code?: unknown } } | null)?.error?.code
-        : undefined;
-      const code = typeof quoteCode === 'string' && quoteCode.startsWith('EXECUTION_BUDGET_')
-        ? quoteCode
-        : 'EXECUTION_BUDGET_GRANT_FAILED';
-      throw new HttpException({ error: { code, message: '执行预算授权签发失败' } }, 502);
     }
 
     let response: Awaited<ReturnType<EngineHttp['call']>>;
@@ -380,7 +384,7 @@ export class AcquisitionTasksController {
           taskRef: { taskId: task.id, taskRunId: run.id },
           ...canonical,
         },
-        headers: { 'x-execution-budget-grant': grant },
+        ...(grant ? { headers: { 'x-execution-budget-grant': grant } } : {}),
       });
     } catch {
       await this.failRun(tenant.workspaceId, run.id);

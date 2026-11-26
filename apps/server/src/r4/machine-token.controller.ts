@@ -33,6 +33,15 @@ export class MachineTokenController {
     }
     // 平台权威凭据只能经 TLS 监听口铸造；明文入口（4020/公网隧道）一律拒绝。
     assertInternalTls(req);
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: '平台权威运行在 internal_db 轻量化模式，不签发 R4 机器 token',
+        },
+      });
+    }
     const peerSubject = this.subjectFromPeer(req);
     const requireMtls =
       this.config.NODE_ENV === 'production' || this.config.R4_TLS_CLIENT_AUTH === 'required';

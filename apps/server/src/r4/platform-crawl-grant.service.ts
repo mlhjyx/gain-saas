@@ -93,6 +93,9 @@ export class PlatformCrawlGrantIssuer {
   ) {}
 
   private async key(): Promise<CryptoKey> {
+    if (!this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY) {
+      throw new ChannelCrawlGrantRejected('PLATFORM_GRANT_CONFIGURATION_INVALID', '未配置 ENGINE_BUDGET_GRANT_PRIVATE_KEY');
+    }
     this.privateKey ??= await importPKCS8(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY, 'RS256');
     return this.privateKey;
   }
@@ -234,6 +237,12 @@ export class PlatformCrawlGrantIssuer {
   }
 
   async issue(request: ChannelCrawlGrantRequest, now = Date.now()): Promise<IssuedChannelCrawlGrant> {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ChannelCrawlGrantRejected(
+        'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+        '平台权威处于 internal_db 轻量化模式，不签发 R4 渠道抓取 Grant',
+      );
+    }
     if (!this.config.R4_CHANNEL_CRAWL_GRANT_ENABLED) {
       throw new ChannelCrawlGrantRejected('PLATFORM_CHANNEL_CRAWL_DISABLED', '渠道抓取签发未开启');
     }
@@ -246,6 +255,15 @@ export class PlatformCrawlGrantIssuer {
     });
     if (existing) return this.replay(existing, request, now);
     await this.assertDailyQuota(request.channelId, BigInt(request.pageCap), now, false);
+
+    const kid = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
+    const issuer = this.config.ENGINE_BUDGET_GRANT_ISSUER;
+    if (!kid || !issuer) {
+      throw new ChannelCrawlGrantRejected(
+        'PLATFORM_GRANT_CONFIGURATION_INVALID',
+        '未配置 ENGINE_BUDGET_GRANT_KEY_ID / ENGINE_BUDGET_GRANT_ISSUER',
+      );
+    }
 
     const iat = Math.floor(now / 1000);
     const ttl = this.config.R4_PLATFORM_GRANT_TTL_SECONDS;
@@ -266,8 +284,8 @@ export class PlatformCrawlGrantIssuer {
       campaign_cap_microusd: request.campaignCapMicrousd,
       max_runs: '1',
     })
-      .setProtectedHeader({ alg: 'RS256', kid: this.config.ENGINE_BUDGET_GRANT_KEY_ID, typ: CHANNEL_CRAWL_GRANT_TYPE })
-      .setIssuer(this.config.ENGINE_BUDGET_GRANT_ISSUER)
+      .setProtectedHeader({ alg: 'RS256', kid, typ: CHANNEL_CRAWL_GRANT_TYPE })
+      .setIssuer(issuer)
       .setAudience(CHANNEL_CRAWL_GRANT_AUDIENCE)
       .setJti(jti)
       .setIssuedAt(iat)

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createPublicKey, randomUUID } from 'node:crypto';
 import { SignJWT, exportJWK, importPKCS8 } from 'jose';
 import { APP_CONFIG } from '../shared/config.module.js';
@@ -10,6 +10,9 @@ import type { AppConfig } from '../config/configuration.js';
  * 与身份 token 完全分离:独立 RSA 钥、独立 kid、独立 issuer/audience。
  * Grant 一次性、请求绑定、≤5 分钟;claims 必须与引擎 quote 逐字段一致,
  * 否则引擎报 SCOPE_MISMATCH / GRANT_INVALID。
+ *
+ * 当 LEGACY_EXECUTION_BUDGET_MODE=bypass 时允许不配置旧签名私钥：
+ * init() 静默跳过，mint() 保持 fail-closed 拒绝签发。
  */
 export interface WorkspaceTechnicalQuote {
   schemaVersion: string;
@@ -32,19 +35,34 @@ export const EXECUTION_BUDGET_GRANT_TYPE = 'execution-budget-grant+jwt';
 
 @Injectable()
 export class EngineBudgetGrantSigner {
+  private readonly logger = new Logger(EngineBudgetGrantSigner.name);
   private privateKey?: CryptoKey;
   private jwk?: JsonWebKey;
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
+  get hasPublicJwks(): boolean {
+    return Boolean(this.jwk);
+  }
+
   async init(): Promise<void> {
-    this.privateKey = await importPKCS8(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY, 'RS256', {
+    const privateKeyPem = this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY;
+    const keyId = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
+    const issuer = this.config.ENGINE_BUDGET_GRANT_ISSUER;
+    if (this.config.LEGACY_EXECUTION_BUDGET_MODE === 'bypass' && (!privateKeyPem || !keyId || !issuer)) {
+      this.logger.log('LEGACY_EXECUTION_BUDGET_MODE=bypass：未配置旧执行预算 Grant 私钥，跳过签名器初始化');
+      return;
+    }
+    if (!privateKeyPem || !keyId || !issuer) {
+      throw new Error('ENGINE_BUDGET_GRANT_PRIVATE_KEY / KEY_ID / ISSUER 必填');
+    }
+    this.privateKey = await importPKCS8(privateKeyPem, 'RS256', {
       extractable: false,
     });
     // 只发布公钥参数;引擎的 loadExecutionBudgetJwks 会拒绝带私钥字段的 JWKS。
-    const publicKey = createPublicKey(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY);
+    const publicKey = createPublicKey(privateKeyPem);
     const jwk = await exportJWK(publicKey);
-    jwk.kid = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
+    jwk.kid = keyId;
     jwk.alg = 'RS256';
     jwk.use = 'sig';
     this.jwk = jwk;
@@ -58,7 +76,12 @@ export class EngineBudgetGrantSigner {
 
   /** 用引擎 quote 签发一次性 Grant;TTL 取 min(配置, quote.expiresAt)。 */
   async mint(quote: WorkspaceTechnicalQuote, workspaceId: string): Promise<string> {
-    if (!this.privateKey) throw new Error('预算签名钥未初始化');
+    if (this.config.LEGACY_EXECUTION_BUDGET_MODE === 'bypass') {
+      throw new Error('LEGACY_EXECUTION_BUDGET_MODE=bypass 模式下禁止签发旧执行预算 Grant');
+    }
+    if (!this.privateKey || !this.config.ENGINE_BUDGET_GRANT_KEY_ID || !this.config.ENGINE_BUDGET_GRANT_ISSUER) {
+      throw new Error('预算签名钥未初始化');
+    }
     if (quote.authorityKind !== 'WORKSPACE_GRANT') throw new Error('quote authority_kind 不是 WORKSPACE_GRANT');
     if (quote.workspaceId !== workspaceId) throw new Error('quote workspace 与当前租户不一致');
     if (quote.currency !== 'USD' || quote.unit !== 'microusd') throw new Error('quote 金额单位非法');
