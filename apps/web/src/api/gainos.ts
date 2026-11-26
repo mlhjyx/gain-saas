@@ -958,6 +958,44 @@ export interface DeletionRequestView {
   } | null;
 }
 
+export type DataExportScope = 'leads' | 'companies' | 'contacts' | 'outreach' | 'full_archive';
+export type DataExportFormat = 'csv' | 'jsonl';
+export type DataExportStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'expired';
+
+export interface DataExportJobView {
+  id: string;
+  workspaceId: string;
+  requestedBy: string;
+  scope: DataExportScope | string;
+  format: DataExportFormat | string;
+  status: DataExportStatus | string;
+  contentType: string | null;
+  filename: string | null;
+  byteSize: number | null;
+  rowCount: number | null;
+  errorCode: string | null;
+  expiresAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceOffboardingView {
+  id: string;
+  workspaceId: string;
+  status: 'SCHEDULED' | 'CANCELLED' | 'PURGED' | string;
+  requestedBy: string;
+  reason: string | null;
+  requestedAt: string;
+  coolOffEndsAt: string;
+  cancelledBy: string | null;
+  cancelledAt: string | null;
+  purgedBy: string | null;
+  purgedAt: string | null;
+  canCancel: boolean;
+  remainingDays: number;
+}
+
 export interface AuditEntry {
   id: string;
   realm: string;
@@ -982,6 +1020,47 @@ export const gainosApi = {
   deletionRequests: (params: { cursor?: string; limit?: number; status?: string } = {}) =>
     pagedGet<DeletionRequestView>('/deletion-requests', params),
   deletionRequest: (id: string) => requestClient.get<DeletionRequestView>(`/deletion-requests/${id}`),
+  dataExports: (params: { cursor?: string; limit?: number; status?: string } = {}) =>
+    pagedGet<DataExportJobView>('/data-exports', params),
+  createDataExport: (input: { scope: DataExportScope; format: DataExportFormat }) =>
+    requestClient.post<DataExportJobView>('/data-exports', input),
+  dataExport: (exportId: string) =>
+    requestClient.get<DataExportJobView>(`/data-exports/${encodeURIComponent(exportId)}`),
+  downloadDataExport: async (exportId: string, fallbackFilename?: string | null): Promise<string> => {
+    const base = (apiURL || '/api').replace(/\/$/, '');
+    const res = await fetch(`${base}/data-exports/${encodeURIComponent(exportId)}/download`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { 'Accept-Language': preferences.app.locale },
+    });
+    if (!res.ok) {
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const json = await res.json().catch(() => null);
+        const title = json?.error?.userCopy?.title ?? json?.error?.message ?? `HTTP ${res.status}`;
+        throw Object.assign(new Error(title), { response: { status: res.status, data: json } });
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const filename =
+      parseContentDispositionFilename(res.headers.get('content-disposition')) ||
+      fallbackFilename?.trim() ||
+      `export-${exportId.slice(0, 8)}`;
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.style.display = 'none';
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+    return filename;
+  },
   /** 2026-11-04 取消租户声明：平台统一合法依据 + 本工作空间只读历史。requestClient 已解包 {data}。 */
   complianceInfo: () => requestClient.get<ComplianceInfoView>('/settings/compliance'),
   members: () => requestClient.get<MembersResponse>('/members'),
@@ -1329,6 +1408,12 @@ export const gainosApi = {
     }),
   leaveWorkspace: (workspaceId: string) =>
     requestClient.post<{ left: boolean; currentWorkspace: boolean }>(`/workspaces/${workspaceId}/leave`, {}),
+  workspaceOffboarding: (workspaceId: string) =>
+    requestClient.get<WorkspaceOffboardingView | null>(`/workspaces/${encodeURIComponent(workspaceId)}/offboarding`),
+  requestWorkspaceOffboarding: (workspaceId: string, input: { confirmName: string; reason?: string }) =>
+    requestClient.post<WorkspaceOffboardingView>(`/workspaces/${encodeURIComponent(workspaceId)}/offboarding`, input),
+  cancelWorkspaceOffboarding: (workspaceId: string) =>
+    requestClient.post<WorkspaceOffboardingView>(`/workspaces/${encodeURIComponent(workspaceId)}/offboarding/cancel`, {}),
   switchWorkspace: (workspaceId: string) =>
     requestClient.post<{ workspace: { id: string }; role: string }>('/auth/switch-workspace', { workspaceId }),
   // ── 设置 · 禁联名单（C2，M2 P6）：经 BFF 代理引擎 suppressions（admin）──

@@ -21,6 +21,7 @@ import { ServiceModule } from '../service/service.module.js';
 import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsChannelsService } from './ops-channels.service.js';
 import { OpsEngineClient } from './ops-engine.client.js';
+import { OpsWorkspacePurgeService } from './ops-workspace-purge.service.js';
 import { CooperationIntentOpsController } from '../cooperation/cooperation-ops.controller.js';
 import { CooperationIntentService } from '../cooperation/cooperation.service.js';
 
@@ -48,6 +49,7 @@ import { CooperationIntentService } from '../cooperation/cooperation.service.js'
     OpsEngineClient,
     OpsChannelsService,
     OpsCampaignMetricsService,
+    OpsWorkspacePurgeService,
     CooperationIntentService,
     AuditService,
     PrismaService,

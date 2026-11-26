@@ -1,10 +1,11 @@
-import { BadRequestException, Body, ForbiddenException, GoneException, HttpException, Controller, Get, NotFoundException, Optional, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ForbiddenException, GoneException, HttpCode, HttpException, Controller, Get, NotFoundException, Optional, Param, Patch, Post, Req, Res, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
 import { EngineHttp } from '../bff/engine-http.js';
 import { TenantGuard } from './tenant.guard.js';
 import { SESSION_COOKIE, SessionService } from './session.service.js';
+import { WorkspaceOffboardingService } from './workspace-offboarding.service.js';
 
 /**
  * 工作空间管理(A3/SD2):一企一空间——空间随企业注册创建，成员经邀请加入；
@@ -24,6 +25,7 @@ export class WorkspacesController {
     private readonly audit: AuditService,
     private readonly sessions: SessionService,
     @Optional() private readonly engine?: EngineHttp,
+    @Optional() private readonly offboarding?: WorkspaceOffboardingService,
   ) {}
 
   @Get()
@@ -158,5 +160,35 @@ export class WorkspacesController {
       return { data: { left: true, currentWorkspace: true } };
     }
     return { data: { left: true, currentWorkspace: false } };
+  }
+
+  @Get(':workspaceId/offboarding')
+  async getOffboarding(@Req() req: Request, @Param('workspaceId') workspaceId: string) {
+    return { data: await this.requireOffboarding().getStatus(req.tenant!, workspaceId) };
+  }
+
+  @Post(':workspaceId/offboarding')
+  @HttpCode(201)
+  async requestOffboarding(
+    @Req() req: Request,
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    return { data: await this.requireOffboarding().requestOffboarding(req.tenant!, workspaceId, body) };
+  }
+
+  @Post(':workspaceId/offboarding/cancel')
+  @HttpCode(200)
+  async cancelOffboarding(@Req() req: Request, @Param('workspaceId') workspaceId: string) {
+    return { data: await this.requireOffboarding().cancelOffboarding(req.tenant!, workspaceId) };
+  }
+
+  private requireOffboarding(): WorkspaceOffboardingService {
+    if (!this.offboarding) {
+      throw new ServiceUnavailableException({
+        error: { code: 'OFFBOARDING_UNAVAILABLE', message: '工作空间离网注销服务未就绪' },
+      });
+    }
+    return this.offboarding;
   }
 }

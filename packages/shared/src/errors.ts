@@ -1153,6 +1153,107 @@ export const ENGINE_ERROR_COPY = {
       next: 'Ask a workspace admin to complete this action, or ask them to grant you the admin role.',
     },
   },
+  // ── MT-P1：异步租户数据导出与整空间离网注销 ──────────────────────────────
+  DATA_EXPORT_IN_PROGRESS: {
+    title: '已有正在生成的数据导出任务',
+    why: '同一工作空间同一时间只能排队或执行一个异步导出任务，避免重复占用导出资源。',
+    next: '请等待当前导出任务完成后再发起新的导出。',
+    en: {
+      title: 'A data export job is already in progress',
+      why: 'Only one asynchronous export job can be queued or running per workspace at a time.',
+      next: 'Wait for the active export job to finish before starting a new one.',
+    },
+  },
+  DATA_EXPORT_RATE_LIMITED: {
+    title: '今日数据导出次数已达上限',
+    why: '工作空间每日导出次数受配额保护，用于防止异常高频批量抓取。',
+    next: '明天再试，或联系平台运营调整当前工作空间的每日导出配额。',
+    en: {
+      title: 'Daily data export limit reached',
+      why: 'Workspaces have a daily export quota to protect storage and transfer resources.',
+      next: 'Try again tomorrow, or ask operations to raise your workspace daily export quota.',
+    },
+  },
+  DATA_EXPORT_NOT_READY: {
+    title: '导出文件尚未生成完毕',
+    why: '导出任务仍在排队或打包中，文件还不可下载。',
+    next: '稍候刷新导出列表，待状态变为「可下载」后再次点击下载。',
+    en: {
+      title: 'Export file is not ready yet',
+      why: 'This export job is still queued or packaging the archive.',
+      next: 'Refresh the export list shortly and download once its status becomes Ready.',
+    },
+  },
+  DATA_EXPORT_EXPIRED: {
+    title: '该导出文件已过期清理',
+    why: '导出归档仅保留有限有效期，到期后会自动从对象存储中清除以减少数据滞留。',
+    next: '请重新发起一次新的数据导出任务。',
+    en: {
+      title: 'This export file has expired',
+      why: 'Export archives are retained for a limited window and then deleted automatically to minimize data retention.',
+      next: 'Create a fresh data export job to generate a new archive.',
+    },
+  },
+  DATA_EXPORT_STORAGE_UNAVAILABLE: {
+    title: '导出存储服务暂时不可用',
+    why: '对象存储当前无法读取该导出归档，与你的权限或导出数据无关。',
+    next: '请稍后重试；若持续失败请联系平台运营排查存储服务。',
+    en: {
+      title: 'Export storage is temporarily unavailable',
+      why: 'Object storage could not serve the export archive right now; this is unrelated to your permissions.',
+      next: 'Retry shortly; if it persists, ask operations to check storage health.',
+    },
+  },
+  OFFBOARDING_ALREADY_SCHEDULED: {
+    title: '工作空间已在注销冷却期中',
+    why: '该工作空间已有一条生效中的离网注销申请，无需重复提交。',
+    next: '如需取消注销，请在 7 天冷却期内点击「撤销注销申请」。',
+    en: {
+      title: 'Workspace offboarding is already scheduled',
+      why: 'An active offboarding request is already in the cooling-off period for this workspace.',
+      next: 'To keep the workspace, cancel the request before the 7-day cooling-off window ends.',
+    },
+  },
+  OFFBOARDING_COOL_OFF_EXPIRED: {
+    title: '7 天冷却期已结束，无法自助撤销',
+    why: '离网注销申请的自助撤回窗口已经截止，空间已进入待物理清理阶段。',
+    next: '如需紧急中止清理，请立即联系平台运营处理。',
+    en: {
+      title: 'The 7-day cooling-off period has ended',
+      why: 'Self-service cancellation is closed once the cooling-off window expires.',
+      next: 'Contact platform operations immediately if you need to halt physical purge.',
+    },
+  },
+  OFFBOARDING_NOT_FOUND: {
+    title: '没有可撤销的注销申请',
+    why: '当前工作空间没有处于冷却期中的离网注销申请。',
+    next: '刷新页面确认当前空间状态即可。',
+    en: {
+      title: 'No active offboarding request found',
+      why: 'This workspace does not have a scheduled offboarding request.',
+      next: 'Refresh the page to check the current workspace status.',
+    },
+  },
+  CONFIRM_NAME_MISMATCH: {
+    title: '确认的工作空间名称不一致',
+    why: '发起整空间注销属于高风险操作，需要准确输入当前工作空间名称完成二次确认。',
+    next: '核对页面展示的工作空间名称，完整输入后再提交。',
+    en: {
+      title: 'Workspace confirmation name does not match',
+      why: 'Scheduling workspace offboarding is destructive and requires typing the exact workspace name.',
+      next: 'Verify the displayed workspace name, type it exactly, and submit again.',
+    },
+  },
+  WORKSPACE_PURGE_NOT_CONFIGURED: {
+    title: '整空间物理清理服务尚未配置',
+    why: '服务端未配置内部清理服务令牌，按安全默认策略拒绝执行物理清理。',
+    next: '请联系平台运维配置清理服务令牌后重试。',
+    en: {
+      title: 'Workspace physical purge is not configured',
+      why: 'The internal purge service token is not configured, so physical purge fails closed.',
+      next: 'Ask platform operations to configure the internal purge service token and retry.',
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

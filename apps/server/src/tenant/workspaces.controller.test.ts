@@ -217,3 +217,32 @@ describe('WorkspacesController.rename engine sync (PATCH /api/workspaces/:id)', 
     expect(workspaceUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('WorkspacesController offboarding routes', () => {
+  it('delegates get/request/cancel offboarding to WorkspaceOffboardingService', async () => {
+    const offboarding = {
+      getStatus: vi.fn(async () => ({ id: 'req-1', status: 'SCHEDULED' })),
+      requestOffboarding: vi.fn(async () => ({ id: 'req-1', status: 'SCHEDULED' })),
+      cancelOffboarding: vi.fn(async () => ({ id: 'req-1', status: 'CANCELLED' })),
+    };
+    const controller = new WorkspacesController(
+      {} as never,
+      {} as never,
+      {} as never,
+      undefined,
+      offboarding as never,
+    );
+    const req = {
+      tenant: { userId: USER_ID, workspaceId: WS_CURR, role: 'admin', jti: 'jti-1', exp: 9_999_999_999 },
+    } as unknown as Request;
+
+    expect(await controller.getOffboarding(req, WS_CURR)).toEqual({ data: { id: 'req-1', status: 'SCHEDULED' } });
+    expect(await controller.requestOffboarding(req, WS_CURR, { confirmName: 'Acme' })).toEqual({
+      data: { id: 'req-1', status: 'SCHEDULED' },
+    });
+    expect(await controller.cancelOffboarding(req, WS_CURR)).toEqual({
+      data: { id: 'req-1', status: 'CANCELLED' },
+    });
+    expect(offboarding.requestOffboarding).toHaveBeenCalledWith(req.tenant, WS_CURR, { confirmName: 'Acme' });
+  });
+});

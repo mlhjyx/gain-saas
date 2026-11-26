@@ -243,6 +243,13 @@ const schema = z.object({
   OPS_SESSION_TTL_MINUTES: z.coerce.number().min(5).max(24 * 60).default(480),
   /** 运营台批量导出：每个操作员每小时的导出次数上限（进程内滑动窗口）。 */
   OPS_EXPORT_HOURLY_LIMIT: z.coerce.number().int().min(1).max(1000).default(20),
+  // 租户离网注销冷却期天数（MT-P1：默认 7 天，冷却期内管理员可撤回，到期后运营触发物理清理）
+  WORKSPACE_OFFBOARDING_COOL_OFF_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  // 运营触发整空间物理清理调用引擎 POST /api/v1/internal/workspaces/:id/purge 的内部服务令牌（缺省 fail-closed 503）
+  WORKSPACE_PURGE_INTERNAL_SERVICE_TOKEN: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().trim().min(16).optional(),
+  ),
   // 内嵌模型网关:运营台管理上游厂商;引擎用这个 Bearer Key 调 /v1/chat/completions
   MODEL_GATEWAY_API_KEY: z.string().min(16).optional(),
   // 上游 API Key 落库加密材料;缺失时从 SESSION_SECRET 派生(轮换 SESSION_SECRET 会要求重录上游 Key)
