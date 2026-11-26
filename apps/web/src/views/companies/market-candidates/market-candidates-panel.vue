@@ -148,9 +148,15 @@ function confirmLeave(): Promise<boolean> {
     });
   });
 }
-async function close() {
-  if (!(await confirmLeave())) return;
-  emit("close");
+function close() {
+  if (feedbackBusy.value) return;
+  if (!(draftDirty.value || frozen.value)) {
+    emit("close");
+    return;
+  }
+  void confirmLeave().then((allowed) => {
+    if (allowed) emit("close");
+  });
 }
 let recoveryTrigger: HTMLElement | null = null;
 async function requestRecovery(destination: "facts" | "documents", event: MouseEvent) {

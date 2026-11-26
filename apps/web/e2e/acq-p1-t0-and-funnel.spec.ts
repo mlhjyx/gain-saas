@@ -183,7 +183,11 @@ test('T0 四通道轻外联：IT/DE/BR 合规分流、SUPPRESSED 全禁与触达
   });
   await page.goto(`/leads/${LEAD_IT}`);
   await expect(page.locator('[data-gs="t0-blocked-banner"]')).toBeVisible();
-  await expect(page.locator('[data-gs="t0-outreach"]')).toContainText('DNC_UNAVAILABLE');
+  await expect(page.locator('[data-gs="t0-outreach"]')).toContainText('合规校验暂不可用');
+  await expect(page.locator('[data-gs="t0-compliance-tag"]')).toHaveAttribute(
+    'title',
+    /DNC_UNAVAILABLE/,
+  );
   await expect(page.locator('[data-gs="t0-action-mailto"]')).toBeDisabled();
   await expect(page.locator('[data-gs="t0-action-linkedin"]')).toBeDisabled();
   await expect(page.locator('[data-gs="t0-action-whatsapp"]')).toBeDisabled();
