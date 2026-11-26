@@ -1,10 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
   "pinnedAt": "2026-11-26",
-  "reason": "固定到mlhjyx/global-backend@1157b94f（116条原BFF路由100%覆盖）；新增3条卖家资料库 S3 Multipart 分片上传透传（对应 global-backend#1128），待后端合入后在独立 OpenAPI 合同同步 PR 中清零。",
-  "uncovered": [
-    "POST /companies/:companyId/seller-documents/:documentId/multipart/complete",
-    "POST /companies/:companyId/seller-documents/:documentId/multipart/init",
-    "PUT /companies/:companyId/seller-documents/:documentId/parts/:partNumber"
-  ]
+  "reason": "固定到mlhjyx/global-backend@95f1051a（含PR #1127 M10-PR2、#1128 卖家资料库5MB分片上传与前15页优先解析）的完整code-first合同（183路径、206操作、123 schema）；全部119条BFF路由均已100%覆盖，uncovered清零。",
+  "uncovered": []
 }

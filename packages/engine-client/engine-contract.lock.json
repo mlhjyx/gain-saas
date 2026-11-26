@@ -1,7 +1,7 @@
 {
   "schemaVersion": "engine-contract-pin/v1",
-  "specDigest": "1b568b0e2f103a97-fc337a5c7b665d7c-a01d38b7b458e130-bc7e59f250d3b10d",
+  "specDigest": "c1a45394a9ee9082-57e2f84a30461d1a-968c6edf865cf122-f04fe1f5cd6ccad8",
   "pinnedAt": "2026-11-26",
-  "pinnedFrom": "mlhjyx/global-backend@1157b94f8c5ffd18f08d052612a1ca732de2cfde (PR #1111, #1118 Track 3B, #1120 Batch 1.7B-2 icp.rejudge, #1121, #1123, #1124); 180 paths (+5: GET /api/v1/companies/{companyId}/market-recommendations, GET /api/v1/discovery-runs/{runId}/streaming-progress, GET /api/v1/icps/{icpId}/feedback/summary, POST /api/v1/icps/{icpId}/feedback/record, POST /api/v1/icps/{icpId}/rejudge); unmodified gen:engine via owned 127.0.0.1 ephemeral server serving read-only backend packages/contracts/openapi/openapi.json; 2026-11-26",
+  "pinnedFrom": "mlhjyx/global-backend@95f1051a432f311334e008c46a18aed6daca9440 (PR #1127 M10-PR2, #1128 卖家资料库 5MB S3 Multipart 分片上传与前15页优先解析); 183 paths (+3: POST /api/v1/companies/{companyId}/seller-documents/{documentId}/multipart/init, PUT /api/v1/companies/{companyId}/seller-documents/{documentId}/parts/{partNumber}, POST /api/v1/companies/{companyId}/seller-documents/{documentId}/multipart/complete); unmodified gen:engine via owned 127.0.0.1 ephemeral server serving read-only backend packages/contracts/openapi/openapi.json; 2026-11-26",
   "action": "Upgrading the engine contract is a separate PR: run pnpm gen:engine against the target engine, review the OpenAPI diff (CI runs oasdiff breaking when this file changes), regenerate schema.d.ts, update specDigest here, and record the engine image/source SHA in the PR body."
 }
