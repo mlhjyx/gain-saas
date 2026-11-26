@@ -31,6 +31,16 @@ function makeController(overrides: {
   taskRunFindFirst?: Array<Record<string, unknown> | null>;
 } = {}) {
   const now = new Date('2026-11-04T04:00:00Z');
+  const taskRun = {
+    id: TASK_RUN_ID,
+    workspaceId: WORKSPACE_ID,
+    engineRunId: null as string | null,
+    status: 'RUNNING',
+    finishedAt: null as Date | null,
+  };
+  type TaskRunFields = Partial<typeof taskRun>;
+  const matchesRun = (where: TaskRunFields) =>
+    (Object.keys(where) as Array<keyof TaskRunFields>).every((key) => where[key] === taskRun[key]);
   const prisma = {
     acquisitionTask: {
       findFirst: vi.fn(async () =>
@@ -68,7 +78,12 @@ function makeController(overrides: {
         createdAt: now,
         ...data,
       })),
-      update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async ({ where, data }: { where: TaskRunFields; data: TaskRunFields }) => {
+        if (!matchesRun(where)) return { count: 0 };
+        Object.assign(taskRun, data);
+        return { count: 1 };
+      }),
+      findUnique: vi.fn(async ({ where }: { where: TaskRunFields }) => matchesRun(where) ? taskRun : null),
       findFirst: vi.fn(async () => (overrides.taskRunFindFirst ?? []).shift() ?? null),
     },
     discoveryRunLink: {
@@ -108,7 +123,7 @@ function makeController(overrides: {
     budget as never,
     config as never,
   );
-  return { controller, prisma, engine, budget, audit };
+  return { controller, prisma, engine, budget, audit, taskRun };
 }
 
 describe('Run 2.0 任务对象（M0②）', () => {
@@ -323,8 +338,8 @@ describe('Run 2.0 任务对象（M0②）', () => {
         headers: { 'x-execution-budget-grant': 'grant-1' },
       }),
     );
-    expect(prisma.taskRun.update).toHaveBeenCalledWith({
-      where: { id: TASK_RUN_ID },
+    expect(prisma.taskRun.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_RUN_ID, workspaceId: WORKSPACE_ID, engineRunId: null, status: 'RUNNING' },
       data: { engineRunId: ENGINE_RUN_ID, status: 'RUNNING' },
     });
     expect(prisma.discoveryRunLink.create).toHaveBeenCalledWith({
@@ -335,6 +350,50 @@ describe('Run 2.0 任务对象（M0②）', () => {
       data: { lastRunAt: expect.any(Date) },
     });
     expect(result).toMatchObject({ data: { taskRunId: TASK_RUN_ID, runId: ENGINE_RUN_ID, status: 'RUNNING' } });
+  });
+
+  it.each(['DONE', 'PARTIAL', 'FAILED', 'CANCELLED'])(
+    'retains projected %s when the engine 202 arrives after completion',
+    async (status) => {
+      const { controller, prisma, engine, taskRun } = makeController();
+      const finishedAt = new Date('2026-11-04T04:01:00Z');
+      engine.call.mockImplementationOnce(async () => {
+        // The consumer backfills this attempt using taskRef while the 202 is in flight.
+        Object.assign(taskRun, { engineRunId: ENGINE_RUN_ID, status, finishedAt });
+        return { status: 202, body: { data: { runId: ENGINE_RUN_ID, status: 'RUNNING' } } };
+      });
+
+      const result = await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+
+      expect(taskRun).toMatchObject({ engineRunId: ENGINE_RUN_ID, status, finishedAt });
+      expect(result.data).toMatchObject({ taskRunId: TASK_RUN_ID, runId: ENGINE_RUN_ID, status });
+      expect(prisma.discoveryRunLink.create).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('preserves a projected completion when the engine response is lost', async () => {
+    const { controller, engine, taskRun } = makeController();
+    const finishedAt = new Date('2026-11-04T04:01:00Z');
+    engine.call.mockImplementationOnce(async () => {
+      Object.assign(taskRun, { engineRunId: ENGINE_RUN_ID, status: 'DONE', finishedAt });
+      throw new Error('response lost');
+    });
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({ status: 502 });
+    expect(taskRun).toMatchObject({ engineRunId: ENGINE_RUN_ID, status: 'DONE', finishedAt });
+  });
+
+  it('does not associate a late response with a different engine run than the taskRef already linked', async () => {
+    const { controller, engine, prisma, taskRun } = makeController();
+    const linkedRunId = '88888888-8888-4888-8888-888888888888';
+    engine.call.mockImplementationOnce(async () => {
+      Object.assign(taskRun, { engineRunId: linkedRunId, status: 'FAILED' });
+      return { status: 202, body: { data: { runId: ENGINE_RUN_ID, status: 'RUNNING' } } };
+    });
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({ status: 404 });
+    expect(taskRun).toMatchObject({ engineRunId: linkedRunId, status: 'FAILED' });
+    expect(prisma.discoveryRunLink.create).not.toHaveBeenCalled();
   });
 
   it('404s an unknown or foreign task before any grant is issued', async () => {
@@ -354,8 +413,8 @@ describe('Run 2.0 任务对象（M0②）', () => {
       status: 502,
       response: { error: { code: 'INVALID_STATE' } },
     });
-    expect(prisma.taskRun.update).toHaveBeenCalledWith({
-      where: { id: TASK_RUN_ID },
+    expect(prisma.taskRun.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_RUN_ID, workspaceId: WORKSPACE_ID, status: 'RUNNING' },
       data: expect.objectContaining({ status: 'FAILED' }),
     });
   });
@@ -369,8 +428,8 @@ describe('Run 2.0 任务对象（M0②）', () => {
       status: 502,
       response: { error: { code: 'EXECUTION_BUDGET_QUOTE_UNAVAILABLE' } },
     });
-    expect(prisma.taskRun.update).toHaveBeenCalledWith({
-      where: { id: TASK_RUN_ID },
+    expect(prisma.taskRun.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_RUN_ID, workspaceId: WORKSPACE_ID, status: 'RUNNING' },
       data: expect.objectContaining({ status: 'FAILED' }),
     });
   });
@@ -475,8 +534,8 @@ describe('Run 2.0 任务对象（M0②）', () => {
       status: 402,
       response: { error: { code: 'WORKSPACE_BUDGET_EXCEEDED' } },
     });
-    expect(prisma.taskRun.update).toHaveBeenCalledWith({
-      where: { id: TASK_RUN_ID },
+    expect(prisma.taskRun.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_RUN_ID, workspaceId: WORKSPACE_ID, status: 'RUNNING' },
       data: expect.objectContaining({ status: 'FAILED' }),
     });
   });

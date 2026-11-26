@@ -408,11 +408,22 @@ export class AcquisitionTasksController {
     const resolvedIcpId =
       task.icpId ??
       (typeof data.icpId === 'string' && UUID.test(data.icpId) ? data.icpId : UNSCOPED_TASK_ICP_ID);
-    await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
-      await tx.taskRun.update({
-        where: { id: run.id },
+    const persistedStatus = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+      const attempt = { id: run.id, workspaceId: tenant.workspaceId };
+      // A completion event can bind the run and report its outcome while the 202 is in flight.
+      await tx.taskRun.updateMany({
+        where: { ...attempt, engineRunId: null, status: 'RUNNING' },
         data: { engineRunId, status: runStatus },
       });
+      const linkedRun = await tx.taskRun.findUnique({
+        where: { ...attempt, engineRunId },
+        select: { status: true },
+      });
+      if (!linkedRun) {
+        throw new NotFoundException({
+          error: { code: 'NOT_FOUND', message: '寻源任务不存在' },
+        });
+      }
       // 无论 task.icpId 是否为空，均必须登记 discovery_run_link（封堵 icpId=null 绕过月度运行次数配额）；
       // 不泄露 runId 是否属于其他工作空间，统一返回 404 NOT_FOUND。
       const existingLink = await tx.discoveryRunLink.findFirst({ where: { runId: engineRunId } });
@@ -450,6 +461,7 @@ export class AcquisitionTasksController {
         where: { id: task.id },
         data: { lastRunAt: new Date() },
       });
+      return linkedRun.status;
     });
     await this.audit.record({
       realm: 'tenant',
@@ -464,7 +476,7 @@ export class AcquisitionTasksController {
       data: {
         taskRunId: run.id,
         runId: data.runId,
-        status: runStatus,
+        status: persistedStatus,
         attempt: run.attempt ?? 1,
         rerunOf: previousAttempt,
         replayed: false,
@@ -543,7 +555,10 @@ export class AcquisitionTasksController {
   private async failRun(workspaceId: string, taskRunId: string): Promise<void> {
     await this.prisma
       .withWorkspace(workspaceId, (tx) =>
-        tx.taskRun.update({ where: { id: taskRunId }, data: { status: 'FAILED', finishedAt: new Date() } }),
+        tx.taskRun.updateMany({
+          where: { id: taskRunId, workspaceId, status: 'RUNNING' },
+          data: { status: 'FAILED', finishedAt: new Date() },
+        }),
       )
       .catch(() => undefined);
   }

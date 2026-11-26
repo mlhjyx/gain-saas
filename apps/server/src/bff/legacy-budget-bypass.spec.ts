@@ -263,7 +263,8 @@ describe('LEGACY_EXECUTION_BUDGET_MODE=bypass 旁路开关', () => {
       taskRun: {
         findFirst: vi.fn(async () => null),
         create: vi.fn(async () => ({ id: taskRunId, attempt: 1, status: 'RUNNING', startedAt: now })),
-        update: vi.fn(async () => ({})),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        findUnique: vi.fn(async () => ({ status: 'RUNNING' })),
       },
       discoveryRunLink: {
         findFirst: vi.fn(async () => null),
