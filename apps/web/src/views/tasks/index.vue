@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import type { AcquisitionTaskView, TaskRunView } from '#/api/gainos';
+import type { AcquisitionTaskView, Icp, TaskRunView } from '#/api/gainos';
 
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { Button, Table } from 'ant-design-vue';
@@ -27,15 +27,27 @@ defineOptions({ name: 'Tasks' });
 const router = useRouter();
 
 const tasks = ref<AcquisitionTaskView[]>([]);
+const icps = ref<Icp[]>([]);
 const loading = ref(false);
 const error = ref<{ title: string; next?: string } | null>(null);
+
+const icpNameMap = computed(() => new Map(icps.value.map((icp) => [icp.id, icp.name])));
+
+function icpLabel(icpId?: string | null): string {
+  if (!icpId) return '—';
+  return icpNameMap.value.get(icpId) || $t('gainosP0.tasks.profileFallback');
+}
 
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const data = await gainosApi.acquisitionTasks();
+    const [data, icpList] = await Promise.all([
+      gainosApi.acquisitionTasks(),
+      gainosApi.icps().catch(() => [] as Icp[]),
+    ]);
     tasks.value = Array.isArray(data) ? data : [];
+    icps.value = Array.isArray(icpList) ? icpList : [];
   } catch (err) {
     error.value = failureText(err);
     tasks.value = [];
@@ -123,7 +135,7 @@ const columns = [
               <strong>{{ record.name }}</strong>
             </RouterLink>
             <div class="tk__muted">
-              {{ record.icpId ? `${$t('gainos.runs.icp')} ${record.icpId.slice(0, 8)}` : '—' }}
+              {{ icpLabel(record.icpId) }}
             </div>
           </template>
           <template v-else-if="column.key === 'status'">

@@ -13,7 +13,16 @@ import {
 } from "./support/market-candidates-fixtures";
 for (const cell of matrix)
   test.describe(cell.label, () => {
+    let nativeDialogs: string[] = [];
+    test.beforeEach(async ({ page }) => {
+      nativeDialogs = [];
+      page.on("dialog", (d) => {
+        nativeDialogs.push(`${d.type()}:${d.message()}`);
+        void d.dismiss();
+      });
+    });
     test.afterEach(async ({ page }, info) => {
+      expect(nativeDialogs, `Unexpected native browser dialogs: ${nativeDialogs.join(", ")}`).toEqual([]);
       await accessibleState(page);
       const screenshot = info.outputPath("state.png");
       await page.screenshot({ path: screenshot, fullPage: true });
@@ -96,12 +105,42 @@ for (const cell of matrix)
       await expect(h.button("feedback-validation")).toBeVisible();
       expect(h.requests.filter((r) => r.path.endsWith("/feedback"))).toHaveLength(0);
       await h.button("correction-application").fill("Changed application");
-      page.once("dialog", (d) => d.dismiss());
       await h.button("feedback-cancel").click();
+      const leaveModal = page.locator(".ant-modal-confirm");
+      await expect(leaveModal).toBeVisible();
+      await leaveModal
+        .getByRole("button", { name: cell.lang === "zh-CN" ? "取消" : "Cancel" })
+        .click();
+      await expect(leaveModal).toHaveCount(0);
       await expect(h.button("correction-application")).toHaveValue("Changed application");
       await h.button("feedback-save").click();
       await expect(h.button("feedback-dialog")).toHaveCount(0);
       await captureState(page, cell, "feedback-dialog-closed");
+      h.check();
+    });
+    test("V13 clean draft closes directly and dirty draft closes on leave confirm", async ({
+      page,
+    }) => {
+      const h = await setup(page, cell);
+      await h.open();
+      await page.getByTestId("mc-feedback").first().click();
+      await expect(h.button("feedback-dialog")).toBeVisible();
+      // Clean draft closes immediately without confirmation dialog.
+      await h.button("feedback-cancel").click();
+      await expect(page.locator(".ant-modal-confirm")).toHaveCount(0);
+      await expect(h.button("feedback-dialog")).toHaveCount(0);
+
+      // Dirty draft prompts confirmation and closes when confirmed.
+      await page.getByTestId("mc-feedback").first().click();
+      await h.button("reason").fill("Discardable draft");
+      await h.button("feedback-cancel").click();
+      const leaveModal = page.locator(".ant-modal-confirm");
+      await expect(leaveModal).toBeVisible();
+      await leaveModal
+        .getByRole("button", { name: cell.lang === "zh-CN" ? "关闭" : "Close" })
+        .click();
+      await expect(leaveModal).toHaveCount(0);
+      await expect(h.button("feedback-dialog")).toHaveCount(0);
       h.check();
     });
     test("V14 unknown accepted response replays the original key without regressing newer current", async ({
@@ -149,8 +188,8 @@ for (const cell of matrix)
       expect(await busyDialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
       await page.keyboard.press("Shift+Tab");
       expect(await busyDialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-      page.once("dialog", (d) => d.accept());
       await page.keyboard.press("Escape");
+      await expect(page.locator(".ant-modal-confirm")).toHaveCount(0);
       await expect(busyDialog).toBeVisible();
       await captureState(page, cell, "feedback-dialog-open-inflight");
       gate.resolve();

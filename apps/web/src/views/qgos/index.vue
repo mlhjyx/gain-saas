@@ -174,6 +174,15 @@ function outcomeLabel(value: string): string {
   return $t(`gainos.qgos.outcome.${value}` as Parameters<typeof $t>[0]);
 }
 
+function outcomeSourceLabel(source?: string | null): string {
+  const normalized = (source ?? '').trim().toUpperCase();
+  const known = ['MANUAL', 'AUTO', 'REPLY', 'OUTREACH', 'IMPORT'];
+  const key = known.includes(normalized)
+    ? `gainosP0.qgos.source.${normalized}`
+    : 'gainosP0.qgos.source.UNKNOWN';
+  return $t(key as Parameters<typeof $t>[0]);
+}
+
 function evidenceTypeLabel(value: string): string {
   const key = `gainos.leads.evidenceType.${value}` as Parameters<typeof $t>[0];
   const label = $t(key);
@@ -236,17 +245,19 @@ onMounted(load);
     </section>
 
     <ol v-else class="qg__list">
-      <li v-for="row in rows" :key="row.id" class="qg__card" @click="openDetail(row.id)">
-        <header class="qg__card-head">
-          <h2>{{ row.title }}</h2>
-          <span class="qg__state-badge" :class="`qg__state-badge--${row.state.toLowerCase()}`">{{ stateLabel(row.state) }}</span>
-        </header>
-        <p class="qg__next">{{ $t('gainos.qgos.nextStep') }}：{{ row.nextStep }}</p>
-        <div class="qg__meta">
-          <span v-if="typeof row.score === 'number'">{{ $t('gainos.qgos.score', { score: Math.round(row.score * 100) }) }}</span>
-          <span>{{ $t('gainos.qgos.evidenceCount', { count: row.evidence.length }) }}</span>
-          <span>{{ fmt(row.createdAt) }}</span>
-        </div>
+      <li v-for="row in rows" :key="row.id" class="qg__card-item">
+        <button type="button" class="qg__card" @click="openDetail(row.id)" @keydown.enter.stop>
+          <header class="qg__card-head">
+            <h2>{{ row.title }}</h2>
+            <span class="qg__state-badge" :class="`qg__state-badge--${row.state.toLowerCase()}`">{{ stateLabel(row.state) }}</span>
+          </header>
+          <p class="qg__next">{{ $t('gainos.qgos.nextStep') }}：{{ row.nextStep }}</p>
+          <div class="qg__meta">
+            <span v-if="typeof row.score === 'number'">{{ $t('gainos.qgos.score', { score: Math.round(row.score * 100) }) }}</span>
+            <span>{{ $t('gainos.qgos.evidenceCount', { count: row.evidence.length }) }}</span>
+            <span>{{ fmt(row.createdAt) }}</span>
+          </div>
+        </button>
       </li>
     </ol>
 
@@ -328,7 +339,7 @@ onMounted(load);
             <ul v-if="selected.outcomes?.length" class="qg__outcomes">
               <li v-for="outcome in selected.outcomes" :key="outcome.id">
                 <span class="qg__outcome-badge">{{ outcomeLabel(outcome.outcome) }}</span>
-                <span class="qg__muted">{{ fmt(outcome.occurredAt) }} · {{ outcome.source }}</span>
+                <span class="qg__muted">{{ fmt(outcome.occurredAt) }} · {{ outcomeSourceLabel(outcome.source) }}</span>
                 <p v-if="outcome.note">{{ outcome.note }}</p>
               </li>
             </ul>
@@ -368,8 +379,10 @@ onMounted(load);
 .qg__empty-desc { margin: 0 0 12px; color: var(--gs-fg-muted); font-size: 13.5px; }
 
 .qg__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.qg__card { border: 1px solid var(--gs-border); border-radius: 12px; padding: 14px 16px; cursor: pointer; background: var(--gs-bg); }
+.qg__card-item { margin: 0; padding: 0; }
+.qg__card { width: 100%; text-align: left; font: inherit; color: inherit; border: 1px solid var(--gs-border); border-radius: 12px; padding: 14px 16px; cursor: pointer; background: var(--gs-bg); display: block; }
 .qg__card:hover { border-color: var(--gs-accent); }
+.qg__card:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 2px; }
 .qg__card-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .qg__card-head h2 { margin: 0; font-size: 16px; }
 .qg__next { margin: 8px 0 6px; font-size: 13.5px; color: var(--gs-fg); }
@@ -377,7 +390,7 @@ onMounted(load);
 
 .qg__state-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--gs-divider); color: var(--gs-fg-muted); }
 .qg__state-badge--open { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
-.qg__state-badge--converted { background: var(--gs-accent-soft); color: var(--gs-accent-strong); }
+.qg__state-badge--converted { background: var(--gs-success-bg); color: var(--gs-success-fg); }
 .qg__state-badge--dropped { background: var(--gs-danger-bg); color: var(--gs-danger); }
 
 .qg__drawer-body { display: grid; gap: 16px; }

@@ -54,11 +54,11 @@ test('dark mode semantic tokens reach WCAG AA and GS_BRAND unifies light bgLayou
   });
 
   await loginAs(page);
-  await page.getByRole('button', { name: 'dark' }).click();
-  await expect(page.locator('html')).toHaveClass(/\bdark\b/);
-
   await page.goto('/settings/suppressions');
   await expect(page.getByText('blocked@example.com')).toBeVisible();
+
+  await page.getByRole('button', { name: 'dark' }).click();
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/);
 
   // Trigger an inline AntDV error Alert by submitting an empty suppression entry.
   await page.getByRole('button', { name: '加入' }).click();
@@ -715,4 +715,130 @@ test('outreach auditPackage renders structured summary with raw JSON folded in d
   await rawDetails.locator('summary').click();
   await expect(rawDetails.locator('pre')).toBeVisible();
   await expect(rawDetails.locator('pre')).toContainText('outreach-audit-package/v1');
+});
+
+test('qgos translates outcome source, uses green badge for CONVERTED, and supports keyboard open', async ({
+  page,
+}, testInfo) => {
+  const QGO_ID = '77777777-7777-4777-8777-777777777771';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  const qgoRecord = {
+    id: QGO_ID,
+    title: 'Muster Pumpen 采购商机',
+    state: 'CONVERTED',
+    nextStep: '发送规格书与报价单',
+    score: 0.91,
+    createdAt: NOW,
+    evidence: [{ type: 'customer_reply', support: '客户邮件询价', retrievedAt: NOW }],
+    sao: { id: 'sao-1', state: 'ACCEPTED', decidedAt: NOW, reason: null },
+    outcomes: [
+      {
+        id: 'out-1',
+        outcome: 'REPLIED',
+        source: 'MANUAL',
+        occurredAt: NOW,
+        note: '客户索要样品报价',
+      },
+    ],
+  };
+
+  backend.set('GET', '/qgos', [qgoRecord]);
+  backend.set('GET', `/qgos/${QGO_ID}`, qgoRecord);
+
+  await loginAs(page);
+  await page.goto('/qgos');
+
+  const rowButton = page.locator('.qg__list').getByRole('button', { name: /Muster Pumpen 采购商机/ });
+  await expect(rowButton).toBeVisible();
+
+  // CONVERTED badge must use green semantic color, distinct from OPEN accent blue.
+  const badgeColor = await page
+    .locator('.qg__state-badge--converted')
+    .first()
+    .evaluate((el) => getComputedStyle(el).color);
+  expect(badgeColor).toBe('rgb(26, 117, 68)');
+
+  // Keyboard activation via focus + Enter opens the detail drawer.
+  await rowButton.focus();
+  await page.keyboard.press('Enter');
+
+  const drawer = page.locator('.ant-drawer-content');
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText('人工登记');
+  await expect(drawer).not.toContainText('· MANUAL');
+});
+
+test('audit translates all 14 KNOWN_ACTIONS with GsSelect and preserves getByLabel(动作)', async ({
+  page,
+}, testInfo) => {
+  const NOW = '2026-11-26T08:00:00.000Z';
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  backend.set('GET', '/audit', {
+    entries: [
+      { id: 'a1', at: NOW, action: 'claim.approve', target: 'claim-1', detail: null },
+      { id: 'a2', at: NOW, action: 'claim.reject', target: 'claim-2', detail: null },
+      { id: 'a3', at: NOW, action: 'deletion.request', target: 'del-1', detail: null },
+      { id: 'a4', at: NOW, action: 'outreach.send', target: 'batch-1', detail: null },
+      { id: 'a5', at: NOW, action: 'member.remove', target: 'user-2', detail: null },
+    ],
+    nextCursor: null,
+    total: 5,
+  });
+
+  await loginAs(page);
+  await page.goto('/settings/audit');
+
+  await expect(page.locator('datalist#audit-action-options')).toHaveCount(0);
+  await expect(page.getByLabel('动作')).toBeVisible();
+  await expect(page.locator('[data-gs="select"]')).toBeVisible();
+
+  const table = page.locator('.ant-table');
+  await expect(table).toContainText('审批通过企业事实');
+  await expect(table).toContainText('驳回企业事实');
+  await expect(table).toContainText('提交隐私删除申请');
+  await expect(table).toContainText('执行外发投递');
+  await expect(table).toContainText('移除成员');
+  await expect(table).not.toContainText('claim.approve');
+  await expect(table).not.toContainText('claim.reject');
+});
+
+test('tasks list and detail display real buyer profile name instead of icpId prefix', async ({
+  page,
+}, testInfo) => {
+  const TASK_ID = '88888888-8888-4888-8888-888888888881';
+  const ICP_ID = 'deadbeef-1111-4111-8111-111111111111';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  backend.set('GET', '/icps', [
+    { id: ICP_ID, companyId: 'co-1', name: '意大利光伏总包商', status: 'ACTIVE', targetMarkets: ['IT'] },
+  ]);
+  backend.set('GET', '/tasks', [
+    {
+      id: TASK_ID,
+      name: '意大利光伏首轮挖掘',
+      status: 'active',
+      icpId: ICP_ID,
+      createdAt: NOW,
+      lastRunAt: NOW,
+      runs: [],
+    },
+  ]);
+
+  await loginAs(page);
+  await page.goto('/tasks');
+  await expect(page.locator('.ant-table')).toContainText('意大利光伏总包商');
+  await expect(page.locator('.ant-table')).not.toContainText('deadbeef');
+
+  await page.goto(`/tasks/${TASK_ID}`);
+  await expect(page.locator('.tkd__facts')).toContainText('意大利光伏总包商');
+  await expect(page.locator('.tkd__facts')).not.toContainText('deadbeef');
 });

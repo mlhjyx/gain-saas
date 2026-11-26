@@ -7,13 +7,14 @@
 import { computed, inject, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { Alert, Skeleton, Button, DatePicker, Input, Table } from 'ant-design-vue';
+import { Alert, Skeleton, Button, DatePicker, Table } from 'ant-design-vue';
 
 import { formatDate, formatDateTime } from '@gain-saas/shared';
 
 import EmptyState from '#/components/gainos/empty-state.vue';
 import { SETTINGS_EMBEDDED_KEY } from '#/components/gainos/settings-dialog-context';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
 
 import { $t } from '#/locales';
 
@@ -54,15 +55,48 @@ const KNOWN_ACTIONS = [
   'claim.reject',
 ] as const;
 
-const ACTION_LABELS: Record<string, string> = {
-  'auth.login': $t('gainos.audit.actionName.login'),
-  'bff.request': $t('gainos.audit.actionName.bffRequest'),
-  'member.invite': $t('gainos.audit.actionName.memberInvite'),
-  'role.change': $t('gainos.audit.actionName.roleChange'),
+const ACTION_KEY_MAP: Record<(typeof KNOWN_ACTIONS)[number], string> = {
+  'auth.login': 'authLogin',
+  'bff.request': 'bffRequest',
+  'member.invite': 'memberInvite',
+  'role.change': 'roleChange',
+  'member.remove': 'memberRemove',
+  'outreach.batch.create': 'outreachBatchCreate',
+  'outreach.batch.approve': 'outreachBatchApprove',
+  'outreach.draft.create': 'outreachDraftCreate',
+  'outreach.send': 'outreachSend',
+  'channel.create': 'channelCreate',
+  'channel.probe': 'channelProbe',
+  'deletion.request': 'deletionRequest',
+  'claim.approve': 'claimApprove',
+  'claim.reject': 'claimReject',
 };
 
+const actionLabels = computed<Record<string, string>>(() =>
+  Object.fromEntries(
+    KNOWN_ACTIONS.map((action) => [
+      action,
+      $t(`gainosP0.audit.actionName.${ACTION_KEY_MAP[action]}` as Parameters<typeof $t>[0]),
+    ]),
+  ),
+);
+
+const actionOptions = computed(() =>
+  KNOWN_ACTIONS.map((action) => ({
+    value: action,
+    label: actionLabels.value[action] ?? action,
+  })),
+);
+
+const actionFilterValue = computed<string | undefined>({
+  get: () => filters.action || undefined,
+  set: (value) => {
+    filters.action = typeof value === 'string' ? value : '';
+  },
+});
+
 function actionLabel(action?: string | null): string {
-  return (action && ACTION_LABELS[action]) || action || '—';
+  return (action && actionLabels.value[action]) || action || '—';
 }
 
 function shortTarget(target?: string | null): string {
@@ -220,18 +254,21 @@ onMounted(() => {
     </template>
 
     <form class="au__filters" @submit.prevent="applyFilters">
-      <label class="au__field">
+      <div class="au__field">
         <span>{{ $t('gainos.audit.filterAction') }}</span>
-        <Input
-          v-model:value="filters.action"
-          :list="'audit-action-options'"
-          :placeholder="$t('gainos.audit.filterActionPlaceholder')"
-          style="min-width: 170px"
-        />
-        <datalist id="audit-action-options">
-          <option v-for="action in KNOWN_ACTIONS" :key="action" :value="action"></option>
-        </datalist>
-      </label>
+        <div class="au__action-select">
+          <GsSelect
+            v-model="actionFilterValue"
+            :aria-label="$t('gainos.audit.filterAction')"
+            :options="actionOptions"
+            :placeholder="$t('gainosP0.audit.actionPlaceholder')"
+            allow-clear
+            option-filter-prop="label"
+            show-search
+            style="width: 100%"
+          />
+        </div>
+      </div>
       <label class="au__field">
         <span>{{ $t('gainos.audit.filterFrom') }}</span>
         <DatePicker
@@ -291,7 +328,7 @@ onMounted(() => {
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'at'">{{ fmtTime(record.at) }}</template>
-          <template v-else-if="column.key === 'action'"><code>{{ actionLabel(record.action) }}</code></template>
+          <template v-else-if="column.key === 'action'"><span>{{ actionLabel(record.action) }}</span></template>
           <template v-else-if="column.key === 'target'">
             <span :title="record.target || ''">{{ shortTarget(record.target) }}</span>
           </template>
@@ -325,6 +362,9 @@ onMounted(() => {
   gap: 4px;
   font-size: 12px;
   color: var(--gs-fg-muted);
+}
+.au__action-select {
+  min-width: 200px;
 }
 .au__filter-actions {
   display: flex;
