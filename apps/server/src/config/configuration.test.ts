@@ -127,4 +127,21 @@ describe('loadConfig', () => {
       } as NodeJS.ProcessEnv),
     ).toThrow(/APP_DATABASE_URL/);
   });
+
+  it('已下线的 MODEL_GATEWAY_* 遗留环境变量会被静默忽略且不影响启动', () => {
+    resetConfigCache();
+    const config = loadConfig({
+      ...baseEnv,
+      MODEL_GATEWAY_API_KEY: 'a'.repeat(24),
+      MODEL_GATEWAY_ENC_KEY: '0'.repeat(64),
+      MODEL_GATEWAY_TIMEOUT_MS: '60000',
+      MODEL_GATEWAY_SETTLEMENT_ORIGIN: 'http://127.0.0.1:3001',
+      MODEL_GATEWAY_SETTLEMENT_API_KEY: 'b'.repeat(24),
+    } as NodeJS.ProcessEnv) as Record<string, unknown>;
+    expect(config.MODEL_GATEWAY_API_KEY).toBeUndefined();
+    expect(config.MODEL_GATEWAY_ENC_KEY).toBeUndefined();
+    expect(config.MODEL_GATEWAY_TIMEOUT_MS).toBeUndefined();
+    expect(config.MODEL_GATEWAY_SETTLEMENT_ORIGIN).toBeUndefined();
+    expect(config.MODEL_GATEWAY_SETTLEMENT_API_KEY).toBeUndefined();
+  });
 });

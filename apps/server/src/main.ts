@@ -16,7 +16,6 @@ import { BffGuard, BffHandler, registerBffMiddleware } from './bff/bff.module.js
 import { registerSellerDocumentUploadMiddleware } from './bff/seller-document-upload.middleware.js';
 import { SessionService } from './tenant/session.service.js';
 import { GlobalHttpExceptionFilter } from './shared/http-exception.filter.js';
-import { registerSettlementReadbackProxy } from './model-gateway/settlement-readback-proxy.js';
 import { registerPublicCooperationCors } from './cooperation/public-cooperation-cors.js';
 import { startR4TlsServers } from './r4/r4-tls.server.js';
 
@@ -57,7 +56,6 @@ async function bootstrap(): Promise<void> {
   registerSellerDocumentUploadMiddleware(expressInstance, app.get(SessionService));
   expressInstance.use(expressLib.json({ limit: '8mb' }));
   expressInstance.use(expressLib.urlencoded({ extended: true, limit: '8mb' }));
-  registerSettlementReadbackProxy(expressInstance, config);
   const bffHandler = app.get(BffHandler);
   const bffGuard = app.get(BffGuard);
   registerBffMiddleware(expressInstance, bffHandler, bffGuard);

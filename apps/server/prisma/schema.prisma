@@ -1317,7 +1317,9 @@ model SigningKey {
   @@map("signing_key")
 }
 
-/// 内嵌模型网关的上游厂商(运营台配置)。API Key 只存 AES-256-GCM 密文。
+/// [DEPRECATED / ARCHIVED READ-ONLY] 原内嵌模型网关的上游厂商表。
+/// 2026-11-03 已拍板继续由 new-api 承担模型网关，2026-11-26 已清理全部运行时代码；
+/// 按 expand-and-contract 原则暂保留只读归档，不 DROP 现网表。
 model AiProvider {
   id           String   @id @default(uuid()) @db.Uuid
   name         String   @unique
@@ -1341,8 +1343,7 @@ model AiProvider {
   @@map("ai_provider")
 }
 
-/// 公开模型别名(引擎请求的 model)→ 上游厂商 + 上游真实模型。
-/// 同一别名可配多个厂商做优先级回退;没有别名命中时走 isDefault 路由。
+/// [DEPRECATED / ARCHIVED READ-ONLY] 原内嵌模型网关的模型别名路由表（无运行时引用，按 expand-and-contract 暂保留只读归档）。
 model AiModelRoute {
   id            String   @id @default(uuid()) @db.Uuid
   providerId    String   @map("provider_id") @db.Uuid
@@ -1360,7 +1361,7 @@ model AiModelRoute {
   @@map("ai_model_route")
 }
 
-/// 网关调用元数据(不存 prompt/补全,避免个人数据进日志)。
+/// [DEPRECATED / ARCHIVED READ-ONLY] 原内嵌模型网关调用元数据表（无运行时引用，按 expand-and-contract 暂保留只读归档）。
 model ModelCallLog {
   id            String   @id @default(uuid()) @db.Uuid
   requestId     String   @map("request_id")
