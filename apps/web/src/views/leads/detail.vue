@@ -29,7 +29,12 @@ import {
 
 import { $t } from '#/locales';
 
-import { evaluateT0Channels, formatDate, formatDateTime } from '@gain-saas/shared';
+import {
+  evaluateT0Channels,
+  formatDate,
+  formatDateTime,
+  mapRejectCodeToFeedbackReason,
+} from '@gain-saas/shared';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import AsyncSection from '#/components/gainos/async-section.vue';
@@ -66,11 +71,12 @@ const REJECT_CODES = [
   'NOT_TARGET_ROLE',
   'WRONG_PRODUCT',
   'TOO_SMALL',
+  'WRONG_COUNTRY',
+  'DEAD_COMPANY',
+  'BAD_CONTACT_PATH',
   'TOO_LARGE',
   'ALREADY_KNOWN',
   'NO_IMPORT_SIGNAL',
-  'WRONG_COUNTRY',
-  'BAD_CONTACT_PATH',
   'DUPLICATE',
   'OTHER',
 ] as const;
@@ -462,13 +468,35 @@ function openDecision(kind: 'accept' | 'reject'): void {
   actionError.value = null;
 }
 
+async function resolveTargetIcpId(): Promise<string> {
+  const pkgRaw = pkg.value as (LeadPackage & { icpId?: string; icp_id?: string }) | null;
+  const fromPkg = pkgRaw?.icp_id || pkgRaw?.icpId || '';
+  if (fromPkg) return fromPkg;
+  const rawState =
+    typeof window !== 'undefined'
+      ? (window.history.state as { icpId?: unknown } | null)?.icpId
+      : undefined;
+  if (typeof rawState === 'string' && rawState.trim()) return rawState.trim();
+  const rawRoute = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
+  if (typeof rawRoute === 'string' && rawRoute.trim()) return rawRoute.trim();
+  try {
+    const icps = await gainosApi.icps();
+    const list = Array.isArray(icps) ? icps : [];
+    return list.find((item) => item.status === 'ACTIVE')?.id ?? list[0]?.id ?? '';
+  } catch {
+    return '';
+  }
+}
+
 async function submitDecision(): Promise<void> {
   if (!decision.value) return;
   if (decision.value === 'reject' && !reasonCode.value) return;
   actionError.value = null;
+  const selectedReasonCode = reasonCode.value;
+  const noteTrimmed = reasonNote.value.trim();
   const input: LeadDecisionInput = {
-    ...(reasonCode.value ? { reasonCode: reasonCode.value } : {}),
-    ...(reasonNote.value.trim() ? { reason: reasonNote.value.trim() } : {}),
+    ...(selectedReasonCode ? { reasonCode: selectedReasonCode } : {}),
+    ...(noteTrimmed ? { reason: noteTrimmed } : {}),
   };
   const kind = decision.value;
   try {
@@ -479,7 +507,28 @@ async function submitDecision(): Promise<void> {
         feedback.message.success($t('gainos.leads.acceptedNotice'));
       } else {
         await gainosApi.rejectLead(leadId.value, input, idempotencyKey);
-        feedback.message.success($t('gainos.leads.rejectedNotice'));
+        const targetIcpId = await resolveTargetIcpId();
+        let synced = false;
+        if (targetIcpId && pkg.value) {
+          const mappedReason = mapRejectCodeToFeedbackReason(selectedReasonCode);
+          await gainosApi
+            .recordIcpFeedback(targetIcpId, {
+              leadId: leadId.value,
+              companyId: pkg.value.company?.canonical_company_id,
+              domain: pkg.value.company?.domain ?? undefined,
+              companyName: pkg.value.company?.name ?? undefined,
+              outcome: 'rejected',
+              ...(mappedReason ? { rejectionReason: mappedReason } : {}),
+              ...(noteTrimmed ? { note: noteTrimmed } : {}),
+            })
+            .then(() => {
+              synced = true;
+            })
+            .catch(() => undefined);
+        }
+        feedback.message.success(
+          synced ? $t('gainos.leads.feedbackSyncedNotice') : $t('gainos.leads.rejectedNotice'),
+        );
       }
     });
     decision.value = null;

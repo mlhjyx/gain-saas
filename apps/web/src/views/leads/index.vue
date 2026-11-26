@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   deriveStreamingFunnelProgress,
   glossaryStatus,
+  mapRejectCodeToFeedbackReason,
   type StreamingProgressDto,
 } from '@gain-saas/shared';
 import { RotateCw, Search } from '@vben/icons';
@@ -79,11 +80,12 @@ const REJECT_CODES = [
   'NOT_TARGET_ROLE',
   'WRONG_PRODUCT',
   'TOO_SMALL',
+  'WRONG_COUNTRY',
+  'DEAD_COMPANY',
+  'BAD_CONTACT_PATH',
   'TOO_LARGE',
   'ALREADY_KNOWN',
   'NO_IMPORT_SIGNAL',
-  'WRONG_COUNTRY',
-  'BAD_CONTACT_PATH',
   'DUPLICATE',
   'OTHER',
 ] as const;
@@ -274,7 +276,11 @@ async function submitPromote(): Promise<void> {
 }
 
 function openPackage(lead: Lead): void {
-  void router.push({ name: 'LeadDetail', params: { leadId: lead.id } });
+  void router.push({
+    name: 'LeadDetail',
+    params: { leadId: lead.id },
+    ...(activeIcpId.value ? { state: { icpId: activeIcpId.value } } : {}),
+  });
 }
 async function copyDomain(lead: Lead): Promise<void> {
   if (!lead.company?.domain) return;
@@ -449,11 +455,14 @@ async function submitDecision(): Promise<void> {
     return;
   }
   actionError.value = null;
-  const leadId = target.value.id;
+  const lead = target.value;
+  const leadId = lead.id;
   const kind = modal.value;
+  const selectedReasonCode = reasonCode.value;
+  const noteTrimmed = reasonNote.value.trim();
   const input: LeadDecisionInput = {
-    ...(reasonCode.value ? { reasonCode: reasonCode.value } : {}),
-    ...(reasonNote.value.trim() ? { reason: reasonNote.value.trim() } : {}),
+    ...(selectedReasonCode ? { reasonCode: selectedReasonCode } : {}),
+    ...(noteTrimmed ? { reason: noteTrimmed } : {}),
   };
   try {
     // 幂等键由 usePendingAction 管理：双击/失败重试沿用同键，服务端按幂等重放。
@@ -463,7 +472,29 @@ async function submitDecision(): Promise<void> {
         feedback.message.success($t('gainos.leads.acceptedNotice'));
       } else {
         await gainosApi.rejectLead(leadId, input, idempotencyKey);
-        feedback.message.success($t('gainos.leads.rejectedNotice'));
+        const targetIcpId = lead.icpId || activeIcpId.value;
+        let synced = false;
+        if (targetIcpId) {
+          const mappedReason = mapRejectCodeToFeedbackReason(selectedReasonCode);
+          await gainosApi
+            .recordIcpFeedback(targetIcpId, {
+              leadId,
+              companyId: lead.company?.id,
+              domain: lead.company?.domain ?? undefined,
+              companyName: lead.company?.name ?? undefined,
+              industry: lead.company?.industry ?? undefined,
+              outcome: 'rejected',
+              ...(mappedReason ? { rejectionReason: mappedReason } : {}),
+              ...(noteTrimmed ? { note: noteTrimmed } : {}),
+            })
+            .then(() => {
+              synced = true;
+            })
+            .catch(() => undefined);
+        }
+        feedback.message.success(
+          synced ? $t('gainos.leads.feedbackSyncedNotice') : $t('gainos.leads.rejectedNotice'),
+        );
       }
     });
     closeModal();

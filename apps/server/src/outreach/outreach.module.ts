@@ -69,6 +69,12 @@ import {
   OutreachConsentService,
 } from './outreach-consent.service.js';
 import { OutreachT0Service } from './outreach-t0.service.js';
+import { OutreachT1Controller } from './outreach-t1.controller.js';
+import {
+  NODE_DNS_RESOLVER,
+  OUTREACH_DNS_RESOLVER,
+  OutreachT1Service,
+} from './outreach-t1.service.js';
 import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
 
 /**
@@ -93,10 +99,13 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachTemplatesController,
     OutreachCallsController,
     OutreachReconciliationController,
+    OutreachT1Controller,
   ],
   providers: [
     OutreachConsentService,
     OutreachT0Service,
+    { provide: OUTREACH_DNS_RESOLVER, useValue: NODE_DNS_RESOLVER },
+    OutreachT1Service,
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,

@@ -544,4 +544,121 @@ describe('OutreachBatchService', () => {
     });
     expect(prisma.batches).toHaveLength(0);
   });
+
+  it('画册附件引用（PDF/HTML）：合法附件经事件回水到 getBatch，支持更新清空，非法 MIME 或超限拒绝', async () => {
+    const prisma = new FakePrisma();
+    const { service } = build(prisma);
+    const batch = await service.createBatch(tenantA, { name: '附带画册外联' });
+    const docId = '11111111-1111-4111-8111-111111111111';
+    const htmlDocId = '22222222-2222-4222-8222-222222222222';
+
+    const draft = await service.addDraft(tenantA, batch.id, {
+      ...draftInput(),
+      attachments: [
+        {
+          documentId: docId,
+          filename: '2026-product-catalog.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 2_048_000,
+          status: 'ready',
+        },
+      ],
+    });
+    expect('attachments' in draft && draft.attachments).toHaveLength(1);
+
+    const loaded = await service.getBatch(tenantA, batch.id);
+    expect(loaded.drafts[0]?.attachments).toEqual([
+      {
+        documentId: docId,
+        filename: '2026-product-catalog.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2_048_000,
+        status: 'ready',
+      },
+    ]);
+
+    // 更新为 HTML 画册并确认 getBatch 回水为最新事件
+    await service.updateDraft(tenantA, batch.id, draft.id, {
+      ...draftInput(),
+      attachments: [
+        {
+          documentId: htmlDocId,
+          filename: 'brochure.html',
+          mimeType: 'text/html',
+          sizeBytes: 120_000,
+          status: 'ready',
+        },
+      ],
+    });
+    const updatedLoaded = await service.getBatch(tenantA, batch.id);
+    expect(updatedLoaded.drafts[0]?.attachments).toEqual([
+      {
+        documentId: htmlDocId,
+        filename: 'brochure.html',
+        mimeType: 'text/html',
+        sizeBytes: 120_000,
+        status: 'ready',
+      },
+    ]);
+
+    // 非就绪附件拒绝
+    await expect(
+      service.addDraft(tenantA, batch.id, {
+        ...draftInput(CONTACT_2),
+        attachments: [
+          {
+            documentId: docId,
+            filename: 'parsing.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 1024,
+            status: 'processing',
+          },
+        ],
+      }),
+    ).rejects.toSatisfy(
+      (error) =>
+        (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
+        'ATTACHMENT_NOT_READY',
+    );
+
+    // 非法 MIME 拒绝
+    await expect(
+      service.addDraft(tenantA, batch.id, {
+        ...draftInput(CONTACT_2),
+        attachments: [
+          {
+            documentId: docId,
+            filename: 'bad.exe',
+            mimeType: 'application/x-msdownload',
+            sizeBytes: 1024,
+            status: 'ready',
+          },
+        ],
+      }),
+    ).rejects.toSatisfy(
+      (error) =>
+        (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
+        'ATTACHMENT_MIME_NOT_ALLOWED',
+    );
+
+    // 单附件超过 10MB 拒绝
+    await expect(
+      service.addDraft(tenantA, batch.id, {
+        ...draftInput(CONTACT_2),
+        attachments: [
+          {
+            documentId: docId,
+            filename: 'huge.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 11 * 1024 * 1024,
+            status: 'ready',
+          },
+        ],
+      }),
+    ).rejects.toSatisfy(
+      (error) =>
+        (error as { response?: { error?: { code?: string } } }).response?.error?.code ===
+        'ATTACHMENT_TOO_LARGE',
+    );
+  });
 });

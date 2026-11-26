@@ -12,6 +12,7 @@
  */
 import type {
   ComtradeMarketRecommendation,
+  IcpFeedbackSummaryDto,
   ProcurementScenarioCode,
   StatusTone,
   StreamingProgressDto,
@@ -42,6 +43,7 @@ import {
   glossaryStatus,
   glossaryTerm,
   normalizeComtradeRecommendations,
+  normalizeIcpFeedbackSummary,
   PROCUREMENT_SCENARIO_CODES,
 } from '@gain-saas/shared';
 import { RotateCw } from '@vben/icons';
@@ -134,15 +136,27 @@ const TERMINAL_RUN_STATUSES = new Set(['DONE', 'COMPLETED', 'PARTIAL', 'FAILED',
 // Run 2.0（M0②）：挖掘任务（每个 ICP 复用一个活动任务）与最近运行。
 const taskRuns = ref<TaskRunView[]>([]);
 let taskCache: AcquisitionTaskView | null = null;
-// M2：反馈建议卡（只建议，采纳=手动改 ICP）。
+// M2：反馈建议卡（只建议，采纳=手动改 ICP）+ Phase 3B 已沉淀排除规则与反例学习摘要。
 const feedback = ref<IcpFeedbackReport | null>(null);
+const feedbackSummary = ref<IcpFeedbackSummaryDto | null>(null);
+
+function learnedReasonLabel(code: string): string {
+  const key = `gainos.findBuyers.learnedReason.${code}` as Parameters<typeof $t>[0];
+  const translated = $t(key);
+  return translated === key ? $t('gainos.findBuyers.learnedReason.unspecified') : translated;
+}
 
 async function loadFeedback(icpId: string): Promise<void> {
-  try {
-    feedback.value = await gainosApi.icpFeedback(icpId);
-  } catch {
-    feedback.value = null;
-  }
+  const [fbRes, summaryRes] = await Promise.allSettled([
+    gainosApi.icpFeedback(icpId),
+    gainosApi.icpFeedbackSummary(icpId),
+  ]);
+  feedback.value = fbRes.status === 'fulfilled' ? fbRes.value : null;
+  const rawSummary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+  feedbackSummary.value =
+    rawSummary && typeof rawSummary === 'object' && ('excludedDomains' in rawSummary || 'counterExamples' in rawSummary || 'stats' in rawSummary)
+      ? normalizeIcpFeedbackSummary(rawSummary)
+      : null;
 }
 
 /** 引擎没有“按方案列 run”的端点；把已发起的 runId 留在本机，关闭页面后还能回到任务。 */
@@ -562,6 +576,7 @@ async function openDetail(icp: Icp, focusRunId?: string): Promise<void> {
   taskCache = null;
   taskRuns.value = [];
   feedback.value = null;
+  feedbackSummary.value = null;
   profileEdited.value = false;
   stopDetailStreamPoll();
   detailStreamRunId.value = null;
@@ -594,6 +609,7 @@ function closeDetail(): void {
   taskRuns.value = [];
   taskCache = null;
   feedback.value = null;
+  feedbackSummary.value = null;
   profileEdited.value = false;
   backtest.value = null;
   ruleOpen.value = false;
@@ -1388,6 +1404,72 @@ onUnmounted(stopDetailStreamPoll);
               </li>
             </ul>
           </div>
+          </div>
+        </GsCard>
+
+        <!-- Phase 3B：已沉淀的排除规则与反例学习摘要 -->
+        <GsCard
+          v-if="feedbackSummary"
+          :title="$t('gainos.findBuyers.learnedFeedbackTitle')"
+          data-gs="icp-learned-feedback"
+        >
+          <template #extra>
+            <GsTag tone="info">
+              {{ $t('gainos.findBuyers.learnedTotalCount', { count: feedbackSummary.stats.totalRecorded }) }}
+            </GsTag>
+          </template>
+          <p class="fb-muted">{{ $t('gainos.findBuyers.learnedFeedbackDesc') }}</p>
+          <div
+            v-if="
+              feedbackSummary.excludedDomains.length === 0 &&
+              feedbackSummary.excludedKeywords.length === 0 &&
+              feedbackSummary.counterExamples.length === 0 &&
+              feedbackSummary.positiveExamples.length === 0
+            "
+            class="fb-muted"
+          >
+            {{ $t('gainos.findBuyers.learnedEmpty') }}
+          </div>
+          <div v-else class="fb-stack">
+            <div v-if="feedbackSummary.excludedDomains.length > 0" class="fb-block">
+              <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedDomains') }}</p>
+              <div class="fb-chips" data-gs="icp-learned-domains">
+                <Tag
+                  v-for="domain in feedbackSummary.excludedDomains"
+                  :key="domain"
+                  :bordered="false"
+                  class="fb-chip"
+                  color="red"
+                >
+                  {{ domain }}
+                </Tag>
+              </div>
+            </div>
+            <div v-if="feedbackSummary.excludedKeywords.length > 0" class="fb-block">
+              <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedKeywords') }}</p>
+              <div class="fb-chips" data-gs="icp-learned-keywords">
+                <Tag
+                  v-for="kw in feedbackSummary.excludedKeywords"
+                  :key="kw"
+                  :bordered="false"
+                  class="fb-chip"
+                  color="orange"
+                >
+                  {{ kw }}
+                </Tag>
+              </div>
+            </div>
+            <div v-if="feedbackSummary.counterExamples.length > 0" class="fb-block">
+              <p class="fb-label">{{ $t('gainos.findBuyers.learnedCounterExamples') }}</p>
+              <ul class="fb-list" data-gs="icp-learned-counter-examples">
+                <li v-for="(ex, idx) in feedbackSummary.counterExamples" :key="`${ex.domain ?? idx}-${idx}`">
+                  <strong>{{ ex.companyName || ex.domain || '—' }}</strong>
+                  <Tag :bordered="false" class="ml-2 text-xs">{{ learnedReasonLabel(ex.reason) }}</Tag>
+                  <span v-if="ex.note" class="fb-muted"> · {{ ex.note }}</span>
+                  <span v-if="ex.recordedAt" class="fb-muted"> · {{ formatDateTime(ex.recordedAt) }}</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </GsCard>
 

@@ -277,6 +277,8 @@ export interface LeadPackage {
   suggested_contact_path?: { kind: string; url: string; legal_note: string } | null;
   /** 意向信号（引擎 intent events，最多 3 条）：type 原样、at 为 ISO、url 仅 https。 */
   signals?: Array<{ type: string; at: string; url: string | null }>;
+  /** Phase 3B：基于真实公开信号生成的零捏造中英文破冰首句（最多 3 条）。 */
+  icebreakerSuggestions?: import('@gain-saas/shared').SignalIcebreakerSuggestion[];
   /** 八维评分（引擎 snake_case，0–1）。 */
   scores?: {
     fit?: number | null;
@@ -504,10 +506,11 @@ export interface OutreachReplyView {
   id: string;
   contactRef: string;
   recipientEmail: string | null;
-  kind: 'REPLY' | 'BOUNCE' | 'UNSUBSCRIBE' | string;
+  kind: 'REPLY' | 'BOUNCE' | 'UNSUBSCRIBE' | 'COMPLAINT' | string;
   classification: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'OUT_OF_OFFICE' | 'UNKNOWN' | string;
   subject: string | null;
   snippet: string | null;
+  referredEmails?: string[];
   receivedAt: string;
 }
 
@@ -1244,6 +1247,20 @@ export const gainosApi = {
   queryPlans: (icpId: string) => requestClient.get<QueryPlan[]>(`/icps/${icpId}/query-plans`),
   /** M2：ICP 反馈聚合与建议卡（只读）。 */
   icpFeedback: (icpId: string) => requestClient.get<IcpFeedbackReport>(`/icps/${icpId}/feedback`),
+  /** Phase 3B：记录结构化线索反馈并回流 ICP 排除规则与反例学习（#87）。 */
+  recordIcpFeedback: (
+    icpId: string,
+    input: import('@gain-saas/shared').IcpFeedbackRecordInput,
+  ) =>
+    requestClient.post<import('@gain-saas/shared').IcpFeedbackRecordResult>(
+      `/icps/${icpId}/feedback/record`,
+      input,
+    ),
+  /** Phase 3B：读取已沉淀的排除规则、反例样本与正向样本摘要（#87）。 */
+  icpFeedbackSummary: (icpId: string) =>
+    requestClient.get<import('@gain-saas/shared').IcpFeedbackSummaryDto>(
+      `/icps/${icpId}/feedback/summary`,
+    ),
   createQueryPlan: (icpId: string, attemptId?: string) =>
     requestClient.post<QueryPlan>(`/icps/${icpId}/query-plans`, attemptId ? { attemptId } : {}),
   confirmQueryPlan: (planId: string) =>
@@ -1433,6 +1450,97 @@ export const gainosApi = {
     ),
   reopenOutreachBatch: (batchId: string) =>
     requestClient.post<OutreachBatchDetail>(`/outreach/batches/${batchId}/reopen`, {}),
+  /** Phase 3 T1：批次执行授权、发送执行与审计包。 */
+  authorizeOutreachBatch: (batchId: string) =>
+    requestClient.post<OutreachBatchAuthorizationView>(`/outreach/batches/${batchId}/authorize`, {}),
+  sendOutreachBatch: (batchId: string) =>
+    requestClient.post<OutreachSendSummaryView>(`/outreach/batches/${batchId}/send`, {}),
+  outreachAuditPackage: (batchId: string) =>
+    requestClient.get<Record<string, unknown>>(`/outreach/batches/${batchId}/audit-package`),
+  /** Phase 3 T1：发信健康与退信熔断。 */
+  outreachHealth: () => requestClient.get<OutreachHealthPanelView>('/outreach/health'),
+  evaluateOutreachHealth: () => requestClient.post<{ opened: number }>('/outreach/health/evaluate', {}),
+  recoverOutreachBreaker: (scope: string, scopeRef: string, reason: string) =>
+    requestClient.post<OutreachBreakerView>(
+      `/outreach/health/${encodeURIComponent(scope)}/${encodeURIComponent(scopeRef)}/recover`,
+      { reason },
+    ),
+  closeOutreachBreaker: (scope: string, scopeRef: string, reason: string) =>
+    requestClient.post<OutreachBreakerView>(
+      `/outreach/health/${encodeURIComponent(scope)}/${encodeURIComponent(scopeRef)}/close`,
+      { reason },
+    ),
+  /** Phase 3 T1：预热周检清单、发信信箱、模板与法务审查。 */
+  outreachWarmupChecklist: () =>
+    requestClient.get<OutreachWarmupChecklistView>('/outreach/warmup/checklist'),
+  outreachMailboxes: () => requestClient.get<OutreachMailboxView[]>('/outreach/mailboxes'),
+  outreachTemplates: (params?: { kind?: string; state?: string }) =>
+    requestClient.get<OutreachTemplateView[]>('/outreach/templates', { params: params ?? {} }),
+  createOutreachTemplate: (input: {
+    kind: string;
+    jurisdiction?: string;
+    language: string;
+    subject?: string;
+    body: string;
+  }) => requestClient.post<OutreachTemplateView>('/outreach/templates', input),
+  submitOutreachTemplateReview: (templateId: string) =>
+    requestClient.post<OutreachTemplateView>(`/outreach/templates/${templateId}/submit-review`, {}),
+  approveOutreachTemplate: (templateId: string, legalReviewId: string) =>
+    requestClient.post<OutreachTemplateView>(`/outreach/templates/${templateId}/approve`, {
+      legalReviewId,
+    }),
+  activateOutreachTemplate: (templateId: string) =>
+    requestClient.post<OutreachTemplateView>(`/outreach/templates/${templateId}/activate`, {}),
+  retireOutreachTemplate: (templateId: string) =>
+    requestClient.post<OutreachTemplateView>(`/outreach/templates/${templateId}/retire`, {}),
+  outreachLegalReviews: (subjectKind?: string) =>
+    requestClient.get<OutreachLegalReviewView[]>('/outreach/legal-reviews', {
+      params: subjectKind ? { subjectKind } : {},
+    }),
+  createOutreachLegalReview: (input: {
+    subjectKind: string;
+    reviewerKind?: string;
+    documentHash: string;
+    reviewerName: string;
+    reviewerFirm: string;
+    reviewedAt: string;
+    scope: string;
+    verdict: string;
+    conditions?: string;
+    documentRef: string;
+  }) => requestClient.post<OutreachLegalReviewView>('/outreach/legal-reviews', input),
+  /** Phase 3 T1：就绪态、SPF/DKIM/DMARC 体检、2–4 轮跟进序列与转交联系人建稿。 */
+  outreachT1Readiness: () => requestClient.get<OutreachT1ReadinessView>('/outreach/t1/readiness'),
+  checkOutreachDomainDns: (input: { domain: string; dkimSelector?: string }) =>
+    requestClient.post<OutreachDomainDnsCheckView>('/outreach/t1/dns-check', input),
+  listOutreachSequences: () => requestClient.get<OutreachT1SequenceView[]>('/outreach/t1/sequences'),
+  planOutreachSequence: (input: {
+    contactRef: string;
+    recipientEmail: string;
+    companyName?: string;
+    contactName?: string;
+    countryCode: string;
+    subject: string;
+    body: string;
+    rounds?: number;
+    startAt?: string;
+  }) => requestClient.post<OutreachT1SequenceView>('/outreach/t1/sequences', input),
+  createReferralFollowUpDraft: (input: {
+    batchId: string;
+    replyId?: string;
+    sourceContactRef: string;
+    referredEmail: string;
+    companyName?: string;
+    countryCode: string;
+    subject: string;
+    body: string;
+    attachments?: import('@gain-saas/shared').T1AttachmentRef[];
+  }) =>
+    requestClient.post<{
+      draft: OutreachDraftView;
+      newContactRef: string;
+      jurisdictionPolicy: string;
+    }>('/outreach/t1/referrals/draft', input),
   // ── Phase 1 T0 四通道轻外联门禁与留痕 ──────────────────────────────────────
   checkT0Outreach: (input: T0CheckPayload) =>
     requestClient.post<T0CheckResult>('/outreach/t0/check', input),
@@ -1530,6 +1638,7 @@ export interface OutreachDraftInput {
   countryCode?: string;
   subject: string;
   body: string;
+  attachments?: import('@gain-saas/shared').T1AttachmentRef[];
 }
 
 export interface OutreachDraftView {
@@ -1543,11 +1652,162 @@ export interface OutreachDraftView {
   subject: string;
   body: string;
   status: string;
+  attachments?: import('@gain-saas/shared').T1AttachmentRef[];
   approvedBy?: string | null;
   approvedAt?: string | null;
   rejectionReason?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface OutreachT1ReadinessView {
+  sendEnabled: boolean;
+  shadowMode: boolean;
+  smtpConfigured: boolean;
+  fromDomain: string | null;
+}
+
+export interface OutreachBatchAuthorizationView {
+  id?: string;
+  authorizationId?: string;
+  state?: string;
+  expiresAt?: string;
+  batchId?: string;
+}
+
+export interface OutreachSendSummaryView {
+  batchId: string;
+  status: string;
+  sent: number;
+  failed: number;
+  skipped: number;
+  deferred: number;
+  shadowed: number;
+  results: Array<{
+    draftId: string;
+    status: 'SENT' | 'FAILED' | 'SKIPPED' | 'DEFERRED' | 'SHADOWED';
+    messageId?: string;
+    error?: string;
+  }>;
+}
+
+export interface OutreachBreakerView {
+  id: string;
+  scope: string;
+  scopeRef: string;
+  state: 'OPEN' | 'HALF_OPEN' | 'CLOSED' | string;
+  reason?: string | null;
+  openedAt?: string | null;
+  halfOpenAt?: string | null;
+  resolvedAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface OutreachHealthEventView {
+  id: string;
+  scope: string;
+  scopeRef: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  action: string;
+  detectedAt: string;
+}
+
+export interface OutreachHealthPanelView {
+  breakers: OutreachBreakerView[];
+  events: OutreachHealthEventView[];
+}
+
+export interface OutreachWarmupChecklistView {
+  generatedAt: string;
+  windowDays: number;
+  thresholds: { inboxPctMin: number; spamPctMax: number };
+  domains: Array<{
+    domain: string;
+    domainState: string;
+    mailboxes: Array<{
+      address: string;
+      state: string;
+      warmupStage: string;
+      dailyCap: number;
+      weeklyCap: number;
+      dailySent: number;
+      weeklySent: number;
+      dailyRemaining: number;
+      weeklyRemaining: number;
+    }>;
+    lastSeedTest: {
+      testedAt: string;
+      provider: string;
+      inboxPct: number | null;
+      spamPct: number | null;
+      reportRef?: string | null;
+    } | null;
+    checks: {
+      seedFresh: boolean;
+      inboxOk: boolean | null;
+      spamOk: boolean | null;
+      mailboxesOk: boolean;
+      ok: boolean;
+    };
+  }>;
+}
+
+export interface OutreachMailboxView {
+  id: string;
+  address: string;
+  displayName: string;
+  state: string;
+  warmupStage: string;
+  dailyCap: number;
+  weeklyCap: number;
+}
+
+export interface OutreachTemplateView {
+  id: string;
+  kind: string;
+  jurisdiction?: string | null;
+  language: string;
+  version: number;
+  subject?: string | null;
+  body: string;
+  bodyHash: string;
+  state: string;
+  legalReviewId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OutreachLegalReviewView {
+  id: string;
+  subjectKind: string;
+  reviewerKind?: string;
+  documentHash: string;
+  reviewerName: string;
+  reviewerFirm: string;
+  reviewedAt: string;
+  scope: string;
+  verdict: string;
+  conditions?: string | null;
+  documentRef: string;
+}
+
+export interface OutreachDomainDnsCheckView {
+  report: import('@gain-saas/shared').DomainDnsReportLike;
+  advice: import('@gain-saas/shared').DomainDnsAdviceResult;
+  template: string;
+}
+
+export interface OutreachT1SequenceView {
+  id: string;
+  contactRef: string;
+  recipientMasked: string;
+  companyName: string | null;
+  countryCode: string;
+  subject: string;
+  createdAt: string;
+  plan: import('@gain-saas/shared').T1FollowUpSequencePlan;
 }
 
 export interface OutreachApprovalView {

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { validateT1Attachments, type T1AttachmentRef } from '@gain-saas/shared';
 import { OutreachAuthorizationIssuer } from '../campaign/outreach-authorization.issuer.js';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
@@ -46,6 +47,8 @@ export interface OutreachDraftInput {
   body: string;
   /** 收件人国家（ISO 3166-1 alpha-2）；发送时法域同意门的输入，缺失按 REVIEW_REQUIRED 拒发。 */
   countryCode?: string | null;
+  /** Phase 3 T1：关联本公司已就绪（ready）PDF / HTML 卖家画册附件引用（零 schema 迁移，落事件明细）。 */
+  attachments?: readonly T1AttachmentRef[];
 }
 
 function normalizeDraft(input: OutreachDraftInput) {
@@ -191,11 +194,49 @@ export class OutreachBatchService {
       }),
     );
     if (!batch) notFound();
-    return batch;
+    return this.attachDraftAttachments(batch);
+  }
+
+  private attachDraftAttachments<
+    T extends {
+      drafts: Array<{ id: string }>;
+      events: Array<{ type: string; detail: unknown }>;
+    },
+  >(batch: T): T & { drafts: Array<T['drafts'][number] & { attachments: T1AttachmentRef[] }> } {
+    const byDraft = new Map<string, T1AttachmentRef[]>();
+    for (const ev of batch.events ?? []) {
+      if (ev.type !== 'DRAFT_ATTACHMENTS_SET' || !ev.detail || typeof ev.detail !== 'object') {
+        continue;
+      }
+      const detail = ev.detail as Record<string, unknown>;
+      const draftId = typeof detail.draftId === 'string' ? detail.draftId : '';
+      if (!draftId || !Array.isArray(detail.attachments)) continue;
+      byDraft.set(draftId, detail.attachments as T1AttachmentRef[]);
+    }
+    return {
+      ...batch,
+      drafts: batch.drafts.map((draft) => ({
+        ...draft,
+        attachments: byDraft.get(draft.id) ?? [],
+      })),
+    };
+  }
+
+  private validateAttachmentsOrThrow(
+    attachments: readonly T1AttachmentRef[] | undefined,
+  ): T1AttachmentRef[] | undefined {
+    if (attachments === undefined) return undefined;
+    const checked = validateT1Attachments(attachments);
+    if (!checked.ok) {
+      const first = checked.errors[0]!;
+      invalid(first.code, first.message);
+    }
+    return checked.valid;
   }
 
   async addDraft(tenant: OutreachTenant, batchId: string, input: OutreachDraftInput) {
     const normalized = normalizeDraft(input);
+    const validatedAttachments = this.validateAttachmentsOrThrow(input.attachments);
     try {
       const draft = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
         await this.requireDraftableBatchTx(tx, tenant, batchId);
@@ -218,7 +259,15 @@ export class OutreachBatchService {
         draftId: draft.id,
         contactRef: normalized.contactRef,
       });
-      return draft;
+      if (validatedAttachments && validatedAttachments.length > 0) {
+        await this.event(tenant, batchId, 'DRAFT_ATTACHMENTS_SET', {
+          draftId: draft.id,
+          attachments: validatedAttachments as unknown as Prisma.InputJsonValue,
+        });
+      }
+      return validatedAttachments !== undefined
+        ? { ...draft, attachments: validatedAttachments }
+        : draft;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         conflict('OUTREACH_DRAFT_DUPLICATE_CONTACT', '同一批次内该联系人已有草稿');
@@ -234,6 +283,7 @@ export class OutreachBatchService {
     input: OutreachDraftInput,
   ) {
     const normalized = normalizeDraft(input);
+    const validatedAttachments = this.validateAttachmentsOrThrow(input.attachments);
     const updated = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       await this.requireDraftableBatchTx(tx, tenant, batchId);
       const draft = await tx.outreachDraft.findFirst({
@@ -262,7 +312,15 @@ export class OutreachBatchService {
       draftId,
       contactRef: normalized.contactRef,
     });
-    return updated;
+    if (validatedAttachments !== undefined) {
+      await this.event(tenant, batchId, 'DRAFT_ATTACHMENTS_SET', {
+        draftId,
+        attachments: validatedAttachments as unknown as Prisma.InputJsonValue,
+      });
+    }
+    return validatedAttachments !== undefined
+      ? { ...updated, attachments: validatedAttachments }
+      : updated;
   }
 
   async removeDraft(tenant: OutreachTenant, batchId: string, draftId: string) {
