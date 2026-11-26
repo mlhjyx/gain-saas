@@ -451,8 +451,8 @@ test('买家画像：允许同公司新建第二组画像（带 attemptId）并�
   await loginAs(page);
   await page.goto('/find-buyers');
 
-  // 即使公司已有 1 组画像，点击「设定买家画像」依然弹出创建模态框
-  await page.getByRole('button', { name: '设定买家画像' }).click();
+  // 即使公司已有 1 组画像，点击「新建画像」依然弹出创建模态框
+  await page.getByRole('button', { name: '新建画像' }).click();
   await expect(page.getByRole('dialog', { name: '设定买家画像' })).toBeVisible();
 
   // 无已通过事实时，点击一键确认建档事实解锁生成
@@ -479,7 +479,7 @@ test('买家画像：普通成员（非管理员）不显示一键审批事实�
   await loginAs(page);
   await page.goto('/find-buyers');
 
-  await page.getByRole('button', { name: '设定买家画像' }).click();
+  await page.getByRole('button', { name: '新建画像' }).click();
   await expect(page.getByRole('dialog', { name: '设定买家画像' })).toBeVisible();
   await expect(page.locator('[data-gs="no-approved-facts-alert"]')).toContainText('联系工作空间管理员');
   await expect(page.locator('[data-gs="quick-approve-facts"]')).toHaveCount(0);

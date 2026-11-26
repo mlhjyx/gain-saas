@@ -80,12 +80,11 @@ import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
-import GsSteps from '#/components/gainos/ui/gs-steps.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
-import { acquisitionStep } from '#/utils/acquisition-step';
+import { notifyChainChanged } from '#/composables/use-main-chain-progress';
 import { regionName } from '#/utils/region-name';
 
 import { failureText, gainosApi } from '#/api/gainos';
@@ -824,6 +823,7 @@ async function createIcp(): Promise<void> {
     });
     createOpen.value = false;
     uiFeedback.message.success($t('gainos.findBuyers.created'));
+    notifyChainChanged();
     await load();
     await openDetail(icp);
   } catch (error) {
@@ -849,6 +849,7 @@ async function activate(): Promise<void> {
       hasSiblingActive && keepExistingActive.value ? { keepExistingActive: true } : undefined,
     );
     uiFeedback.message.success($t('gainos.findBuyers.activated'));
+    notifyChainChanged();
     await load();
     await loadPlans(selected.value.id);
   } catch (error) {
@@ -1067,6 +1068,7 @@ async function createPlan(): Promise<void> {
     profileEdited.value = false;
     void prefetchSummary(selected.value.id);
     uiFeedback.message.success($t('gainos.findBuyers.planCreated'));
+    notifyChainChanged();
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -1081,6 +1083,7 @@ async function confirmPlan(plan: QueryPlan): Promise<void> {
     await loadPlans(plan.icpId);
     void prefetchSummary(plan.icpId);
     uiFeedback.message.success($t('gainos.findBuyers.planConfirmed'));
+    notifyChainChanged();
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -1103,6 +1106,7 @@ async function executePlan(plan: QueryPlan): Promise<void> {
       return;
     }
     rememberRun(plan.id, result.runId);
+    notifyChainChanged();
     try {
       await gainosApi.recordDiscoveryRun({ runId: result.runId, planId: plan.id, icpId: plan.icpId });
     } catch {
@@ -1133,12 +1137,6 @@ interface IcpSummary {
 }
 const summaries = ref<Record<string, IcpSummary>>({});
 const summaryPending = ref<Set<string>>(new Set());
-
-/** 步骤条跟着真实进度走：没有生效画像是第 2 步，之后看生效画像的最新方案与最近一次寻源。 */
-const currentStep = computed(() => {
-  const icp = activeIcp.value;
-  return icp ? acquisitionStep(summaries.value[icp.id]) : 2;
-});
 
 /**
  * 并行预取一个画像的方案与最近运行：取不到只影响对应那一列（显示「—」），
@@ -1505,13 +1503,6 @@ onUnmounted(stopDetailStreamPoll);
 <template>
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage art="find-buyers" :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
-
-    <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
-    <div class="relative z-[1] -mt-12">
-      <GsCard data-gs="stage-steps" dense>
-        <GsSteps :current="currentStep" />
-      </GsCard>
-    </div>
 
     <GsToolbar data-gs="icp-toolbar">
       <div class="fb-toolbar__main">
@@ -2571,7 +2562,8 @@ onUnmounted(stopDetailStreamPoll);
 /* ── 下一步：贴在视口底部 ──────────────────────────────────────────────── */
 .fb-next {
   position: sticky;
-  bottom: 12px;
+  /* 底部有进度浮窗时抬到它上面 */
+  bottom: calc(12px + var(--gs-flow-bar-h, 0px));
   z-index: 20;
   display: flex;
   align-items: center;

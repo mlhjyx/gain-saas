@@ -258,10 +258,13 @@ test('#9 #12 没激活的画像只看内容和激活；下一步贴在底部引�
   const next = page.locator("[data-gs='icp-next']");
   await expect(next).toContainText('下一步：激活买家画像');
   await expect(next).toContainText('确认上面的内容没问题后激活');
-  // 贴在视口底部：页面在顶部时也看得见
-  const box = await next.boundingBox();
+  // 贴在视口底部、浮在底部进度浮窗上方：页面在顶部时也看得见（浮窗一挂载就留出高度，「下一步」不会再跳）
+  await expect(page.locator("[data-gs='flow-bar']")).toBeVisible();
+  const box = (await next.boundingBox())!;
+  const flowBar = (await page.locator("[data-gs='flow-bar']").boundingBox())!;
   const viewport = page.viewportSize()!;
-  expect(Math.abs(box!.y + box!.height - (viewport.height - 12))).toBeLessThan(2);
+  expect(Math.abs(flowBar.y + flowBar.height - viewport.height)).toBeLessThan(2);
+  expect(Math.abs(box.y + box.height - (flowBar.y - 12))).toBeLessThan(2);
 
   await page.locator("[data-gs='icp-next-button']").click();
   expect(backend.callsTo('POST', '/icps/icp-1/activate')).toHaveLength(1);

@@ -1,12 +1,15 @@
 <script lang="ts" setup>
 /**
  * 主链路步骤条（PRD §14.1）：完善档案 → 设定买家画像 → 确认寻源方案 →
- * 等待寻源 → 判断线索。买家线索、找买家共用。
+ * 等待寻源 → 判断线索。
  *
  * 不显示序号（用户不知道「5」指什么）：已完成的步骤是默认的对勾；当前步用
  * 「蓝底圆 + 白点」标记「你现在在这里」；还没走到的步骤是一个空心圆。
  * antdv Steps：给 item.icon 传 VNode 会替换掉默认序号，但这一步会被标成
  * ant-steps-item-custom 并取消默认蓝底圆圈，所以圆底要在这里自己画。
+ *
+ * 2026-11-26 起主要给底部的进度浮窗用：`selectable` 时每一步是真正的按钮（点一下跳到对应页面，
+ * 回车、空格也行）。不开 `selectable` 时只是进度指示，去掉 antdv 给每一步加的假按钮语义。
  */
 import { computed, h, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue';
 
@@ -16,7 +19,8 @@ import { $t } from '#/locales';
 
 defineOptions({ name: 'GsSteps' });
 
-const props = defineProps<{ current: number }>();
+const props = defineProps<{ current: number; selectable?: boolean }>();
+const emit = defineEmits<{ select: [index: number] }>();
 
 const STEP_KEYS = [
   'gainos.workspace.stepProfile',
@@ -55,14 +59,34 @@ const items = computed(() =>
 const root = ref<HTMLElement | null>(null);
 
 /**
- * antdv 只要内部挂了变更回调（它总是挂）就把每一步渲染成可聚焦的「按钮」，
- * 而这里点击不做任何事。步骤条只是进度指示：去掉这层假按钮语义，
- * 读屏软件不会报出 5 个没用的按钮，按名称找按钮的用例也不会被步骤名干扰。
+ * antdv 只要内部挂了变更回调（它总是挂）就把每一步渲染成可聚焦的「按钮」。
+ * - 只做进度指示时点击不做任何事：去掉这层假按钮语义，读屏软件不会报出 5 个没用的按钮，
+ *   按名称找按钮的用例也不会被步骤名干扰。
+ * - `selectable` 时（底部进度浮窗）点击会跳到对应页面，这时按钮语义是真的：保留并标出当前步。
  */
-function neutralizeItemRoles(): void {
-  root.value?.querySelectorAll<HTMLElement>('.ant-steps-item-container').forEach((el) => {
-    el.removeAttribute('role');
-    el.removeAttribute('tabindex');
+const bound = new WeakSet<HTMLElement>();
+function syncItemRoles(): void {
+  root.value?.querySelectorAll<HTMLElement>('.ant-steps-item-container').forEach((el, index) => {
+    if (!props.selectable) {
+      el.removeAttribute('role');
+      el.removeAttribute('tabindex');
+      el.removeAttribute('aria-current');
+      return;
+    }
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    if (index === props.current - 1) el.setAttribute('aria-current', 'step');
+    else el.removeAttribute('aria-current');
+    if (bound.has(el)) return;
+    bound.add(el);
+    const select = () => emit('select', index + 1);
+    el.addEventListener('click', select);
+    el.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        select();
+      }
+    });
   });
 }
 /** 五步横排（图标 + 不折行的标题 + 连接线）大约需要 760px。内容区更窄时——手机、
@@ -72,7 +96,7 @@ const STEP_HORIZONTAL_MIN = 760;
 const vertical = ref(false);
 let observer: null | ResizeObserver = null;
 onMounted(() => {
-  neutralizeItemRoles();
+  syncItemRoles();
   if (!root.value) return;
   observer = new ResizeObserver((entries) => {
     vertical.value = (entries[0]?.contentRect.width ?? 0) < STEP_HORIZONTAL_MIN;
@@ -80,7 +104,7 @@ onMounted(() => {
   observer.observe(root.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
-onUpdated(neutralizeItemRoles);
+onUpdated(syncItemRoles);
 </script>
 
 <template>
