@@ -3,14 +3,14 @@ import type { RouteRecordRaw } from 'vue-router';
 import { navTitle } from '../nav';
 
 /**
- * 挖掘任务列表（Q32：任务为导航主轴，Wave B2 归属「获客与筛选」组 order: 5）。
- * run 仍然只作为任务下的执行记录（/runs/:runId 隐藏路由），与 /tasks/:taskId 均高亮 /tasks。
+ * 寻源记录（任务与运行详情，归属「获客主线」order: 6）。
+ * /runs/:runId 与 /tasks/:taskId 均高亮 /tasks。
  */
 const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:list-checks',
-      order: 5,
+      order: 6,
       title: navTitle('tasks'),
     },
     name: 'Tasks',

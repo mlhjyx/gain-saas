@@ -1,0 +1,48 @@
+{
+  "nav": {
+    "mainNav": "主导航",
+    "searchPlaceholder": "搜索或跳转…",
+    "groupAcquisition": "获客主线",
+    "groupEngagement": "触达与转化",
+    "groupSettings": "设置",
+    "toggleSidebar": "切换侧边栏",
+    "expandSidebar": "展开侧栏",
+    "openMenu": "打开菜单",
+    "closeMenu": "关闭菜单",
+    "notifications": "通知",
+    "settings": "设置",
+    "account": "账号",
+    "unreadBadge": "{count} 条未读通知"
+  },
+  "header": {
+    "breadcrumbLabel": "当前位置",
+    "refresh": "刷新当前页面"
+  },
+  "accountMenu": {
+    "themeLabel": "外观主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "switchToDark": "切换到深色主题",
+    "switchToLight": "切换到浅色主题",
+    "localeLabel": "界面语言",
+    "switchToEn": "切换到 English",
+    "switchToZh": "切换到中文",
+    "help": "快捷键与帮助",
+    "shortcutsTitle": "快捷键",
+    "shortcutsHint": "外观主题、界面语言与退出登录均收纳在此账号菜单中。",
+    "search": "搜索或跳转",
+    "settings": "设置",
+    "notifications": "通知",
+    "logout": "退出登录"
+  },
+  "flow": {
+    "chipPrefix": "主流程",
+    "chipText": "主流程 · 第 {current}/{total} 步 · {step}",
+    "chipAria": "查看主流程进度，当前第 {current} / {total} 步：{step}",
+    "popoverTitle": "获客主流程",
+    "popoverSubtitle": "点击任意步骤快速跳转",
+    "stepCompleted": "已完成",
+    "stepCurrent": "当前",
+    "stepPending": "待进行"
+  }
+}

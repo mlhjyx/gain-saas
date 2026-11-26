@@ -27,30 +27,31 @@
   --gs-fg-subtle: #5c5c5c;
   --gs-fg-placeholder: #a3a3a3;
 
-  /* 表面与背景 */
-  --gs-bg: #f7f7f7;
+  /* 表面与背景（PR-UI1：浅色微冷灰侧栏 #F7F8FA 衬出纯白主画布 #FFFFFF） */
+  --gs-bg: #ffffff;
+  --gs-sidebar-bg: #f7f8fa;
+  --gs-sidebar-hover: rgba(23, 23, 23, 0.045);
+  --gs-sidebar-active: rgba(23, 23, 23, 0.08);
   --gs-surface: #ffffff;
   --gs-surface-2: #f5f5f5;
   --gs-surface-3: #fafafa;
-  --gs-bg-soft: #f7f7f7;
-  --gs-table-head: #f7f7f7;
+  --gs-bg-soft: #f7f8fa;
+  --gs-table-head: #f7f8fa;
 
   /* 边框与分隔 */
   --gs-border: #ebebeb;
   --gs-border-strong: #d1d1d1;
   --gs-border-dashed: #ebebeb;
-  --gs-divider: #f5f5f5;
+  --gs-divider: #f0f0f0;
 
-  /* 装饰 */
+  /* 装饰（PR-UI1：1px 极细描边为主 + 轻阴影，去臃肿重阴影） */
   --gs-grid-line: rgba(23, 23, 23, 0.04);
-  --gs-shadow-card: 0 1px 2px 0 rgba(10,10,10,.031);
-  --gs-shadow-xs: 0 1px 2px 0 rgba(10,10,10,.031);
-  --gs-shadow-sm: 0 2px 4px rgba(27, 28, 29, 0.039);
-  --gs-shadow-modal: 0 16px 32px -12px rgba(10,10,10,.10);
-  --gs-shadow-tooltip: 0 12px 24px 0 rgba(10,10,10,.059), 0 1px 2px 0 rgba(10,10,10,.031);
-  /* 2026-11-23：白卡浮于画布——无线边框，用 1px 环 + 柔和投影分层 */
-  --gs-shadow-float: 0 0 0 1px rgba(23, 23, 23, 0.035), 0 1px 2px rgba(10, 10, 10, 0.03),
-    0 10px 24px -16px rgba(10, 10, 10, 0.12);
+  --gs-shadow-card: 0 1px 2px 0 rgba(10, 10, 10, 0.025);
+  --gs-shadow-xs: 0 1px 2px 0 rgba(10, 10, 10, 0.025);
+  --gs-shadow-sm: 0 1px 3px rgba(27, 28, 29, 0.035);
+  --gs-shadow-modal: 0 12px 28px -12px rgba(10, 10, 10, 0.1);
+  --gs-shadow-tooltip: 0 10px 24px -6px rgba(10, 10, 10, 0.08), 0 1px 2px 0 rgba(10, 10, 10, 0.035);
+  --gs-shadow-float: 0 1px 2px 0 rgba(10, 10, 10, 0.04);
   /* 页头渐变带（参考商业名录页）：品牌蓝极浅色，向下淡出到画布 */
   --gs-hero-tint: #eef1ff;
   --gs-hero-tint-soft: #f4f6ff;
@@ -109,7 +110,9 @@
   --gs-hero-divider: rgba(247,247,247,.10);
   --gs-hero-accent: #335cff;
 
-  /* 圆角 / 排版 / 间距（与 token-mapping.md 一致） */
+  /* 圆角 / 排版 / 间距（PR-UI1：全站主按钮与普通按钮统一 8px 圆角） */
+  --gs-radius-btn: 8px;
+  --gs-radius-8: 8px;
   --gs-radius-10: 10px;
   --gs-radius-20: 20px;
   --gs-radius-pill: 9999px;
@@ -147,11 +150,15 @@
   --gs-fg-subtle: #8a8a8a;
   --gs-fg-placeholder: #7b7b7b;
 
-  --gs-bg: #171717;
+  /* PR-UI1：深色微冷灰侧栏 #111318 衬出深墨主画布 #0B0D12 */
+  --gs-bg: #0b0d12;
+  --gs-sidebar-bg: #111318;
+  --gs-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --gs-sidebar-active: rgba(255, 255, 255, 0.1);
   --gs-surface: #1c1c1c;
   --gs-surface-2: #262626;
   --gs-surface-3: #171717;
-  --gs-bg-soft: #262626;
+  --gs-bg-soft: #1c1c1c;
   --gs-table-head: #1c1c1c;
 
   --gs-border: #262626;
@@ -160,13 +167,12 @@
   --gs-divider: #262626;
 
   --gs-grid-line: rgba(255, 255, 255, 0.045);
-  --gs-shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
-  --gs-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
-  --gs-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.5);
-  --gs-shadow-modal: 0 16px 32px -12px rgba(0, 0, 0, 0.65);
-  --gs-shadow-tooltip: 0 12px 24px 0 rgba(0, 0, 0, 0.55);
-  --gs-shadow-float: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.45),
-    0 12px 26px -16px rgba(0, 0, 0, 0.6);
+  --gs-shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --gs-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --gs-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --gs-shadow-modal: 0 14px 28px -12px rgba(0, 0, 0, 0.6);
+  --gs-shadow-tooltip: 0 12px 24px -6px rgba(0, 0, 0, 0.55);
+  --gs-shadow-float: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --gs-hero-tint: rgba(51, 92, 255, 0.16);
   --gs-hero-tint-soft: rgba(51, 92, 255, 0.06);
   --gs-hero-glow: rgba(51, 92, 255, 0.22);
@@ -292,8 +298,7 @@ h6 {
   color: var(--gs-danger);
 }
 
-/* 主按钮统一规格：40 高 / 全圆 / 14px·500。
-   各视图的 scoped 样式保留颜色语义，这里只收敛尺寸与形状。 */
+/* 主按钮统一规格（PR-UI1）：40 高 / 8px 现代圆角 / 14px·500。 */
 .cp__primary,
 .ob__primary,
 .qg__btn--primary,
@@ -304,13 +309,13 @@ h6 {
 .ws__primary,
 .tk__refresh {
   min-height: 40px;
-  border-radius: var(--gs-radius-pill);
+  border-radius: var(--gs-radius-btn);
   font-size: 14px;
   font-weight: 500;
 }
 
 
-/* ── pass2：卡片/表格统一质感（AgentSDR：白底 + 1px 灰边 + subtle 阴影 + 10px）── */
+/* ── 卡片/表格统一细线质感（1px solid var(--gs-border) + 轻阴影 + 10px）── */
 .fb__card,
 .cp__item,
 .qg__card,
@@ -341,7 +346,7 @@ h6 {
   box-shadow: var(--gs-shadow-card);
 }
 
-/* ── pass2：主行动按钮全圆（次按钮保持 10px / 描边）── */
+/* ── PR-UI1：主行动按钮与普通按钮统一 8px 圆角（清零 9999px 椭圆大胶囊按钮）── */
 .fb__cta,
 .cp__cta,
 .cp__confirm,
@@ -353,255 +358,42 @@ h6 {
 .run__action--primary,
 .wk__cta,
 .cd__primary {
-  border-radius: var(--gs-radius-pill);
+  border-radius: var(--gs-radius-btn);
 }
 
 
-/* ── pass4：侧栏菜单由 SDR 覆盖层（sdr-sidebar.vue）渲染，隐藏 Vben 菜单避免重复 menuitem。
-   2026-11-25：手机改用 SdrSidebar 自己的抽屉（与桌面同一份内容），Vben 自带的移动抽屉
-   不再打开；这里仍按 ≥768px 隐藏即可。 ── */
+/* ── 侧栏菜单由 SdrSidebar 覆盖层渲染，隐藏 Vben 菜单避免重复 menuitem。 ── */
 @media (min-width: 768px) {
   aside[data-layout-region='sidebar'] .vben-menu {
     display: none;
   }
 }
 
-/* ── pass5：顶部标签页（「白卡浮于画布」语言）──
-   顶栏隐藏后 tabbar 是顶部唯一元素。设计语言：
-   - 画布：标签栏取页面底色，白色侧栏与白色当前页卡片自然分层；
-   - 当前页：30px 白卡 + 1px 描边 + 微阴影，浮在 40px 栏内；
-   - 非当前页：纯文字，hover 浮出极浅底；关闭符只在 hover/当前页出现，
-     平时不可见也不可点（防误关），一排 × 的视觉噪音随之消失。
-   Vben card 式默认蓝底蓝字，全部由这里接管（packages/ 禁改）。 */
-/* 底部进度浮窗出现时，页面末尾补一块同样高度的占位，最后一段不会被盖住。
-   两个位置都试过，都不行（2026-11-26 实测）：
-   - 加在滚动区自己身上（padding-bottom）：浏览器会把滚动区的内边距算进贴底元素
-     （position: sticky 的 bottom）的参照边，浮窗高度等于被扣两次，「下一步」高出 40px；
-   - 加在路由视图容器的 padding-bottom 上：这个容器高度是固定的，内容溢出时内边距排在容器底边、
-     不在内容后面，等于没加。
-   所以用容器末尾的占位块：它排在内容后面，又不影响贴底元素的参照边。 */
+aside[data-layout-region='sidebar'],
+aside[data-layout-region='sidebar'] > div {
+  background: var(--gs-sidebar-bg);
+  border-color: var(--gs-border);
+}
+
+/* PR-UI1：主流程进度已移至侧栏底部芯片，--gs-flow-bar-h 恒为 0px。 */
 [data-layout-region='scroll'] .page-route-container::after {
   display: block;
   height: var(--gs-flow-bar-h);
   content: '';
 }
 
-[data-layout-region='header'] {
-  --gs-tab-hover: rgba(23, 23, 23, 0.05);
-}
-.dark [data-layout-region='header'] {
-  --gs-tab-hover: rgba(255, 255, 255, 0.07);
-}
-
-[data-layout-region='header'] section {
-  border-bottom: 1px solid var(--gs-border);
-  background: var(--gs-bg);
-}
-
-/* 标签条：8px 起止留白 + 2px 间隙（覆盖 Vben card 式的 ml-2 外边距） */
-[data-layout-region='header'] .vben-tabs-content {
-  gap: 2px;
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-/* 标签条永远不出现滚动条。
-   仅靠 `scrollbar-width:none` / `::-webkit-scrollbar` 在部分环境不够：
-   reka 的 viewport 是 `overflow: scroll`，Windows 的「始终显示滚动条」
-   或旧内核会把「无溢出的 scroll 容器」的空滚动条也画出来（2026-11-23
-   线上实测横向滚动条）。这里把 viewport 直接改为 overflow:hidden：
-   - 不出现任何原生滚动条（所有浏览器/系统设置下）
-   - 程序化滚动仍然可用：Vben 的滚轮 handler 用 scrollBy、翻页按钮用
-     scrollBy、切换页签用 scrollIntoView，都会照常工作。 */
-[data-layout-region='header'] [data-slot='scroll-area-viewport'] {
-  overflow: hidden !important;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-[data-layout-region='header']
-  [data-slot='scroll-area-viewport']::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
-/* Vben 自带的 ScrollBar 靠 tailwind 的 hidden 隐藏；dev 下类名扫描差异
-   会让它露出来（用户 5666 实测）。这里按 data-slot 直接关掉，双环境一致。 */
-[data-layout-region='header'] [data-slot='scroll-area-scrollbar'],
-[data-layout-region='header'] [data-slot='scroll-area-corner'] {
-  display: none !important;
-}
-
-[data-layout-region='header'] [data-tab-item] {
-  height: 30px;
-  margin-left: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--gs-fg-muted);
-  font-weight: 500;
-  transition: background-color 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, box-shadow 0.15s ease;
-}
-[data-layout-region='header'] [data-tab-item]:hover {
-  background: var(--gs-tab-hover);
-  color: var(--gs-fg);
-}
-/* 当前页 = 反白实心药丸：浅色主题近黑底白字，深色主题白底深字。
-   与"灰底药丸"的侧栏不同，标签需要在多个同形项里立刻被认出来。 */
-[data-layout-region='header'] [data-tab-item].is-active {
-  border-color: transparent;
-  background: var(--gs-fg);
-  color: var(--gs-surface);
-  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.18),
-    0 4px 12px -6px rgba(10, 10, 10, 0.35);
-}
-[data-layout-region='header'] [data-tab-item]:focus-visible {
-  outline: none;
-  box-shadow: var(--gs-shadow-focus);
-}
-.dark [data-layout-region='header'] [data-tab-item].is-active {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5),
-    0 6px 16px -8px rgba(0, 0, 0, 0.6);
-}
-
-/* 标题/图标/关闭符随 tab 前景走（Vben 把 text-primary 挂在中间层 div 上，
-   由子元素继承；这里对后代统一 inherit，并用 !important 压过 Tailwind 任意变体） */
-[data-layout-region='header'] [data-tab-item][data-tab-item][data-tab-item] * {
-  color: inherit !important;
-}
-[data-layout-region='header'] [data-tab-item] span {
-  font-size: 13px;
-  letter-spacing: -0.011em;
-}
-/* 长标题截断，避免一个页签吃掉整条标签栏 */
-[data-layout-region='header'] [data-tab-item] span[class*='flex-1'] {
-  max-width: 180px;
-}
-[data-layout-region='header'] [data-tab-item] svg {
-  stroke: currentColor !important;
-}
-
-/* 标题内边距：左 12px；右侧预留关闭符槽位（12px 符 + 6px 边距 + 8px 间隙），
-   关闭符悬停出现时不会压住标题末字，且标签宽度稳定不跳动。 */
-[data-layout-region='header'] [data-tab-item] div[class*='mr-4'] {
-  margin: 0;
-  padding: 0 26px 0 12px;
-}
-/* 无关闭符（最后一个标签/不可关）时收回到 12px，单标签胶囊左右对称。 */
-[data-layout-region='header']
-  [data-tab-item]:has(.lucide-x[style*='display: none'])
-  div[class*='mr-4'] {
-  padding: 0 12px;
-}
-
-/* 关闭符：默认隐藏且不可点；hover / 当前页才出现 */
-[data-layout-region='header'] [data-tab-item] .absolute {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.14s ease;
-}
-[data-layout-region='header'] [data-tab-item]:hover .absolute,
-[data-layout-region='header'] [data-tab-item].is-active .absolute {
-  opacity: 1;
-  pointer-events: auto;
-}
-[data-layout-region='header'] [data-tab-item] .absolute svg {
-  opacity: 0.55;
-  transition: opacity 0.14s ease;
-}
-[data-layout-region='header'] [data-tab-item].is-active .absolute svg {
-  opacity: 0.72;
-}
-[data-layout-region='header'] [data-tab-item] .absolute svg:hover {
-  opacity: 1;
-}
-
-/* 溢出时的左右滚动按钮：去掉竖分隔线，收成与标签同语言的小圆角热区。 */
-[data-layout-region='header'] section > div:first-child > span {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 30px;
-  align-self: center;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 8px;
-  color: var(--gs-fg-muted);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-[data-layout-region='header'] section > div:first-child > span:hover {
-  background: var(--gs-tab-hover);
-  color: var(--gs-fg);
-}
-[data-layout-region='header'] section > div:first-child > span svg {
-  width: 15px;
-  height: 15px;
-  margin: 0 auto;
-}
-
-/* 右侧工具组：去掉 Vben 的竖分隔线与块状热区，改为同语言的小圆角按钮。
-   结构：div.flex-center > button(下拉触发器) > div.flex-center(真实热区) 或无触发器。 */
-[data-layout-region='header'] section > div:last-child {
-  gap: 2px;
-  padding-right: 12px;
-}
-[data-layout-region='header'] section > div:last-child > *,
-[data-layout-region='header'] section > div:last-child > * > div {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  background: transparent;
-  color: var(--gs-fg-muted) !important;
-  font-size: 16px;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-[data-layout-region='header'] section > div:last-child > *:hover,
-[data-layout-region='header'] section > div:last-child > *:hover > div {
-  background: var(--gs-tab-hover);
-  color: var(--gs-fg) !important;
-}
-
-/* ── pass5：侧栏品牌行给右侧工具预留空间 ──
-   Vben 的 logo <a> 横跨整个侧栏，文字只在容器溢出时才省略；
-   字体渲染宽度因机器而异，固定 left 的工具按钮在不同字体下会压到
-   "GainOS" 上（CI 字体更宽，本地不复现）。这里从结构上把 logo 的
-   右内边距扩到工具宽度 + 间隙，文字必然在按钮前截断。 */
-aside[data-layout-region='sidebar']
-  [class*='gap-2'][class*='px-3'] {
-  padding-right: 104px;
-}
-
-/* 账号菜单浮层（sdr-account-menu）：接管 AntDV Popover 的默认内边距，
-   面板样式（圆角/描边/阴影）由菜单组件自己提供。 */
-.gs-account-pop .ant-popover-inner {
+/* 账号菜单与主流程进度浮层（Popover）：统一 1px 细线 + 12px 圆角 + 轻阴影。 */
+.gs-account-pop .ant-popover-inner,
+.gs-flow-pop .ant-popover-inner {
   padding: 0;
   border: 1px solid var(--gs-border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--gs-surface);
   box-shadow: var(--gs-shadow-tooltip);
 }
-.gs-account-pop .ant-popover-arrow {
+.gs-account-pop .ant-popover-arrow,
+.gs-flow-pop .ant-popover-arrow {
   display: none;
-}
-
-/* 移动端：抽屉开关固定在标签栏左侧（basic.vue .sdr-mobile-burger），标签让位；
-   工具按钮放大到 34px，改善触屏命中率。 */
-@media (max-width: 767px) {
-  [data-layout-region='header'] section {
-    padding-left: 44px;
-  }
-  [data-layout-region='header'] section > div:last-child > *,
-  [data-layout-region='header'] section > div:last-child > * > div {
-    width: 34px;
-    height: 34px;
-  }
 }
 
 /* ── pass3 C9：微交互统一（仅 CSS，无动画库；保持无位移抖动）── */
@@ -643,17 +435,11 @@ aside[data-layout-region='sidebar']
   box-shadow: 0 0 0 2px var(--gs-surface);
 }
 
-/* 暗色侧栏：Vben 把 .dark 单独挂在侧栏容器上，--sidebar 在元素自身解析，
-   不继承根上的覆盖，所以侧栏一直是 Vben 自带的带蓝调 222° 10% 12%。
-   2026-11-24 取色扫描修复后暴露出来；按同一原则换成同明度的纯中性灰。 */
+/* 暗色侧栏与画布：浅色微冷灰侧栏 #F7F8FA + 纯白主画布 #FFFFFF；深色 #111318 + #0B0D12。 */
 .dark .dark {
-  --sidebar: 0 0% 12%;
+  --sidebar: 223 17% 8%;
 }
 
-/* pass2：把 Vben 壳层的中性色也收敛到纯中性灰（默认 zinc/slate 带蓝紫调，
-   会形成第二套灰）。
-   2026-11-23：画布（--background-deep）改为近白的微蓝画布 220 30% 97.6%，
-   让白色卡片靠「环 + 投影」分层（参考商业名录页），其余中性色不变。 */
 :root:root:root {
   --foreground: 0 0% 9%;
   --muted: 0 0% 96%;
@@ -661,7 +447,8 @@ aside[data-layout-region='sidebar']
   --accent-foreground: 0 0% 9%;
   --heavy-foreground: 0 0% 9%;
   --background: 0 0% 100%;
-  --background-deep: 220 30% 97.6%;
+  --background-deep: 0 0% 100%;
+  --sidebar: 220 23% 97.5%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
@@ -689,8 +476,9 @@ aside[data-layout-region='sidebar']
   --muted-foreground: 0 0% 64%;
   --accent-foreground: 0 0% 100%;
   --heavy-foreground: 0 0% 100%;
-  --background: 0 0% 9%;
-  --background-deep: 0 0% 7%;
+  --background: 223 24% 6%;
+  --background-deep: 223 24% 6%;
+  --sidebar: 223 17% 8%;
   --card: 0 0% 11%;
   --card-foreground: 0 0% 100%;
   --popover: 0 0% 15%;
@@ -721,7 +509,8 @@ aside[data-layout-region='sidebar']
   --accent-foreground: 0 0% 9%;
   --heavy-foreground: 0 0% 9%;
   --background: 0 0% 100%;
-  --background-deep: 220 30% 97.6%;
+  --background-deep: 0 0% 100%;
+  --sidebar: 220 23% 97.5%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
@@ -751,8 +540,9 @@ aside[data-layout-region='sidebar']
   --muted-foreground: 0 0% 64%;
   --accent-foreground: 0 0% 100%;
   --heavy-foreground: 0 0% 100%;
-  --background: 0 0% 9%;
-  --background-deep: 0 0% 7%;
+  --background: 223 24% 6%;
+  --background-deep: 223 24% 6%;
+  --sidebar: 223 17% 8%;
   --card: 0 0% 11%;
   --card-foreground: 0 0% 100%;
   --popover: 0 0% 15%;

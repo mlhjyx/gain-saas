@@ -4,27 +4,27 @@ import type { NotificationItem } from '@vben/layouts';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { formatDateTime, navLabel, type NavKey } from '@gain-saas/shared';
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
-import { useTabs, useWatermark } from '@vben/hooks';
-import { useMediaQuery } from '@vueuse/core';
+import { useRefresh, useWatermark } from '@vben/hooks';
+import { ChevronRight, Menu, RotateCw } from '@vben/icons';
 import { BasicLayout, LockScreen } from '@vben/layouts';
-import { loadLocaleMessages, type SupportedLanguagesType } from '@vben/locales';
+import { i18n, loadLocaleMessages, type SupportedLanguagesType } from '@vben/locales';
 import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useTabbarStore, useUserStore } from '@vben/stores';
+import { useMediaQuery } from '@vueuse/core';
 
-import { $t } from '#/locales';
-import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
+import { gainosApi, type AppNotification } from '#/api/gainos';
 import CommandPalette from '#/components/gainos/command-palette.vue';
-import FlowProgressBar from '#/components/gainos/flow-progress-bar.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
-import { isFlowPath } from '#/composables/use-main-chain-progress';
+import { $t } from '#/locales';
+import { resolveNavTitle } from '#/router/routes/nav';
 import { useAuthStore } from '#/store';
-import { formatDateTime } from '@gain-saas/shared';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
-// 侧栏标记显式传入:覆盖 localStorage 里可能残留的旧 logo
+// 侧栏标记显式传入：覆盖 localStorage 里可能残留的旧 logo
 const logoGainos = '/logo-gainos.svg?v=pass3';
 
 const notifications = ref<NotificationItem[]>([]);
@@ -37,10 +37,12 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
-// 路由仍是扁平结构；只把 Vben 的菜单数据收进业务组（总览/获客与筛选/触达与转化/设置）。
+const tabbarStore = useTabbarStore();
+const { refresh: refreshActiveRoute } = useRefresh();
+
+// 路由仍是扁平结构；只把 Vben 菜单数据收进新版展示目录分组。
 useMenuGroups();
 
-// pass3 C1：命令面板（⌘K）。pass4：搜索入口移入 SDR 侧栏，顶栏不再承载搜索。
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null);
 const isEnglish = computed(() => preferences.app.locale === 'en-US');
 
@@ -49,14 +51,10 @@ function openSettings(): void {
   void router.push('/settings/account');
 }
 
-// pass4：主题 / 语言切换从顶栏移入侧栏品牌行（AgentSDR 同款位置）。
-const themeToggleLabel = computed(() => (isDark.value ? 'light' : 'dark'));
 function toggleTheme(): void {
   updatePreferences({ theme: { mode: isDark.value ? 'light' : 'dark' } });
 }
-const langToggleLabel = computed(() =>
-  isEnglish.value ? 'Switch to Chinese' : '切换到 English',
-);
+
 let suppressLocaleRefresh = false;
 async function applyLocaleHotSwitch(next: SupportedLanguagesType): Promise<void> {
   suppressLocaleRefresh = true;
@@ -68,71 +66,116 @@ async function applyLocaleHotSwitch(next: SupportedLanguagesType): Promise<void>
     suppressLocaleRefresh = false;
   }
 }
+
 async function toggleLocale(): Promise<void> {
   const next: SupportedLanguagesType = isEnglish.value ? 'zh-CN' : 'en-US';
   await applyLocaleHotSwitch(next);
   updatePreferences({ app: { locale: next } });
 }
 
-// pass5：折叠开关也在品牌行（Vben 侧栏左下角按钮已通过 sidebar.collapsedButton=false 关闭）。
-const collapseToggleLabel = computed(() =>
-  isEnglish.value ? 'Toggle sidebar' : '切换侧边栏',
-);
 function toggleSidebarCollapse(): void {
   updatePreferences({ sidebar: { collapsed: !sidebarCollapsed.value } });
 }
 
-// pass5：顶栏隐藏后 Vben 的移动端抽屉开关（在顶栏里）被一并藏起，
-// 这里在标签栏左侧放一个可见按钮。2026-11-25：按钮直接打开 SdrSidebar 自己的抽屉
-// （新版侧栏 + 通知 / 设置 / 退出登录），不再代理点击 Vben 的旧菜单抽屉。
-const mobileMenuLabel = computed(() =>
-  isEnglish.value ? 'Open menu' : '打开菜单',
-);
+const mobileMenuLabel = computed(() => $t('gainosUi1.nav.openMenu'));
 const mobileNavOpen = ref(false);
 const { destroyWatermark, updateWatermark } = useWatermark();
 
-// pass5：中键关闭标签改为「释放时」触发（浏览器标签习惯）。
-// Vben 自带实现在 mousedown 就关，已通过 tabbar.middleClickToClose=false 关闭；
-// 这里在文档级监听 auxclick（中键释放）→ 按 data-index 找到页签 → 关闭。
-const tabbarStore = useTabbarStore();
-const { closeTabByKey } = useTabs();
-
 // Vben BasicLayout 内置 watch(i18n.global.locale, refreshAll) 会在切换语言时调用
 // tabbarStore.refresh() 卸载并重建当前路由组件，导致页面未保存表单草稿丢失。
-// 在语言热切换窗口内屏蔽该自动 remount（不影响标签栏手动刷新按钮），实现真正零刷新/零重建。
+// 在语言热切换窗口内屏蔽该自动 remount（不影响顶栏手动刷新按钮），实现真正零刷新/零重建。
 const originalTabbarRefresh = tabbarStore.refresh.bind(tabbarStore);
 tabbarStore.refresh = (async (target: Parameters<typeof originalTabbarRefresh>[0]) => {
   if (suppressLocaleRefresh) return;
   return await originalTabbarRefresh(target);
 }) as typeof tabbarStore.refresh;
 
-function closeByMiddle(event: MouseEvent): void {
-  if (event.button !== 1) return;
-  const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(
-    '[data-tab-item]',
-  );
-  if (!el) return;
-  const tabs = tabbarStore.getTabs;
-  const tab = tabs[Number(el.dataset.index)];
-  if (!tab) return;
-  const closable =
-    Reflect.has(tab.meta, 'tabClosable') ? !!tab.meta.tabClosable : true;
-  if (!closable || tab.meta.affixTab || tabs.length <= 1) return;
-  event.preventDefault();
-  void closeTabByKey(tab.key as string);
+const refreshing = ref(false);
+async function handleRefresh(): Promise<void> {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  try {
+    await refreshActiveRoute();
+  } finally {
+    window.setTimeout(() => {
+      refreshing.value = false;
+    }, 240);
+  }
 }
 
-/** 中键按下：只抑制 Chrome 的中键自动滚动，不关闭页签。 */
-function guardMiddleDown(event: MouseEvent): void {
-  if (event.button !== 1) return;
-  const el = (event.target as HTMLElement | null)?.closest('[data-tab-item]');
-  if (el) event.preventDefault();
+interface BreadcrumbSegment {
+  label: string;
+  to?: string;
 }
+
+const PARENT_NAV_BY_PATH: Record<string, NavKey> = {
+  '/analytics': 'analytics',
+  '/companies': 'companies',
+  '/find-buyers': 'findBuyers',
+  '/leads': 'leads',
+  '/notifications': 'notifications',
+  '/opportunities': 'opportunities',
+  '/outreach': 'outreach',
+  '/settings': 'settings',
+  '/tasks': 'tasks',
+  '/workspace': 'workspace',
+};
+
+function translateRouteTitle(raw: unknown, locale: string): string {
+  if (typeof raw !== 'string' || !raw) return '';
+  const navResolved = resolveNavTitle(raw, locale);
+  return navResolved !== raw ? navResolved : $t(raw);
+}
+
+/** 响应式 48px 顶栏面包屑：随路由与语言实时切换，零刷新更新语种。 */
+const breadcrumbs = computed<BreadcrumbSegment[]>(() => {
+  // 显式读取 locale + i18n.global.locale，确保切语言时立即重算。
+  const locale = preferences.app.locale;
+  void i18n.global.locale.value;
+
+  const path = route.path;
+  const currentTitle = translateRouteTitle(route.meta?.title, locale);
+
+  // 设置中心：统一展示「设置 / 子页名」（兼容独立注册的 /settings/outreach-mailboxes）
+  if (path.startsWith('/settings')) {
+    const parentLabel = navLabel('settings', locale);
+    if (!currentTitle || currentTitle === parentLabel) {
+      return [{ label: parentLabel }];
+    }
+    return [
+      { label: parentLabel, to: '/settings/account' },
+      { label: currentTitle },
+    ];
+  }
+
+  // 带 activePath 的二级详情页：如 /leads/:id -> 买家线索 / 线索档案包，/tasks/:id & /runs/:id -> 寻源记录 / ...
+  const activePath =
+    typeof route.meta?.activePath === 'string' ? route.meta.activePath : '';
+  const parentKey = activePath ? PARENT_NAV_BY_PATH[activePath] : undefined;
+  if (parentKey && activePath !== path) {
+    const parentLabel = navLabel(parentKey, locale);
+    if (currentTitle && currentTitle !== parentLabel) {
+      return [
+        { label: parentLabel, to: activePath },
+        { label: currentTitle },
+      ];
+    }
+    return [{ label: parentLabel }];
+  }
+
+  // 一级主菜单页：直接展示当前规范目录名
+  const directKey = PARENT_NAV_BY_PATH[path];
+  if (directKey) {
+    return [{ label: navLabel(directKey, locale) }];
+  }
+
+  return currentTitle ? [{ label: currentTitle }] : [{ label: 'GainOS' }];
+});
+
 const { isDark, isMobile, isSideMode, sidebarCollapsed } = usePreferences();
 
-// pass5：侧栏可拖拽（Vben 允许拖到 60px），但品牌行 logo 与右侧工具是
-// 固定布局——低于 224px 会重叠。这里给拖拽结果兜底一个最小宽度。
-const SIDEBAR_MIN_WIDTH = 224;
+// 侧栏最小宽度兜底：防止被 Vben 拖拽缩到 60px 挤压企业名与导航项。
+const SIDEBAR_MIN_WIDTH = 220;
 watch(
   () => preferences.sidebar.width,
   (width) => {
@@ -144,13 +187,7 @@ watch(
   { immediate: true },
 );
 
-// 2026-11-25 响应式：平板竖屏（768–1023px）走的是桌面布局，224px 侧栏常驻会把内容区
-// 挤到 544–799px。这里自动把侧栏收成图标窄栏（窄栏底部可手动展开），离开这个区间时
-// 恢复用户原来的展开/折叠偏好。手机（<768）与 ≥1024px 不受影响。
-//
-// 「折叠」本身是持久化偏好，刷新后分不清是用户自己收的还是这里自动收的，所以自动收起时
-// 在本地留一条标记记住原偏好；离开平板宽度时按标记恢复（刷新过也一样）。用户在平板宽度下
-// 手动展开，视为明确选择：清掉标记，之后不再恢复。
+// 平板竖屏（768–1023px）自动收成图标窄栏，离开该区间后恢复原偏好。
 const isTabletWidth = useMediaQuery('(min-width: 768px) and (max-width: 1023.98px)');
 const TABLET_AUTOCOLLAPSE_KEY = 'gainos.sidebar.tabletAutoCollapse.v1';
 interface TabletAutoCollapse {
@@ -194,8 +231,6 @@ watch(
     const marked = readTabletAutoCollapse();
     if (!marked) return;
     updatePreferences({ sidebar: { collapsed: marked.collapsedBefore } });
-    // 偏好落盘有 150ms 防抖：等它落盘之后再清标记。期间如果刷新页面，标记还在，
-    // 下次启动会再恢复一次（幂等），不会把「自动收起」当成用户偏好留下来。
     window.clearTimeout(clearMarkerTimer);
     clearMarkerTimer = window.setTimeout(() => {
       clearMarkerTimer = undefined;
@@ -210,13 +245,13 @@ watch(
     if (isTabletWidth.value && !collapsed) writeTabletAutoCollapse(null);
   },
 );
-// pass4：主题/语言切换（isDark 见下方的 usePreferences 解构）。
-/** 侧栏底部通知行的未读红点数据源（通知部件已从顶栏移除，轮询保留）。 */
+
+/** 顶区「通知」入口的未读计数数据源（轮询 + 站内事件即时刷新）。 */
 const unreadCount = computed(
   () => notifications.value.filter((item) => !item.isRead).length,
 );
 
-/** 侧栏底部账号卡展示公司名；人（realName）只出现在问候与水印里（P5b-14）。 */
+/** 侧栏顶区企业头展示工作空间名称（无名时回退 GainOS）。 */
 const companyName = computed(
   () =>
     (userStore.userInfo as GainosUserInfo | null)?.workspaceName ??
@@ -224,8 +259,7 @@ const companyName = computed(
     '',
 );
 
-// Wave B3：4 环节零刷新双语热切换（彻底移除 window.location.reload()）。
-// 任何入口切换 preferences.app.locale 时异步加载语言包并刷新通知文案，保留表单草稿与当前页面状态。
+// Wave B3：4 环节零刷新双语热切换。
 watch(
   () => preferences.app.locale,
   async (next, prev) => {
@@ -239,13 +273,13 @@ const avatar = computed(
   () => userStore.userInfo?.avatar ?? preferences.app.defaultAvatar,
 );
 
-/** 服务端标题按界面语言选择（en 优先 titleEn，历史行回落中文）。 */
 function serverTitle(row: AppNotification): string | undefined {
-  return preferences.app.locale === 'en-US' ? (row.titleEn ?? row.title ?? undefined) : (row.title ?? undefined);
+  return preferences.app.locale === 'en-US'
+    ? (row.titleEn ?? row.title ?? undefined)
+    : (row.title ?? undefined);
 }
 
 function notificationTitle(row: AppNotification): string {
-  // 服务端标题已带结果与建议（信息契约审计 §5.9）；本地映射只作旧数据/未知类型的回退。
   const server = serverTitle(row);
   if (server) return server;
   switch (row.type) {
@@ -276,7 +310,6 @@ function notificationMessage(row: AppNotification): string {
     case 'LeadQualified': return withRef($t('gainos.notifications.leadQualifiedMessage'), row);
     case 'ClaimApproved': return withRef($t('gainos.notifications.claimApprovedMessage'), row);
     case 'ClaimRejected': return withRef($t('gainos.notifications.claimRejectedMessage'), row);
-    // 服务端标题带计数/额度明细（无 PII），优先按界面语言展示。
     case 'SanctionsHoldDetected':
     case 'WorkspaceQuotaWarning':
     case 'WorkspaceQuotaExceeded':
@@ -286,8 +319,6 @@ function notificationMessage(row: AppNotification): string {
 }
 
 async function loadNotifications(): Promise<void> {
-  // 轮询请求还没回来时又来了「已读」通知：不能丢。那次请求拿到的多半还是已读前的数据，
-  // 丢掉的话红点要等下一个 30 秒才消。记一笔，等它回来后补刷一次。
   if (notificationLoading.value) {
     notificationPending = true;
     return;
@@ -297,18 +328,21 @@ async function loadNotifications(): Promise<void> {
     do {
       notificationPending = false;
       const data = await gainosApi.notifications();
-      const page = (data as unknown as { items?: AppNotification[]; data?: { items?: AppNotification[] } });
+      const page = data as unknown as {
+        data?: { items?: AppNotification[] };
+        items?: AppNotification[];
+      };
       const rows = page.items ?? page.data?.items ?? [];
       notifications.value = rows.map((row) => ({
-        id: row.id,
         avatar: preferences.app.defaultAvatar ?? '/favicon.svg',
-        title: notificationTitle(row),
-        message: notificationMessage(row),
         date: formatDateTime(row.createdAt),
+        id: row.id,
         isRead: Boolean(row.readAt),
         link: row.link,
-        type: row.type,
+        message: notificationMessage(row),
         refId: row.refId,
+        title: notificationTitle(row),
+        type: row.type,
       }));
     } while (notificationPending);
   } catch {
@@ -324,11 +358,11 @@ async function handleLogout() {
 
 watch(
   () => ({
-    enable: preferences.app.watermark,
     content: preferences.app.watermarkContent,
+    enable: preferences.app.watermark,
     isDark: isDark.value,
   }),
-  async ({ enable, content, isDark: isDarkValue }) => {
+  async ({ content, enable, isDark: isDarkValue }) => {
     if (enable) {
       const watermarkColor = isDarkValue
         ? 'rgba(255, 255, 255, 0.12)'
@@ -337,14 +371,8 @@ watch(
       await updateWatermark({
         advancedStyle: {
           colorStops: [
-            {
-              color: watermarkColor,
-              offset: 0,
-            },
-            {
-              color: watermarkColor,
-              offset: 1,
-            },
+            { color: watermarkColor, offset: 0 },
+            { color: watermarkColor, offset: 1 },
           ],
           type: 'linear',
         },
@@ -356,9 +384,7 @@ watch(
       destroyWatermark();
     }
   },
-  {
-    immediate: true,
-  },
+  { immediate: true },
 );
 
 const onNotificationsChanged = () => {
@@ -367,8 +393,6 @@ const onNotificationsChanged = () => {
 
 onMounted(() => {
   window.addEventListener('gainos:notifications-changed', onNotificationsChanged);
-  document.addEventListener('mousedown', guardMiddleDown, true);
-  document.addEventListener('auxclick', closeByMiddle, true);
   void loadNotifications();
   notificationTimer = setInterval(() => void loadNotifications(), 30_000);
 });
@@ -376,8 +400,6 @@ onMounted(() => {
 onUnmounted(() => {
   tabbarStore.refresh = originalTabbarRefresh;
   window.removeEventListener('gainos:notifications-changed', onNotificationsChanged);
-  document.removeEventListener('mousedown', guardMiddleDown, true);
-  document.removeEventListener('auxclick', closeByMiddle, true);
   if (notificationTimer) clearInterval(notificationTimer);
 });
 </script>
@@ -392,6 +414,74 @@ onUnmounted(() => {
     @clear-preferences-and-logout="handleLogout"
     @logout="handleLogout"
   >
+    <!-- PR-UI1：48px 极简面包屑顶栏左侧（移动端汉堡键 + 响应式面包屑） -->
+    <template #header-left-1>
+      <div class="gs-topbar-left">
+        <button
+          v-if="isMobile"
+          :aria-expanded="mobileNavOpen"
+          :aria-label="mobileMenuLabel"
+          aria-controls="gainos-mobile-nav"
+          aria-haspopup="dialog"
+          class="sdr-mobile-burger"
+          type="button"
+          @click="mobileNavOpen = true"
+        >
+          <Menu :size="18" aria-hidden="true" />
+        </button>
+
+        <nav
+          :aria-label="$t('gainosUi1.header.breadcrumbLabel')"
+          class="gs-topbar-crumb"
+          data-gs="topbar-breadcrumb"
+        >
+          <ol class="gs-topbar-crumb__list">
+            <li
+              v-for="(seg, idx) in breadcrumbs"
+              :key="`${seg.to ?? seg.label}-${idx}`"
+              class="gs-topbar-crumb__item"
+            >
+              <ChevronRight
+                v-if="idx > 0"
+                :size="14"
+                aria-hidden="true"
+                class="gs-topbar-crumb__sep"
+              />
+              <RouterLink
+                v-if="seg.to && idx < breadcrumbs.length - 1"
+                :to="seg.to"
+                class="gs-topbar-crumb__link"
+              >
+                {{ seg.label }}
+              </RouterLink>
+              <span
+                v-else
+                aria-current="page"
+                class="gs-topbar-crumb__current"
+              >
+                {{ seg.label }}
+              </span>
+            </li>
+          </ol>
+        </nav>
+      </div>
+    </template>
+
+    <!-- PR-UI1：48px 极简顶栏右侧（克制的页面刷新小图标按钮） -->
+    <template #header-right-1>
+      <button
+        :aria-label="$t('gainosUi1.header.refresh')"
+        :class="{ 'is-spinning': refreshing }"
+        :title="$t('gainosUi1.header.refresh')"
+        class="gs-topbar-refresh"
+        data-gs="topbar-refresh"
+        type="button"
+        @click="handleRefresh"
+      >
+        <RotateCw :size="15" aria-hidden="true" />
+      </button>
+    </template>
+
     <template #extra>
       <AuthenticationLoginExpiredModal
         v-model:open="accessStore.loginExpired"
@@ -404,59 +494,6 @@ onUnmounted(() => {
       <LockScreen :avatar @to-login="handleLogout" />
     </template>
   </BasicLayout>
-
-  <!-- pass4/5：主题/语言/折叠都在侧栏品牌行右侧（AgentSDR 同款位置）。 -->
-  <div
-    v-if="isSideMode && !isMobile && !sidebarCollapsed && !preferences.sidebar.hidden"
-    class="sdr-brandtools"
-    :style="{
-      left: `${preferences.sidebar.width - 100}px`,
-      top: `${Math.max(0, Math.round((preferences.header.height - 1) / 2) - 14)}px`,
-    }"
-  >
-    <button
-      type="button"
-      class="sdr-brandtools__btn"
-      :aria-label="collapseToggleLabel"
-      :title="collapseToggleLabel"
-      @click="toggleSidebarCollapse"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9.5 4v16" /></svg>
-    </button>
-    <button
-      type="button"
-      class="sdr-brandtools__btn"
-      :aria-label="themeToggleLabel"
-      :title="themeToggleLabel"
-      @click="toggleTheme"
-    >
-      <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4.4" /><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>
-    </button>
-    <button
-      type="button"
-      class="sdr-brandtools__btn sdr-brandtools__lang"
-      :aria-label="langToggleLabel"
-      :title="langToggleLabel"
-      @click="toggleLocale"
-    >
-      {{ isEnglish ? 'EN' : '中' }}
-    </button>
-  </div>
-
-  <!-- pass5：移动端抽屉开关（顶栏隐藏后 Vben 的 burger 不可见，代理点击它）。 -->
-  <button
-    v-if="isMobile"
-    type="button"
-    aria-controls="gainos-mobile-nav"
-    aria-haspopup="dialog"
-    class="sdr-mobile-burger"
-    :aria-label="mobileMenuLabel"
-    :aria-expanded="mobileNavOpen"
-    @click="mobileNavOpen = true"
-  >
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" /></svg>
-  </button>
 
   <SdrSidebar
     v-model:open="mobileNavOpen"
@@ -472,126 +509,142 @@ onUnmounted(() => {
     @toggle-locale="toggleLocale"
     @toggle-theme="toggleTheme"
   />
-  <!-- 主链路进度浮窗：只在主流程页面挂载（公司档案、买家画像、挖掘任务、运行页、买家线索）。 -->
-  <FlowProgressBar v-if="isFlowPath(route.path)" />
   <CommandPalette ref="paletteRef" />
 </template>
 
 <style scoped>
-
-/* pass4：侧栏品牌行右侧的主题/语言切换（AgentSDR 同款位置）。 */
-.sdr-brandtools {
-  position: fixed;
-  z-index: 202;
+.gs-topbar-left {
   display: flex;
-  gap: 2px;
   align-items: center;
-  transition: left 0.3s;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 8px;
 }
-.sdr-brandtools__btn {
+
+.sdr-mobile-burger {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gs-fg-2);
+  cursor: pointer;
+}
+
+.sdr-mobile-burger:hover {
+  background: var(--gs-surface-2);
+  color: var(--gs-fg);
+}
+
+.gs-topbar-crumb {
+  min-width: 0;
+}
+
+.gs-topbar-crumb__list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.gs-topbar-crumb__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gs-topbar-crumb__sep {
+  flex: none;
+  color: var(--gs-fg-placeholder);
+}
+
+.gs-topbar-crumb__link {
+  color: var(--gs-fg-muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.gs-topbar-crumb__link:hover {
+  color: var(--gs-fg);
+}
+
+.gs-topbar-crumb__current {
+  color: var(--gs-fg);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.011em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gs-topbar-refresh {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--gs-fg-subtle);
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
-.sdr-brandtools__btn:hover {
+
+.gs-topbar-refresh:hover {
   background: var(--gs-surface-2);
   color: var(--gs-fg);
 }
-.sdr-brandtools__btn svg { width: 16px; height: 16px; }
-.sdr-brandtools__lang { font-size: 12px; font-weight: 500; }
 
-/* pass5：移动端抽屉开关——贴在标签栏左侧（标签栏高 40，见 gainos.css 让位）。 */
-.sdr-mobile-burger {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 202;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 40px;
-  border: 0;
-  background: transparent;
-  color: var(--gs-fg-2);
-  cursor: pointer;
+.gs-topbar-refresh:focus-visible {
+  outline: none;
+  box-shadow: var(--gs-shadow-focus);
 }
-.sdr-mobile-burger svg { width: 20px; height: 20px; }
 
+.gs-topbar-refresh.is-spinning :deep(svg) {
+  animation: gs-spin 0.45s linear infinite;
+}
 
-/* AgentSDR 侧栏规格（2026-11-22 pass2）
-   Vben 只暴露一组菜单高度变量；这里用组件级 :deep 收敛：
-   一级 36px / 二级 32px / 组标签 11px / active 蓝左条 + 蓝字 + 浅灰底。 */
-:deep(.vben-menu) {
-  --menu-font-size: 14px;
-  --menu-item-height: 36px;
-  --menu-item-padding-y: 0px;
-  --menu-item-padding-x: 8px;
-  --menu-item-margin-y: 2px;
-  --menu-item-margin-x: 6px;
-  --menu-item-radius: 8px;
-  --menu-item-color: var(--gs-fg-2);
-  --menu-item-hover-background-color: var(--gs-surface-2);
-  --menu-item-hover-color: var(--gs-fg);
-  --menu-item-active-background-color: var(--gs-surface-2);
-  --menu-item-active-color: var(--gs-fg);
-}
-:deep(.vben-sub-menu .vben-menu) {
-  --menu-item-height: 32px;
-}
-:deep(.vben-menu-item) {
-  font-weight: 500;
-}
-:deep(.vben-menu-item.is-active) {
-  font-weight: 500;
-}
-:deep(.vben-sub-menu > .vben-sub-menu-content) {
-  display: flex;
-  align-items: center;
-  height: 36px;
-  min-height: 36px;
-  margin: 6px 6px 0;
-  padding: 0 8px;
-  border-radius: 6px;
-  color: var(--gs-fg-subtle);
-  background: transparent;
-}
-:deep(.vben-menu > .vben-sub-menu:first-child > .vben-sub-menu-content) {
-  margin-top: 0;
-}
-:deep(.vben-sub-menu-content__title) {
-  color: inherit;
-  font-size: 11px !important;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-:deep(.vben-sub-menu > .vben-sub-menu-content > .vben-menu__icon),
-:deep(.vben-sub-menu > .vben-sub-menu-content > .vben-sub-menu-content__icon-arrow) {
-  display: none;
-}
-:deep(.vben-sub-menu-content:hover) {
-  color: var(--gs-fg-2);
-  background: transparent;
-}
-:deep(.vben-sub-menu-content.is-active) {
-  color: var(--gs-fg-subtle);
-  background: transparent;
+@keyframes gs-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
 
 <style>
-/* 暗色顶栏：Vben 把 .dark 单独挂在隐藏的 <header class="dark ... bg-header"> 容器上，
-   --header 在元素自身解析，默认是 Vben 带蓝调的 222.34deg 10.43% 12.27%（rgb(28, 30, 35)）。
-   此前被退役的 settings-dialog.vue 里的错误全局 .dark 规则掩盖，删除弹窗后暴露。
-   按 gainos.css .dark .dark { --sidebar: 0 0% 12%; } 同原则在布局级收敛为纯中性灰。 */
+/* PR-UI1：48px 极简顶栏与主画布融合（浅色 #FFFFFF / 深色 #0B0D12 + 1px 底细线），
+   同时隐藏 Vben 在移动端自动注入的 toggle-sidebar 按钮（改由 #header-left-1 里的 .sdr-mobile-burger 接管）。 */
+[data-layout-region='header'] > header {
+  background: var(--gs-bg) !important;
+  border-bottom: 1px solid var(--gs-border) !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+}
+
+[data-layout-region='header'] [data-layout-action='toggle-sidebar'] {
+  display: none !important;
+}
+
+/* 隐藏 Vben 未启用的占位 logo 容器（仅针对首子节点，避免误伤中间 .flex-1 撑开右侧刷新按钮） */
+[data-layout-region='header'] > header > div:first-child:empty {
+  display: none !important;
+}
+
 .dark [data-layout-region='header'] > header.dark.bg-header {
-  --header: 0 0% 12%;
+  --header: 223 24% 6%;
 }
 </style>

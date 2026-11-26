@@ -30,63 +30,62 @@ export const overridesPreferences = defineOverridesPreferences({
   app: {
     name: import.meta.env.VITE_APP_TITLE || 'GainOS',
     defaultHomePath: '/workspace',
+    // 关闭 Vben 偏好设置抽屉按钮，避免顶栏或右下角出现无关齿轮入口。
+    enablePreferences: false,
     // pass3：布局钉死为垂直侧边栏（B1）。缓存归一见 main.ts——此处默认值
     // 仍会被 localStorage 旧值压过，强制归一在 initPreferences 之后执行。
     layout: 'sidebar-nav',
-    // 不显示浮动设置按钮(auto 会在右下角浮出并遮挡内容)
     preferencesButtonPosition: 'header',
   },
   logo: {
+    // PR-UI1：侧栏顶区企业头由 SdrSidebar 统一渲染（48px 高与顶栏底线平齐），
+    // 关闭 Vben 内置 logo 槽位，避免桌面重复渲染与移动端顶栏挤入旧 logo。
+    enable: false,
     source: LOGO_SRC,
     sourceDark: LOGO_SRC,
+  },
+  sidebar: {
+    collapsedButton: false,
+    hidden: false,
+    width: 220,
   },
   theme: {
     // AgentSDR 品牌蓝 blue-500 ≈#335CFF（白字 5.10:1，达 AA）。
     // hsl(228 100% 60%) 与 #335CFF 同值；侧栏激活项与 vben 派生控件一并蓝化。
     colorPrimary: '#335CFF',
-    // 默认浅色；顶栏主题按钮仍可切到深色（两套 token 同时维护）。
+    // 默认浅色；账号菜单内可随时切到深色（两套 token 同时维护）。
     mode: 'light',
   },
-  // pass5：顶部 = 标签页（用户要求：页面多以标签页承载切换，顶栏不再是操作区）。
-  // 卡片式药丸标签，配合 token 已归一的 primary/accent/border 保持 AgentSDR 质感。
+  // PR-UI1：彻底关闭顶部纯黑胶囊多标签栏，升级为 48px 极简面包屑顶栏。
   tabbar: {
-    enable: true,
-    // 40px 栏 + 30px 药丸：上下各 5px 呼吸。
+    enable: false,
     height: 40,
-    // 中键关闭由布局层在「释放」时处理（basic.vue），Vben 自带的按下即关
-    // 行为关闭，保证与浏览器标签一致（按下不关、释放才关）。
     middleClickToClose: false,
-    // 顶栏已恒隐藏，Vben 的「内容最大化」会把它翻出来（且只藏侧栏不藏
-    // SDR 覆盖层）——该控件在 pass5 布局下无意义，关掉。
     showMaximize: false,
-    showIcon: true,
+    showIcon: false,
     styleType: 'card',
   },
   breadcrumb: {
+    // 面包屑由 basic.vue 自定义 48px 极简响应式面包屑接管，关闭 Vben 内置版本。
     enable: false,
   },
-  // pass5：藏掉 Vben 顶栏——操作全部在左侧栏（主题/语言/折叠在品牌行，
-  // 通知/设置/账号在侧栏底部）；刷新由标签栏右侧工具按钮承担。
+  // PR-UI1：48px 极简白/暗画布顶栏（左侧移动汉堡 + 面包屑，右侧克制刷新小按钮）。
   header: {
-    // 与标签栏同高（40px）：侧栏品牌行与标签栏合成一条顶部横带，接缝处不错位。
-    height: 40,
-    hidden: true,
+    enable: true,
+    height: 48,
+    hidden: false,
   },
-  // 顶栏只保留与产品相关的能力:搜索、主题、语言、全屏、刷新、通知、退出。
-  // 去掉锁屏 / 时区 / 设置抽屉入口(后者在移动端会浮在内容之上)。
-  // 注意：**不要在这里重写 widget.order** —— vben 的偏好合并用 defu，数组是拼接
-  // 而不是覆盖，再写一遍会让每个控件渲染两次（2026-11-09 全站顶栏重复的根因）。
-  // pass4→pass5：通知移入侧栏底部；刷新由标签栏工具承担；顶栏整体隐藏。
-  // 登录/注册页另有独立的同功能控件(AuthTools)。
+  // 顶栏精简：不渲染 Vben 默认部件（搜索/主题/语言/通知/退出均归入左侧栏与账号菜单）。
+  // 注意：**不要在这里重写 widget.order** —— vben 的偏好合并用 defu，数组是拼接而不是覆盖。
   widget: {
-    // pass3 C1：内置搜索由自定义命令面板替代（页面 + 动作 + ⌘K）。
     globalSearch: false,
-    // pass4：主题/语言切换移入侧栏品牌行（basic.vue sdr-brandtools），
-    // 顶栏只留刷新/通知/用户。
     themeToggle: false,
     languageToggle: false,
     notification: false,
     lockScreen: false,
+    logoutButtonPosition: 'none',
+    refresh: false,
+    sidebarToggle: false,
     timezone: false,
     fullscreen: false,
   },

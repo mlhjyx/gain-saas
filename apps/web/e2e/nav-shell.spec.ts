@@ -1,6 +1,9 @@
 /**
- * Wave B2 导航壳层验收：「3 组 8 项」一级信息架构、零单条目分组、子路由侧栏高亮、
- * /outreach 三 Tab 枢纽（无页头无条件 shadowBadge）、/leads?view=reviews 复核切换与命令面板门控。
+ * PR-UI1 新版展示目录与导航壳层验收：
+ * - 顶区高频核心项（无分组标题）：工作台（/workspace）、通知（/notifications）
+ * - 分组 1「获客主线」：企业档案（/companies）、买家画像（/find-buyers）、买家线索（/leads）、寻源记录（/tasks）
+ * - 分组 2「触达与转化」（全部 3 项受 GROWTH_PAGE_HIDDEN 统一门控）：外发与战役（/outreach）、商机管线（/opportunities）、成效复盘（/analytics）
+ * - 直接深链 /outreach、/opportunities、/analytics 始终 100% 可达；/tasks/:id 与 /runs/:id 高亮 /tasks，/leads/:id 高亮 /leads。
  */
 import { GROWTH_PAGE_HIDDEN } from '../src/feature-flags';
 
@@ -8,32 +11,25 @@ import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
 
-/** 路由切换有 120-180ms 淡入过渡；断言与截图前等它结束。 */
 async function settle(page: import('@playwright/test').Page): Promise<void> {
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(450);
 }
 
-/**
- * Wave B2「3 组 8 项」一级信息架构：
- * - 总览：工作台（/workspace）、成效复盘（/analytics）
- * - 获客与筛选：公司档案（/companies）、买家画像（/find-buyers）、挖掘任务（/tasks）、买家线索（/leads）
- * - 触达与转化（受 GROWTH_PAGE_HIDDEN 控制）：外发与战役（/outreach）、商机管线（/opportunities）
- */
 const NAV_GROUPS = [
   {
-    group: '总览',
+    group: '',
     items: [
       { landmark: '.wk', name: '工作台', path: '/workspace' },
-      { heading: '度量', landmark: '.mt', name: '成效复盘', path: '/analytics' },
+      { heading: '通知', landmark: '.gpc', name: '通知', path: '/notifications' },
     ],
   },
   {
-    group: '获客与筛选',
+    group: '获客主线',
     items: [
-      { heading: '公司档案', landmark: '[data-gs="page-header"]', name: '公司档案', path: '/companies' },
+      { heading: '公司档案', landmark: '[data-gs="page-header"]', name: '企业档案', path: '/companies' },
       { heading: '买家画像', landmark: '[data-gs="page-header"]', name: '买家画像', path: '/find-buyers' },
-      { landmark: '.gpc', name: '挖掘任务', path: '/tasks' },
       { heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' },
+      { landmark: '.gpc', name: '寻源记录', path: '/tasks' },
     ],
   },
   {
@@ -41,6 +37,7 @@ const NAV_GROUPS = [
     items: [
       { heading: '外发与战役', landmark: '[data-gs="outreach-hub"]', name: '外发与战役', path: '/outreach' },
       { heading: '商机', landmark: '.gpc', name: '商机管线', path: '/opportunities' },
+      { heading: '度量', landmark: '.mt', name: '成效复盘', path: '/analytics' },
     ],
   },
 ] as const;
@@ -49,7 +46,7 @@ function groupLocator(page: import('@playwright/test').Page, group: string) {
   return page.locator('[data-sdr-nav] .sdr-section__label').filter({ hasText: group });
 }
 
-test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归属菜单，周报重定向至成效复盘', async ({
+test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门控触达与转化 3 项、子路由高亮准确', async ({
   page,
 }, testInfo) => {
   const backend = await installMockBackend(page);
@@ -83,10 +80,10 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
   await settle(page);
   await page.screenshot({ path: testInfo.outputPath('nav-workspace.png') });
 
-  // pass3 B：顶栏（banner）不得出现任何菜单项；导航只存在于侧边栏。
+  // 顶栏（banner）不得出现任何菜单项；导航只存在于侧边栏。
   await expect(page.getByRole('banner').getByRole('menuitem')).toHaveCount(0);
 
-  // GROWTH_PAGE_HIDDEN=true 时，「触达与转化」分组因无可见子项自动隐藏；剩余每个可见分组均 >= 2 项（零单条目分组）。
+  // GROWTH_PAGE_HIDDEN=true 时，「触达与转化」整组（外发与战役 / 商机管线 / 成效复盘）自动隐藏。
   const visibleGroups = NAV_GROUPS.filter(
     (group) => !(GROWTH_PAGE_HIDDEN && group.group === '触达与转化'),
   );
@@ -94,6 +91,7 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
     await expect(groupLocator(page, '触达与转化')).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '外发与战役' })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '商机管线' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: '成效复盘' })).toHaveCount(0);
   }
 
   const sectionCounts = await page
@@ -106,13 +104,13 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
     );
   expect(sectionCounts.map((s) => s.label)).toEqual(visibleGroups.map((g) => g.group));
   for (const section of sectionCounts) {
-    expect(section.count, `分组「${section.label}」不得为单条目分组`).toBeGreaterThanOrEqual(2);
+    expect(section.count, `分组「${section.label || '顶区高频'}」不得为单条目分组`).toBeGreaterThanOrEqual(2);
   }
 
-  // 业务分组齐全；无旧词/死项（周报、战役计划、商机与触达、找买家）
-  for (const group of visibleGroups) {
-    await expect(groupLocator(page, group.group)).toBeVisible();
-  }
+  // 分组标题核对；无旧词/死项（总览、获客与筛选、周报、战役计划、商机与触达、找买家）
+  await expect(groupLocator(page, '获客主线')).toBeVisible();
+  await expect(groupLocator(page, '总览')).toHaveCount(0);
+  await expect(groupLocator(page, '获客与筛选')).toHaveCount(0);
   await expect(page.locator('.sdr-section__label').filter({ hasText: '设置' })).toHaveCount(0);
   await expect(page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: '周报' })).toHaveCount(0);
@@ -132,8 +130,8 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
     }
   }
 
-  // /tasks/:taskId 与 /runs/:runId 均高亮侧栏「挖掘任务」
-  const tasksMenu = page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '挖掘任务' });
+  // /tasks/:taskId 与 /runs/:runId 均高亮侧栏「寻源记录」
+  const tasksMenu = page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '寻源记录' });
   await page.goto('/tasks/task-1');
   await expect(tasksMenu).toHaveAttribute('aria-current', 'page');
   await expect(tasksMenu).toHaveClass(/\bis-active\b/);
@@ -148,14 +146,14 @@ test('3 组 8 项导航可点、零单条目分组，详情与运行页高亮归
   await expect(leadsMenu).toHaveAttribute('aria-current', 'page');
   await expect(leadsMenu).toHaveClass(/\bis-active\b/);
 
-  // 设置：Wave B3 已退役双轨设置弹窗，底部入口直达整页 /settings/account。
-  await page.locator('.sdr-footer__row', { hasText: '设置' }).click();
+  // 设置：底部入口直达整页 /settings/account
+  await page.locator("[data-gs='nav-settings']").click();
   await page.waitForURL((url) => url.pathname === '/settings/account');
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
   await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
 
-  // 周报已重定向至成效复盘 /analytics（无周报内容渲染）
+  // 直接深链 /analytics 与历史 /reports 重定向仍 100% 可达
   await page.goto('/reports');
   await page.waitForURL((url) => url.pathname === '/analytics');
   await expect(page.getByText('周报概览')).toHaveCount(0);
@@ -172,20 +170,16 @@ test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、
   await page.goto('/outreach');
   await settle(page);
   await expect(page.getByRole('heading', { level: 1, name: '外发与战役', exact: true })).toBeVisible();
-  // 页头彻底移除无条件挂接的 shadowBadge
   await expect(page.getByText('运行期 · 按授权执行')).toHaveCount(0);
 
-  // 3 个 Tab：战役计划 / 触达批次 / 回复
   const hubTabs = page.locator('[data-gs="outreach-hub-tabs"] > .ant-tabs > .ant-tabs-nav [role="tab"]');
   await expect(hubTabs).toHaveText(['战役计划', '触达批次', '回复']);
 
-  // Tab 1：内嵌战役计划列表（不重复渲染 H1）
   await expect(page.getByRole('heading', { level: 1, name: '战役计划', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '新建计划' }).first()).toBeVisible();
   await expect(page.getByText('还没有任何计划。先新建一个，再让系统起草。')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('outreach-campaigns.png') });
 
-  // Tab 2：触达批次（?tab=batches）
   await hubTabs.nth(1).click();
   await page.waitForURL(/\/outreach\?.*tab=batches/);
   await settle(page);
@@ -195,41 +189,38 @@ test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、
   await expect(page.getByPlaceholder('例如：德国泵业首触')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('outreach-batches.png') });
 
-  // Tab 3：回复（?tab=replies）
   await hubTabs.nth(2).click();
   await page.waitForURL(/\/outreach\?.*tab=replies/);
   await settle(page);
   await expect(page.getByRole('heading', { level: 1, name: '回复收件箱', exact: true })).toHaveCount(0);
   await expect(page.getByText('还没有收到回复。首次发送后，回复与退信会出现在这里。')).toBeVisible();
 
-  // 独立商机管线 /opportunities
   await page.goto('/opportunities');
   await settle(page);
   await expect(page.getByRole('heading', { level: 1, name: '商机', exact: true })).toBeVisible();
   await expect(page.getByText('还没有商机')).toBeVisible();
   await expect(page.getByRole('link', { name: '去买家线索' })).toBeVisible();
 
-  // 买家线索页内分段切换 ?view=reviews 查看判定复核队列
   await page.goto('/leads');
   await expect(page.locator('[data-gs="leads-view-switch"]')).toBeVisible();
   await page.locator('[data-gs="leads-view-switch"]').getByRole('button', { name: '判定复核' }).click();
   await page.waitForURL(/\/leads\?.*view=reviews/);
   await expect(page.locator('[data-gs="leads-reviews-panel"]')).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: '判定复核' })).toBeVisible();
-  // 切回线索列表，清掉 view 参数
   await page.locator('[data-gs="leads-view-switch"]').getByRole('button', { name: '线索列表' }).click();
   await page.waitForURL((url) => url.pathname === '/leads' && !url.searchParams.has('view'));
 
-  // 命令面板：GROWTH_PAGE_HIDDEN 门控 /outreach 和 /opportunities，但成效复盘与 AI 判定复核可直达
+  // 命令面板：GROWTH_PAGE_HIDDEN 门控触达与转化（外发/商机/成效复盘），AI 判定复核与获客主线直达
   await page.keyboard.press('Control+K');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   const list = dialog.locator('.cmdk__list');
-  await expect(list).toContainText('成效复盘');
+  await expect(list).toContainText('寻源记录');
   await expect(list).toContainText('AI 判定复核');
   if (GROWTH_PAGE_HIDDEN) {
     await expect(list).not.toContainText('外发与战役');
     await expect(list).not.toContainText('商机管线');
+    await expect(list).not.toContainText('成效复盘');
     await expect(list).not.toContainText('回复收件箱');
   }
   await dialog.getByRole('option', { name: /AI 判定复核/ }).click();

@@ -22,11 +22,11 @@ const PREFS_KEY = 'vben-web-antd-5.8.0-prod-preferences';
  */
 const STALE_PREFS = JSON.stringify({
   value: {
-    app: { layout: 'header-nav', locale: 'zh-CN' },
-    // 用户点过 Vben「内容最大化」后的坏缓存：顶栏被翻回、侧栏被藏。
-    header: { hidden: false, height: 50 },
+    app: { enablePreferences: true, layout: 'header-nav', locale: 'zh-CN' },
+    // 旧版 pass5 / 最大化坏缓存：顶栏隐藏 + 黑胶囊多标签栏开启 + 侧栏隐藏。
+    header: { hidden: true, height: 40 },
     sidebar: { hidden: true },
-    tabbar: { enable: false, showMaximize: true },
+    tabbar: { enable: true, showMaximize: true },
     logo: { source: '/logo-gainos.svg', sourceDark: '/logo-gainos.svg' },
     theme: {
       builtinType: 'default',
@@ -84,7 +84,9 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
 
   // 4) 用户偏好不被破坏：明暗模式仍可切换（缓存归一只动品牌字段）。
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.getByRole('button', { name: 'dark' }).click();
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='theme-toggle']").click();
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   await expect(page.locator('html')).toHaveClass(/dark/);
 
@@ -115,12 +117,11 @@ test('旧版绿色 + 顶栏缓存被强制归一为蓝主题纯侧边栏', async
   expect(persisted?.app?.layout).toBe('sidebar-nav');
   expect(persisted?.theme?.colorPrimary?.toLowerCase()).toContain('335cff');
   expect(persisted?.logo?.source).toContain('v=pass3');
-  // pass5：顶部横带高度归一（老缓存 50 会让侧栏品牌行与标签栏错位）。
-  expect(persisted?.header?.height).toBe(40);
-  expect(persisted?.header?.hidden).toBe(true);
-  expect(persisted?.tabbar?.enable).toBe(true);
-  expect(persisted?.tabbar?.height).toBe(40);
-  // 「内容最大化」会写 header.hidden=false + sidebar.hidden=true，必须救回。
+  // PR-UI1：48px 极简面包屑顶栏 + 关闭多标签栏，老缓存立刻归一。
+  expect(persisted?.header?.height).toBe(48);
+  expect(persisted?.header?.hidden).toBe(false);
+  expect(persisted?.tabbar?.enable).toBe(false);
   expect(persisted?.sidebar?.hidden).toBe(false);
   expect(persisted?.tabbar?.showMaximize).toBe(false);
+  await expect(page.locator('[data-tab-item]')).toHaveCount(0);
 });

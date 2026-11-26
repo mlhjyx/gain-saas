@@ -80,9 +80,9 @@ function errorBody(payload: unknown, status: number): MockHandler {
   };
 }
 
-/** 主链路进度当前所在步骤的标题。2026-11-26 起步骤条在底部进度浮窗里（antd 给当前步加 ant-steps-item-process）。 */
-function currentStep(page: Page) {
-  return page.locator("[data-gs='flow-bar'] .ant-steps-item-process .ant-steps-item-title");
+/** PR-UI1：主链路进度已收敛至侧栏底部单行芯片（主流程 · 第 N/5 步 · <当前步>）。 */
+function currentStepChip(page: Page) {
+  return page.locator("[data-gs='flow-progress-chip']");
 }
 
 /** 运行页五张进度卡的状态，按顺序（已完成 / 进行中 / 等待开始分别记为 done / current / pending）。 */
@@ -129,22 +129,22 @@ test('#14 买家画像：进度跟着寻源进度走', async ({ page }) => {
   await loginAs(page);
   await page.goto('/find-buyers');
   // 画像已生效、还没有方案：停在「确认寻源方案」
-  await expect(currentStep(page)).toHaveText('确认寻源方案');
+  await expect(currentStepChip(page)).toContainText('确认寻源方案');
 
   progress.plans.push(PLAN);
   await page.reload();
   // 方案已确认、这一轮还没产出：停在「等待寻源」
-  await expect(currentStep(page)).toHaveText('等待寻源');
+  await expect(currentStepChip(page)).toContainText('等待寻源');
 
   progress.runs.push(taskRun('PARTIAL', NOW));
   await page.reload();
   // 这一轮已产出线索：走到「判断线索」
-  await expect(currentStep(page)).toHaveText('判断线索');
+  await expect(currentStepChip(page)).toContainText('判断线索');
 
   // 迭代画像后发起了新一轮，还在跑：退回「等待寻源」
   progress.runs.push(taskRun('RUNNING', LATER, 'tr-2'));
   await page.reload();
-  await expect(currentStep(page)).toHaveText('等待寻源');
+  await expect(currentStepChip(page)).toContainText('等待寻源');
 });
 
 test('#14 买家线索：进度按实际显示，多个任务的运行合并取最近一次', async ({ page }) => {
@@ -165,22 +165,22 @@ test('#14 买家线索：进度按实际显示，多个任务的运行合并取�
 
   await loginAs(page);
   await page.goto('/leads');
-  await expect(currentStep(page)).toHaveText('确认寻源方案');
+  await expect(currentStepChip(page)).toContainText('确认寻源方案');
 
   progress.plans.push(PLAN);
   await page.reload();
   // 第一个任务的那一轮已经产出过线索
-  await expect(currentStep(page)).toHaveText('判断线索');
+  await expect(currentStepChip(page)).toContainText('判断线索');
 
   // 第二个任务里新一轮还在跑：以最近的一次为准
   progress.runs.push(taskRun('RUNNING', LATER, 'tr-2'));
   await page.reload();
-  await expect(currentStep(page)).toHaveText('等待寻源');
+  await expect(currentStepChip(page)).toContainText('等待寻源');
 
   // 画像还没生效：回到「设定买家画像」
   icp.status = 'DRAFT';
   await page.reload();
-  await expect(currentStep(page)).toHaveText('设定买家画像');
+  await expect(currentStepChip(page)).toContainText('设定买家画像');
 });
 
 test('#15 #18 运行页：编号收进技术详情，五步进度按引擎阶段显示', async ({ page }) => {

@@ -364,7 +364,7 @@ onMounted(load);
 .qg__empty-actions .qg__cta-link { margin-top: 0; }
 .qg__cta-secondary {
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 999px; padding: 9px 18px;
+  border: 1px solid var(--gs-border); border-radius: 8px; padding: 9px 18px;
   background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13.5px; text-decoration: none;
 }
 .qg__cta-secondary:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }

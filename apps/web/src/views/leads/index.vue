@@ -959,7 +959,7 @@ onUnmounted(() => {
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
 
-    <div class="relative z-[1] -mt-12 flex items-center" data-gs="leads-view-switch">
+    <div class="flex items-center" data-gs="leads-view-switch">
       <div class="rounded-xl border border-[var(--gs-border)] bg-[var(--gs-surface)] p-1 shadow-[var(--gs-shadow-xs)]">
         <GsSegmented
           v-model="activeView"

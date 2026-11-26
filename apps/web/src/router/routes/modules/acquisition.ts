@@ -28,7 +28,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       fullPathKey: false,
       icon: 'lucide:users',
-      order: 6,
+      order: 5,
       title: navTitle('leads'),
     },
     name: 'Leads',

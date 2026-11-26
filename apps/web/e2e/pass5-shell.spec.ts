@@ -1,239 +1,218 @@
 /**
- * pass5 壳层验收（2026-11-22）：
- *  1) 顶部 = 标签页（Vben tabbar，[data-tab-item]）：导航留痕、点击切回；
- *  2) 侧栏底部 = 通知/设置/帮助 + 工作空间账号卡（AgentSDR 同款）；
- *  3) 折叠 rail 有展开入口（Vben 自带折叠按钮已关闭）；
- *  4) 移动端抽屉开关（顶栏隐藏后由 .sdr-mobile-burger 代理）。
- * 顶栏（banner）整体隐藏：导航只存在于侧栏，全局操作在侧栏品牌行与底部。
+ * PR-UI1 全局壳层验收（48px 极简面包屑顶栏 + 新版左侧展示目录 + 静态图标 + 折叠 rail + 移动端抽屉）：
+ *  1) 彻底关闭顶部黑色多标签栏（[data-tab-item] 为 0），48px 顶栏呈现响应式面包屑 + 克制刷新按钮；
+ *  2) 侧栏顶区 48px 企业头（[G] 公司名 + 折叠按钮）与顶栏底线平齐；
+ *  3) 顶区高频核心项（工作台 / 通知 + 未读徽标）无多余分组标题；获客主线 4 项顺序准确；
+ *  4) 底部收纳主流程进度芯片（主流程页显示）+ 设置 + 紧凑账号条（弹出主题/语言/帮助/退出）；
+ *  5) 折叠 rail 60px 可导航可展开；侧栏拖拽最小宽度 220px 且品牌行零重叠；
+ *  6) 移动端 48px 顶栏汉堡按钮打开与桌面一致的新版侧栏抽屉。
  */
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
 
-const settle = (page: import('@playwright/test').Page, ms = 600) =>
+const settle = (page: import('@playwright/test').Page, ms = 400) =>
   page.waitForTimeout(ms);
 
-test('顶部标签页：导航留痕、active 药丸、点击切回', async ({ page }) => {
+test('48px 极简面包屑顶栏：关闭多标签栏、响应式面包屑（含详情与设置二级）与刷新按钮', async ({
+  page,
+}) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
+  await expect(page.locator("[data-gs='sidebar-brand']")).toBeVisible();
+  await expect(page.locator("[data-gs='topbar-breadcrumb']")).toBeVisible();
   await settle(page);
 
-  // 首页只有一个标签；顶栏元素仍在 DOM（margin-top 滑出）但视口顶部
-  // 属于标签栏——按命中测试断言，而非按存在性。
-  await expect(page.locator('[data-tab-item]')).toHaveCount(1);
-  const topHit = await page.evaluate(() => {
-    const el = document.elementFromPoint(720, 10);
-    return !!el?.closest("[data-layout-region='header'] section");
-  });
-  expect(topHit, '视口顶部应是标签栏').toBe(true);
+  // 彻底关闭顶部多标签栏，不再存在任何黑胶囊 [data-tab-item]
+  await expect(page.locator('[data-tab-item]')).toHaveCount(0);
 
-  // 「留痕」的前提是新标签已经登记。固定等 600ms 在较慢的机器上会赶在登记前就跳走，
-  // 下一个页面恢复不到这个标签（实测加载完成后还要 0.7–0.8s 才登记）。按数量等，不按时间等。
-  await page.goto('/find-buyers');
-  await expect(page.locator('[data-tab-item]')).toHaveCount(2);
-  await page.goto('/leads');
-  await expect(page.locator('[data-tab-item]')).toHaveCount(3);
-
-  // active 是反白实心药丸（浅色：近黑底白字；深色：白底深字），一眼可辨；
-  // 关闭符只在 hover/当前页出现（不可见时不可点）。
-  const active = page.locator('[data-tab-item].is-active');
-  await expect(active).toHaveText(/买家线索/);
-  const styles = await active.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    const span = el.querySelector('span[class*="flex-1"]');
+  // 48px 顶栏与侧栏顶区企业头严格平齐（误差 <= 1px），且刷新按钮靠右对齐
+  const headerGeo = await page.evaluate(() => {
+    const header = document.querySelector("[data-layout-region='header'] > header") as HTMLElement;
+    const brand = document.querySelector("[data-gs='sidebar-brand']") as HTMLElement;
+    const refresh = document.querySelector("[data-gs='topbar-refresh']") as HTMLElement;
+    const hr = header.getBoundingClientRect();
+    const br = brand.getBoundingClientRect();
+    const rr = refresh.getBoundingClientRect();
     return {
-      bg: cs.backgroundColor,
-      border: cs.borderTopColor,
-      color: cs.color,
-      height: cs.height,
-      title: span ? getComputedStyle(span).color : '',
-      titleFont: span ? getComputedStyle(span).fontSize : '',
+      brandBottom: Math.round(br.bottom),
+      brandHeight: Math.round(br.height),
+      headerBottom: Math.round(hr.bottom),
+      headerHeight: Math.round(hr.height),
+      headerLeft: Math.round(hr.left),
+      headerRight: Math.round(hr.right),
+      headerWidth: Math.round(hr.width),
+      refreshLeft: Math.round(rr.left),
+      refreshRight: Math.round(rr.right),
     };
   });
-  expect(styles.bg).toBe('rgb(23, 23, 23)');
-  expect(styles.color).toBe('rgb(255, 255, 255)');
-  expect(styles.title).toBe('rgb(255, 255, 255)');
-  expect(styles.height).toBe('30px');
-  expect(styles.titleFont).toBe('13px');
-
-  // 顶栏恒隐藏 + 侧栏常显；工具组只有「更多/刷新」——Vben 的
-  // 「内容最大化」按钮会破坏 pass5 布局，已移除（2026-11-23 用户实测）。
-  const tools = page.locator(
-    "[data-layout-region='header'] section > div:last-child > *",
-  );
-  await expect(tools).toHaveCount(2);
-
-  // 未选中 = 透明底 + muted 文字（与选中形成明确层级）。
-  const inactive = page.locator('[data-tab-item]').first();
-  const inactiveStyles = await inactive.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { bg: cs.backgroundColor, color: cs.color };
-  });
-  expect(inactiveStyles.bg).toBe('rgba(0, 0, 0, 0)');
-  expect(inactiveStyles.color).toBe('rgb(92, 92, 92)');
-
-  // 标签条永不出现滚动条：viewport 直接 overflow:hidden（reka 默认
-  // overflow:scroll，Windows「始终显示滚动条」下会画出一条空滚动条），
-  // 滚轮/翻页按钮/切签仍靠程序化滚动工作。
-  const viewport = page.locator(
-    "[data-layout-region='header'] [data-slot='scroll-area-viewport']",
-  );
-  const vpStyle = await viewport.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { overflowX: cs.overflowX, scrollbarWidth: cs.scrollbarWidth };
-  });
-  expect(vpStyle.overflowX).toBe('hidden');
-  expect(vpStyle.scrollbarWidth).toBe('none');
-
-  // 非当前标签：关闭符隐藏且不可点（防误关）。
-  const inactiveClose = page
-    .locator('[data-tab-item]')
-    .first()
-    .locator('.absolute');
-  expect(await inactiveClose.evaluate((el) => getComputedStyle(el).opacity)).toBe('0');
+  expect(headerGeo.headerHeight).toBe(48);
+  expect(headerGeo.brandHeight).toBe(48);
+  expect(Math.abs(headerGeo.headerBottom - headerGeo.brandBottom)).toBeLessThanOrEqual(1);
   expect(
-    await inactiveClose.evaluate((el) => getComputedStyle(el).pointerEvents),
-  ).toBe('none');
-  // hover 后浮出。
-  await page.locator('[data-tab-item]').first().hover();
-  await expect
-    .poll(async () =>
-      inactiveClose.evaluate((el) => getComputedStyle(el).opacity),
-    )
-    .toBe('1');
+    headerGeo.refreshLeft,
+    '顶栏刷新按钮必须居于顶栏最右侧而非紧贴面包屑',
+  ).toBeGreaterThan(headerGeo.headerLeft + headerGeo.headerWidth * 0.7);
+  expect(headerGeo.headerRight - headerGeo.refreshRight).toBeLessThanOrEqual(28);
 
-  // 点击第一个标签切回工作台（用户自由切换页签）。
-  await page.locator('[data-tab-item]').first().click();
-  await page.waitForURL((url) => url.pathname === '/workspace');
-  await expect(page.locator('[data-tab-item].is-active')).toHaveText(/工作台/);
+  // 面包屑随路由准确响应
+  const crumb = page.locator("[data-gs='topbar-breadcrumb']");
+  await expect(crumb).toHaveText('工作台');
+  await expect(page.locator("[data-gs='topbar-refresh']")).toBeVisible();
 
-  // 关闭非当前标签：关闭符 hover 才出现（pass5 交互），先悬停再点 ×。
-  const secondTab = page.locator('[data-tab-item]').nth(1);
-  await secondTab.hover();
-  await secondTab.locator('.absolute .lucide-x').click();
-  await settle(page);
-  await expect(page.locator('[data-tab-item]')).toHaveCount(2);
-  await expect(page.locator('.wk')).toBeVisible();
+  await page.goto('/leads');
+  await expect(crumb).toHaveText('买家线索');
 
-  // 鼠标中键：按下不关、释放才关（浏览器标签习惯，2026-11-23 用户要求）。
-  await page.getByRole('menuitem', { name: '公司档案' }).click();
-  await page.waitForURL((url) => url.pathname === '/companies');
-  await settle(page);
-  await expect(page.locator('[data-tab-item]')).toHaveCount(3);
-  const middleTab = page.locator('[data-tab-item]').nth(1);
-  // 只有 mousedown（没有 auxclick）→ 不关闭。
-  await middleTab.dispatchEvent('mousedown', { button: 1, bubbles: true });
-  await settle(page, 300);
-  await expect(page.locator('[data-tab-item]')).toHaveCount(3);
-  // 完整中键点击（按下 + 释放）→ 关闭。
-  await middleTab.click({ button: 'middle' });
-  await settle(page, 400);
-  await expect(page.locator('[data-tab-item]')).toHaveCount(2);
-  await expect(page.locator('[data-gs="companies-page"]')).toBeVisible();
+  await page.goto('/leads/lead-1');
+  await expect(crumb).toContainText('买家线索');
+  await expect(crumb).toContainText('线索档案包');
+  await crumb.getByRole('link', { name: '买家线索' }).click();
+  await page.waitForURL((url) => url.pathname === '/leads');
+
+  await page.goto('/settings/account');
+  await expect(crumb).toContainText('设置');
+  await expect(crumb).toContainText('账号与空间');
+
+  // 刷新按钮可正常触发且页面稳定
+  await page.locator("[data-gs='topbar-refresh']").click();
+  await expect(page.locator("[data-gs='settings-shell']")).toBeVisible();
 });
 
-test('侧栏底部：通知/设置/帮助行 + 账号卡菜单', async ({ page }) => {
-  await installMockBackend(page);
+test('新版侧栏结构：48px 企业头 + 顶区高频通知徽标 + 底部设置与账号弹出菜单（主题/语言/帮助/退出）', async ({
+  page,
+}) => {
+  const backend = await installMockBackend(page);
+  backend.set('GET', '/notifications', {
+    items: [
+      {
+        createdAt: '2026-11-26T08:00:00.000Z',
+        id: 'n1',
+        link: '/leads',
+        readAt: null,
+        title: '新的买家线索',
+        type: 'LeadQualified',
+      },
+      {
+        createdAt: '2026-11-26T08:05:00.000Z',
+        id: 'n2',
+        link: '/leads',
+        readAt: null,
+        title: '寻源任务已完成',
+        type: 'DiscoveryRunCompleted',
+      },
+    ],
+    unreadCount: 2,
+  });
+
   await loginAs(page);
   await page.goto('/workspace');
   await settle(page);
 
-  // 底部三行 + 账号卡（工作空间名 + 账号）。
-  const footer = page.locator('.sdr-footer');
-  await expect(footer.getByText('通知', { exact: true })).toBeVisible();
-  await expect(footer.getByText('设置', { exact: true })).toBeVisible();
-  await expect(footer.getByText('帮助', { exact: true })).toBeVisible();
-  await expect(footer.locator('.sdr-account__name')).toHaveText('E2E 测试公司');
-  await expect(footer.locator('.sdr-account__email')).toHaveText(
-    'e2e@gainos.local',
-  );
+  // 顶区企业头展示工作空间名称 + 简洁折叠按钮（不再挤入月亮/中英文）
+  await expect(page.locator("[data-gs='sidebar-workspace-name']")).toHaveText('E2E 测试公司');
+  await expect(page.locator('.sdr-brandtools')).toHaveCount(0);
 
-  // 侧栏不再列设置子页；「设置」行直达整页 /settings/account（Wave B3 退役设置弹窗）。
+  // 静态打包图标首屏即显（0ms 同步 SVG，无缺失空图标）
+  const svgStats = await page.locator('[data-sdr-nav] .sdr-row svg').evaluateAll((svgs) => ({
+    count: svgs.length,
+    visible: svgs.filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width >= 14 && r.height >= 14;
+    }).length,
+  }));
+  expect(svgStats.count).toBeGreaterThanOrEqual(6);
+  expect(svgStats.visible).toBe(svgStats.count);
+
+  // 通知在顶区高频位且展示紧凑未读数字徽标（保留 data-gs="nav-unread"）
+  const notifyLink = page.locator('[data-sdr-nav]').getByRole('menuitem', { name: /通知/ });
+  await expect(notifyLink).toBeVisible();
+  await expect(notifyLink.locator("[data-gs='nav-unread']")).toHaveText('2');
+
+  // 底部设置直达整页 /settings/account，无 SettingsDialog 弹窗
+  const footer = page.locator('.sdr-footer');
+  await expect(footer.locator("[data-gs='nav-settings']")).toHaveText('设置');
+  await expect(footer.locator('.sdr-account__email')).toHaveText('e2e@gainos.local');
   await expect(
     page.locator('[data-sdr-nav]').getByRole('menuitem', { name: '成员与角色' }),
   ).toHaveCount(0);
-  await footer.getByText('设置', { exact: true }).click();
+
+  await footer.locator("[data-gs='nav-settings']").click();
   await page.waitForURL((url) => url.pathname === '/settings/account');
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
   await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
-  await expect(
-    page.getByRole('heading', { level: 1, name: '账号与空间' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '账号与空间' })).toBeVisible();
 
-  // 通知行直达通知页。
-  await footer.getByText('通知', { exact: true }).click();
+  // 顶区通知行直达通知页
+  await notifyLink.click();
   await page.waitForURL((url) => url.pathname === '/notifications');
   await settle(page);
 
-  // 帮助弹层：快捷键说明 + 版本号（__APP_COMMIT__ 可能为空，断言 v 前缀）。
-  await page.locator('.sdr-footer__row', { hasText: '帮助' }).click();
-  await expect(page.locator('.sdr-help')).toBeVisible();
-  await expect(page.locator('.sdr-help__version')).toHaveText(/^v[\d.]/);
-  await page.keyboard.press('Escape');
-
-  // 账号菜单（SDR Dropdown 同款）：抬头 + 通知/设置/搜索或跳转 + 退出登录。
-  await page.locator('.sdr-account').click();
-  const menu = page.locator('.gs-account-menu');
+  // 账号弹出菜单：收纳外观主题、界面语言、搜索或跳转、快捷键与帮助、退出登录
+  await page.locator("[data-gs='account-trigger']").click();
+  const menu = page.locator("[data-gs='account-menu']");
   await expect(menu).toBeVisible();
   await expect(menu.locator('.gs-account-menu__name')).toHaveText('E2E 测试公司');
   await expect(menu.locator('.gs-account-menu__mail')).toHaveText('e2e@gainos.local');
-  await expect(menu.getByRole('menuitem', { name: '通知' })).toBeVisible();
+  await expect(menu.locator("[data-gs='theme-toggle']")).toBeVisible();
+  await expect(menu.locator("[data-gs='locale-toggle']")).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: '设置' })).toBeVisible();
-  await expect(
-    menu.getByRole('menuitem', { name: /搜索或跳转/ }),
-  ).toBeVisible();
-  await expect(
-    menu.getByRole('menuitem', { name: '退出登录' }),
-  ).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /搜索或跳转/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '退出登录' })).toBeVisible();
 
-  // 「搜索或跳转」直达命令面板；标签必须是译文，不能出现 gainos.menu.* 原文。
+  // 快捷键与帮助展开（含版本号）
+  await menu.locator("[data-gs='account-help-toggle']").click();
+  await expect(menu.locator("[data-gs='account-help-panel']")).toBeVisible();
+  await expect(menu.locator('.sdr-help__version')).toHaveText(/^v[\d.]/);
+
+  // 「搜索或跳转」直达命令面板；标签为真实译文
   await menu.getByRole('menuitem', { name: /搜索或跳转/ }).click();
-  await expect(page.getByRole('dialog').filter({ has: page.locator('.cmdk__list') })).toBeVisible();
-  await expect(page.locator('.cmdk__list')).toContainText('挖掘任务');
+  await expect(
+    page.getByRole('dialog').filter({ has: page.locator('.cmdk__list') }),
+  ).toBeVisible();
+  await expect(page.locator('.cmdk__list')).toContainText('寻源记录');
   await expect(page.locator('.cmdk__list')).toContainText('成员与角色');
   await expect(page.locator('.cmdk__list')).not.toContainText('gainos.menu.');
   await page.keyboard.press('Escape');
   await expect(page.locator('.cmdk__list')).toHaveCount(0);
 
-  // 账号菜单「设置」同样直达整页 /settings/account，无设置弹窗。
-  await page.locator('.sdr-account').click();
+  // 账号菜单「设置」同样直达整页 /settings/account
+  await page.locator("[data-gs='account-trigger']").click();
   await menu.getByRole('menuitem', { name: '设置' }).click();
   await page.waitForURL((url) => url.pathname === '/settings/account');
   await expect(page.locator('[data-gs="settings-shell"]')).toBeVisible();
   await expect(page.locator('.gs-settings__panel')).toHaveCount(0);
 });
 
-test('折叠 rail：品牌行折叠 → 展开入口回到完整侧栏', async ({ page }) => {
+test('折叠 rail：顶区折叠按钮 → 60px 图标窄栏 → 展开回到完整侧栏', async ({ page }) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
   await settle(page);
 
-  await page.getByRole('button', { name: '切换侧边栏' }).click();
+  await page.locator("[data-gs='sidebar-collapse']").click();
   await settle(page);
   await expect(page.locator('.sdr-rail')).toBeVisible();
   await expect(page.locator('.sdr-nav')).toBeHidden();
 
-  // rail 宽度 = Vben collapseWidth（60px），不覆盖内容区。
-  const width = await page.locator('.sdr-rail').evaluate(
-    (el) => Math.round(el.getBoundingClientRect().width),
-  );
+  // rail 宽度 = Vben collapseWidth（60px），不覆盖内容区
+  const width = await page
+    .locator('.sdr-rail')
+    .evaluate((el) => Math.round(el.getBoundingClientRect().width));
   expect(width).toBe(60);
 
-  // rail 内仍可导航（图标点击）。
-  await page.locator('.sdr-rail__item', { hasText: '' }).nth(1).click();
-  await settle(page, 400);
+  // rail 内仍可导航（点击通知或企业档案图标）
+  await page.locator('.sdr-rail__item').nth(1).click();
+  await settle(page, 300);
 
-  // 展开入口（Vben 自带按钮已关闭）。
+  // 展开入口回到完整侧栏
   await page.locator('.sdr-rail__expand').click();
   await settle(page);
   await expect(page.locator('.sdr-nav')).toBeVisible();
   await expect(page.locator('.sdr-rail')).toBeHidden();
 });
 
-test('侧栏拖拽有最小宽度：低于 224px 时拉回且品牌行不重叠', async ({ page }) => {
-  // 预置一个被拖窄的缓存（Vben 允许拖到 60px，品牌行会叠在一起）。
+test('侧栏拖拽最小宽度：低于 220px 自动拉回，顶区企业头与折叠键零重叠', async ({ page }) => {
   await page.addInitScript(
     ([key, value]) => {
       if (!window.localStorage.getItem('min-width-injected')) {
@@ -249,67 +228,66 @@ test('侧栏拖拽有最小宽度：低于 224px 时拉回且品牌行不重叠'
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
-  // 量尺寸前先等侧栏渲染出来：固定等待在较慢的机器上会赶在布局完成前，拿到 null。
   await expect(page.locator("aside[data-layout-region='sidebar']")).toBeVisible();
-  await expect(page.locator('.sdr-brandtools')).toBeVisible();
+  await expect(page.locator("[data-gs='sidebar-brand']")).toBeVisible();
 
   const geo = await page.evaluate(() => {
     const aside = document.querySelector(
       "aside[data-layout-region='sidebar']",
     ) as HTMLElement;
-    const tools = document.querySelector('.sdr-brandtools') as HTMLElement;
-    const logoText = [
-      ...document.querySelectorAll("aside[data-layout-region='sidebar'] *"),
-    ].find(
-      (el) => el.textContent?.trim() === 'GainOS' && el.children.length === 0,
-    ) as HTMLElement | null;
+    const nameEl = document.querySelector("[data-gs='sidebar-workspace-name']") as HTMLElement;
+    const collapseBtn = document.querySelector("[data-gs='sidebar-collapse']") as HTMLElement;
     return {
       asideW: Math.round(aside.getBoundingClientRect().width),
       brandOverlap:
-        logoText && tools
-          ? tools.getBoundingClientRect().left <
-            logoText.getBoundingClientRect().right
-          : null,
+        collapseBtn.getBoundingClientRect().left < nameEl.getBoundingClientRect().right,
     };
   });
-  expect(geo.asideW).toBeGreaterThanOrEqual(224);
-  expect(geo.brandOverlap, '品牌行 logo 与工具按钮不得重叠').toBe(false);
+  expect(geo.asideW).toBeGreaterThanOrEqual(220);
+  expect(geo.brandOverlap, '企业名与折叠按钮不得重叠').toBe(false);
 });
 
-test('移动端：汉堡按钮打开新版侧栏抽屉（导航 + 通知/设置/帮助 + 退出登录）', async ({ browser }) => {
+test('移动端：48px 顶栏汉堡按钮打开新版侧栏抽屉（导航 + 设置 + 账号菜单含主题/语言/退出）', async ({
+  browser,
+}) => {
   const ctx = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    locale: 'zh-CN',
-    isMobile: true,
     hasTouch: true,
+    isMobile: true,
+    locale: 'zh-CN',
+    viewport: { height: 844, width: 390 },
   });
   const page = await ctx.newPage();
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
-  await settle(page, 900);
+  await settle(page, 700);
 
   const burger = page.locator('.sdr-mobile-burger');
+  await expect(burger).toBeVisible();
   await expect(burger).toHaveAttribute('aria-expanded', 'false');
   await burger.click();
-  await settle(page, 500);
+  await settle(page, 400);
+
   const drawer = page.locator("[data-gs='mobile-nav']");
   await expect(drawer).toBeVisible();
   await expect(burger).toHaveAttribute('aria-expanded', 'true');
 
-  // 与桌面侧栏同一份内容：分组导航 + 底部三行。
-  for (const name of ['工作台', '成效复盘', '公司档案', '买家画像', '挖掘任务', '买家线索', '通知', '设置', '帮助']) {
+  // 与桌面侧栏一致的新版目录项
+  for (const name of ['工作台', '通知', '企业档案', '买家画像', '买家线索', '寻源记录', '设置']) {
     await expect(drawer.getByRole('menuitem', { name })).toBeVisible();
   }
-  // Vben 自带的旧菜单抽屉不再出现（它的菜单项是浅色字落在白底上，也没有底部账号区）
   await expect(page.locator("aside[data-layout-region='sidebar']")).toHaveCount(0);
 
-  // 账号卡 → 菜单里有退出登录
-  await drawer.locator('.sdr-account').click();
-  await expect(page.getByRole('menuitem', { name: '退出登录' })).toBeVisible();
+  // 账号条 → 菜单含深浅主题、中英热切与退出登录
+  await drawer.locator("[data-gs='account-trigger']").click();
+  const menu = page.locator("[data-gs='account-menu']");
+  await expect(menu.locator("[data-gs='theme-toggle']")).toBeVisible();
+  await expect(menu.locator("[data-gs='locale-toggle']")).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '退出登录' })).toBeVisible();
 
-  // 点菜单项：跳转并收起抽屉
-  await drawer.locator('.sdr-mobile__name').click();
+  // 关闭账号弹出层（不按 Escape 以免连带关闭 AntDV Drawer）并跳转买家画像，抽屉自动收起
+  await drawer.locator("[data-gs='account-trigger']").click();
+  await expect(menu).toBeHidden();
   await drawer.getByRole('menuitem', { name: '买家画像' }).click();
   await page.waitForURL(/\/find-buyers/);
   await expect(drawer).toBeHidden();

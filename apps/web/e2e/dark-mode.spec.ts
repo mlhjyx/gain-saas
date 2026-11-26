@@ -83,9 +83,11 @@ test('深色模式：tokens 生效、关键与新增路由（含 /ops）无横�
   );
   await loginAs(page);
 
-  // 侧栏主题按钮的 aria-label 是 dark / light。
-  await page.getByRole('button', { name: 'dark' }).click();
+  // PR-UI1：深浅主题切换入口收纳在左下角账号弹出菜单内（data-gs="theme-toggle"）。
+  await page.locator("[data-gs='account-trigger']").click();
+  await page.locator("[data-gs='theme-toggle']").click();
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
 
   const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);

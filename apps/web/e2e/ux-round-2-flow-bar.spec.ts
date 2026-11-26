@@ -1,9 +1,11 @@
 /**
- * 体验问题第二轮（2026-11-26）· 交互建议 1：主链路进度浮窗。
- * 进度是跨页面的，所以做成只在主流程页面显示的底部细条，取代买家画像、买家线索两页里的步骤条。
- * 全部走 BFF mock，不依赖引擎与数据库。
+ * PR-UI1 主流程进度芯片验收（替代旧版 40px 压底满宽白条）：
+ * - 仅在主流程页面（企业档案、买家画像、寻源记录、运行页、买家线索）挂载于侧栏底部（设置上方）；
+ * - 不再 position: fixed 压底切卡片，--gs-flow-bar-h 恒为 0px；
+ * - 单行芯片展示「主流程 · 第 N/5 步 · <当前步>」，点击弹出 Popover 展示全部 5 个可点击步骤按钮；
+ * - 当前步 aria-current="step"，「等待寻源」直达最近运行；折叠窄栏同样可点击弹出。
  */
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 import { expect, test } from '@playwright/test';
 
@@ -66,7 +68,6 @@ function json(make: () => unknown): MockHandler {
   };
 }
 
-/** 可变的进度状态：公司、画像、方案、运行。 */
 function mockProgress(backend: MockBackend) {
   const state = {
     companies: [] as unknown[],
@@ -78,223 +79,198 @@ function mockProgress(backend: MockBackend) {
   backend.set('GET', '/icps', json(() => state.icps));
   backend.set('GET', '/icps/icp-1', json(() => state.icps[0] ?? null));
   backend.set('GET', '/icps/icp-1/query-plans', json(() => state.plans));
-  backend.set('GET', '/tasks', json(() => (state.run ? [{ id: 'task-1', runs: [state.run], status: 'active' }] : [])));
+  backend.set(
+    'GET',
+    '/tasks',
+    json(() => (state.run ? [{ id: 'task-1', runs: [state.run], status: 'active' }] : [])),
+  );
   return state;
 }
 
-const bar = (page: Page) => page.locator("[data-gs='flow-bar']");
-/** 当前步的标题（antd 给当前步加 ant-steps-item-process）。 */
-const current = (page: Page) =>
-  bar(page).locator('.ant-steps-item-process .ant-steps-item-title');
+const wrap = (page: Page) => page.locator("[data-gs='flow-progress-bar']");
+const chip = (page: Page) => page.locator("[data-gs='flow-progress-chip']");
+const popover = (page: Page) => page.locator("[data-gs='flow-progress-popover']");
 
-async function expectStep(page: Page, step: Locator, label: string): Promise<void> {
-  await expect(page.locator("[data-gs='flow-bar']").getByRole('button', { name: label })).toHaveAttribute(
-    'aria-current',
-    'step',
-  );
-  await expect(step).toHaveText(label);
+async function openPopover(page: Page) {
+  await expect(chip(page)).toBeVisible();
+  const expanded = await chip(page).getAttribute('aria-expanded');
+  if (expanded !== 'true') {
+    await chip(page).click();
+  }
+  await expect(chip(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(popover(page)).toBeVisible();
 }
 
-test('进度浮窗只在主流程页面显示，其他页面不占地方', async ({ page }) => {
+async function expectCurrentStep(page: Page, stepNum: number, label: string): Promise<void> {
+  await expect(chip(page)).toContainText(`主流程 · 第 ${stepNum}/5 步 · ${label}`);
+  await openPopover(page);
+  await expect(
+    popover(page).getByRole('button', { exact: true, name: label }),
+  ).toHaveAttribute('aria-current', 'step');
+}
+
+test('主流程芯片仅在主流程页面显示于侧栏底部，且不占用内容区底部高度（--gs-flow-bar-h=0px）', async ({
+  page,
+}) => {
   await installMockBackend(page);
   await loginAs(page);
   await expect(page).toHaveURL(/\/workspace$/);
-  await expect(bar(page)).toHaveCount(0);
+  await expect(wrap(page)).toHaveCount(0);
 
   await page.goto('/notifications');
   await expect(page.getByRole('heading', { level: 1, name: '通知' })).toBeVisible();
-  await expect(bar(page)).toHaveCount(0);
+  await expect(wrap(page)).toHaveCount(0);
 
   for (const path of ['/companies', '/find-buyers', '/tasks', '/leads']) {
     await page.goto(path);
-    await expect(bar(page)).toBeVisible();
+    await expect(chip(page)).toBeVisible();
+    // 嵌入侧栏内部且宽度严守侧栏边界不溢出，内容区底部不再有 40px 占位
+    const geo = await page.evaluate(() => {
+      const chipEl = document.querySelector("[data-gs='flow-progress-chip']") as HTMLElement;
+      const sidebar = document.querySelector('[data-sdr-nav]') as HTMLElement;
+      const aside = document.querySelector("aside[data-layout-region='sidebar']") as HTMLElement;
+      const view = document.querySelector('.page-route-container') as HTMLElement;
+      const chipRect = chipEl.getBoundingClientRect();
+      const asideRect = aside.getBoundingClientRect();
+      return {
+        chipInSidebar: Boolean(chipEl && sidebar && sidebar.contains(chipEl)),
+        chipRight: Math.round(chipRect.right),
+        asideRight: Math.round(asideRect.right),
+        flowBarH: getComputedStyle(document.documentElement).getPropertyValue('--gs-flow-bar-h').trim(),
+        spacerH: getComputedStyle(view, '::after').height,
+      };
+    });
+    expect(geo.chipInSidebar).toBe(true);
+    expect(geo.chipRight, '主流程芯片不得溢出侧栏右边界').toBeLessThanOrEqual(geo.asideRight);
+    expect(geo.flowBarH).toBe('0px');
+    expect(geo.spacerH).toBe('0px');
   }
 });
 
-test('页面上的按钮不和步骤同名，否则读屏软件和按名称找按钮都用不了', async ({ page }) => {
+test('Popover 展开 5 步按钮均唯一可点，且与页面按钮无重名冲突', async ({ page }) => {
   await installMockBackend(page);
   await loginAs(page);
   for (const path of ['/companies', '/find-buyers', '/tasks', '/leads']) {
     await page.goto(path);
-    await expect(bar(page)).toBeVisible();
+    await openPopover(page);
     for (const label of ['完善档案', '设定买家画像', '确认寻源方案', '等待寻源', '判断线索']) {
       await expect(page.getByRole('button', { exact: true, name: label })).toHaveCount(1);
     }
+    await page.keyboard.press('Escape');
   }
 });
 
-test('站内离开主流程页面再回来：浮窗和底部留白都恢复', async ({ page }) => {
+test('站内离开主流程页面再回来：芯片自动隐藏与恢复，底部高度恒为 0px', async ({ page }) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/leads');
-  // 占位块加在路由视图容器末尾（原因见设计系统 §18）
   const viewPad = () =>
     page.evaluate(
-      () => getComputedStyle(document.querySelector('.page-route-container') as HTMLElement, '::after').height,
+      () =>
+        getComputedStyle(document.querySelector('.page-route-container') as HTMLElement, '::after')
+          .height,
     );
-  await expect(bar(page)).toBeVisible();
-  await expect.poll(viewPad).toBe('40px');
+  await expect(chip(page)).toBeVisible();
+  await expect.poll(viewPad).toBe('0px');
 
-  // 站内跳到工作台（不是整页刷新）：浮窗卸载，留白归零
   const nav = page.locator('[data-sdr-nav]');
   await nav.getByRole('menuitem', { name: '工作台' }).click();
   await page.waitForURL(/\/workspace$/);
-  await expect(bar(page)).toHaveCount(0);
+  await expect(wrap(page)).toHaveCount(0);
   await expect.poll(viewPad).toBe('0px');
 
-  // 再回主流程页面：进度数据还在，浮窗重新出现，留白恢复
-  await expect(nav.getByText('获客与筛选', { exact: true })).toBeVisible();
+  await expect(nav.getByText('获客主线', { exact: true })).toBeVisible();
   await nav.getByRole('menuitem', { name: '买家线索' }).click();
   await page.waitForURL(/\/leads$/);
-  await expect(bar(page)).toBeVisible();
-  await expect.poll(viewPad).toBe('40px');
+  await expect(chip(page)).toBeVisible();
+  await expect.poll(viewPad).toBe('0px');
 });
 
-test('进度按真实状态走，点某一步直接跳过去', async ({ page }) => {
+test('进度按真实状态演进，Popover 内点击任意步骤直达目标页（「等待寻源」直达最近运行）', async ({
+  page,
+}) => {
   const backend = await installMockBackend(page);
   const state = mockProgress(backend);
   await loginAs(page);
   await page.goto('/companies');
 
-  // 还没有确认过的公司档案：第 1 步
-  await expect(current(page)).toHaveText('完善档案');
-  await expectStep(page, current(page), '完善档案');
+  // 第 1 步：完善档案
+  await expectCurrentStep(page, 1, '完善档案');
 
-  // 档案确认了、还没有生效中的买家画像：第 2 步（点步骤本身跳到买家画像页，浮窗跟着重新取数）
+  // 第 2 步：设定买家画像
   state.companies = [COMPANY];
-  await bar(page).getByRole('button', { name: '设定买家画像' }).click();
+  await popover(page).getByRole('button', { exact: true, name: '设定买家画像' }).click();
   await page.waitForURL(/\/find-buyers$/);
-  await expect(current(page)).toHaveText('设定买家画像');
+  await expectCurrentStep(page, 2, '设定买家画像');
 
-  // 画像生效、还没有方案：第 3 步
+  // 第 3 步：确认寻源方案
   state.icps = [PROFILE];
-  await bar(page).getByRole('button', { name: '完善档案' }).click();
+  await popover(page).getByRole('button', { exact: true, name: '完善档案' }).click();
   await page.waitForURL(/\/companies$/);
-  await expect(current(page)).toHaveText('确认寻源方案');
+  await expectCurrentStep(page, 3, '确认寻源方案');
 
-  // 方案可执行、这一轮还在跑：第 4 步，点它直达最近一次运行
+  // 第 4 步：等待寻源 → 直达 /runs/run-1
   state.plans = [PLAN];
   state.run = taskRun('RUNNING');
-  await bar(page).getByRole('button', { name: '设定买家画像' }).click();
+  await popover(page).getByRole('button', { exact: true, name: '设定买家画像' }).click();
   await page.waitForURL(/\/find-buyers$/);
-  await expect(current(page)).toHaveText('等待寻源');
-  await bar(page).getByRole('button', { name: '等待寻源' }).click();
+  await expectCurrentStep(page, 4, '等待寻源');
+  await popover(page).getByRole('button', { exact: true, name: '等待寻源' }).click();
   await page.waitForURL(/\/runs\/run-1$/);
-  await expect(bar(page)).toBeVisible();
+  await expect(chip(page)).toBeVisible();
 
-  // 这一轮已产出线索：第 5 步，点它去买家线索
+  // 第 5 步：判断线索 → 直达 /leads
   state.run = taskRun('DONE');
-  await bar(page).getByRole('button', { name: '完善档案' }).click();
+  await openPopover(page);
+  await popover(page).getByRole('button', { exact: true, name: '完善档案' }).click();
   await page.waitForURL(/\/companies$/);
-  await expect(current(page)).toHaveText('判断线索');
-  await bar(page).getByRole('button', { name: '判断线索' }).click();
+  await expectCurrentStep(page, 5, '判断线索');
+  await popover(page).getByRole('button', { exact: true, name: '判断线索' }).click();
   await page.waitForURL(/\/leads$/);
 });
 
-test('可以收起成右下角的小标签并记住；窄屏收成一句，点开才展开五步', async ({ page }) => {
+test('折叠窄栏下芯片切换为紧凑图标按钮，点击仍可弹出 5 步 Popover 并跳转', async ({ page }) => {
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/leads');
-  await expect(bar(page)).toBeVisible();
+  await expect(chip(page)).toBeVisible();
 
-  await page.locator("[data-gs='flow-bar-collapse']").click();
-  await expect(bar(page)).toHaveCount(0);
-  const pill = page.locator("[data-gs='flow-bar-expand']");
-  await expect(pill).toContainText('第 1 / 5 步 · 完善档案');
-  // 刷新后仍然是收起的
-  await page.reload();
-  await expect(pill).toBeVisible();
-  await pill.click();
-  await expect(bar(page)).toBeVisible();
+  await page.locator("[data-gs='sidebar-collapse']").click();
+  await expect(page.locator('.sdr-rail')).toBeVisible();
+  const railChip = page.locator(".sdr-rail [data-gs='flow-progress-chip']");
+  await expect(railChip).toBeVisible();
 
-  // 手机宽度：只剩一句，点开是从底部展开的一列
-  await page.setViewportSize({ height: 844, width: 390 });
-  const summary = page.locator("[data-gs='flow-bar-summary']");
-  await expect(summary).toContainText('第 1 / 5 步 · 完善档案');
-  await expect(bar(page).getByRole('button', { name: '判断线索' })).toHaveCount(0);
-  await summary.click();
-  const sheet = page.locator("[data-gs='flow-bar-sheet']");
-  await expect(sheet.getByRole('button', { name: '判断线索' })).toBeVisible();
-  await sheet.getByRole('button', { name: '判断线索' }).click();
-  await page.waitForURL(/\/leads$/);
+  await railChip.click();
+  await expect(popover(page)).toBeVisible();
+  await popover(page).getByRole('button', { exact: true, name: '完善档案' }).click();
+  await page.waitForURL(/\/companies$/);
 });
 
-test('买家画像、买家线索两页不再有页内步骤条；浮窗贴底、从侧栏右边开始，页面底部留出同样的高度', async ({
+test('关键操作后芯片即时更新：激活画像后从第 2 步推进到第 3 步，底部操作条紧贴视口底边 12px', async ({
   page,
 }) => {
-  const backend = await installMockBackend(page);
-  mockProgress(backend);
-  await loginAs(page);
-  for (const path of ['/find-buyers', '/leads']) {
-    await page.goto(path);
-    await expect(bar(page)).toBeVisible();
-    await expect(page.locator("[data-gs='stage-steps']")).toHaveCount(0);
-  }
-
-  const metrics = await page.evaluate(() => {
-    const flow = document.querySelector("[data-gs='flow-bar']") as HTMLElement;
-    const sidebar = document.querySelector("aside[data-layout-region='sidebar']") as HTMLElement;
-    const view = document.querySelector('.page-route-container') as HTMLElement;
-    const scroll = document.querySelector("[data-layout-region='scroll']") as HTMLElement;
-    const rect = flow.getBoundingClientRect();
-    return {
-      barBottom: rect.bottom,
-      barHeight: rect.height,
-      barLeft: rect.left,
-      // 占位块加在路由视图容器末尾（::after）；滚动区和容器自己都不留内边距
-      spacerHeight: getComputedStyle(view, '::after').height,
-      viewPaddingBottom: getComputedStyle(view).paddingBottom,
-      scrollPaddingBottom: getComputedStyle(scroll).paddingBottom,
-      sidebarWidth: sidebar.getBoundingClientRect().width,
-      viewportHeight: window.innerHeight,
-    };
-  });
-  expect(metrics.barHeight).toBe(40);
-  expect(Math.abs(metrics.barBottom - metrics.viewportHeight)).toBeLessThan(1);
-  expect(Math.abs(metrics.barLeft - metrics.sidebarWidth)).toBeLessThan(1);
-  expect(metrics.spacerHeight).toBe('40px');
-  expect(metrics.viewPaddingBottom).toBe('0px');
-  expect(metrics.scrollPaddingBottom).toBe('0px');
-  // 滚到底后，页面内容的底边不落在浮窗下面（最后一段能完整露出来）
-  const clearance = await coveredPixels(page);
-  expect(clearance).toBeLessThanOrEqual(1);
-});
-
-/** 滚到底后，页面内容的底边超出浮窗顶边的像素数（不大于 0 表示没被盖住）。 */
-async function coveredPixels(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const scroll = document.querySelector("[data-layout-region='scroll']") as HTMLElement;
-    const flow = document.querySelector("[data-gs='flow-bar']") as HTMLElement;
-    const content = document.querySelector('.page-route-container > :last-child') as HTMLElement;
-    scroll.scrollTop = scroll.scrollHeight;
-    return Math.round(content.getBoundingClientRect().bottom - flow.getBoundingClientRect().top);
-  });
-}
-
-test('关键操作后进度立刻更新：激活画像后从第 2 步走到第 3 步', async ({ page }) => {
   const backend = await installMockBackend(page);
   const state = mockProgress(backend);
   state.companies = [COMPANY];
   state.icps = [{ ...PROFILE, companyAttributes: {}, status: 'HYPOTHESIS', version: 1 }];
-  backend.set('POST', '/icps/icp-1/activate', json(() => {
-    state.icps = [PROFILE];
-    return PROFILE;
-  }));
+  backend.set(
+    'POST',
+    '/icps/icp-1/activate',
+    json(() => {
+      state.icps = [PROFILE];
+      return PROFILE;
+    }),
+  );
   await loginAs(page);
   await page.goto('/find-buyers');
-  await expect(current(page)).toHaveText('设定买家画像');
+  await expect(chip(page)).toContainText('主流程 · 第 2/5 步 · 设定买家画像');
 
   await page.locator("[data-gs='icp-next-button']").click();
   await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);
-  await expect(current(page)).toHaveText('确认寻源方案');
+  await expect(chip(page)).toContainText('主流程 · 第 3/5 步 · 确认寻源方案');
 
-  // 页面在顶部时，贴底的「下一步」浮在浮窗上方 12px
+  // 底部不再有 40px 压底栏，贴底「下一步」直接距视口底边 12px
   const next = (await page.locator("[data-gs='icp-next']").boundingBox())!;
-  const flowBar = (await bar(page).boundingBox())!;
-  expect(Math.abs(next.y + next.height - (flowBar.y - 12))).toBeLessThan(2);
-
-  // 这一页内容比视口长：滚到底后，工作区最后一段不被浮窗盖住
-  // （贴底元素在页底会回到页面里自己的位置，所以先量位置、再滚动）
-  const covered = await coveredPixels(page);
-  expect(covered).toBeLessThanOrEqual(1);
+  const viewport = page.viewportSize()!;
+  expect(Math.abs(next.y + next.height - (viewport.height - 12))).toBeLessThan(3);
 });
