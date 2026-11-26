@@ -20,6 +20,24 @@ const ONBOARDING_ALLOWED_PREFIXES = [
   '/api/audit',
 ] as const;
 
+/**
+ * Phase 2 多模态冷启动与选国推荐：未完成引导前仅允许访问绑定到本工作空间草稿公司
+ * (`onboardingCompanyId`) 的 PDF 画册上传/读取与 UN Comtrade 选国推荐路由，其余业务路由继续 409 拦截。
+ * TenantGuard 与 BffGuard 共享同一份路由签名集合，避免两层守卫口径漂移。
+ */
+export const ONBOARDING_COMPANY_READ_ROUTES: ReadonlySet<string> = new Set([
+  'GET companies/:companyId/seller-documents',
+  'GET companies/:companyId/market-recommendations',
+]);
+
+export const ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES: ReadonlySet<string> = new Set([
+  'POST companies/:companyId/seller-documents/presign',
+  'PUT companies/:companyId/seller-documents/:documentId/content',
+  'POST companies/:companyId/seller-documents/:documentId/commit',
+  'POST companies/:companyId/seller-documents/:documentId/claim-previews',
+  'POST companies/:companyId/seller-documents/:documentId/claim-drafts',
+]);
+
 function resolveNormalizedPath(req: Request): string {
   const raw =
     typeof req.path === 'string' && req.path
@@ -30,11 +48,93 @@ function resolveNormalizedPath(req: Request): string {
   return raw.replace(/\/+/g, '/');
 }
 
-export function isOnboardingAllowedPath(req: Request): boolean {
-  const path = resolveNormalizedPath(req);
-  return ONBOARDING_ALLOWED_PREFIXES.some(
-    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+function decodeSegment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function isSafePathParam(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\')
   );
+}
+
+function matchOnboardingRouteSet(
+  method: string,
+  reqParts: readonly string[],
+  signatures: ReadonlySet<string>,
+  onboardingCompanyId: string,
+): boolean {
+  for (const sig of signatures) {
+    const spaceIdx = sig.indexOf(' ');
+    if (spaceIdx <= 0) continue;
+    if (sig.slice(0, spaceIdx) !== method) continue;
+    const templateParts = sig.slice(spaceIdx + 1).split('/');
+    if (templateParts.length !== reqParts.length) continue;
+    let ok = true;
+    for (let i = 0; i < templateParts.length; i += 1) {
+      const seg = templateParts[i];
+      if (seg.startsWith(':')) {
+        const decoded = decodeSegment(reqParts[i]);
+        if (!isSafePathParam(decoded)) {
+          ok = false;
+          break;
+        }
+        if (seg === ':companyId' && decoded !== onboardingCompanyId) {
+          ok = false;
+          break;
+        }
+      } else if (seg !== reqParts[i]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
+export function matchOnboardingDraftCompanyRoute(
+  req: Request,
+  onboardingCompanyId: string | null | undefined,
+): 'read' | 'admin_write' | null {
+  if (!onboardingCompanyId) return null;
+  const method = typeof req.method === 'string' ? req.method.toUpperCase() : '';
+  if (!method) return null;
+  const path = resolveNormalizedPath(req);
+  if (!path.startsWith('/api/')) return null;
+  const reqParts = path.slice('/api/'.length).split('/').filter(Boolean);
+  if (matchOnboardingRouteSet(method, reqParts, ONBOARDING_COMPANY_READ_ROUTES, onboardingCompanyId)) {
+    return 'read';
+  }
+  if (
+    matchOnboardingRouteSet(method, reqParts, ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES, onboardingCompanyId)
+  ) {
+    return 'admin_write';
+  }
+  return null;
+}
+
+export function isOnboardingAllowedPath(
+  req: Request,
+  onboardingCompanyId?: string | null,
+): boolean {
+  const path = resolveNormalizedPath(req);
+  if (
+    ONBOARDING_ALLOWED_PREFIXES.some(
+      (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+    )
+  ) {
+    return true;
+  }
+  return matchOnboardingDraftCompanyRoute(req, onboardingCompanyId) !== null;
 }
 
 export interface TenantRequestContext {
@@ -96,7 +196,8 @@ export class TenantGuard implements CanActivate {
       });
     }
     const onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;
-    if (!onboardingCompleted && !isOnboardingAllowedPath(req)) {
+    const onboardingCompanyId = membership.workspace.onboardingCompanyId ?? null;
+    if (!onboardingCompleted && !isOnboardingAllowedPath(req, onboardingCompanyId)) {
       throw new HttpException(
         {
           error: {
@@ -120,7 +221,7 @@ export class TenantGuard implements CanActivate {
       ...activeClaims,
       role,
       onboardingCompleted,
-      onboardingCompanyId: membership.workspace.onboardingCompanyId ?? null,
+      onboardingCompanyId,
     };
     return true;
   }

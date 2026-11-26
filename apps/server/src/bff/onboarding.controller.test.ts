@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, HttpException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { BffGuard } from './bff.module.js';
 import { EngineHttp } from './engine-http.js';
 import { OnboardingController } from './onboarding.controller.js';
-import type { TenantRequestContext } from '../tenant/tenant.guard.js';
+import { AdminGuard } from '../tenant/admin.guard.js';
+import { SESSION_COOKIE, type SessionService } from '../tenant/session.service.js';
+import { TenantGuard, type TenantRequestContext } from '../tenant/tenant.guard.js';
+import type { PrismaService } from '../shared/prisma.service.js';
 
 function tenant(overrides: Partial<TenantRequestContext> = {}): TenantRequestContext {
   return {
@@ -803,5 +806,98 @@ describe('BffGuard：未完成引导拒绝业务请求（SD11 + Phase 2 草稿�
     } as unknown as Request;
     const guard = new BffGuard({ canActivate: async () => true } as never, {} as never);
     await expect(guard.canActivate(guardCtx(req))).resolves.toBe(true);
+  });
+
+  it('真实 TenantGuard + BffGuard + AdminGuard 串联：未完成引导时放行草稿公司画册上传与选国推荐，拒绝非管理员写与跨公司访问', async () => {
+    const draftCompanyId = '6020b505-2bee-40e5-908c-708a270b7b3e';
+    const docId = '88888888-8888-4888-8888-888888888888';
+
+    function makeRealChain(role: 'admin' | 'member', onboardingCompanyId: string | null) {
+      const sessions = {
+        verify: vi.fn(async () => ({
+          userId: '11111111-1111-4111-8111-111111111111',
+          workspaceId: '22222222-2222-4222-8222-222222222222',
+          role,
+          jti: 'jti-real-1',
+          exp: 9_999_999_999,
+        })),
+        needsRefresh: () => false,
+        revoke: vi.fn(),
+        issue: vi.fn(),
+        cookieOptions: vi.fn(),
+        clearCookieOptions: vi.fn(),
+        ttl: 60,
+      } as unknown as SessionService;
+      const prismaObj: Record<string, unknown> = {
+        membership: {
+          findFirst: vi.fn(async () => ({
+            role,
+            workspace: {
+              status: 'ACTIVE',
+              onboardingCompletedAt: null,
+              onboardingCompanyId,
+            },
+          })),
+        },
+        withWorkspace: vi.fn(async (_wid: string, fn: (tx: unknown) => Promise<unknown>) => fn(prismaObj)),
+      };
+      const realTenantGuard = new TenantGuard(sessions, prismaObj as unknown as PrismaService);
+      const realAdminGuard = new AdminGuard();
+      return new BffGuard(realTenantGuard, realAdminGuard);
+    }
+
+    function httpCtx(method: string, path: string) {
+      const req = {
+        method,
+        path,
+        originalUrl: path,
+        url: path,
+        cookies: { [SESSION_COOKIE]: 'valid-token' },
+      } as unknown as Request;
+      const res = { clearCookie: vi.fn(), cookie: vi.fn() };
+      return {
+        switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+      } as unknown as Parameters<BffGuard['canActivate']>[0];
+    }
+
+    const adminChain = makeRealChain('admin', draftCompanyId);
+    await expect(
+      adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/presign`)),
+    ).resolves.toBe(true);
+    await expect(
+      adminChain.canActivate(httpCtx('PUT', `/api/companies/${draftCompanyId}/seller-documents/${docId}/content`)),
+    ).resolves.toBe(true);
+    await expect(
+      adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/${docId}/commit`)),
+    ).resolves.toBe(true);
+    await expect(
+      adminChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/seller-documents`)),
+    ).resolves.toBe(true);
+    await expect(
+      adminChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/market-recommendations`)),
+    ).resolves.toBe(true);
+
+    // 跨公司或非白名单路由必须仍返回 409 ONBOARDING_INCOMPLETE
+    const crossErr = await adminChain
+      .canActivate(httpCtx('POST', '/api/companies/other-company/seller-documents/presign'))
+      .catch((err: unknown) => err);
+    expect(crossErr).toBeInstanceOf(HttpException);
+    expect((crossErr as HttpException).getStatus()).toBe(409);
+
+    const listErr = await adminChain
+      .canActivate(httpCtx('GET', '/api/companies'))
+      .catch((err: unknown) => err);
+    expect(listErr).toBeInstanceOf(HttpException);
+    expect((listErr as HttpException).getStatus()).toBe(409);
+
+    // 非管理员：只读选国推荐放行，写画册预签名被 AdminGuard 拒绝（403）
+    const memberChain = makeRealChain('member', draftCompanyId);
+    await expect(
+      memberChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/market-recommendations`)),
+    ).resolves.toBe(true);
+    const forbiddenErr = await memberChain
+      .canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/presign`))
+      .catch((err: unknown) => err);
+    expect(forbiddenErr).toBeInstanceOf(ForbiddenException);
   });
 });
