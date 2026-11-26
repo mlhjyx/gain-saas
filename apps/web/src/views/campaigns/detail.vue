@@ -24,6 +24,7 @@ import {
   createCampaignRevision,
   type ManualCampaignRevisionInput,
 } from '#/api/campaign-revisions';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 
 defineOptions({ name: 'CampaignDetail' });
 
@@ -36,6 +37,12 @@ const MAX_REPLANS_OPTIONS: Array<{ label: string; value: 0 | 1 | 2 }> = [
 
 const route = useRoute();
 const router = useRouter();
+const { isAdmin, can, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
+const canDraftCampaign = computed(() => isAdmin.value || can('campaigns.draft'));
+const canApproveCampaign = computed(() => isAdmin.value || can('campaigns.approve'));
+const showReadOnlyHint = computed(
+  () => accessLoaded.value && !isAdmin.value && !canDraftCampaign.value,
+);
 const campaignId = computed(() => String(route.params.campaignId ?? ''));
 
 const detail = ref<CampaignDetail | null>(null);
@@ -180,11 +187,13 @@ function prefillManualForm(): void {
 }
 
 function openManualRevision(): void {
+  if (!canDraftCampaign.value) return;
   prefillManualForm();
   showManualForm.value = true;
 }
 
 async function submitManualRevision(): Promise<void> {
+  if (!canDraftCampaign.value) return;
   manualError.value = null;
   actionError.value = null;
   const objective = manualObjective.value.trim();
@@ -309,6 +318,7 @@ function poll(jobId: string): void {
 }
 
 async function startDraft(): Promise<void> {
+  if (!canDraftCampaign.value) return;
   actionError.value = null;
   notice.value = null;
   needsHuman.value = false;
@@ -337,6 +347,7 @@ async function startDraft(): Promise<void> {
 }
 
 async function submitForApproval(): Promise<void> {
+  if (!canDraftCampaign.value) return;
   const revision = latest.value;
   if (!revision) return;
   busy.value = 'submit';
@@ -354,6 +365,7 @@ async function submitForApproval(): Promise<void> {
 }
 
 async function approve(): Promise<void> {
+  if (!canApproveCampaign.value) return;
   const approval = pendingApproval.value;
   if (!approval) return;
   busy.value = 'decide';
@@ -379,6 +391,7 @@ const declineError = ref<string | null>(null);
 const showApprove = ref(false);
 
 async function decline(): Promise<void> {
+  if (!canApproveCampaign.value) return;
   const approval = pendingApproval.value;
   if (!approval) return;
   declineError.value = null;
@@ -404,7 +417,10 @@ async function decline(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void ensureLoaded();
+  void load();
+});
 onUnmounted(stopPolling);
 </script>
 
@@ -414,6 +430,7 @@ onUnmounted(stopPolling);
       <template #actions>
         <Button @click="router.push({ name: 'Campaigns' })">← {{ $t('gainosP0.campaigns.backToList') }}</Button>
         <Button
+          v-if="canDraftCampaign"
           data-gs="campaign-manual-revision-btn"
           :disabled="busy === 'manual'"
           @click="openManualRevision"
@@ -421,6 +438,7 @@ onUnmounted(stopPolling);
           {{ $t('gainosP0.campaigns.manualRevisionBtn') }}
         </Button>
         <Button
+          v-if="canDraftCampaign"
           type="primary"
           :disabled="busy === 'draft'"
           :loading="busy === 'draft'"
@@ -432,6 +450,15 @@ onUnmounted(stopPolling);
     </PageHeader>
 
     <Alert :message="$t('gainos.campaigns.shadowBanner')" banner role="note" type="warning" />
+
+    <Alert
+      v-if="showReadOnlyHint"
+      :message="$t('gainosP0.access.campaignsReadonlyHint')"
+      data-gs="campaigns-readonly-hint"
+      role="status"
+      show-icon
+      type="info"
+    />
 
     <Alert v-if="notice" :message="notice" role="status" show-icon type="success" />
     <Alert
@@ -461,7 +488,7 @@ onUnmounted(stopPolling);
     >
       <template v-if="detail">
         <section
-          v-if="needsHuman || showManualForm"
+          v-if="canDraftCampaign && (needsHuman || showManualForm)"
           class="cd__card cd__card--gate"
           data-gs="campaign-needs-human-panel"
         >
@@ -561,7 +588,7 @@ onUnmounted(stopPolling);
             {{ $t('gainos.campaigns.approvalExpires') }}:
             {{ formatDateTime(pendingApproval.expiresAt) }}
           </p>
-          <div class="cd__actions">
+          <div v-if="canApproveCampaign" class="cd__actions">
             <Button type="primary" :disabled="busy === 'decide'" @click="showApprove = true">
               {{ $t('gainos.campaigns.approve') }}
             </Button>
@@ -569,6 +596,7 @@ onUnmounted(stopPolling);
               {{ $t('gainos.campaigns.decline') }}
             </Button>
           </div>
+          <p v-else class="cd__muted">{{ $t('gainosP0.access.adminApprovalRequired') }}</p>
         </section>
 
         <section v-if="latest" class="cd__card">
@@ -596,7 +624,7 @@ onUnmounted(stopPolling);
               <span v-else>{{ $t('gainos.campaigns.motionDiscovery') }}</span>
             </dd>
           </dl>
-          <div v-if="latest.state === 'DRAFT'" class="cd__actions">
+          <div v-if="latest.state === 'DRAFT' && canDraftCampaign" class="cd__actions">
             <Button type="primary" :disabled="busy === 'submit'" :loading="busy === 'submit'" @click="submitForApproval">
               {{ $t('gainos.campaigns.submit') }}
             </Button>
@@ -675,6 +703,7 @@ onUnmounted(stopPolling);
     </AsyncSection>
 
     <Modal
+      v-if="canDraftCampaign"
       v-model:open="showDraftForm"
       :cancel-text="$t('gainos.common.cancel')"
       :confirm-loading="busy === 'draft'"
@@ -697,6 +726,7 @@ onUnmounted(stopPolling);
     </Modal>
 
     <Modal
+      v-if="canApproveCampaign"
       v-model:open="showApprove"
       :cancel-text="$t('gainos.common.cancel')"
       :confirm-loading="busy === 'decide'"
@@ -710,6 +740,7 @@ onUnmounted(stopPolling);
     </Modal>
 
     <Modal
+      v-if="canApproveCampaign"
       v-model:open="showDecline"
       :cancel-text="$t('gainos.common.cancel')"
       :confirm-loading="busy === 'decide'"

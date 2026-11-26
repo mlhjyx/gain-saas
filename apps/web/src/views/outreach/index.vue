@@ -46,6 +46,7 @@ import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 
 import T1OperationsPanel from './T1OperationsPanel.vue';
 
@@ -55,6 +56,13 @@ defineOptions({ name: 'OutreachBatches' });
 defineProps<{ embedded?: boolean }>();
 
 const route = useRoute();
+const { isAdmin, can, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
+const canDraftOutreach = computed(() => isAdmin.value || can('outreach.draft'));
+const canApproveOutreach = computed(() => isAdmin.value || can('outreach.approve'));
+const canSendOutreach = computed(() => isAdmin.value || can('outreach.send'));
+const showReadOnlyHint = computed(
+  () => accessLoaded.value && !isAdmin.value && !canDraftOutreach.value,
+);
 
 const batches = ref<OutreachBatchSummary[]>([]);
 const detail = ref<OutreachBatchDetail | null>(null);
@@ -163,19 +171,25 @@ const latestApproval = computed(() => detail.value?.approvals[0] ?? null);
 const flowActions = computed(() =>
   deriveOutreachActions({ status: detail.value?.status, draftCount: detail.value?.drafts.length ?? 0 }),
 );
-const canEdit = computed(() => flowActions.value.canAddDraft);
-const canSubmit = computed(() => flowActions.value.canSubmit);
-const canDecide = computed(() => flowActions.value.canApprove && latestApproval.value?.state === 'PENDING');
-const canReopen = computed(
-  () => detail.value?.status === 'DECLINED' || detail.value?.status === 'EXPIRED',
+const canEdit = computed(() => canDraftOutreach.value && flowActions.value.canAddDraft);
+const canSubmit = computed(() => canDraftOutreach.value && flowActions.value.canSubmit);
+const canDecide = computed(
+  () =>
+    canApproveOutreach.value &&
+    flowActions.value.canApprove &&
+    latestApproval.value?.state === 'PENDING',
 );
-const canAuthorize = computed(
+const canReopen = computed(
+  () =>
+    canDraftOutreach.value &&
+    (detail.value?.status === 'DECLINED' || detail.value?.status === 'EXPIRED'),
+);
+const canViewAuditPackage = computed(
   () => detail.value?.status === 'APPROVED' || detail.value?.status === 'QUEUED',
 );
+const canAuthorize = computed(() => isAdmin.value && canViewAuditPackage.value);
 const canSendBatch = computed(
-  () =>
-    readiness.value.sendEnabled &&
-    (detail.value?.status === 'APPROVED' || detail.value?.status === 'QUEUED'),
+  () => canSendOutreach.value && readiness.value.sendEnabled && canViewAuditPackage.value,
 );
 
 const brochureOptions = computed(() =>
@@ -233,7 +247,7 @@ async function loadReadinessAndBrochures(): Promise<void> {
 }
 
 async function authorizeBatch(): Promise<void> {
-  if (!detail.value || busy.value) return;
+  if (!isAdmin.value || !detail.value || busy.value) return;
   busy.value = 'authorize';
   error.value = null;
   try {
@@ -248,7 +262,7 @@ async function authorizeBatch(): Promise<void> {
 }
 
 async function executeSendBatch(): Promise<void> {
-  if (!detail.value || !canSendBatch.value || busy.value) return;
+  if (!canSendBatch.value || !detail.value || busy.value) return;
   busy.value = 'send';
   error.value = null;
   try {
@@ -489,7 +503,7 @@ async function selectBatch(batchId: string): Promise<void> {
 }
 
 async function createBatch(): Promise<void> {
-  if (!batchName.value.trim()) return;
+  if (!canDraftOutreach.value || !batchName.value.trim()) return;
   busy.value = 'create';
   error.value = null;
   try {
@@ -515,12 +529,14 @@ async function createBatch(): Promise<void> {
 }
 
 function openCreateDraft(): void {
+  if (!canDraftOutreach.value) return;
   draftForm.value = emptyDraft();
   draftError.value = null;
   draftDialog.value = { mode: 'create' };
 }
 
 function openPrefilledDraftFromLead(ctx: PreselectedLeadContext): void {
+  if (!canDraftOutreach.value) return;
   const best = ctx.candidates.find((item) => item.email) ?? ctx.candidates[0] ?? null;
   draftForm.value = {
     contactRef: best?.contactRef ?? ctx.leadId,
@@ -542,6 +558,7 @@ function openPrefilledDraftFromLead(ctx: PreselectedLeadContext): void {
 }
 
 function applyPreselectedLead(): void {
+  if (!canDraftOutreach.value) return;
   const ctx = preselectedLead.value;
   if (!ctx) return;
   if (detail.value && canEdit.value) {
@@ -627,6 +644,7 @@ function pickCandidate(candidate: PickerCandidate): void {
 }
 
 function openEditDraft(draft: OutreachDraftView): void {
+  if (!canDraftOutreach.value) return;
   draftForm.value = {
     contactRef: draft.contactRef,
     contactPointId: draft.contactPointId ?? '',
@@ -647,7 +665,7 @@ function openEditDraft(draft: OutreachDraftView): void {
 }
 
 async function saveDraft(): Promise<void> {
-  if (!detail.value || !draftDialog.value) return;
+  if (!canDraftOutreach.value || !detail.value || !draftDialog.value) return;
   draftError.value = null;
   const emailTrimmed = draftForm.value.recipientEmail.trim();
   const countryNormalized = draftForm.value.countryCode.trim().toUpperCase();
@@ -711,7 +729,7 @@ async function saveDraft(): Promise<void> {
 }
 
 function removeDraft(draft: OutreachDraftView): void {
-  if (!detail.value) return;
+  if (!canDraftOutreach.value || !detail.value) return;
   const batchId = detail.value.id;
   feedback.confirm({
     title: $t('gainosP0.outreach.removeDraftTitle'),
@@ -737,7 +755,7 @@ function removeDraft(draft: OutreachDraftView): void {
 }
 
 async function submitBatch(): Promise<void> {
-  if (!detail.value) return;
+  if (!canDraftOutreach.value || !detail.value) return;
   busy.value = 'submit';
   try {
     await gainosApi.submitOutreachBatch(detail.value.id);
@@ -751,7 +769,7 @@ async function submitBatch(): Promise<void> {
 }
 
 async function decide(decision: 'approve' | 'decline'): Promise<void> {
-  if (!detail.value || !latestApproval.value) return;
+  if (!canApproveOutreach.value || !detail.value || !latestApproval.value) return;
   busy.value = decision;
   try {
     detail.value = await gainosApi.decideOutreachBatch(
@@ -773,7 +791,7 @@ async function decide(decision: 'approve' | 'decline'): Promise<void> {
 }
 
 async function reopen(): Promise<void> {
-  if (!detail.value) return;
+  if (!canDraftOutreach.value || !detail.value) return;
   busy.value = 'reopen';
   try {
     detail.value = await gainosApi.reopenOutreachBatch(detail.value.id);
@@ -798,7 +816,7 @@ const draftColumns = computed(() => [
   { key: 'country', dataIndex: 'countryCode', title: $t('gainos.outreach.countryCode'), width: 88 },
   { key: 'subject', dataIndex: 'subject', title: $t('gainos.outreach.subject') },
   { key: 'status', dataIndex: 'status', title: $t('gainos.outreach.status'), width: 120 },
-  { key: 'actions', dataIndex: 'actions', title: '', width: 130 },
+  ...(canEdit.value ? [{ key: 'actions', dataIndex: 'actions', title: '', width: 130 }] : []),
 ]);
 
 const leadOptions = computed(() =>
@@ -851,6 +869,7 @@ watch(
 
 onMounted(async () => {
   await Promise.all([
+    ensureLoaded(),
     loadBatches(),
     hydrateLeadFromRoute(),
     loadReadinessAndBrochures(),
@@ -866,7 +885,7 @@ onMounted(async () => {
       :title="$t('gainos.outreach.title')"
       :subtitle="$t('gainos.outreach.subtitle')"
     >
-      <template #actions>
+      <template v-if="canDraftOutreach" #actions>
         <Button type="primary" @click="showCreate = !showCreate">
           {{ $t('gainos.outreach.newBatch') }}
         </Button>
@@ -874,10 +893,19 @@ onMounted(async () => {
     </PageHeader>
     <div v-else class="ob__embedded-head">
       <p class="ob__sub">{{ $t('gainos.outreach.subtitle') }}</p>
-      <Button type="primary" @click="showCreate = !showCreate">
+      <Button v-if="canDraftOutreach" type="primary" @click="showCreate = !showCreate">
         {{ $t('gainos.outreach.newBatch') }}
       </Button>
     </div>
+
+    <Alert
+      v-if="showReadOnlyHint"
+      :message="$t('gainosP0.access.outreachReadonlyHint')"
+      data-gs="outreach-readonly-hint"
+      role="status"
+      show-icon
+      type="info"
+    />
 
     <Alert
       v-if="preselectedLead"
@@ -892,7 +920,7 @@ onMounted(async () => {
       show-icon
       type="info"
     >
-      <template #action>
+      <template v-if="canDraftOutreach" #action>
         <Button
           :loading="preselectLoading"
           data-gs="apply-preselected-lead"
@@ -905,7 +933,7 @@ onMounted(async () => {
       </template>
     </Alert>
 
-    <Form v-if="showCreate" class="ob__create" layout="inline" @submit.prevent="createBatch">
+    <Form v-if="canDraftOutreach && showCreate" class="ob__create" layout="inline" @submit.prevent="createBatch">
       <Form.Item :label="$t('gainos.outreach.nameLabel')">
         <Input v-model:value="batchName" :maxlength="200" :placeholder="$t('gainos.outreach.namePlaceholder')" style="width: 280px" />
       </Form.Item>
@@ -991,7 +1019,7 @@ onMounted(async () => {
               {{ $t('gainos.outreach.authorizeBtn') }}
             </Button>
             <Button
-              v-if="canAuthorize"
+              v-if="canViewAuditPackage"
               :loading="busy === 'audit'"
               data-gs="audit-package-btn"
               @click="openAuditPackage"
@@ -1030,15 +1058,18 @@ onMounted(async () => {
           <p class="ob__muted">
             {{ $t('gainos.outreach.approvalExpires', { at: when(latestApproval.expiresAt) }) }}
           </p>
-          <Input v-model:value="decisionReason" :maxlength="500" :placeholder="$t('gainos.outreach.decisionReasonHint')" />
-          <div class="ob__actions">
-            <Button type="primary" :disabled="!canDecide || busy === 'approve'" :loading="busy === 'approve'" @click="decide('approve')">
-              {{ $t('gainos.outreach.approve') }}
-            </Button>
-            <Button danger :disabled="!canDecide || busy === 'decline'" :loading="busy === 'decline'" @click="decide('decline')">
-              {{ $t('gainos.outreach.decline') }}
-            </Button>
-          </div>
+          <template v-if="canApproveOutreach">
+            <Input v-model:value="decisionReason" :maxlength="500" :placeholder="$t('gainos.outreach.decisionReasonHint')" />
+            <div class="ob__actions">
+              <Button type="primary" :disabled="!canDecide || busy === 'approve'" :loading="busy === 'approve'" @click="decide('approve')">
+                {{ $t('gainos.outreach.approve') }}
+              </Button>
+              <Button danger :disabled="!canDecide || busy === 'decline'" :loading="busy === 'decline'" @click="decide('decline')">
+                {{ $t('gainos.outreach.decline') }}
+              </Button>
+            </div>
+          </template>
+          <p v-else class="ob__muted">{{ $t('gainosP0.access.adminApprovalRequired') }}</p>
         </section>
 
         <p v-if="detail.drafts.length === 0" class="ob__muted">{{ $t('gainos.outreach.noDrafts') }}</p>
@@ -1138,6 +1169,7 @@ onMounted(async () => {
     </Modal>
 
     <Modal
+      v-if="canDraftOutreach"
       :open="Boolean(draftDialog)"
       :cancel-text="$t('gainos.outreach.cancel')"
       :confirm-loading="busy === 'draft'"

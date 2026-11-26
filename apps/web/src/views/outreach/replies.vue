@@ -21,6 +21,7 @@ import PageHeader from '#/components/gainos/page-header.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 
 import { failureText, gainosApi } from '#/api/gainos';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { feedback } from '#/feedback';
 
 /**
@@ -31,6 +32,12 @@ import { feedback } from '#/feedback';
 defineOptions({ name: 'OutreachReplies' });
 
 defineProps<{ embedded?: boolean }>();
+
+const { isAdmin, can, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
+const canDraftOutreach = computed(() => isAdmin.value || can('outreach.draft'));
+const showReadOnlyHint = computed(
+  () => accessLoaded.value && !isAdmin.value && !canDraftOutreach.value,
+);
 
 const rows = ref<OutreachReplyView[]>([]);
 const loading = ref(false);
@@ -72,6 +79,7 @@ async function load(): Promise<void> {
 }
 
 async function openReferralDraft(lead: ReferredContactLead): Promise<void> {
+  if (!canDraftOutreach.value) return;
   referralModal.value = lead;
   referralError.value = null;
   referralForm.value = {
@@ -95,6 +103,7 @@ async function openReferralDraft(lead: ReferredContactLead): Promise<void> {
 }
 
 async function submitReferralDraft(): Promise<void> {
+  if (!canDraftOutreach.value) return;
   const lead = referralModal.value;
   if (!lead || referralBusy.value) return;
   if (!referralForm.value.batchId) {
@@ -128,7 +137,10 @@ async function submitReferralDraft(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void ensureLoaded();
+  void load();
+});
 
 const CLASS_TONE: Record<string, string> = {
   POSITIVE: 'success',
@@ -174,6 +186,15 @@ const columns = [
       </template>
     </PageHeader>
 
+    <Alert
+      v-if="showReadOnlyHint"
+      :message="$t('gainosP0.access.outreachReadonlyHint')"
+      data-gs="outreach-readonly-hint"
+      role="status"
+      show-icon
+      type="info"
+    />
+
     <GsCard
       v-if="referredLeads.length > 0"
       :title="$t('gainos.replies.referralTitle')"
@@ -198,6 +219,7 @@ const columns = [
             <small v-if="item.subject" class="rpl__snippet">{{ item.subject }}</small>
           </div>
           <Button
+            v-if="canDraftOutreach"
             data-gs="referral-create-draft"
             size="small"
             type="primary"
@@ -253,6 +275,7 @@ const columns = [
     </AsyncSection>
 
     <Modal
+      v-if="canDraftOutreach"
       :confirm-loading="referralBusy"
       :open="Boolean(referralModal)"
       :title="$t('gainos.replies.referralModalTitle')"

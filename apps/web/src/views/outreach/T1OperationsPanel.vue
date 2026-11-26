@@ -33,6 +33,7 @@ import {
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import { failureText, gainosApi } from '#/api/gainos';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
@@ -42,6 +43,9 @@ const props = defineProps<{
   fromDomain?: string | null;
   initialDraft?: OutreachDraftView | null;
 }>();
+
+const { isAdmin, can, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
+const canDraftOutreach = computed(() => isAdmin.value || can('outreach.draft'));
 
 const activeTab = ref<'dns' | 'health' | 'sequence' | 'templates' | 'warmup'>('dns');
 
@@ -116,6 +120,7 @@ async function loadHealth(): Promise<void> {
 }
 
 async function evaluateHealth(): Promise<void> {
+  if (!isAdmin.value) return;
   healthLoading.value = true;
   healthError.value = null;
   try {
@@ -128,7 +133,7 @@ async function evaluateHealth(): Promise<void> {
 }
 
 async function submitBreakerAction(): Promise<void> {
-  if (!breakerModal.value || !breakerReason.value.trim() || breakerBusy.value) return;
+  if (!isAdmin.value || !breakerModal.value || !breakerReason.value.trim() || breakerBusy.value) return;
   breakerBusy.value = true;
   try {
     if (breakerModal.value.action === 'recover') {
@@ -173,6 +178,8 @@ const warmupLoading = ref(false);
 const warmupError = ref<string | null>(null);
 
 async function loadWarmup(): Promise<void> {
+  await ensureLoaded();
+  if (!isAdmin.value) return;
   warmupLoading.value = true;
   warmupError.value = null;
   try {
@@ -218,7 +225,7 @@ async function loadTemplates(): Promise<void> {
 }
 
 async function createTemplate(): Promise<void> {
-  if (!tplForm.value.body.trim() || tplBusy.value) return;
+  if (!isAdmin.value || !tplForm.value.body.trim() || tplBusy.value) return;
   tplBusy.value = true;
   templatesError.value = null;
   try {
@@ -243,6 +250,7 @@ async function runTemplateAction(
   id: string,
   action: 'activate' | 'retire' | 'submit',
 ): Promise<void> {
+  if (!isAdmin.value) return;
   templatesError.value = null;
   try {
     if (action === 'submit') await gainosApi.submitOutreachTemplateReview(id);
@@ -318,7 +326,7 @@ async function loadSequences(): Promise<void> {
 }
 
 async function createSequence(): Promise<void> {
-  if (seqBusy.value) return;
+  if (!canDraftOutreach.value || seqBusy.value) return;
   seqBusy.value = true;
   seqError.value = null;
   try {
@@ -357,10 +365,16 @@ function onTabChange(key: number | string): void {
   const tab = String(key) as typeof activeTab.value;
   activeTab.value = tab;
   if (tab === 'health' && !healthData.value) void loadHealth();
-  if (tab === 'warmup' && !warmup.value) void loadWarmup();
+  if (tab === 'warmup' && isAdmin.value && !warmup.value) void loadWarmup();
   if (tab === 'templates' && templates.value.length === 0) void loadTemplates();
   if (tab === 'sequence' && sequences.value.length === 0) void loadSequences();
 }
+
+watch(isAdmin, (admin) => {
+  if (admin && activeTab.value === 'warmup' && !warmup.value && !warmupLoading.value) {
+    void loadWarmup();
+  }
+});
 
 watch(
   () => props.fromDomain,
@@ -371,6 +385,7 @@ watch(
 );
 
 onMounted(() => {
+  void ensureLoaded();
   if (props.fromDomain && !dnsDomain.value) dnsDomain.value = props.fromDomain;
 });
 </script>
@@ -456,7 +471,14 @@ onMounted(() => {
               <Button :loading="healthLoading" size="small" @click="loadHealth">
                 {{ $t('gainos.common.refresh') }}
               </Button>
-              <Button :loading="healthLoading" data-gs="t1-health-evaluate" size="small" type="primary" @click="evaluateHealth">
+              <Button
+                v-if="isAdmin"
+                :loading="healthLoading"
+                data-gs="t1-health-evaluate"
+                size="small"
+                type="primary"
+                @click="evaluateHealth"
+              >
                 {{ $t('gainos.outreach.t1.healthEvaluateBtn') }}
               </Button>
             </Space>
@@ -476,7 +498,7 @@ onMounted(() => {
                   </GsTag>
                   <span v-if="b.openedAt" class="t1-muted ml-2">{{ formatDateTime(b.openedAt) }}</span>
                 </div>
-                <Space :size="6">
+                <Space v-if="isAdmin" :size="6">
                   <Button
                     v-if="b.state === 'OPEN'"
                     data-gs="t1-breaker-recover"
@@ -515,50 +537,61 @@ onMounted(() => {
         <div class="t1-stack" data-gs="t1-warmup-pane">
           <div class="t1-row-between">
             <p class="t1-muted">{{ $t('gainos.outreach.t1.warmupDesc') }}</p>
-            <Button :loading="warmupLoading" size="small" @click="loadWarmup">
+            <Button v-if="isAdmin" :loading="warmupLoading" size="small" @click="loadWarmup">
               {{ $t('gainos.common.refresh') }}
             </Button>
           </div>
-          <Alert v-if="warmupError" :message="warmupError" show-icon type="error" />
-          <p v-else-if="warmupLoading && !warmup" class="t1-muted">{{ $t('gainos.common.loading') }}</p>
-          <p v-else-if="!warmup || warmup.domains.length === 0" class="t1-muted">
-            {{ $t('gainos.outreach.t1.warmupEmpty') }}
-          </p>
-          <ul v-else class="t1-list" data-gs="t1-warmup-list">
-            <li v-for="dom in warmup.domains" :key="dom.domain" class="t1-domain-box">
-              <div class="t1-row-between">
-                <strong>{{ dom.domain }}</strong>
-                <GsTag :tone="dom.checks.ok ? 'success' : 'warning'">
-                  {{ dom.checks.ok ? $t('gainos.outreach.t1.warmupPass') : $t('gainos.outreach.t1.warmupPending') }}
-                </GsTag>
-              </div>
-              <p class="t1-muted">
-                <template v-if="dom.lastSeedTest">
-                  {{
-                    $t('gainos.outreach.t1.warmupSeedStats', {
-                      inbox: dom.lastSeedTest.inboxPct ?? '—',
-                      spam: dom.lastSeedTest.spamPct ?? '—',
-                    })
-                  }}
-                  · {{ formatDateTime(dom.lastSeedTest.testedAt) }}
-                </template>
-                <template v-else>{{ $t('gainos.outreach.t1.warmupSeedMissing') }}</template>
-              </p>
-              <div v-if="dom.mailboxes.length > 0" class="t1-chips">
-                <Tag v-for="mb in dom.mailboxes" :key="mb.address" :bordered="false" class="m-0">
-                  {{ mb.address }} ·
-                  {{
-                    $t('gainos.outreach.t1.warmupQuota', {
-                      daily: mb.dailySent,
-                      dailyCap: mb.dailyCap,
-                      weekly: mb.weeklySent,
-                      weeklyCap: mb.weeklyCap,
-                    })
-                  }}
-                </Tag>
-              </div>
-            </li>
-          </ul>
+          <p v-if="!accessLoaded" class="t1-muted">{{ $t('gainos.common.loading') }}</p>
+          <Alert
+            v-else-if="!isAdmin"
+            :message="$t('gainosP0.access.warmupAdminOnly')"
+            data-gs="t1-warmup-admin-only"
+            role="status"
+            show-icon
+            type="info"
+          />
+          <template v-else>
+            <Alert v-if="warmupError" :message="warmupError" show-icon type="error" />
+            <p v-else-if="warmupLoading && !warmup" class="t1-muted">{{ $t('gainos.common.loading') }}</p>
+            <p v-else-if="!warmup || warmup.domains.length === 0" class="t1-muted">
+              {{ $t('gainos.outreach.t1.warmupEmpty') }}
+            </p>
+            <ul v-else class="t1-list" data-gs="t1-warmup-list">
+              <li v-for="dom in warmup.domains" :key="dom.domain" class="t1-domain-box">
+                <div class="t1-row-between">
+                  <strong>{{ dom.domain }}</strong>
+                  <GsTag :tone="dom.checks.ok ? 'success' : 'warning'">
+                    {{ dom.checks.ok ? $t('gainos.outreach.t1.warmupPass') : $t('gainos.outreach.t1.warmupPending') }}
+                  </GsTag>
+                </div>
+                <p class="t1-muted">
+                  <template v-if="dom.lastSeedTest">
+                    {{
+                      $t('gainos.outreach.t1.warmupSeedStats', {
+                        inbox: dom.lastSeedTest.inboxPct ?? '—',
+                        spam: dom.lastSeedTest.spamPct ?? '—',
+                      })
+                    }}
+                    · {{ formatDateTime(dom.lastSeedTest.testedAt) }}
+                  </template>
+                  <template v-else>{{ $t('gainos.outreach.t1.warmupSeedMissing') }}</template>
+                </p>
+                <div v-if="dom.mailboxes.length > 0" class="t1-chips">
+                  <Tag v-for="mb in dom.mailboxes" :key="mb.address" :bordered="false" class="m-0">
+                    {{ mb.address }} ·
+                    {{
+                      $t('gainos.outreach.t1.warmupQuota', {
+                        daily: mb.dailySent,
+                        dailyCap: mb.dailyCap,
+                        weekly: mb.weeklySent,
+                        weeklyCap: mb.weeklyCap,
+                      })
+                    }}
+                  </Tag>
+                </div>
+              </li>
+            </ul>
+          </template>
         </div>
       </TabPane>
 
@@ -571,7 +604,13 @@ onMounted(() => {
               <Button :loading="templatesLoading" size="small" @click="loadTemplates">
                 {{ $t('gainos.common.refresh') }}
               </Button>
-              <Button data-gs="t1-template-new" size="small" type="primary" @click="createTplOpen = true">
+              <Button
+                v-if="isAdmin"
+                data-gs="t1-template-new"
+                size="small"
+                type="primary"
+                @click="createTplOpen = true"
+              >
                 {{ $t('gainos.outreach.t1.templatesNewBtn') }}
               </Button>
             </Space>
@@ -590,7 +629,7 @@ onMounted(() => {
                   {{ tplStateLabel(tpl.state) }}
                 </GsTag>
               </div>
-              <Space :size="6">
+              <Space v-if="isAdmin" :size="6">
                 <Button v-if="tpl.state === 'DRAFT'" size="small" @click="runTemplateAction(tpl.id, 'submit')">
                   {{ $t('gainos.outreach.t1.templatesSubmitReview') }}
                 </Button>
@@ -622,7 +661,7 @@ onMounted(() => {
       <TabPane key="sequence" :tab="$t('gainos.outreach.t1.tabSequence')">
         <div class="t1-stack" data-gs="t1-sequence-pane">
           <p class="t1-muted">{{ $t('gainos.outreach.t1.seqDesc') }}</p>
-          <div class="t1-seq-form">
+          <div v-if="canDraftOutreach" class="t1-seq-form">
             <Input
               v-model:value="seqForm.contactRef"
               :placeholder="$t('gainos.outreach.contactRef')"
@@ -717,6 +756,7 @@ onMounted(() => {
 
     <!-- 熔断恢复/关闭理由弹窗 -->
     <Modal
+      v-if="isAdmin"
       :confirm-loading="breakerBusy"
       :open="Boolean(breakerModal)"
       :title="breakerModal?.action === 'recover' ? $t('gainos.outreach.t1.healthRecoverBtn') : $t('gainos.outreach.t1.healthCloseBtn')"
@@ -733,6 +773,7 @@ onMounted(() => {
 
     <!-- 新建模板草稿弹窗 -->
     <Modal
+      v-if="isAdmin"
       :confirm-loading="tplBusy"
       :open="createTplOpen"
       :title="$t('gainos.outreach.t1.templatesCreateTitle')"
