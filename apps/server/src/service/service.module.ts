@@ -1,4 +1,4 @@
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, forwardRef, Get, Module } from '@nestjs/common';
 import { ConfigModule } from '../shared/config.module.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
@@ -37,7 +37,7 @@ export function rolesForMembership(role: string): 'saas-admin' | 'saas-member' {
 }
 
 @Module({
-  imports: [ConfigModule, WalletModule],
+  imports: [ConfigModule, forwardRef(() => WalletModule)],
   controllers: [JwksController],
   providers: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],
   exports: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],
