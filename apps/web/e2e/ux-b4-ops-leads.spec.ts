@@ -189,11 +189,22 @@ test('1. /ops 暗色模式无白底、Tab 同步 URL、PR #215 配额对账与�
   });
 
   await loginAs(page);
-  // 切换暗色模式
+  // 切换暗色模式，并等待 Vben 150ms debouncedSave 将偏好落盘后再做整页跳转
   await page.getByRole('button', { name: 'dark' }).click();
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage).some(
+          (k) => k.endsWith('preferences-theme') && String(localStorage.getItem(k)).includes('dark'),
+        ),
+      ),
+    )
+    .toBe(true);
 
   await page.goto('/ops');
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+  await expect(page.locator('.ops__header')).toBeVisible();
   const headerBg = await page.locator('.ops__header').evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(luminance(headerBg), `暗色顶栏不应白底：${headerBg}`).toBeLessThan(60);
 
