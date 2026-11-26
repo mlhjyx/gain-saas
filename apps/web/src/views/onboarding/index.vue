@@ -36,15 +36,18 @@ const authStore = useAuthStore();
 const { locale } = usePreferences();
 
 /**
- * 3 步 ≤3 分钟极速上手（Phase 2 Track 2C）：
- * 1) 多模态冷启动（官网 / 1688·阿里国际站店铺 / PDF 产品画册 / 主营产品简介）；
- * 2) 产品与目标国选择（集成 UN Comtrade 推荐国徽章 + 行内确认建档事实）；
+ * 3 步 ≤3 分钟极速上手（Phase 2 Track 2C + 组合资料入口）：
+ * 1) 主来源（官网 / 1688·阿里国际站店铺 / 主营产品简介）+ 可选附带 PDF 产品画册（可组合提交，也可仅凭画册建档）；
+ * 2) 产品与目标国选择（集成 UN Comtrade 推荐国徽章 + 行内确认建档事实 + 支持返回修改资料）；
  * 3) 三栏审阅卡片（我是谁 / 我找谁 / 排除谁）→ 一键启动首轮流式寻源。
  *
  * 完整保留原「完成建档」直达工作台出口与「未指定市场也可保存（targetMarkets: []）」契约。
  */
 type View = 'start' | 'waiting' | 'preview' | 'failed' | 'manual' | 'review';
-type IntakeMode = 'website' | 'store' | 'brochure' | 'brief';
+type IntakeMode = 'website' | 'store' | 'brief';
+
+const MAX_BROCHURES = 5;
+const MAX_BROCHURE_BYTES = 50 * 1024 * 1024;
 
 const view = ref<View>('start');
 const intakeMode = ref<IntakeMode>('website');
@@ -69,10 +72,12 @@ const productDraft = ref('');
 const targetMarkets = ref<string[]>([]);
 const preview = ref<OnboardingPreview | null>(null);
 
-// PDF 画册多模态上传态（复用 PR #205 已接通的 seller-documents 链路）
+// PDF 画册附件态（可随官网/店铺/简介一起提交，也可单独附画册进入第 2 步）
 const brochureInputRef = ref<HTMLInputElement | null>(null);
 const brochureUploading = ref(false);
+const pendingBrochures = ref<Array<{ localId: string; file: File; filename: string; size: number }>>([]);
 const uploadedBrochures = ref<Array<{ id: string; filename: string; status: string }>>([]);
+let localBrochureSeq = 0;
 
 // UN Comtrade 目标国推荐（只读参考，默认绝不自动代选）
 const comtradeBundle = ref<ComtradeRecommendationBundle | null>(null);
@@ -128,10 +133,7 @@ function labelFor(row: {
 
 const industryOptions = computed(() => {
   const rows = preview.value?.industry.options ?? [];
-  return rows.map((row) => {
-    const codeHint = row.nace?.[0] ?? row.code;
-    return { value: row.code, raw: row, label: `${labelFor(row)}（${codeHint}）` };
-  });
+  return rows.map((row) => ({ value: row.code, raw: row, label: labelFor(row) }));
 });
 const industrySuggested = computed(() => preview.value?.industry.suggested ?? null);
 const industrySuggestedLabel = computed(() => {
@@ -263,13 +265,64 @@ const storeUrlError = computed(() =>
     : '',
 );
 
-const startValid = computed(
-  () => name.value.trim().length > 0 && website.value.trim().length > 0 && websiteValid.value,
+const hasAnyBrochure = computed(
+  () => pendingBrochures.value.length > 0 || uploadedBrochures.value.length > 0,
 );
-const storeStartValid = computed(() => name.value.trim().length > 0 && storeUrlValid.value);
-const briefStartValid = computed(
-  () => name.value.trim().length > 0 && productDescription.value.trim().length >= 4,
+const totalBrochureCount = computed(
+  () => pendingBrochures.value.length + uploadedBrochures.value.length,
 );
+
+const startValid = computed(() => {
+  if (!name.value.trim()) return false;
+  if (website.value.trim().length > 0) return websiteValid.value;
+  return hasAnyBrochure.value;
+});
+const storeStartValid = computed(() => {
+  if (!name.value.trim()) return false;
+  if (storeUrl.value.trim().length > 0) return storeUrlValid.value;
+  return hasAnyBrochure.value;
+});
+const briefStartValid = computed(() => {
+  if (!name.value.trim()) return false;
+  if (productDescription.value.trim().length > 0) {
+    return productDescription.value.trim().length >= 4;
+  }
+  return hasAnyBrochure.value;
+});
+
+const websitePrimaryLabel = computed(() => {
+  if (website.value.trim().length > 0) {
+    return pendingBrochures.value.length > 0
+      ? $t('gainos.onboarding.startUnderstandingWithBrochure')
+      : $t('gainos.onboarding.startUnderstanding');
+  }
+  if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
+  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  return $t('gainos.onboarding.startUnderstanding');
+});
+
+const storePrimaryLabel = computed(() => {
+  if (storeUrl.value.trim().length > 0) {
+    return pendingBrochures.value.length > 0
+      ? $t('gainos.onboarding.startUnderstandingWithBrochure')
+      : $t('gainos.onboarding.startUnderstanding');
+  }
+  if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
+  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  return $t('gainos.onboarding.startUnderstanding');
+});
+
+const briefPrimaryLabel = computed(() => {
+  if (productDescription.value.trim().length > 0) return $t('gainos.onboarding.briefStartBtn');
+  if (pendingBrochures.value.length > 0) return $t('gainos.onboarding.startWithBrochure');
+  if (uploadedBrochures.value.length > 0) return $t('gainos.onboarding.continueWithBrochure');
+  return $t('gainos.onboarding.briefStartBtn');
+});
+
+function formatBrochureSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 const manualValid = computed(
   () =>
     name.value.trim().length > 0 &&
@@ -514,19 +567,68 @@ async function loadContext() {
   }
 }
 
+async function uploadPendingBrochures(companyId: string): Promise<number> {
+  if (pendingBrochures.value.length === 0) return 0;
+  brochureUploading.value = true;
+  let uploadedCount = 0;
+  try {
+    const queue = [...pendingBrochures.value];
+    for (const item of queue) {
+      const signed = await gainosApi.presignSellerDocument(companyId, {
+        filename: item.filename,
+        mime: 'application/pdf',
+        size: item.size,
+      });
+      const put = await fetch(
+        `/api/companies/${companyId}/seller-documents/${signed.documentId}/content`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/pdf' },
+          body: item.file,
+        },
+      );
+      if (!put.ok) throw new Error(`upload ${put.status}`);
+      const committed = await gainosApi.commitSellerDocument(companyId, signed.documentId);
+      const docId = committed.id ?? signed.documentId;
+      uploadedBrochures.value = [
+        { id: docId, filename: item.filename, status: committed.status ?? 'UPLOADED' },
+        ...uploadedBrochures.value.filter((doc) => doc.id !== docId),
+      ];
+      pendingBrochures.value = pendingBrochures.value.filter((p) => p.localId !== item.localId);
+      uploadedCount += 1;
+    }
+    if (uploadedCount > 0) {
+      feedback.message.success(
+        $t('gainos.onboarding.brochureUploadedCount', { count: uploadedCount }),
+      );
+    }
+    return uploadedCount;
+  } finally {
+    brochureUploading.value = false;
+  }
+}
+
 async function startUnderstanding() {
   normalizeWebsiteField();
-  if (!startValid.value || starting.value) return;
+  if (!startValid.value || starting.value || brochureUploading.value) return;
+  const hasWebsite = website.value.trim().length > 0;
   starting.value = true;
   errorText.value = '';
-  manualChosen.value = false;
+  manualChosen.value = !hasWebsite;
+  if (!hasWebsite) stopPolling();
   const reqSeq = ++previewRequestSeq;
   try {
     const state = await gainosApi.startOnboardingPreview({
-      website: normalizeWebsiteUrl(website.value),
       name: name.value.trim(),
+      ...(hasWebsite ? { website: normalizeWebsiteUrl(website.value) } : {}),
     });
-    if (reqSeq === previewRequestSeq) applyPreview(state.preview);
+    if (reqSeq !== previewRequestSeq) return;
+    preview.value = state.preview;
+    await uploadPendingBrochures(state.preview.companyId);
+    if (reqSeq === previewRequestSeq) {
+      applyPreview(state.preview);
+      if (!hasWebsite) view.value = 'manual';
+    }
   } catch (error) {
     handleError(error);
   } finally {
@@ -536,19 +638,27 @@ async function startUnderstanding() {
 
 async function startStoreUnderstanding() {
   normalizeStoreUrlField();
-  if (!storeStartValid.value || starting.value) return;
+  if (!storeStartValid.value || starting.value || brochureUploading.value) return;
+  const hasStore = storeUrl.value.trim().length > 0;
   starting.value = true;
   errorText.value = '';
-  manualChosen.value = false;
-  const normalized = normalizeWebsiteUrl(storeUrl.value);
-  website.value = normalized;
+  manualChosen.value = !hasStore;
+  if (!hasStore) stopPolling();
+  const normalized = hasStore ? normalizeWebsiteUrl(storeUrl.value) : '';
+  if (hasStore) website.value = normalized;
   const reqSeq = ++previewRequestSeq;
   try {
     const state = await gainosApi.startOnboardingPreview({
-      website: normalized,
       name: name.value.trim(),
+      ...(hasStore ? { website: normalized } : {}),
     });
-    if (reqSeq === previewRequestSeq) applyPreview(state.preview);
+    if (reqSeq !== previewRequestSeq) return;
+    preview.value = state.preview;
+    await uploadPendingBrochures(state.preview.companyId);
+    if (reqSeq === previewRequestSeq) {
+      applyPreview(state.preview);
+      if (!hasStore) view.value = 'manual';
+    }
   } catch (error) {
     handleError(error);
   } finally {
@@ -557,7 +667,7 @@ async function startStoreUnderstanding() {
 }
 
 async function startBriefOnboarding() {
-  if (!briefStartValid.value || starting.value) return;
+  if (!briefStartValid.value || starting.value || brochureUploading.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = true;
@@ -567,10 +677,13 @@ async function startBriefOnboarding() {
   try {
     const state = await gainosApi.startOnboardingPreview({
       name: name.value.trim(),
-      productDescription: desc,
+      ...(desc ? { productDescription: desc } : {}),
     });
+    if (reqSeq !== previewRequestSeq) return;
+    preview.value = state.preview;
+    await uploadPendingBrochures(state.preview.companyId);
     if (reqSeq === previewRequestSeq) {
-      if (!productsTouched.value && products.value.length === 0) {
+      if (desc && !productsTouched.value && products.value.length === 0) {
         const extracted = desc
           .split(/[、,，;；\n]+/)
           .map((item) => item.trim().slice(0, 60))
@@ -588,79 +701,69 @@ async function startBriefOnboarding() {
 }
 
 function triggerBrochurePick() {
-  if (!name.value.trim()) {
-    errorText.value = $t('gainos.onboarding.brochureNeedName');
+  if (totalBrochureCount.value >= MAX_BROCHURES) {
+    errorText.value = $t('gainos.onboarding.brochureMaxCount');
     return;
   }
   errorText.value = '';
   brochureInputRef.value?.click();
 }
 
-async function onBrochureSelected(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  if (!name.value.trim()) {
-    errorText.value = $t('gainos.onboarding.brochureNeedName');
-    return;
-  }
-  const isPdf =
-    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  if (!isPdf) {
-    errorText.value = $t('gainos.onboarding.brochureInvalidType');
-    return;
-  }
-  brochureUploading.value = true;
+function removePendingBrochure(localId: string) {
+  pendingBrochures.value = pendingBrochures.value.filter((item) => item.localId !== localId);
   errorText.value = '';
-  try {
-    let companyId = preview.value?.companyId ?? '';
-    if (!companyId) {
-      const state = await gainosApi.startOnboardingPreview({ name: name.value.trim() });
-      preview.value = state.preview;
-      companyId = state.preview.companyId;
+}
+
+function onBrochureSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (files.length === 0) return;
+  errorText.value = '';
+  for (const file of files) {
+    const isPdf =
+      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      errorText.value = $t('gainos.onboarding.brochureInvalidType');
+      continue;
     }
-    const signed = await gainosApi.presignSellerDocument(companyId, {
-      filename: file.name,
-      mime: 'application/pdf',
-      size: file.size,
-    });
-    const put = await fetch(
-      `/api/companies/${companyId}/seller-documents/${signed.documentId}/content`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/pdf' },
-        body: file,
-      },
+    if (file.size > MAX_BROCHURE_BYTES) {
+      errorText.value = $t('gainos.onboarding.brochureTooLarge');
+      continue;
+    }
+    const alreadyPending = pendingBrochures.value.some(
+      (item) => item.filename === file.name && item.size === file.size,
     );
-    if (!put.ok) throw new Error(`upload ${put.status}`);
-    const committed = await gainosApi.commitSellerDocument(companyId, signed.documentId);
-    uploadedBrochures.value = [
-      { id: committed.id ?? signed.documentId, filename: file.name, status: committed.status ?? 'UPLOADED' },
-      ...uploadedBrochures.value.filter((item) => item.id !== signed.documentId),
+    if (alreadyPending) continue;
+    if (totalBrochureCount.value >= MAX_BROCHURES) {
+      errorText.value = $t('gainos.onboarding.brochureMaxCount');
+      break;
+    }
+    pendingBrochures.value = [
+      ...pendingBrochures.value,
+      {
+        localId: `brochure-${++localBrochureSeq}`,
+        file,
+        filename: file.name,
+        size: file.size,
+      },
     ];
-    feedback.message.success($t('gainos.onboarding.brochureUploaded', { name: file.name }));
-    manualChosen.value = true;
-    stopPolling();
-    view.value = 'manual';
-    void loadComtradeRecommendations(companyId);
-  } catch (error) {
-    handleError(error);
-  } finally {
-    brochureUploading.value = false;
   }
 }
 
 async function enterManual() {
-  if (!name.value.trim() || starting.value) return;
+  if (!name.value.trim() || starting.value || brochureUploading.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = true;
   stopPolling();
   const reqSeq = ++previewRequestSeq;
   try {
-    // 手动模式不带官网：建名称草稿（不触发理解），受控词表随预览响应下发。
+    // 手动模式不带官网：建名称草稿（不触发理解），若有已选画册则一并上传，受控词表随预览响应下发。
     const state = await gainosApi.startOnboardingPreview({ name: name.value.trim() });
+    if (reqSeq !== previewRequestSeq) return;
+    preview.value = state.preview;
+    await uploadPendingBrochures(state.preview.companyId);
     if (reqSeq === previewRequestSeq) {
       applyPreview(state.preview);
       view.value = 'manual';
@@ -672,9 +775,17 @@ async function enterManual() {
   }
 }
 
+function backToStart() {
+  stopPolling();
+  previewRequestSeq += 1;
+  manualChosen.value = false;
+  errorText.value = '';
+  view.value = 'start';
+}
+
 async function retryUnderstanding() {
   normalizeWebsiteField();
-  if (starting.value || !websiteValid.value) return;
+  if (starting.value || brochureUploading.value || !websiteValid.value) return;
   starting.value = true;
   errorText.value = '';
   manualChosen.value = false;
@@ -684,6 +795,9 @@ async function retryUnderstanding() {
       website: normalizeWebsiteUrl(website.value),
       name: name.value.trim(),
     });
+    if (reqSeq !== previewRequestSeq) return;
+    preview.value = state.preview;
+    await uploadPendingBrochures(state.preview.companyId);
     if (reqSeq !== previewRequestSeq) return;
     if (state.preview.state === 'failed') {
       preview.value = state.preview;
@@ -902,7 +1016,7 @@ onBeforeUnmount(stopPolling);
       <div v-if="loading" class="onboarding-loading">{{ $t('gainos.onboarding.loading') }}</div>
 
       <template v-else>
-        <!-- 第一步：多模态冷启动（默认公司官网，无缝切换 1688/阿里店铺、PDF 画册、产品简介） -->
+        <!-- 第一步：主来源（官网 / 1688·阿里店铺 / 主营产品简介）+ 可选附带 PDF 产品画册 -->
         <section v-if="view === 'start'" class="onboarding-section">
           <label class="field">
             <span class="field-label">{{ $t('gainos.onboarding.companyName') }}</span>
@@ -913,10 +1027,10 @@ onBeforeUnmount(stopPolling);
             />
           </label>
 
-          <!-- 多模态冷启动方式切换 -->
+          <!-- 主资料来源切换 -->
           <div class="mode-tabs" data-gs="intake-mode-tabs" role="tablist">
             <button
-              v-for="mode in (['website', 'store', 'brochure', 'brief'] as const)"
+              v-for="mode in (['website', 'store', 'brief'] as const)"
               :key="mode"
               :aria-selected="intakeMode === mode"
               :class="{ active: intakeMode === mode }"
@@ -931,9 +1045,7 @@ onBeforeUnmount(stopPolling);
                   ? $t('gainos.onboarding.modeWebsite')
                   : mode === 'store'
                     ? $t('gainos.onboarding.modeStore')
-                    : mode === 'brochure'
-                      ? $t('gainos.onboarding.modeBrochure')
-                      : $t('gainos.onboarding.modeBrief')
+                    : $t('gainos.onboarding.modeBrief')
               }}
             </button>
           </div>
@@ -970,22 +1082,6 @@ onBeforeUnmount(stopPolling);
               />
               <span v-if="emailHint" class="field-hint hint-accent">{{ emailHint }}</span>
             </label>
-            <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
-            <div class="onboarding-actions">
-              <Button
-                :disabled="!startValid"
-                :loading="starting"
-                class="primary-action"
-                type="primary"
-                @click="startUnderstanding"
-              >
-                {{ $t('gainos.onboarding.startUnderstanding') }}
-              </Button>
-            </div>
-            <div class="start-hint">{{ $t('gainos.onboarding.startHint') }}</div>
-            <button class="text-link" type="button" @click="enterManual">
-              {{ $t('gainos.onboarding.noWebsite') }}
-            </button>
           </template>
 
           <!-- 模式 2：1688 / 阿里国际站卖家店铺链接 -->
@@ -1002,58 +1098,9 @@ onBeforeUnmount(stopPolling);
               <span v-if="storeUrlError" class="onboarding-error">{{ storeUrlError }}</span>
               <span class="field-hint">{{ $t('gainos.onboarding.storeUrlWhitelistHint') }}</span>
             </label>
-            <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
-            <div class="onboarding-actions">
-              <Button
-                :disabled="!storeStartValid"
-                :loading="starting"
-                class="primary-action"
-                data-gs="store-start-btn"
-                type="primary"
-                @click="startStoreUnderstanding"
-              >
-                {{ $t('gainos.onboarding.startUnderstanding') }}
-              </Button>
-            </div>
           </template>
 
-          <!-- 模式 3：上传 PDF 产品画册 -->
-          <template v-else-if="intakeMode === 'brochure'">
-            <div class="brochure-box" data-gs="brochure-intake-box">
-              <p class="brochure-box__title">{{ $t('gainos.onboarding.brochureTitle') }}</p>
-              <p class="section-desc">{{ $t('gainos.onboarding.brochureHint') }}</p>
-              <input
-                ref="brochureInputRef"
-                accept=".pdf,application/pdf"
-                class="sr-only-input"
-                data-gs="brochure-file-input"
-                type="file"
-                @change="onBrochureSelected"
-              />
-              <div class="brochure-box__actions">
-                <Button
-                  :loading="brochureUploading"
-                  data-gs="brochure-upload-btn"
-                  type="primary"
-                  @click="triggerBrochurePick"
-                >
-                  {{
-                    brochureUploading
-                      ? $t('gainos.onboarding.brochureUploading')
-                      : $t('gainos.onboarding.brochurePickBtn')
-                  }}
-                </Button>
-              </div>
-              <div v-if="uploadedBrochures.length > 0" class="brochure-list" data-gs="brochure-uploaded-badge">
-                <Tag v-for="doc in uploadedBrochures" :key="doc.id" :bordered="false">
-                  {{ doc.filename }}
-                </Tag>
-              </div>
-            </div>
-            <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
-          </template>
-
-          <!-- 模式 4：简短主营产品描述冷启动 -->
+          <!-- 模式 3：简短主营产品描述冷启动 -->
           <template v-else>
             <label class="field">
               <span class="field-label">{{ $t('gainos.onboarding.briefLabel') }}</span>
@@ -1066,17 +1113,122 @@ onBeforeUnmount(stopPolling);
               />
               <span class="field-hint">{{ $t('gainos.onboarding.briefHint') }}</span>
             </label>
-            <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
+          </template>
+
+          <!-- 常驻可选附件区：PDF 产品画册（可与官网/店铺/简介组合提交，也可不填主来源直接附画册继续） -->
+          <div class="brochure-box" data-gs="brochure-intake-box">
+            <div class="brochure-box__head">
+              <p class="brochure-box__title">{{ $t('gainos.onboarding.brochureTitle') }}</p>
+              <Button
+                :disabled="starting || brochureUploading || totalBrochureCount >= MAX_BROCHURES"
+                :loading="brochureUploading"
+                data-gs="brochure-upload-btn"
+                size="small"
+                @click="triggerBrochurePick"
+              >
+                {{
+                  brochureUploading
+                    ? $t('gainos.onboarding.brochureUploading')
+                    : $t('gainos.onboarding.brochurePickBtn')
+                }}
+              </Button>
+            </div>
+            <p class="section-desc">{{ $t('gainos.onboarding.brochureHint') }}</p>
+            <input
+              ref="brochureInputRef"
+              accept=".pdf,application/pdf"
+              class="sr-only-input"
+              data-gs="brochure-file-input"
+              multiple
+              type="file"
+              @change="onBrochureSelected"
+            />
+            <div
+              v-if="pendingBrochures.length > 0"
+              class="brochure-list"
+              data-gs="pending-brochure-list"
+            >
+              <span
+                v-for="item in pendingBrochures"
+                :key="item.localId"
+                class="brochure-chip brochure-chip--pending"
+              >
+                <span class="brochure-chip__name">{{ item.filename }}</span>
+                <span class="brochure-chip__meta">
+                  {{ formatBrochureSize(item.size) }} · {{ $t('gainos.onboarding.brochurePendingTag') }}
+                </span>
+                <button
+                  :aria-label="$t('gainos.onboarding.brochureRemoveAria', { name: item.filename })"
+                  :disabled="starting || brochureUploading"
+                  class="brochure-chip__remove"
+                  type="button"
+                  @click="removePendingBrochure(item.localId)"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+            <div
+              v-if="uploadedBrochures.length > 0"
+              class="brochure-list"
+              data-gs="brochure-uploaded-badge"
+            >
+              <Tag v-for="doc in uploadedBrochures" :key="doc.id" :bordered="false" color="blue">
+                {{ doc.filename }} · {{ $t('gainos.onboarding.brochureUploadedTag') }}
+              </Tag>
+            </div>
+          </div>
+
+          <p v-if="errorText" class="onboarding-error">{{ errorText }}</p>
+
+          <!-- 主操作按钮区（按当前主来源模式） -->
+          <template v-if="intakeMode === 'website'">
+            <div class="onboarding-actions">
+              <Button
+                :disabled="!startValid"
+                :loading="starting || brochureUploading"
+                class="primary-action"
+                data-gs="website-start-btn"
+                type="primary"
+                @click="startUnderstanding"
+              >
+                {{ websitePrimaryLabel }}
+              </Button>
+            </div>
+            <div v-if="website.trim().length > 0" class="start-hint">
+              {{ $t('gainos.onboarding.startHint') }}
+            </div>
+            <button class="text-link" type="button" @click="enterManual">
+              {{ $t('gainos.onboarding.noWebsite') }}
+            </button>
+          </template>
+
+          <template v-else-if="intakeMode === 'store'">
+            <div class="onboarding-actions">
+              <Button
+                :disabled="!storeStartValid"
+                :loading="starting || brochureUploading"
+                class="primary-action"
+                data-gs="store-start-btn"
+                type="primary"
+                @click="startStoreUnderstanding"
+              >
+                {{ storePrimaryLabel }}
+              </Button>
+            </div>
+          </template>
+
+          <template v-else>
             <div class="onboarding-actions">
               <Button
                 :disabled="!briefStartValid"
-                :loading="starting"
+                :loading="starting || brochureUploading"
                 class="primary-action"
                 data-gs="brief-start-btn"
                 type="primary"
                 @click="startBriefOnboarding"
               >
-                {{ $t('gainos.onboarding.briefStartBtn') }}
+                {{ briefPrimaryLabel }}
               </Button>
             </div>
           </template>
@@ -1088,6 +1240,13 @@ onBeforeUnmount(stopPolling);
           <h2 class="waiting-title">{{ $t('gainos.onboarding.progressTitle') }}</h2>
           <p class="waiting-pages">
             {{ $t('gainos.onboarding.progressPages', { count: preview?.pagesAnalyzed ?? 0 }) }}
+          </p>
+          <p
+            v-if="uploadedBrochures.length > 0"
+            class="field-hint hint-accent"
+            data-gs="waiting-brochure-hint"
+          >
+            {{ $t('gainos.onboarding.waitingBrochureLinked', { count: uploadedBrochures.length }) }}
           </p>
           <p class="section-desc">{{ $t('gainos.onboarding.progressHint') }}</p>
         </section>
@@ -1378,6 +1537,13 @@ onBeforeUnmount(stopPolling);
 
           <div class="onboarding-actions">
             <Button
+              :disabled="submitting"
+              data-gs="back-to-start-btn"
+              @click="backToStart"
+            >
+              {{ $t('gainos.onboarding.backToStart') }}
+            </Button>
+            <Button
               v-if="view === 'preview'"
               :disabled="submitting"
               @click="switchManualFromFailure"
@@ -1539,10 +1705,18 @@ onBeforeUnmount(stopPolling);
 .brochure-box {
   display: grid;
   gap: 8px;
-  padding: 16px;
+  padding: 14px 16px;
   border: 1px dashed var(--gs-border, #d1d5db);
   border-radius: 10px;
   background: var(--gs-bg-soft, #f9fafb);
+}
+
+.brochure-box__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .brochure-box__title {
@@ -1556,6 +1730,58 @@ onBeforeUnmount(stopPolling);
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.brochure-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--gs-border, #d1d5db);
+  border-radius: 999px;
+  background: var(--gs-bg, #fff);
+  color: var(--gs-fg, #111827);
+  font-size: 12px;
+}
+
+.brochure-chip--pending {
+  border-color: color-mix(in srgb, var(--gs-primary, var(--gs-accent)) 45%, var(--gs-border, #d1d5db));
+}
+
+.brochure-chip__name {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.brochure-chip__meta {
+  color: var(--gs-fg-subtle, var(--gs-fg-muted));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.brochure-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--gs-fg-subtle, var(--gs-fg-muted));
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.brochure-chip__remove:hover {
+  background: var(--gs-bg-soft, #f3f4f6);
+  color: var(--gs-fg, #111827);
 }
 
 .sr-only-input {

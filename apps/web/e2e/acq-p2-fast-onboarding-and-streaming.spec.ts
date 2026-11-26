@@ -281,7 +281,7 @@ test('3 步极速上手：1688/阿里店铺白名单 → UN Comtrade 选国 → 
   await expect(page.locator('[data-gs="streaming-recent-candidates"]')).toContainText('Memodo Italia S.r.l.');
 });
 
-test('多模态冷启动：PDF 画册直传与简短主营产品描述建档', async ({ page }) => {
+test('多模态冷启动：官网+PDF画册组合提交、仅画册建档、返回修改资料与产品简介建档', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
   backend.set('POST', '/onboarding/preview', {
     started: true,
@@ -313,20 +313,28 @@ test('多模态冷启动：PDF 画册直传与简短主营产品描述建档', a
   await loginAs(page);
   await page.waitForURL(/\/onboarding/);
 
-  // 1. 测试 PDF 画册上传链路（presign → PUT content → commit → 自动进入第 2 步显示画册徽章）
+  // 1. 官网 + PDF 画册组合提交：先填官网再附 PDF，不提前跳转，点主按钮后同时提交官网与画册
   await page.locator('.onboarding-section input').first().fill('具安泵业');
-  await page.locator('[data-gs="intake-mode-brochure"]').click();
+  await page.locator('input[placeholder*="https://"]').fill('lianstech.com');
   await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
     name: 'industrial-pumps-2026.pdf',
     mimeType: 'application/pdf',
     buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'),
   });
+  await expect(page.locator('[data-gs="pending-brochure-list"]')).toContainText('industrial-pumps-2026.pdf');
+  expect(backend.callsTo('POST', '/onboarding/preview')).toHaveLength(0);
+  await page.locator('[data-gs="website-start-btn"]').click();
+
   await expect.poll(() => backend.callsTo('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`).length).toBe(1);
+  const combinedPreview = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
+  expect(combinedPreview.website).toBe('https://lianstech.com');
   await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('industrial-pumps-2026.pdf');
 
-  // 2. 重进引导测试简短产品描述模式（透传 productDescription 并自动拆出产品标签）
-  await page.goto('/onboarding');
-  await page.locator('.onboarding-section input').first().fill('具安泵业');
+  // 2. 第 2 步可点击「返回修改资料」回到第 1 步，且保留已上传画册标记
+  await page.locator('[data-gs="back-to-start-btn"]').click();
+  await expect(page.locator('[data-gs="brochure-uploaded-badge"]')).toContainText('industrial-pumps-2026.pdf');
+
+  // 3. 切换简短产品描述模式（透传 productDescription 并自动拆出产品标签）
   await page.locator('[data-gs="intake-mode-brief"]').click();
   await page.locator('[data-gs="product-brief-input"]').fill('化工离心泵、磁力驱动泵、耐腐蚀阀门');
   await page.locator('[data-gs="brief-start-btn"]').click();
@@ -335,6 +343,56 @@ test('多模态冷启动：PDF 画册直传与简短主营产品描述建档', a
     backend.callsTo('POST', '/onboarding/preview').some((c) => Boolean((c.body as Record<string, unknown>)?.productDescription)),
   ).toBe(true);
   await expect(page.locator('.product-tags')).toContainText('化工离心泵');
+});
+
+test('多模态冷启动：不填官网仅附 PDF 画册可直接进入第 2 步', async ({ page }) => {
+  const backend = await installMockBackend(page, { onboardingComplete: false });
+  backend.set('POST', '/onboarding/preview', {
+    started: true,
+    preview: {
+      companyId: COMPANY_ID,
+      name: '画册冷启动测试',
+      website: null,
+      status: 'DRAFT',
+      state: 'not_started',
+      failure: null,
+      pagesAnalyzed: 0,
+      industry: { raw: null, suggested: { raw: null, code: null, label: null, labelEn: null, matched: false }, options: [] },
+      products: [],
+      markets: [],
+    },
+  });
+  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/presign`, {
+    documentId: DOC_ID,
+    uploadUrl: `/api/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`,
+    expiresAt: NOW,
+  });
+  backend.set('PUT', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/content`, { ok: true });
+  backend.set('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`, {
+    id: DOC_ID,
+    filename: 'brochure-only.pdf',
+    status: 'UPLOADED',
+  });
+
+  await loginAs(page);
+  await page.waitForURL(/\/onboarding/);
+
+  await page.locator('.onboarding-section input').first().fill('画册冷启动测试');
+  await expect(page.locator('[data-gs="website-start-btn"]')).toBeDisabled();
+
+  await page.locator('[data-gs="brochure-file-input"]').setInputFiles({
+    name: 'brochure-only.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'),
+  });
+  await expect(page.locator('[data-gs="website-start-btn"]')).toBeEnabled();
+  await expect(page.locator('[data-gs="website-start-btn"]')).toContainText('上传画册并继续');
+  await page.locator('[data-gs="website-start-btn"]').click();
+
+  await expect.poll(() => backend.callsTo('POST', `/companies/${COMPANY_ID}/seller-documents/${DOC_ID}/commit`).length).toBe(1);
+  const previewBody = backend.callsTo('POST', '/onboarding/preview')[0]!.body as Record<string, unknown>;
+  expect(previewBody.website).toBeUndefined();
+  await expect(page.locator('[data-gs="step2-brochure-badges"]')).toContainText('brochure-only.pdf');
 });
 
 test('1 公司多画像管理与方案 B 流式进度贯通（/find-buyers → /leads → /runs/:runId）', async ({ page }) => {
