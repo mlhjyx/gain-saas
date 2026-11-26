@@ -51,11 +51,22 @@ export class OpsRevocationController {
 
   @Get('revocations')
   async list(@Query('limit') limit?: string) {
-    return { requests: await this.revocations.list(Number(limit) || 100) };
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      return {
+        mode: 'internal_db' as const,
+        requests: [],
+        note: '平台权威运行在 internal_db 轻量化模式，R4 撤销队列已停用',
+      };
+    }
+    return {
+      mode: 'r4' as const,
+      requests: await this.revocations.list(Number(limit) || 100),
+    };
   }
 
   @Get('revocations/:id')
   async get(@Param('id') id: string) {
+    this.assertR4Mode();
     return { data: await this.call(() => this.revocations.get(id)) };
   }
 
@@ -85,6 +96,7 @@ export class OpsRevocationController {
   @Post('revocations/:id/cancel')
   @HttpCode(200)
   async cancel(@Param('id') id: string, @Body() body: unknown, @Req() req: OpsRequest) {
+    this.assertR4Mode();
     const parsed = cancelSchema.safeParse(body);
     if (!parsed.success)
       throw new BadRequestException({ error: { code: 'VALIDATION', message: 'reason 必填且不超过 300 字' } });
@@ -93,16 +105,39 @@ export class OpsRevocationController {
 
   @Get('policy-state')
   async policyState() {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      return {
+        mode: 'internal_db' as const,
+        states: [],
+        triggerEnabled: false,
+        autoConfirm: false,
+        note: '平台权威运行在 internal_db 轻量化模式，R4 策略镜像与自动撤销已停用',
+      };
+    }
     // 开关状态随数据一起返回:页面据此显示"自动来源是否需要人工确认",
     // 避免 .env 与 UI 文案漂移(2026-11-03 的 P1)。
     return {
+      mode: 'r4' as const,
       states: await this.revocations.policyStates(),
       triggerEnabled: this.config.R4_REVOCATION_TRIGGER_ENABLED,
       autoConfirm: this.config.R4_REVOCATION_AUTO_CONFIRM,
     };
   }
 
+  private assertR4Mode(): void {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: '平台权威运行在 internal_db 轻量化模式，R4 撤销接口已停用',
+        },
+      });
+    }
+  }
+
   private assertEnabled(): void {
+    this.assertR4Mode();
     if (!this.config.R4_REVOCATION_TRIGGER_ENABLED)
       throw new ServiceUnavailableException({
         error: {

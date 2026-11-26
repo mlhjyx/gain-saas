@@ -41,6 +41,7 @@ export class BindingRevocationWatcher implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     if (!this.config.R4_REVOCATION_TRIGGER_ENABLED) return;
     if (this.config.PROCESS_ROLE !== 'web') return;
     this.timer = setInterval(() => void this.check(), CHECK_INTERVAL_MS);
@@ -55,7 +56,7 @@ export class BindingRevocationWatcher implements OnModuleInit, OnModuleDestroy {
   }
 
   async check(now = Date.now()): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     const file = this.config.R4_DEPLOYMENT_BINDING_FILE;
     if (!file) return;
     let raw: string;

@@ -238,22 +238,30 @@ export class OpsService {
     const deadDeliveries = db.ownerPool
       ? await this.safe(() => db.ownerQuery(`SELECT count(*)::text n FROM outbox_delivery WHERE status = 'DEAD'`), [{ n: '-1' }])
       : [{ n: '-1' }];
+    const authorityMode = this.config.PLATFORM_AUTHORITY_MODE ?? 'r4';
+    const legacyBudgetMode = this.config.LEGACY_EXECUTION_BUDGET_MODE ?? 'enforce';
     // R4 红灯:未结撤销请求 / 投递结果未知 / 平台授权轮次耗尽(引擎库)。
-    // 表在 SaaS 库,用 prisma;计数失败按 -1 显示为未知,不阻断概览。
-    const [r4Open, r4DeliveryUnknown] = await Promise.all([
-      this.prisma.r4RevocationRequest
-        .count({ where: { state: { in: [...ACTIVE_REQUEST_STATES] } } })
-        .catch(() => -1),
-      this.prisma.r4RevocationRequest
-        .count({ where: { deliveryUnknown: true } })
-        .catch(() => -1),
-    ]);
-    const platformExhausted = db.ownerPool
-      ? await this.safe(() => db.ownerQuery(
-        `SELECT count(*)::text n FROM execution_budget_authority
-         WHERE authority_kind = 'PLATFORM' AND max_runs IS NOT NULL AND runs_consumed >= max_runs`,
-      ), [{ n: '-1' }])
-      : [{ n: '-1' }];
+    // internal_db 轻量化模式下跳过 R4 表查询并返回 mode='internal_db'，不刷假红灯。
+    const [r4Open, r4DeliveryUnknown] =
+      authorityMode === 'internal_db'
+        ? [0, 0]
+        : await Promise.all([
+            this.prisma.r4RevocationRequest
+              .count({ where: { state: { in: [...ACTIVE_REQUEST_STATES] } } })
+              .catch(() => -1),
+            this.prisma.r4RevocationRequest
+              .count({ where: { deliveryUnknown: true } })
+              .catch(() => -1),
+          ]);
+    const platformExhausted =
+      authorityMode === 'internal_db'
+        ? [{ n: '0' }]
+        : db.ownerPool
+          ? await this.safe(() => db.ownerQuery(
+            `SELECT count(*)::text n FROM execution_budget_authority
+             WHERE authority_kind = 'PLATFORM' AND max_runs IS NOT NULL AND runs_consumed >= max_runs`,
+          ), [{ n: '-1' }])
+          : [{ n: '-1' }];
     return {
       engine,
       db: health,
@@ -265,11 +273,16 @@ export class OpsService {
       failedFetches,
       sanctions,
       leases,
+      modes: {
+        legacyExecutionBudget: legacyBudgetMode,
+        platformAuthority: authorityMode,
+      },
       redLights: {
         deadDeliveries: Number(deadDeliveries[0]?.n ?? -1),
         exhaustedBudgetAccounts: Number(exhaustedBudgets[0]?.n ?? -1),
         temporal: { reachable: temporalReachable },
         r4: {
+          mode: authorityMode,
           openRevocations: r4Open,
           deliveryUnknown: r4DeliveryUnknown,
           platformExhaustedAuthorities: Number(platformExhausted[0]?.n ?? -1),
@@ -551,6 +564,7 @@ export class OpsService {
   }
 
   async budget(): Promise<Row> {
+    const mode = this.config.LEGACY_EXECUTION_BUDGET_MODE ?? 'enforce';
     const db = this.database.db;
     const accountSql = `SELECT id::text, account_key, scope_key, generation, cap_cents, reserved_cents, charged_cents,
               reserved_microusd, charged_microusd, exhausted, ref_count, closed_at, created_at, updated_at
@@ -566,7 +580,16 @@ export class OpsService {
          FROM execution_budget_authority ORDER BY issued_at DESC LIMIT 100`,
       ))
       : [];
-    return { accounts, authorities };
+    if (mode === 'bypass') {
+      return {
+        mode: 'bypass',
+        legacyBudgetBypassed: true,
+        note: 'LEGACY_EXECUTION_BUDGET_MODE=bypass：写路由已跳过旧执行预算 quote 与 RS256 Grant，本接口仅返回历史只读快照。',
+        accounts,
+        authorities,
+      };
+    }
+    return { mode: 'enforce', accounts, authorities };
   }
 
   async workspaces(): Promise<Row[]> {

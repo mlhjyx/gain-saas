@@ -51,6 +51,7 @@ export class PlatformRevocationDeliveryService implements OnModuleInit, OnModule
   ) {}
 
   onModuleInit(): void {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     if (!this.config.R4_REVOCATION_TRIGGER_ENABLED) return;
     if (this.config.PROCESS_ROLE !== 'web') return;
     this.timer = setInterval(() => void this.tick(), TICK_MS);
@@ -66,7 +67,7 @@ export class PlatformRevocationDeliveryService implements OnModuleInit, OnModule
 
   /** 一轮：同步策略状态，然后推进到期的 PENDING 请求。 */
   async tick(now = Date.now()): Promise<void> {
-    if (this.running || this.stopped) return;
+    if (this.running || this.stopped || this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') return;
     this.running = true;
     try {
       await this.policy.sync().catch((error) => {
@@ -133,12 +134,16 @@ export class PlatformRevocationDeliveryService implements OnModuleInit, OnModule
   }
 
   private async createAttempt(request: RequestWithAttempts, grant: R4PlatformGrant): Promise<R4RevocationAttempt> {
+    const targetIssuer = this.config.ENGINE_BUDGET_GRANT_ISSUER;
+    if (!targetIssuer) {
+      throw new Error('ENGINE_BUDGET_GRANT_ISSUER 未配置，无法签发平台撤销命令');
+    }
     const jws = await this.issuer.issue({
       scheduleId: request.scheduleId as PlatformScheduleId,
       workflowRunId: grant.workflowRunId,
       fenceSequence: String(request.fenceSequence),
       reasonCode: request.reasonCode as RevocationReasonCode,
-      targetIssuer: this.config.ENGINE_BUDGET_GRANT_ISSUER,
+      targetIssuer,
       targetJti: grant.jti,
     });
     const claims = decodeJwt(jws);
@@ -151,7 +156,7 @@ export class PlatformRevocationDeliveryService implements OnModuleInit, OnModule
           commandJws: jws,
           commandSha256: createHash('sha256').update(jws, 'utf8').digest('hex'),
           revocationJti: String(claims.revocation_jti),
-          targetIssuer: this.config.ENGINE_BUDGET_GRANT_ISSUER,
+          targetIssuer,
           targetJti: grant.jti,
           workflowRunId: grant.workflowRunId,
           fenceSequence: request.fenceSequence,

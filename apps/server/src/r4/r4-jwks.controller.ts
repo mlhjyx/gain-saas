@@ -1,4 +1,6 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Inject, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { R4Keyring, type R4KeyFamily } from './r4-keyring.service.js';
 
 /**
@@ -12,7 +14,10 @@ import { R4Keyring, type R4KeyFamily } from './r4-keyring.service.js';
  */
 @Controller('.well-known')
 export class R4JwksController {
-  constructor(private readonly keyring: R4Keyring) {}
+  constructor(
+    private readonly keyring: R4Keyring,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
+  ) {}
 
   /** 机器 token 验签钥（引擎 CAPABILITY_MACHINE_JWKS_URI 可指向这里，避免与身份钥同文件）。 */
   @Get('machine-jwks.json')
@@ -36,6 +41,15 @@ export class R4JwksController {
   }
 
   private serve(family: R4KeyFamily): { keys: JsonWebKey[] } {
+    if (this.config?.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: `平台权威运行在 internal_db 轻量化模式，未发布 R4 JWKS: ${family}`,
+        },
+      });
+    }
     if (!this.keyring.isAvailable(family)) {
       throw new ServiceUnavailableException({
         error: { code: 'R4_JWKS_UNAVAILABLE', message: `R4 密钥族未配置: ${family}` },

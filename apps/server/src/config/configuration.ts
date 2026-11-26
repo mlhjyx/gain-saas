@@ -25,10 +25,24 @@ const schema = z.object({
   ENGINE_JWT_KEY_ID: z.string().min(1),
   ENGINE_JWT_ISSUER: z.string().min(1, 'ENGINE_JWT_ISSUER 必填,且必须与引擎 AUTH_ISSUER 逐字符一致'),
   ENGINE_JWT_AUDIENCE: z.string().default('global-backend'),
-  // 执行预算 Grant 签名钥(RS256,与身份钥分离);必须与引擎 EXECUTION_BUDGET_GRANT_* 一致
-  ENGINE_BUDGET_GRANT_PRIVATE_KEY: z.string().min(1, 'ENGINE_BUDGET_GRANT_PRIVATE_KEY 必填(与身份钥分离的 RSA 私钥)'),
-  ENGINE_BUDGET_GRANT_KEY_ID: z.string().min(1),
-  ENGINE_BUDGET_GRANT_ISSUER: z.string().min(1, 'ENGINE_BUDGET_GRANT_ISSUER 必填,且必须与引擎 EXECUTION_BUDGET_GRANT_ISSUER 逐字符一致'),
+  // W2 旧执行预算（RS256 Execution Grant / 二次 quote）旁路开关：
+  // - enforce（默认）：维持既有 fail-closed 行为，启动强校验 ENGINE_BUDGET_GRANT_* 私钥，写路由先 quote 再签发 Grant；
+  // - bypass：跳过二次 /api/v1/execution-budget/workspace-technical-quote 往返与 RS256 Grant 签发（消除重试 409 GRANT_REUSED），
+  //   允许不配置旧 ENGINE_BUDGET_GRANT_* 私钥，与 WALLET_BILLING_ENABLED 预占/实扣/退点无缝协同。
+  LEGACY_EXECUTION_BUDGET_MODE: z.enum(['enforce', 'bypass']).default('enforce'),
+  // 执行预算 Grant 签名钥(RS256,与身份钥分离);enforce 模式下必填且必须与引擎 EXECUTION_BUDGET_GRANT_* 一致
+  ENGINE_BUDGET_GRANT_PRIVATE_KEY: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1, 'ENGINE_BUDGET_GRANT_PRIVATE_KEY 必填(与身份钥分离的 RSA 私钥)').optional(),
+  ),
+  ENGINE_BUDGET_GRANT_KEY_ID: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1, 'ENGINE_BUDGET_GRANT_KEY_ID 必填').optional(),
+  ),
+  ENGINE_BUDGET_GRANT_ISSUER: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1, 'ENGINE_BUDGET_GRANT_ISSUER 必填,且必须与引擎 EXECUTION_BUDGET_GRANT_ISSUER 逐字符一致').optional(),
+  ),
   ENGINE_BUDGET_GRANT_TTL_SECONDS: z.coerce.number().min(1).max(300).default(240),
   // 引擎联系人发现 attemptId（引擎镜像升级后才支持）。默认关闭时 BFF 会从 quote 和转发体里
   // 剥离该字段，保持与旧引擎的 requestSha256 及 DTO 校验兼容；升级镜像后再打开。
@@ -304,6 +318,11 @@ const schema = z.object({
     z.string().trim().min(16).optional(),
   ),
   SPA_DIST_DIR: z.string().default('../web/dist'),
+  // Wave 3 平台权威模式：
+  // - r4（默认）：100% 保留既有 R4 密钥族、7 天部署绑定、30s capability/租约心跳、mTLS 监听与自动撤销；
+  // - internal_db：轻量化内部数据库模式，启动不依赖 7 天 R4_DEPLOYMENT_BINDING_FILE、5 套 RSA 密钥、
+  //   18446/18447/18448 TLS 监听与后台轮询，R4 定时任务静默停机，运营与健康端点返回 mode='internal_db'。
+  PLATFORM_AUTHORITY_MODE: z.enum(['r4', 'internal_db']).default('r4'),
   // R4 平台权威密钥族(P1)。与身份钥、预算钥完全分离;生产缺失时对应 JWKS 端点 503,
   // 开发/测试缺失时生成临时密钥(仅进程内有效,重启即换)。
   R4_CAPABILITY_PRIVATE_KEY: z.string().optional(),
@@ -413,6 +432,29 @@ const schema = z.object({
   // 撤销 target 的候选上限：只在该 schedule 最近 N 张未过期的 Grant 里找 locator。
   R4_REVOCATION_MAX_TARGET_CANDIDATES: z.coerce.number().int().min(1).max(32).default(8),
 }).superRefine((data, ctx) => {
+  if (data.LEGACY_EXECUTION_BUDGET_MODE === 'enforce') {
+    if (!data.ENGINE_BUDGET_GRANT_PRIVATE_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ENGINE_BUDGET_GRANT_PRIVATE_KEY'],
+        message: 'ENGINE_BUDGET_GRANT_PRIVATE_KEY 必填(与身份钥分离的 RSA 私钥)',
+      });
+    }
+    if (!data.ENGINE_BUDGET_GRANT_KEY_ID) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ENGINE_BUDGET_GRANT_KEY_ID'],
+        message: 'ENGINE_BUDGET_GRANT_KEY_ID 必填',
+      });
+    }
+    if (!data.ENGINE_BUDGET_GRANT_ISSUER) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ENGINE_BUDGET_GRANT_ISSUER'],
+        message: 'ENGINE_BUDGET_GRANT_ISSUER 必填,且必须与引擎 EXECUTION_BUDGET_GRANT_ISSUER 逐字符一致',
+      });
+    }
+  }
   if (data.NODE_ENV === 'production' && !data.APP_DATABASE_URL) {
     ctx.addIssue({
       code: 'custom',

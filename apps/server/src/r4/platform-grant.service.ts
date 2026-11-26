@@ -92,6 +92,9 @@ export class PlatformGrantIssuer {
   ) {}
 
   private async key(): Promise<CryptoKey> {
+    if (!this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY) {
+      throw new PlatformGrantRejected('PLATFORM_GRANT_CONFIGURATION_INVALID', '未配置 ENGINE_BUDGET_GRANT_PRIVATE_KEY');
+    }
     this.privateKey ??= await importPKCS8(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY, 'RS256');
     return this.privateKey;
   }
@@ -202,12 +205,27 @@ export class PlatformGrantIssuer {
   }
 
   async issue(request: PlatformGrantRequest, now = Date.now()): Promise<IssuedPlatformGrant> {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new PlatformGrantRejected(
+        'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+        '平台权威处于 internal_db 轻量化模式，不签发 R4 平台运行 Grant',
+      );
+    }
     this.validate(request, now);
     await this.assertPolicy(request.scheduleId);
     const existing = await this.prisma.r4PlatformGrant.findUnique({
       where: { workflowRunId: request.workflowRunId },
     });
     if (existing) return this.replay(existing, request, now);
+
+    const kid = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
+    const issuer = this.config.ENGINE_BUDGET_GRANT_ISSUER;
+    if (!kid || !issuer) {
+      throw new PlatformGrantRejected(
+        'PLATFORM_GRANT_CONFIGURATION_INVALID',
+        '未配置 ENGINE_BUDGET_GRANT_KEY_ID / ENGINE_BUDGET_GRANT_ISSUER',
+      );
+    }
 
     const iat = Math.floor(now / 1000);
     const ttl = this.config.R4_PLATFORM_GRANT_TTL_SECONDS;
@@ -232,8 +250,8 @@ export class PlatformGrantIssuer {
       campaign_cap_microusd: request.campaignCapMicrousd,
       max_runs: '1',
     })
-      .setProtectedHeader({ alg: 'RS256', kid: this.config.ENGINE_BUDGET_GRANT_KEY_ID, typ: PLATFORM_GRANT_TYPE })
-      .setIssuer(this.config.ENGINE_BUDGET_GRANT_ISSUER)
+      .setProtectedHeader({ alg: 'RS256', kid, typ: PLATFORM_GRANT_TYPE })
+      .setIssuer(issuer)
       .setAudience(PLATFORM_GRANT_AUDIENCE)
       .setJti(jti)
       .setIssuedAt(iat)

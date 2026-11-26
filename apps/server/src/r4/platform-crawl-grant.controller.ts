@@ -48,6 +48,15 @@ export class PlatformCrawlGrantController {
         error: { code: 'PLATFORM_GRANT_MTLS_REQUIRED', message: '需要平台 worker 的客户端证书' },
       });
     }
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: '平台权威运行在 internal_db 轻量化模式，不签发 R4 渠道抓取 Grant',
+        },
+      });
+    }
     const required: (keyof ChannelCrawlGrantRequest)[] = [
       'channelId',
       'mode',

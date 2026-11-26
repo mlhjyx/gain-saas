@@ -43,6 +43,12 @@ export class R4Keyring {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
   async init(): Promise<void> {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      for (const family of ['machine', 'capability', 'temporalRuntime', 'siteBuildBudget'] as const) {
+        this.unavailable.add(family);
+      }
+      return;
+    }
     const families: Array<[R4KeyFamily, FamilyConfig]> = [
       ['machine', { privateKeyPem: this.config.R4_MACHINE_PRIVATE_KEY, keyId: this.config.R4_MACHINE_KEY_ID }],
       ['capability', { privateKeyPem: this.config.R4_CAPABILITY_PRIVATE_KEY, keyId: this.config.R4_CAPABILITY_KEY_ID }],

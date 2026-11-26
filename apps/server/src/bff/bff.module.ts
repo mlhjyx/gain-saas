@@ -262,7 +262,8 @@ export class BffHandler {
       }
     };
 
-    if (route.grant) {
+    const legacyBudgetBypass = this.config.LEGACY_EXECUTION_BUDGET_MODE === 'bypass';
+    if (route.grant && !legacyBudgetBypass) {
       const quoteRequest = budgetQuoteRequest(route, params, forwardBody, quoteOptions);
       if (!quoteRequest) {
         await releaseActiveHold('BFF_BUDGET_ROUTE_INVALID');

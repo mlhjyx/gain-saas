@@ -46,7 +46,9 @@ export class TemporalScheduleProbeService implements TemporalScheduleProbe {
   ) {}
 
   async read(_now: number): Promise<TemporalScheduleFact[] | null> {
-    if (!this.config.R4_TEMPORAL_ENABLED || !this.lister) return null;
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db' || !this.config.R4_TEMPORAL_ENABLED || !this.lister) {
+      return null;
+    }
     let schedules: Awaited<ReturnType<ScheduleLister['list']>>;
     try {
       schedules = await this.lister.list();

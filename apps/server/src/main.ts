@@ -88,10 +88,12 @@ async function bootstrap(): Promise<void> {
   // 放宽单次 HTTP 请求总超时至 15 分钟，避免弱网/远程隧道上传 40-50MB 企业 PDF 画册撞上 Node 默认 5 分钟 requestTimeout。
   httpServer.requestTimeout = 15 * 60 * 1000;
 
-  // R4 内部 mTLS 监听：与主监听并存，未配置时不启动（P5b）。
+  // R4 内部 mTLS 监听：与主监听并存，未配置或 PLATFORM_AUTHORITY_MODE=internal_db 时不启动（P5b/Wave 3）。
   const r4Tls = await startR4TlsServers(app, config);
   for (const handle of r4Tls) console.log(`[r4] TLS listening on ${config.R4_TLS_HOST}:${handle.port}`);
-  new Logger('Bootstrap').log(`gain-saas web 已启动 http://${config.HOST}:${config.PORT}(JWKS: /.well-known/jwks.json)`);
+  new Logger('Bootstrap').log(
+    `gain-saas web 已启动 http://${config.HOST}:${config.PORT}(JWKS: /.well-known/jwks.json, budgetMode=${config.LEGACY_EXECUTION_BUDGET_MODE}, authorityMode=${config.PLATFORM_AUTHORITY_MODE})`,
+  );
 }
 
 void bootstrap();

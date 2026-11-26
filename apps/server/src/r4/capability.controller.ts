@@ -1,5 +1,7 @@
-import { BadRequestException, Body, Controller, Header, HttpCode, Post, Req, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Header, HttpCode, Inject, Optional, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import type { Request } from 'express';
+import { APP_CONFIG } from '../shared/config.module.js';
+import type { AppConfig } from '../config/configuration.js';
 import { CapabilityIssuer } from './capability-issuer.service.js';
 import { PlatformFactsService, PlatformFactsUnavailable } from './platform-facts.service.js';
 import { assertInternalTls } from './internal-tls-only.js';
@@ -17,6 +19,7 @@ export class CapabilityController {
   constructor(
     private readonly facts: PlatformFactsService,
     private readonly issuer: CapabilityIssuer,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
   ) {}
 
   @Post('capabilities')
@@ -25,6 +28,15 @@ export class CapabilityController {
   async issue(@Body() body: { nonce?: unknown }, @Req() req: Request): Promise<string> {
     // 平台权威凭据只能经 TLS 监听口签发；明文入口（4020/公网隧道）一律拒绝。
     assertInternalTls(req);
+    if (this.config?.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new ServiceUnavailableException({
+        error: {
+          code: 'PLATFORM_AUTHORITY_INTERNAL_DB_MODE',
+          mode: 'internal_db',
+          message: '平台权威运行在 internal_db 轻量化模式，不签发 R4 capability',
+        },
+      });
+    }
     if (typeof body?.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(body.nonce)) {
       throw new BadRequestException({
         error: { code: 'CAPABILITY_REQUEST_INVALID', message: '需要 { nonce }（32 位小写 hex）' },

@@ -87,6 +87,10 @@ export class R4Module implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      this.logger.log('PLATFORM_AUTHORITY_MODE=internal_db：跳过 R4 密钥族初始化与策略基线同步');
+      return;
+    }
     await this.keyring.init();
     if (!this.config.R4_REVOCATION_TRIGGER_ENABLED) return;
     if (this.config.PROCESS_ROLE !== 'web') return;

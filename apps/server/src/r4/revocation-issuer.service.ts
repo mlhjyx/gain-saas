@@ -60,16 +60,23 @@ export class RevocationIssuer {
    * 用 R4 的 capability 族签会被判 PLATFORM_REVOCATION_VERIFICATION_UNAVAILABLE。
    */
   private async key(): Promise<CryptoKey> {
+    if (!this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY) {
+      throw new Error('ENGINE_BUDGET_GRANT_PRIVATE_KEY 未配置');
+    }
     this.privateKey ??= await importPKCS8(this.config.ENGINE_BUDGET_GRANT_PRIVATE_KEY, 'RS256');
     return this.privateKey;
   }
 
   async issue(command: RevocationCommand, now = Date.now()): Promise<string> {
+    if (this.config.PLATFORM_AUTHORITY_MODE === 'internal_db') {
+      throw new Error('PLATFORM_AUTHORITY_MODE=internal_db 模式下不签发 R4 撤销命令');
+    }
     this.validate(command);
     const iat = Math.floor(now / 1000);
     const exp = iat + Math.min(this.config.R4_REVOCATION_TTL_SECONDS, 300);
     const key = await this.key();
     const kid = this.config.ENGINE_BUDGET_GRANT_KEY_ID;
+    if (!kid) throw new Error('ENGINE_BUDGET_GRANT_KEY_ID 未配置');
 
     return new SignJWT({
       schema_version: REVOCATION_SCHEMA_VERSION,

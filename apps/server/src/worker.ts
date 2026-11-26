@@ -22,7 +22,9 @@ async function bootstrap(): Promise<void> {
 
   const consumer = app.get(EventConsumerService);
   const enabled = config.EVENT_CONSUMER_ENABLED;
-  logger.log(`事件消费 worker 已启动(enabled=${enabled},间隔 ${config.EVENT_CONSUMER_INTERVAL_MS}ms)`);
+  logger.log(
+    `事件消费 worker 已启动(enabled=${enabled},间隔 ${config.EVENT_CONSUMER_INTERVAL_MS}ms, budgetMode=${config.LEGACY_EXECUTION_BUDGET_MODE}, authorityMode=${config.PLATFORM_AUTHORITY_MODE})`,
+  );
 
   let running = false;
   const tick = async (): Promise<void> => {
