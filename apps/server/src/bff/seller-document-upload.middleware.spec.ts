@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   SELLER_DOCUMENT_CONTENT_UPLOAD_PATH,
   SELLER_DOCUMENT_MAX_BYTES,
+  SELLER_DOCUMENT_PART_MAX_BYTES,
+  SELLER_DOCUMENT_PART_UPLOAD_PATH,
   createSellerDocumentUploadMiddleware,
+  isSellerDocumentPartUploadPath,
   registerSellerDocumentUploadMiddleware,
 } from './seller-document-upload.middleware.js';
 import { SESSION_COOKIE, type SessionService } from '../tenant/session.service.js';
@@ -564,6 +567,71 @@ describe('seller-document upload middleware + expressLib.json integration', () =
         meta: { engineCode: 'UNSUPPORTED_CONTENT_ENCODING' },
       });
       expect(captured.method).toBeUndefined();
+    });
+  });
+
+  it('supports multipart part upload path with pre-auth, 6MB cap, and raw Buffer passthrough', async () => {
+    expect(SELLER_DOCUMENT_PART_UPLOAD_PATH).toBe(
+      '/api/companies/:companyId/seller-documents/:documentId/parts/:partNumber',
+    );
+    expect(SELLER_DOCUMENT_PART_MAX_BYTES).toBe(6 * 1024 * 1024);
+    expect(isSellerDocumentPartUploadPath('/api/companies/c1/seller-documents/d1/parts/1')).toBe(true);
+    expect(isSellerDocumentPartUploadPath('/api/companies//c1/seller-documents/d1/parts/2')).toBe(true);
+    expect(isSellerDocumentPartUploadPath('/api/companies/c1/seller-documents/d1/parts')).toBe(false);
+    expect(isSellerDocumentPartUploadPath('/api/companies/c1/seller-documents/d1/parts/1/extra')).toBe(false);
+
+    const verify = vi.fn(async (token: string) => (token === 'valid-jwt' ? validClaims() : null));
+    const partPath = '/api/companies/c1/seller-documents/d1/parts/1';
+    const partPayload = Buffer.from('%PDF-chunk-1-bytes', 'utf8');
+
+    // Unit: Content-Length > 6MB is fast-rejected with 413 before invoking partRawParser
+    const rawParser = vi.fn();
+    const partRawParser = vi.fn();
+    const next = vi.fn();
+    const res = mockResponse();
+    const unitHandler = createSellerDocumentUploadMiddleware({ verify }, rawParser, partRawParser);
+    await unitHandler(
+      {
+        method: 'PUT',
+        path: partPath,
+        cookies: { [SESSION_COOKIE]: 'valid-jwt' },
+        headers: { 'content-length': String(SELLER_DOCUMENT_PART_MAX_BYTES + 1) },
+      } as never,
+      res as never,
+      next,
+    );
+    expect(res.state.status).toBe(413);
+    expect(res.state.body).toMatchObject({
+      error: { code: 'PAYLOAD_TOO_LARGE' },
+      meta: { engineCode: 'PAYLOAD_TOO_LARGE' },
+    });
+    expect(rawParser).not.toHaveBeenCalled();
+    expect(partRawParser).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+
+    // HTTP integration: unauth 401 before express.json, auth buffers raw bytes
+    await withExpressServer({ verify }, async (baseUrl, captured) => {
+      const unauth = await fetch(`${baseUrl}${partPath}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: '{invalid-json',
+      });
+      expect(unauth.status).toBe(401);
+      expect(await unauth.json()).toMatchObject({ error: { code: 'AUTH_REQUIRED' } });
+      expect(captured.method).toBeUndefined();
+
+      const ok = await fetch(`${baseUrl}${partPath}`, {
+        method: 'PUT',
+        headers: {
+          cookie: `${SESSION_COOKIE}=valid-jwt`,
+          'content-type': 'application/octet-stream',
+        },
+        body: partPayload,
+      });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ ok: true, isBuffer: true });
+      expect(Buffer.isBuffer(captured.body)).toBe(true);
+      expect(Buffer.compare(captured.body as Buffer, partPayload)).toBe(0);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
-import { type CanActivate, type ExecutionContext, HttpException, Inject, Injectable, Logger, Module, Optional } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, Inject, Injectable, Logger, Module, Optional } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
@@ -13,11 +13,7 @@ import { OnboardingController } from './onboarding.controller.js';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { BFF_ROUTES, PLATFORM_LAWFUL_BASIS, budgetQuoteRequest, engineRequestBody, injectPlatformLawfulBasis, type BffRoute } from './routes.js';
 import { AdminGuard } from '../tenant/admin.guard.js';
-import {
-  ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES,
-  ONBOARDING_COMPANY_READ_ROUTES,
-  TenantGuard,
-} from '../tenant/tenant.guard.js';
+import { TenantGuard } from '../tenant/tenant.guard.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { ServiceModule } from '../service/service.module.js';
 import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
@@ -82,32 +78,8 @@ export class BffGuard implements CanActivate {
     if (!(await this.tenantGuard.canActivate(ctx))) return false;
     const req = ctx.switchToHttp().getRequest<Request>();
     const matched = matchRoute(req.method, req.path.replace(/^\/api\//, ''));
-    // SD11：未完成注册引导的工作空间拒绝一切业务请求（引导端点走 /api/onboarding，不进 BFF）；
-    // 例外：仅放行绑定至本工作空间草稿公司 ID 的画册上传（admin）与选国推荐只读查询。
-    if (req.tenant && req.tenant.onboardingCompleted === false) {
-      const routeSignature = matched ? `${matched.route.method} ${matched.route.saasPath}` : '';
-      const sameDraftCompany =
-        Boolean(req.tenant.onboardingCompanyId) &&
-        matched?.params.companyId === req.tenant.onboardingCompanyId;
-      const allowedRead = sameDraftCompany && ONBOARDING_COMPANY_READ_ROUTES.has(routeSignature);
-      const allowedAdminWrite =
-        sameDraftCompany && ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES.has(routeSignature);
-      if (!allowedRead && !allowedAdminWrite) {
-        throw new HttpException(
-          {
-            error: {
-              code: 'ONBOARDING_INCOMPLETE',
-              message: '请先完成注册引导（企业建档），再使用获客功能',
-            },
-          },
-          409,
-        );
-      }
-      if (allowedAdminWrite) {
-        return this.adminGuard.canActivate(ctx);
-      }
-      return true;
-    }
+    // 软化注册引导硬门禁：不再因 onboardingCompleted=false 返回 409 ONBOARDING_INCOMPLETE；
+    // 身份会话、工作空间 ACTIVE 与 admin RBAC 仍由 TenantGuard + AdminGuard 严格兜底。
     if (matched?.route.access === 'admin') {
       return this.adminGuard.canActivate(ctx);
     }

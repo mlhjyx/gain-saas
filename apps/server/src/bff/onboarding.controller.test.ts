@@ -275,6 +275,24 @@ describe('OnboardingController（注册即建档第 1 步：理解预览 + 反�
     await expect(controller.preview(req)).resolves.toEqual({ data: { started: false } });
   });
 
+  it('GET preview：已完成建档后仍可只读查看理解预览与文档解析状态（不再 409）', async () => {
+    const { controller, req } = fixture({
+      tenant: { onboardingCompleted: true, onboardingCompanyId: 'engine-company-1' },
+      engineImpl: (method, path) => {
+        if (method === 'GET' && path === '/companies/engine-company-1') {
+          return { status: 200, body: { data: { id: 'engine-company-1', status: 'ACTIVE' } } };
+        }
+        if (method === 'GET' && path === '/companies/engine-company-1/understanding-preview') {
+          return { status: 200, body: { data: PREVIEW } };
+        }
+        return { status: 404, body: { error: { code: 'NOT_FOUND' } } };
+      },
+    });
+    await expect(controller.preview(req)).resolves.toEqual({
+      data: { started: true, preview: PREVIEW },
+    });
+  });
+
   it('完成建档：勾选事实写回同一档案，审计记录建议 vs 选择', async () => {
     const { controller, req, res, update, auditRecord, call } = fixture({
       tenant: { onboardingCompanyId: 'engine-company-1' },
@@ -740,62 +758,38 @@ describe('B0 兼容：空目标市场保存不新增分析或下游动作', () =
   });
 });
 
-describe('BffGuard：未完成引导拒绝业务请求（SD11 + Phase 2 草稿态画册与选国放行）', () => {
+describe('BffGuard：软引导放行 + 保持 TenantGuard 与 AdminGuard RBAC 边界', () => {
   function guardCtx(req: Request) {
     return {
       switchToHttp: () => ({ getRequest: () => req }),
     } as unknown as Parameters<BffGuard['canActivate']>[0];
   }
 
-  it('onboardingCompleted=false 时以 409 ONBOARDING_INCOMPLETE 拒绝一般 BFF 业务路由与跨公司访问', async () => {
-    const req = {
-      method: 'GET',
-      path: '/api/companies',
-      tenant: tenant({ onboardingCompanyId: 'draft-co-1' }),
-    } as unknown as Request;
-    const guard = new BffGuard({ canActivate: async () => true } as never, { canActivate: async () => true } as never);
-    const error = await guard.canActivate(guardCtx(req)).catch((err: unknown) => err);
-    expect(error).toBeInstanceOf(HttpException);
-    expect((error as HttpException).getStatus()).toBe(409);
-    expect((error as HttpException).getResponse()).toMatchObject({
-      error: { code: 'ONBOARDING_INCOMPLETE' },
-    });
-
-    const otherCompanyReq = {
-      method: 'GET',
-      path: '/api/companies/other-company/market-recommendations',
-      tenant: tenant({ onboardingCompanyId: 'draft-co-1' }),
-    } as unknown as Request;
-    const crossErr = await guard.canActivate(guardCtx(otherCompanyReq)).catch((err: unknown) => err);
-    expect(crossErr).toBeInstanceOf(HttpException);
-    expect((crossErr as HttpException).getStatus()).toBe(409);
-  });
-
-  it('onboardingCompleted=false 时放行绑定本空间草稿公司的选国推荐与管理员画册上传，并拦截非管理员写入', async () => {
+  it('onboardingCompleted=false 时不再返回 409 ONBOARDING_INCOMPLETE，按路由 RBAC 放行 member 路由并由 AdminGuard 守住 admin 路由', async () => {
     const adminCheck = vi.fn(async () => true);
     const guard = new BffGuard({ canActivate: async () => true } as never, { canActivate: adminCheck } as never);
 
-    const recReq = {
+    const companiesReq = {
       method: 'GET',
-      path: '/api/companies/draft-co-1/market-recommendations',
-      tenant: tenant({ onboardingCompanyId: 'draft-co-1', role: 'member' }),
+      path: '/api/companies',
+      tenant: tenant({ onboardingCompleted: false, onboardingCompanyId: null, role: 'member' }),
     } as unknown as Request;
-    await expect(guard.canActivate(guardCtx(recReq))).resolves.toBe(true);
+    await expect(guard.canActivate(guardCtx(companiesReq))).resolves.toBe(true);
     expect(adminCheck).not.toHaveBeenCalled();
 
-    const presignReq = {
-      method: 'POST',
-      path: '/api/companies/draft-co-1/seller-documents/presign',
-      tenant: tenant({ onboardingCompanyId: 'draft-co-1', role: 'admin' }),
+    const adminRouteReq = {
+      method: 'DELETE',
+      path: '/api/seller-documents/doc-1',
+      tenant: tenant({ onboardingCompleted: false, onboardingCompanyId: 'draft-co-1', role: 'admin' }),
     } as unknown as Request;
-    await expect(guard.canActivate(guardCtx(presignReq))).resolves.toBe(true);
+    await expect(guard.canActivate(guardCtx(adminRouteReq))).resolves.toBe(true);
     expect(adminCheck).toHaveBeenCalledTimes(1);
 
     const denyAdminGuard = new BffGuard(
       { canActivate: async () => true } as never,
       { canActivate: async () => false } as never,
     );
-    await expect(denyAdminGuard.canActivate(guardCtx(presignReq))).resolves.toBe(false);
+    await expect(denyAdminGuard.canActivate(guardCtx(adminRouteReq))).resolves.toBe(false);
   });
 
   it('已完成引导时放行 member 路由', async () => {
@@ -808,7 +802,7 @@ describe('BffGuard：未完成引导拒绝业务请求（SD11 + Phase 2 草稿�
     await expect(guard.canActivate(guardCtx(req))).resolves.toBe(true);
   });
 
-  it('真实 TenantGuard + BffGuard + AdminGuard 串联：未完成引导时放行草稿公司画册上传与选国推荐，拒绝非管理员写与跨公司访问', async () => {
+  it('真实 TenantGuard + BffGuard + AdminGuard 串联：未完成引导时允许进入工作台与分片上传，同时严格保持 admin 路由 403 边界', async () => {
     const draftCompanyId = '6020b505-2bee-40e5-908c-708a270b7b3e';
     const docId = '88888888-8888-4888-8888-888888888888';
 
@@ -861,42 +855,30 @@ describe('BffGuard：未完成引导拒绝业务请求（SD11 + Phase 2 草稿�
     }
 
     const adminChain = makeRealChain('admin', draftCompanyId);
+    await expect(adminChain.canActivate(httpCtx('GET', '/api/companies'))).resolves.toBe(true);
     await expect(
       adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/presign`)),
     ).resolves.toBe(true);
     await expect(
-      adminChain.canActivate(httpCtx('PUT', `/api/companies/${draftCompanyId}/seller-documents/${docId}/content`)),
+      adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/${docId}/multipart/init`)),
     ).resolves.toBe(true);
     await expect(
-      adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/${docId}/commit`)),
+      adminChain.canActivate(httpCtx('PUT', `/api/companies/${draftCompanyId}/seller-documents/${docId}/parts/1`)),
     ).resolves.toBe(true);
     await expect(
-      adminChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/seller-documents`)),
+      adminChain.canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/${docId}/multipart/complete`)),
     ).resolves.toBe(true);
     await expect(
-      adminChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/market-recommendations`)),
+      adminChain.canActivate(httpCtx('DELETE', `/api/seller-documents/${docId}`)),
     ).resolves.toBe(true);
 
-    // 跨公司或非白名单路由必须仍返回 409 ONBOARDING_INCOMPLETE
-    const crossErr = await adminChain
-      .canActivate(httpCtx('POST', '/api/companies/other-company/seller-documents/presign'))
-      .catch((err: unknown) => err);
-    expect(crossErr).toBeInstanceOf(HttpException);
-    expect((crossErr as HttpException).getStatus()).toBe(409);
-
-    const listErr = await adminChain
-      .canActivate(httpCtx('GET', '/api/companies'))
-      .catch((err: unknown) => err);
-    expect(listErr).toBeInstanceOf(HttpException);
-    expect((listErr as HttpException).getStatus()).toBe(409);
-
-    // 非管理员：只读选国推荐放行，写画册预签名被 AdminGuard 拒绝（403）
+    // 非管理员：member 路由放行，admin 专属路由仍被 AdminGuard 拒绝（403）
     const memberChain = makeRealChain('member', draftCompanyId);
     await expect(
       memberChain.canActivate(httpCtx('GET', `/api/companies/${draftCompanyId}/market-recommendations`)),
     ).resolves.toBe(true);
     const forbiddenErr = await memberChain
-      .canActivate(httpCtx('POST', `/api/companies/${draftCompanyId}/seller-documents/presign`))
+      .canActivate(httpCtx('DELETE', `/api/seller-documents/${docId}`))
       .catch((err: unknown) => err);
     expect(forbiddenErr).toBeInstanceOf(ForbiddenException);
   });

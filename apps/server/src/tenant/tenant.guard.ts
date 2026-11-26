@@ -2,7 +2,6 @@ import {
   type CanActivate,
   type ExecutionContext,
   ForbiddenException,
-  HttpException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -33,6 +32,9 @@ export const ONBOARDING_COMPANY_READ_ROUTES: ReadonlySet<string> = new Set([
 export const ONBOARDING_COMPANY_ADMIN_WRITE_ROUTES: ReadonlySet<string> = new Set([
   'POST companies/:companyId/seller-documents/presign',
   'PUT companies/:companyId/seller-documents/:documentId/content',
+  'POST companies/:companyId/seller-documents/:documentId/multipart/init',
+  'PUT companies/:companyId/seller-documents/:documentId/parts/:partNumber',
+  'POST companies/:companyId/seller-documents/:documentId/multipart/complete',
   'POST companies/:companyId/seller-documents/:documentId/commit',
   'POST companies/:companyId/seller-documents/:documentId/claim-previews',
   'POST companies/:companyId/seller-documents/:documentId/claim-drafts',
@@ -143,7 +145,7 @@ export interface TenantRequestContext {
   role: 'admin' | 'member';
   jti: string;
   exp: number;
-  /** 注册引导是否已完成(SD11)：false 时 BFF 拒绝业务请求，前端强制进入向导。 */
+  /** 注册建档里程碑是否已完成：不再作为全局 409 硬门禁，供工作台启航清单与执行点软引导使用。 */
   onboardingCompleted: boolean;
   /** 引导建档得到的引擎 CompanyProfile id（只存引用）。 */
   onboardingCompanyId: string | null;
@@ -197,17 +199,6 @@ export class TenantGuard implements CanActivate {
     }
     const onboardingCompleted = membership.workspace.onboardingCompletedAt !== null;
     const onboardingCompanyId = membership.workspace.onboardingCompanyId ?? null;
-    if (!onboardingCompleted && !isOnboardingAllowedPath(req, onboardingCompanyId)) {
-      throw new HttpException(
-        {
-          error: {
-            code: 'ONBOARDING_INCOMPLETE',
-            message: '请先完成注册引导（企业建档），再使用获客功能',
-          },
-        },
-        409,
-      );
-    }
     const role = membership.role as 'admin' | 'member';
     let activeClaims = claims;
     // 滑动续期：先签新会话写 cookie 再吊销旧 jti（捕获并发续期竞态），避免同页并发请求互相踢下线。

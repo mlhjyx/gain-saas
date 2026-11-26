@@ -298,10 +298,16 @@ describe('real thin market consumer C01-C12', () => {
     expect(h.wires).toHaveLength(1); expect(h.counters()).toEqual({ issued: 0, mintAttempts: 0, runQueries: 0, spendQueries: 1 });
   });
 
-  it.each([{ session: false }, { membership: false }, { onboarding: false }])('uses real ordinary guards before any quote or execution %j', async (options) => {
+  it.each([{ session: false }, { membership: false }])('uses real ordinary guards before any quote or execution %j', async (options) => {
     const h = harness(options); const sent = await h.request('POST', `/api/market-candidate-generations/${GENERATION}/execute`, { intentDigest: DIGEST });
-    expect(sent.status).toBe(options.onboarding === false ? 409 : 401);
+    expect(sent.status).toBe(401);
     expect(h.wires).toHaveLength(0); expect(h.issue).not.toHaveBeenCalled(); expect(h.counters().issued).toBe(0);
+  });
+
+  it('allows authenticated active-workspace member even when onboardingCompleted=false (soft onboarding)', async () => {
+    const h = harness({ onboarding: false }); const sent = await h.request('GET', `/api/market-candidate-generations/${GENERATION}`);
+    expect(sent.status).toBe(200);
+    expect(h.wires).toHaveLength(1);
   });
 
   it.each(['member', 'admin'] as const)('derives identity from the trusted tenant for %s, not client headers or tenant values', async (role) => {
