@@ -160,6 +160,7 @@ const filteredCompanies = computed(() =>
 // 那一份（workspace.onboardingCompanyId）是主档案：所有日常操作与寻源都以它为准，
 // 其余档案收在「关联公司」里，避免用户把系统当成「随便建几个公司」。
 const primaryCompanyId = ref<string | null>(null);
+const memberAwaitingPrimary = ref(false);
 const icps = ref<Icp[]>([]);
 const summaries = ref<Record<string, CompanyCompleteness>>({});
 const addRelatedOpen = ref(false);
@@ -619,8 +620,10 @@ async function loadContext(): Promise<void> {
   try {
     const context = await gainosApi.workspaceContext();
     primaryCompanyId.value = context.onboarding?.companyId ?? null;
+    memberAwaitingPrimary.value = context.workspace?.role === 'member' && context.onboarding?.complete === false;
   } catch {
     primaryCompanyId.value = null;
+    memberAwaitingPrimary.value = !isAdmin.value;
   }
 }
 async function loadIcps(): Promise<void> {
@@ -1851,11 +1854,11 @@ onUnmounted(() => {
     <GsCard v-else-if="!primaryCompany" data-gs="companies-empty">
       <GsEmpty
         simple
-        :description="$t('gainos.companies.emptyDesc')"
+        :description="$t(memberAwaitingPrimary ? 'gainosOb.setup.member' : 'gainos.companies.emptyDesc')"
         :title="$t('gainos.companies.emptyTitle')"
       >
         <template #actions>
-          <Button type="primary" @click="openWizard">
+          <Button v-if="!memberAwaitingPrimary" type="primary" @click="openWizard">
             {{ $t('gainos.companies.emptyCta') }}
           </Button>
           <Button @click="router.push('/leads')">{{ $t('gainos.leads.title') }}</Button>

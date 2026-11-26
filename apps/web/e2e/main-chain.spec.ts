@@ -62,7 +62,7 @@ async function settle(page: import('@playwright/test').Page, ms = 600): Promise<
   await page.waitForTimeout(ms);
 }
 
-test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) => {
+test('主链路 1：注册 → 工作台启航清单 → 完成建档', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
   await page.goto('/auth/register');
   await page.locator('input[type="text"]').first().fill('E2E 测试公司');
@@ -70,11 +70,11 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
 
-  // 注册 → 会话 → 引导未完成 → 强制进入向导（注册即建档：先官网，再确认预览）
-  await page.waitForURL(/\/onboarding/);
-  await expect(page.getByRole('heading', { name: '完善公司档案' })).toBeVisible();
+  // 注册先进入工作台，再从启航清单提交官网并确认资料
+  await page.waitForURL(/\/workspace$/);
+  await expect(page.getByRole('heading', { name: '企业启航清单' })).toBeVisible();
   await page.locator('input[placeholder*="https://"]').fill('https://example.org');
-  await page.getByRole('button', { name: '开始理解' }).click();
+  await page.getByRole('button', { name: '开始后台分析' }).click();
 
   // 理解预览：行业/产品候选默认勾选；目标市场只展示建议、不默认勾选，客户确认后提交。
   await expect(page.getByText('我们读完了官网')).toBeVisible();
@@ -84,7 +84,7 @@ test('主链路 1：注册 → 引导向导 → 完成建档', async ({ page }) 
   );
   await page.getByRole('button', { name: '完成建档' }).click();
 
-  await page.waitForURL(/\/workspace/);
+  await expect(page.getByRole('link', { name: '建立首个买家画像' })).toBeVisible();
   const call = backend.take('POST', '/onboarding/company');
   expect(call, '应向 BFF 提交建档').toBeTruthy();
   const body = call!.body as {

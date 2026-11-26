@@ -116,6 +116,7 @@ const keepExistingActive = ref(true);
 const creating = ref(false);
 const createError = ref<ReturnType<typeof failureText> | null>(null);
 const approvedClaimCount = ref<number | null>(null);
+const productSelection = ref<'available' | 'cleared' | 'empty' | 'unknown'>('unknown');
 const claimsChecking = ref(false);
 const claimsCheckError = ref<string | null>(null);
 const quickApprovingFacts = ref(false);
@@ -692,20 +693,35 @@ async function openDetail(
 async function checkApprovedClaims(companyId: string): Promise<void> {
   const token = ++claimsCheckToken;
   approvedClaimCount.value = null;
+  productSelection.value = 'unknown';
   claimsCheckError.value = null;
   if (!companyId) {
     claimsChecking.value = false;
     return;
   }
   claimsChecking.value = true;
-  try {
-    const data = await gainosApi.claims(companyId, 'APPROVED');
+  const [claims, offerings] = await Promise.allSettled([
+    gainosApi.claims(companyId, 'APPROVED'),
+    gainosApi.companyOfferings(companyId),
+  ]);
+  if (token !== claimsCheckToken) return;
+  claimsChecking.value = false;
+  if (claims.status === 'fulfilled') {
+    const data = claims.value;
     const rows = Array.isArray(data) ? data : ((data as unknown as { data?: unknown[] })?.data ?? []);
-    if (token === claimsCheckToken) approvedClaimCount.value = rows.length;
-  } catch (error) {
-    if (token === claimsCheckToken) claimsCheckError.value = failureText(error).title;
-  } finally {
-    if (token === claimsCheckToken) claimsChecking.value = false;
+    approvedClaimCount.value = rows.length;
+  } else {
+    claimsCheckError.value = failureText(claims.reason).title;
+  }
+  if (offerings.status === 'fulfilled' && Array.isArray(offerings.value)) {
+    const selections = offerings.value
+      .map((product) => product.attributes?.selectedByUser)
+      .filter((marked) => typeof marked === 'boolean');
+    if (selections.length > 0) {
+      productSelection.value = selections.includes(true) ? 'available' : 'cleared';
+    } else {
+      productSelection.value = offerings.value.length > 0 ? 'available' : 'empty';
+    }
   }
 }
 async function loadCreateComtrade(companyId: string): Promise<void> {
@@ -744,14 +760,20 @@ watch(selectedCompanyId, (companyId) => {
   if (createOpen.value) void loadCreateComtrade(companyId);
 });
 
+const missingProduct = computed(() =>
+  productSelection.value === 'cleared' ||
+  (productSelection.value === 'empty' && commas(createProductLines.value).length === 0),
+);
 const canCreateIcp = computed(() =>
   Boolean(selectedCompanyId.value) &&
   !creating.value &&
   !claimsChecking.value &&
+  !missingProduct.value &&
   approvedClaimCount.value !== null &&
   approvedClaimCount.value > 0);
 
 function openCreate(presetCompanyId?: string): void {
+  const previousId = selectedCompanyId.value;
   const defaultId =
     (typeof presetCompanyId === 'string' && presetCompanyId) ||
     activeCompanyFilter.value ||
@@ -766,21 +788,23 @@ function openCreate(presetCompanyId?: string): void {
   createTargetMarkets.value = (selectedCompany?.targetMarkets ?? []).join(', ');
   createError.value = null;
   createOpen.value = true;
-  void checkApprovedClaims(selectedCompanyId.value);
-  void loadCreateComtrade(selectedCompanyId.value);
+  if (previousId === defaultId) {
+    void checkApprovedClaims(defaultId);
+    void loadCreateComtrade(defaultId);
+  }
 }
 
 let openedCreatePath: string | undefined;
-watch([() => route.fullPath, companies], ([path]) => {
+watch([() => route.fullPath, loading], ([path, pending]) => {
   if (route.path !== '/find-buyers' || route.query.action !== 'create') {
     openedCreatePath = undefined;
     return;
   }
-  if (openedCreatePath === path) return;
+  if (openedCreatePath === path || pending || loadError.value) return;
   const companyId = route.query.companyId;
-  if (typeof companyId !== 'string' || !companies.value.some((company) => company.id === companyId)) return;
+  if (typeof companyId === 'string' && !companies.value.some((company) => company.id === companyId)) return;
   openedCreatePath = path;
-  openCreate(companyId);
+  openCreate(typeof companyId === 'string' ? companyId : undefined);
 });
 
 async function quickApproveOnboardingFacts(): Promise<void> {
@@ -2275,8 +2299,23 @@ onUnmounted(stopDetailStreamPoll);
             data-gs="icp-create-scenario"
           />
         </label>
-        <p v-if="companies.length === 0" class="fb-muted">{{ $t('gainos.findBuyers.noCompanies') }}</p>
-        <p v-else-if="claimsChecking" class="fb-muted">{{ $t('gainos.findBuyers.checkingFacts') }}</p>
+        <Alert v-if="companies.length === 0" type="info" show-icon data-gs="profile-needs-company"
+          :message="$t('gainosOb.setup.profileNeedCompany')">
+          <template #action>
+            <RouterLink :to="{ path: '/workspace', query: { setup: '1' } }" @click="createOpen = false">
+              {{ $t('gainosOb.setup.goSetup') }}
+            </RouterLink>
+          </template>
+        </Alert>
+        <Alert v-if="missingProduct && selectedCompanyId" type="warning" show-icon data-gs="profile-needs-product"
+          :message="$t(productSelection === 'cleared' ? 'gainosOb.setup.profileProductSelectionCleared' : 'gainosOb.setup.profileNeedProduct')">
+          <template #action>
+            <RouterLink :to="{ path: '/companies', query: { companyId: selectedCompanyId, tab: 'facts' } }" @click="createOpen = false">
+              {{ $t('gainosOb.setup.goCompanyFacts') }}
+            </RouterLink>
+          </template>
+        </Alert>
+        <p v-if="claimsChecking" class="fb-muted">{{ $t('gainos.findBuyers.checkingFacts') }}</p>
         <Alert
           v-else-if="claimsCheckError"
           :message="$t('gainos.findBuyers.factsCheckFailed')"
@@ -2301,8 +2340,9 @@ onUnmounted(stopDetailStreamPoll);
           show-icon
           type="warning"
         >
-          <template v-if="isAdmin" #action>
+          <template #action>
             <Button
+              v-if="isAdmin"
               :loading="quickApprovingFacts"
               data-gs="quick-approve-facts"
               size="small"
@@ -2315,6 +2355,9 @@ onUnmounted(stopDetailStreamPoll);
                   : $t('gainos.findBuyers.quickApproveFacts')
               }}
             </Button>
+            <RouterLink :to="{ path: '/companies', query: { companyId: selectedCompanyId, tab: 'facts' } }" @click="createOpen = false">
+              {{ $t('gainosOb.setup.goCompanyFacts') }}
+            </RouterLink>
           </template>
         </Alert>
         <Alert

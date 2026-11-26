@@ -5,7 +5,7 @@ import type { AppConfig } from '../config/configuration.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { legacyWorkspaceQuotaAlertsEnabled } from '../shared/legacy-workspace-quota-alerts.js';
-import { extractDiscoveryBillableUnits } from '../wallet/bff-wallet-billing.js';
+import { DISCOVERY_TASK_RUN_WALLET_REF, extractDiscoveryBillableUnits } from '../wallet/bff-wallet-billing.js';
 import { WalletService } from '../wallet/wallet.service.js';
 
 /**
@@ -587,12 +587,23 @@ export class EventConsumerService implements OnModuleInit {
       // FAILED / CANCELLED / 0 线索自动 0 扣费全额退点（兼容真实引擎 stats.quickScan.leads / stats.fit.match）。
       if (this.wallet?.billingEnabled) {
         const billableUnits = extractDiscoveryBillableUnits(status, payload);
+        const note = `DiscoveryRunCompleted:${status}`;
+        // Read the bound attempt after backfill so an early completion can settle its original hold.
+        const attempt = await tx.taskRun.findUnique({
+          where: { workspaceId, engineRunId: runId },
+          select: { id: true },
+        });
+        if (attempt) {
+          await this.wallet.settleHoldByRef(
+            workspaceId, DISCOVERY_TASK_RUN_WALLET_REF, attempt.id, billableUnits, note, 'system:event-consumer',
+          );
+        }
         await this.wallet.settleHoldByRef(
           workspaceId,
           'discovery_run',
           runId,
           billableUnits,
-          `DiscoveryRunCompleted:${status}`,
+          note,
           'system:event-consumer',
         );
       }

@@ -2,6 +2,8 @@
  * GainOS 业务 API(BFF 路由表透传；错误已由 request.ts 统一解包/映射,PRD §14)。
  * 字段命名跟随引擎 OpenAPI(packages/engine-client);未知字段一律防御性可选。
  */
+import type { SellerDocumentParsedMeta } from './seller-documents-upload';
+
 import { useAppConfig } from '@vben/hooks';
 import { preferences } from '@vben/preferences';
 import { baseRequestClient, requestClient } from '#/api/request';
@@ -919,6 +921,7 @@ export interface OnboardingPreviewDocumentSummary {
     status: string;
     mime?: string;
     chunkCount?: number;
+    parsedMeta?: SellerDocumentParsedMeta | null;
     createdAt?: string;
   }>;
   extractedClaims?: Array<{
@@ -1645,8 +1648,6 @@ export const gainosApi = {
   importedBuyers: (batchId: string) =>
     requestClient.get<Array<Record<string, unknown>>>(`/imported-buyers/${batchId}`),
   /** 注册引导：状态查询与一次性建档（quote → Grant → 引擎 POST /companies）。 */
-  onboardingStatus: () =>
-    requestClient.get<{ complete: boolean; companyId: string | null }>('/onboarding/status'),
   completeOnboarding: (input: OnboardingCompanyInput) =>
     requestClient.post<CompanyProfile>('/onboarding/company', input),
   /** 注册即建档：先官网/店铺/产品描述建草稿档案并触发理解，返回可轮询的预览。 */

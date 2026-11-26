@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { TenantGuard } from '../tenant/tenant.guard.js';
+import { InsufficientCreditsError } from '../wallet/wallet.types.js';
 import { AcquisitionTasksController } from './acquisition-tasks.controller.js';
 import { EngineBudgetQuoteError } from './engine-budget-grant.service.js';
 import { WorkspaceBudgetQuotaExceededError } from './workspace-budget-policy.service.js';
@@ -14,6 +15,7 @@ const TASK_RUN_ID = '44444444-4444-4444-8444-444444444444';
 const PLAN_ID = '55555555-5555-4555-8555-555555555555';
 const ICP_ID = '66666666-6666-4666-8666-666666666666';
 const ENGINE_RUN_ID = '77777777-7777-4777-8777-777777777777';
+const HOLD_ID = '99999999-9999-4999-8999-999999999999';
 
 const req = {
   tenant: { userId: USER_ID, workspaceId: WORKSPACE_ID, role: 'admin' },
@@ -27,6 +29,8 @@ function makeController(overrides: {
   /** 同一能力的既有开关名（ENGINE_DISCOVER_ATTEMPT_ID_ENABLED）——任一为 true 即透传。 */
   discoverAttemptEnabled?: boolean;
   manufacturerEnabled?: boolean;
+  walletEnabled?: boolean;
+  legacyBudgetMode?: 'bypass' | 'enforce';
   /** taskRun.findFirst 依次返回值（重放查询 → 最近 attempt → 同 plan 上一 TaskRun）。 */
   taskRunFindFirst?: Array<Record<string, unknown> | null>;
 } = {}) {
@@ -110,11 +114,19 @@ function makeController(overrides: {
     })),
   };
   const budget = { issue: vi.fn(async () => 'grant-1') };
+  const wallet = {
+    billingEnabled: overrides.walletEnabled ?? false,
+    holdCredits: vi.fn(async () => ({
+      free: false, idempotent: false, hold: { id: HOLD_ID },
+    })),
+    releaseHold: vi.fn(async () => undefined),
+  };
   const audit = { record: vi.fn(async () => undefined) };
   const config = {
     ENGINE_RETRY_ATTEMPT_ID_ENABLED: overrides.attemptEnabled ?? false,
     ENGINE_DISCOVER_ATTEMPT_ID_ENABLED: overrides.discoverAttemptEnabled ?? false,
     ENGINE_MANUFACTURER_NETWORK_ENABLED: overrides.manufacturerEnabled ?? false,
+    LEGACY_EXECUTION_BUDGET_MODE: overrides.legacyBudgetMode ?? 'enforce',
   };
   const controller = new AcquisitionTasksController(
     prisma as never,
@@ -122,11 +134,94 @@ function makeController(overrides: {
     engine as never,
     budget as never,
     config as never,
+    wallet as never,
   );
-  return { controller, prisma, engine, budget, audit, taskRun };
+  return { controller, prisma, engine, budget, audit, taskRun, wallet };
 }
 
 describe('Run 2.0 任务对象（M0②）', () => {
+  it('blocks a zero-balance task attempt before any engine dispatch even in legacy-budget bypass', async () => {
+    const { controller, engine, budget, wallet } = makeController({
+      walletEnabled: true, legacyBudgetMode: 'bypass',
+    });
+    wallet.holdCredits.mockRejectedValueOnce(new InsufficientCreditsError({
+      availableCredits: 0n, requiredCredits: 200n, actionCode: 'DISCOVERY_QUALIFIED_LEAD',
+    }));
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({
+      status: 402,
+      response: { error: { code: 'INSUFFICIENT_CREDITS' } },
+    });
+    expect(engine.call).not.toHaveBeenCalled();
+    expect(budget.issue).not.toHaveBeenCalled();
+  });
+
+  it('reserves the discovery price against the local task run before dispatch', async () => {
+    const { controller, engine, wallet } = makeController({ walletEnabled: true });
+
+    await controller.startRun(req, TASK_ID, { planId: PLAN_ID });
+
+    expect(wallet.holdCredits).toHaveBeenCalledExactlyOnceWith(WORKSPACE_ID, {
+      idempotencyKey: `discovery_task_run:${TASK_RUN_ID}`,
+      actionCode: 'DISCOVERY_QUALIFIED_LEAD',
+      refType: 'discovery_task_run',
+      refId: TASK_RUN_ID,
+      actorId: USER_ID,
+    });
+    expect(wallet.holdCredits.mock.invocationCallOrder[0]).toBeLessThan(engine.call.mock.invocationCallOrder[0]!);
+  });
+
+  it('returns the attempt already in progress without another reservation', async () => {
+    const { controller, wallet, engine } = makeController({
+      walletEnabled: true,
+      taskRunFindFirst: [{ id: TASK_RUN_ID, engineRunId: null, planId: PLAN_ID, status: 'RUNNING' }],
+    });
+
+    const result = await controller.startRun(req, TASK_ID, { planId: PLAN_ID, attemptId: HOLD_ID });
+
+    expect(result.data).toMatchObject({ taskRunId: TASK_RUN_ID, runId: null, replayed: true });
+    expect(wallet.holdCredits).not.toHaveBeenCalled();
+    expect(engine.call).not.toHaveBeenCalled();
+  });
+
+  it('releases the reservation if budget authorization fails before dispatch', async () => {
+    const { controller, budget, engine, wallet, taskRun } = makeController({ walletEnabled: true });
+    budget.issue.mockRejectedValueOnce(new Error('authorization unavailable'));
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({ status: 502 });
+
+    expect(taskRun.status).toBe('FAILED');
+    expect(wallet.releaseHold).toHaveBeenCalledExactlyOnceWith(WORKSPACE_ID, HOLD_ID, 'BUDGET_GRANT_FAILED', USER_ID);
+    expect(engine.call).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [409, 'INVALID_STATE'],
+    [503, 'RUNTIME_ADMISSION_CLOSED'],
+  ])('releases the reservation for a definite engine rejection (%s)', async (status, code) => {
+    const { controller, wallet, taskRun } = makeController({
+      walletEnabled: true, engineResponse: { status, body: { error: { code } } },
+    });
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toBeDefined();
+
+    expect(taskRun.status).toBe('FAILED');
+    expect(wallet.releaseHold).toHaveBeenCalledExactlyOnceWith(
+      WORKSPACE_ID, HOLD_ID, `DISPATCH_FAILED_HTTP_${status}`, USER_ID,
+    );
+  });
+
+  it('keeps the reservation eligible for settlement when the start response is lost', async () => {
+    const { controller, engine, wallet, taskRun } = makeController({ walletEnabled: true });
+    engine.call.mockRejectedValueOnce(new Error('response lost'));
+
+    await expect(controller.startRun(req, TASK_ID, { planId: PLAN_ID })).rejects.toMatchObject({ status: 502 });
+
+    expect(taskRun.status).toBe('FAILED');
+    expect(wallet.holdCredits).toHaveBeenCalledOnce();
+    expect(wallet.releaseHold).not.toHaveBeenCalled();
+  });
+
   describe('SF1 native UUID replay identity', () => {
     const lowercasePlan = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const originalPlan = lowercasePlan.toUpperCase();

@@ -280,5 +280,5 @@ export async function loginAs(page: Page, email = 'e2e@gainos.local'): Promise<v
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill('e2e-password-123');
   await page.locator('button.g-submit').click();
-  await page.waitForURL(/\/workspace|\/onboarding/);
+  await page.waitForURL(/\/workspace/);
 }
