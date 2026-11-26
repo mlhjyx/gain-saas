@@ -130,6 +130,7 @@ function accountAction(action: 'logout' | 'notifications' | 'search' | 'settings
           <span
             v-if="(unreadCount ?? 0) > 0"
             class="sdr-footer__dot"
+            data-gs="nav-unread"
             aria-hidden="true"
           ></span>
         </RouterLink>

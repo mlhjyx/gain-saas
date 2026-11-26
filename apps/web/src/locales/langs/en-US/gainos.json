@@ -110,7 +110,50 @@
     "cancel": "Cancel",
     "comingSoon": "Coming soon",
     "unknownStatus": "Unknown status",
-    "you": "You"
+    "you": "You",
+    "copyFailed": "Couldn't copy. Please select the text and copy it manually"
+  },
+  "errors": {
+    "network": {
+      "title": "Couldn't reach the server",
+      "next": "Check your connection and try again. If it works, refresh the page."
+    },
+    "timeout": {
+      "title": "The server took too long to respond",
+      "next": "Try again later. If it keeps happening, contact us."
+    },
+    "loginExpired": {
+      "title": "Your session has expired",
+      "next": "Refresh the page and sign in again."
+    },
+    "forbidden": {
+      "title": "You don't have permission to do this",
+      "next": "Ask your workspace admin if you need access."
+    },
+    "notFound": {
+      "title": "This item doesn't exist or has been removed",
+      "next": "Refresh the page to see the latest state."
+    },
+    "conflict": {
+      "title": "The data changed while you were working on it",
+      "next": "Refresh the page and try again."
+    },
+    "rateLimited": {
+      "title": "Too many attempts",
+      "next": "Wait a moment and try again."
+    },
+    "server": {
+      "title": "The service is temporarily unavailable",
+      "next": "Try again later. If it keeps happening, contact us."
+    },
+    "request": {
+      "title": "The request didn't go through",
+      "next": "Try again later. If it keeps happening, contact us."
+    },
+    "unknown": {
+      "title": "Something didn't finish",
+      "next": "Try again later."
+    }
   },
   "notifications": {
     "default": "Notification",
@@ -256,6 +299,7 @@
     "cockpitAlertAbnormal": "Issue",
     "cockpitAlertOpportunity": "Opportunity",
     "cockpitAlertSuggestion": "Suggestion",
+    "cockpitAlertNotice": "Notice",
     "nextKicker": "Next step",
     "nextEngineTitle": "Acquisition engine isn't authorized yet",
     "nextEngineDesc": "This is a one-time deployment setting (JWKS trust and role mapping), unrelated to your account. The page turns green once it's done; meanwhile you can invite your teammates.",
@@ -468,7 +512,7 @@
     "synthesizeDrafts": "Draft facts from profile",
     "synthesizeDraftsHint": "Turn onboarding products, industry and target markets into facts for approval.",
     "synthesizeDraftsCreated": "{count} draft facts created — select and approve them.",
-    "synthesizeDraftsNone": "Nothing to add (already exists or was rejected).",
+    "synthesizeDraftsNone": "Products, industry and markets in the profile already have facts drafted, so nothing new was added.",
     "conflictsTitle": "Open conflicts ({count})",
     "conflictsHint": "These facts contradict each other. Keep one; the other is revoked and no longer used for target customer profiles.",
     "conflictsAdminOnly": "Admin review required",
@@ -1315,14 +1359,17 @@
       "matchValue": "{count} matches",
       "enrichValue": "{count} enriched",
       "waiting": "Waiting",
+      "inProgress": "In progress",
+      "done": "Done",
       "outputRunning": "Waiting to finish",
       "noExtraSignals": "No new signals",
-      "searchHint": "Search candidate companies by target and market",
-      "collectHint": "Deduplicate, verify and exclude suppressed companies",
-      "matchHint": "Judge product, role and buying signals",
-      "enrichHint": "Add website, signals and change evidence",
-      "outputHint": "Turn results into buyer leads"
+      "searchHint": "Find candidate companies by the industry and markets in the target customer profile",
+      "collectHint": "Merge duplicates, check basic details and remove companies on the suppression list",
+      "matchHint": "Compare each company with the target customer profile to decide whether it is worth pursuing",
+      "enrichHint": "Look deeper into the websites and contacts of selected companies for hiring and change signals",
+      "outputHint": "Bring the results together as buyer leads for you to judge"
     },
+    "techIdentity": "Technical details: task identifiers",
     "techStages": "Technical details: stage statistics",
     "techOutputs": "Technical details: sources & output",
     "techDetails": "See the technical reason",

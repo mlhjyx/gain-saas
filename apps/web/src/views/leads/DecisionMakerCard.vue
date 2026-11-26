@@ -49,7 +49,7 @@ interface DialogState {
 
 const detail = ref<CanonicalCompanyDetail | null>(null);
 const loading = ref(false);
-const loadError = ref<{ title: string; next?: string } | null>(null);
+const loadError = ref<{ code?: string; title: string; next?: string } | null>(null);
 const busy = ref<DialogKind | null>(null);
 const notice = ref<string | null>(null);
 const noticeTone = ref<NoticeTone>('success');
@@ -505,8 +505,17 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 加载失败里的「授权对接未就绪」需要补一句给管理员的处理说明。 */
-const needsScopeHint = computed(() => Boolean(loadError.value?.title.includes('授权对接')));
+/**
+ * 加载失败里的「授权对接未就绪」需要补一句给管理员的处理说明。
+ * 英文界面下，服务端的中文原始说明会被换成按状态码的英文提示，原文只留在技术详情（code）里，
+ * 所以标题和技术详情都看，换语言后这句说明不会丢。
+ */
+const needsScopeHint = computed(() => {
+  const failure = loadError.value;
+  return Boolean(
+    failure?.title.includes('授权对接') || failure?.code?.includes('授权对接'),
+  );
+});
 
 onMounted(() => {
   void load();

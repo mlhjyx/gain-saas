@@ -147,6 +147,18 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   const backend = await installMockBackend(page);
   backend.set('GET', '/icps', [ICP]);
   backend.set('GET', '/leads', [LEAD_LOW, LEAD_HIGH, LEAD_SCORES]);
+  backend.set('GET', '/icps/icp-1/query-plans', [
+    { createdAt: NOW, icpId: 'icp-1', id: 'plan-1', queries: [], status: 'EXECUTED', version: 1 },
+  ]);
+  // 线索已经产出：方案执行过、最近一轮寻源已完成，步骤条落在第 5 步「判断线索」（存档截图以此为准）。
+  backend.set('GET', '/tasks', [
+    {
+      id: 'task-1',
+      name: '欧洲太阳能进口商 · 挖掘任务',
+      runs: [{ finishedAt: NOW, id: 'tr-1', planId: 'plan-1', runId: 'run-1', startedAt: NOW, status: 'DONE' }],
+      status: 'active',
+    },
+  ]);
   backend.set('GET', '/icps/icp-1/lead-queues', {
     needs_review: 2,
     queueBasis: { fit_gate_preset: 0, human_accept: 0, human_reject: 0, score: 2 },
@@ -272,15 +284,12 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
   await more.click();
   const menu = page.locator('.ant-dropdown:visible').getByRole('menu');
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('menuitem')).toHaveText(['查看档案包', '复制官网域名']);
+  // 「查看档案包」是卡片上的可见按钮（2026-11-26 体验问题 #26），菜单里只留复制官网
+  await expect(menu.getByRole('menuitem')).toHaveText(['复制官网域名']);
   await menu.getByRole('menuitem', { name: '复制官网域名' }).click();
   await expect(page.getByText('已复制官网域名')).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('alpen-solar.at');
 
-  await more.click();
-  await page
-    .locator('.ant-dropdown:visible')
-    .getByRole('menuitem', { name: '查看档案包' })
-    .click();
+  await lowAgain.getByRole('button', { name: '查看档案包' }).click();
   await page.waitForURL(/\/leads\/lead-1$/);
 });

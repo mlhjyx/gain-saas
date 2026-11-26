@@ -78,6 +78,7 @@ import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
+import { acquisitionStep } from '#/utils/acquisition-step';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
@@ -251,7 +252,6 @@ const backtestBusy = ref(false);
 const backtestError = ref<{ title: string; next?: string } | null>(null);
 const backtest = ref<Backtest | null>(null);
 
-const currentStep = computed(() => (icps.value.some((icp) => icp.status === 'ACTIVE') ? 3 : 2));
 const activeIcp = computed(() => icps.value.find((icp) => icp.status === 'ACTIVE') ?? null);
 
 // 注册时填写的公司是主档案（workspace.onboardingCompanyId）：设定画像时排在第一位并标注。
@@ -1007,6 +1007,12 @@ interface IcpSummary {
 }
 const summaries = ref<Record<string, IcpSummary>>({});
 const summaryPending = ref<Set<string>>(new Set());
+
+/** 步骤条跟着真实进度走：没有生效画像是第 2 步，之后看生效画像的最新方案与最近一次寻源。 */
+const currentStep = computed(() => {
+  const icp = activeIcp.value;
+  return icp ? acquisitionStep(summaries.value[icp.id]) : 2;
+});
 
 /**
  * 并行预取一个画像的方案与最近运行：取不到只影响对应那一列（显示「—」），

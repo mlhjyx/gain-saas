@@ -220,6 +220,7 @@ function fromDrawer(action: 'search' | 'settings') {
           <i
             v-if="(unreadCount ?? 0) > 0"
             class="sdr-rail__dot"
+            data-gs="nav-unread"
             aria-hidden="true"
           ></i>
         </button>

@@ -166,6 +166,10 @@ function move(delta: number): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  // 监听挂在 window 上、随布局常驻：面板关闭时必须直接放行。否则全站的回车、
+  // 上下方向键都会被吞掉（多行输入框无法换行、光标不能上下移动），回车还会
+  // 触发跳转。只有面板打开时才由这里接管方向键与回车。
+  if (!open.value) return;
   if (event.key === 'ArrowDown') {
     event.preventDefault();
     move(1);

@@ -735,48 +735,86 @@ function userStageLabel(key: string): string {
   return $t(`gainos.runs.userStage.${key}`);
 }
 
+type UserStageKey = 'collect' | 'enrich' | 'match' | 'output' | 'search';
+
 const userStages = computed(() => {
   const terminal = Boolean(run.value) && run.value!.status !== 'RUNNING';
   const failedKey = FAILURE_STAGE[String(recordOf('failure').stage ?? '')];
-  const phaseCurrent = currentPhaseKey(run.value, terminal);
+  // 引擎 2.0 的进度以 run.phases 为准。旧版的统计字段（搜索组数、企业数、匹配数）不再回填，
+  // 只靠它们判断，会把已经走过的步骤一直显示成「等待开始」。
+  // 数字同理：新格式 run 记在 stats.quickScan / stats.deep，stats.queries / companies / fit / signals
+  // 只有旧版 run 才有。
+  const phases = (run.value as { phases?: PhaseView | null } | null)?.phases;
+  const filled = (value: unknown): boolean => typeof value === 'string' && value.length > 0;
+  const quickStarted = filled(phases?.quickStartedAt);
+  const quickDone = filled(phases?.quickDoneAt);
+  const deepStarted = filled(phases?.deepStartedAt);
+  const deepDone = filled(phases?.deepDoneAt);
+  const deepRunning = deepStarted && !deepDone;
+  const legacyFit = stats.value.fit !== undefined;
   const hasSignals = stats.value.signals !== undefined;
-  const defs = [
+  const signalMatched = Number(stats.value.signals?.matched ?? 0);
+  // 引擎阶段 → 用户步骤：快扫（quick）覆盖搜索、收集、匹配；深挖（deep）是补充信号；收尾是汇总产出。
+  // 快扫内部不再细分，所以快扫一开始就算搜索、收集已走过，由「匹配判断」代表快扫的进度。
+  const phaseCurrent: null | UserStageKey = terminal
+    ? null
+    : deepDone
+      ? 'output'
+      : deepStarted || quickDone
+        ? 'enrich'
+        : quickStarted
+          ? 'match'
+          : null;
+  const withCount = (value: unknown, key: string): string =>
+    value === undefined || value === null ? '' : $t(`gainos.runs.userStage.${key}`, { count: textOf(value) });
+  const done = $t('gainos.runs.userStage.done');
+  const running = $t('gainos.runs.userStage.inProgress');
+  const waiting = $t('gainos.runs.userStage.waiting');
+  const defs: Array<{ has: boolean; hint: string; key: UserStageKey; label: string; value: string }> = [
     {
       key: 'search',
       label: userStageLabel('search'),
-      value: stats.value.queries !== undefined ? $t('gainos.runs.userStage.searchValue', { count: textOf(stats.value.queries) }) : $t('gainos.runs.userStage.waiting'),
+      value: withCount(stats.value.queries, 'searchValue') || (quickStarted ? done : waiting),
       hint: $t('gainos.runs.userStage.searchHint'),
-      has: stats.value.queries !== undefined,
+      has: stats.value.queries !== undefined || quickStarted,
     },
     {
       key: 'collect',
       label: userStageLabel('collect'),
-      value: stats.value.companies !== undefined ? $t('gainos.runs.userStage.collectValue', { count: textOf(stats.value.companies) }) : $t('gainos.runs.userStage.waiting'),
+      value: withCount(summaryCompanies.value, 'collectValue') || (quickStarted ? done : waiting),
       hint: $t('gainos.runs.userStage.collectHint'),
-      has: stats.value.companies !== undefined,
+      has: stats.value.companies !== undefined || quickScan.value.poolSize !== undefined || quickStarted,
     },
     {
       key: 'match',
       label: userStageLabel('match'),
-      value: stats.value.fit !== undefined ? $t('gainos.runs.userStage.matchValue', { count: textOf(fit.value.match ?? 0) }) : $t('gainos.runs.userStage.waiting'),
+      value:
+        withCount(legacyFit ? (fit.value.match ?? 0) : quickScan.value.match, 'matchValue') ||
+        (quickDone ? done : quickStarted ? running : waiting),
       hint: $t('gainos.runs.userStage.matchHint'),
-      has: stats.value.fit !== undefined,
+      // 快扫进行中时匹配数会先出来一部分，这时仍算「进行中」，等快扫结束才算完成。
+      has: legacyFit || quickDone || (terminal && quickScan.value.match !== undefined),
     },
     {
       key: 'enrich',
       label: userStageLabel('enrich'),
       value: hasSignals
-        ? Number(stats.value.signals?.matched ?? 0) > 0
-          ? $t('gainos.runs.userStage.enrichValue', { count: textOf(stats.value.signals?.matched ?? 0) })
+        ? signalMatched > 0
+          ? $t('gainos.runs.userStage.enrichValue', { count: textOf(signalMatched) })
           : $t('gainos.runs.userStage.noExtraSignals')
-        : $t('gainos.runs.userStage.waiting'),
+        : deepDone
+          ? done
+          : deepRunning
+            ? running
+            : waiting,
       hint: $t('gainos.runs.userStage.enrichHint'),
-      has: hasSignals,
+      // 深挖还没结束时信号数会先出来一部分，这时仍算「进行中」。
+      has: deepDone || (hasSignals && !deepRunning),
     },
     {
       key: 'output',
       label: userStageLabel('output'),
-      value: terminal ? statusLabel(run.value?.status) : $t('gainos.runs.userStage.outputRunning'),
+      value: terminal ? statusLabel(run.value?.status) : deepDone ? running : $t('gainos.runs.userStage.outputRunning'),
       hint: $t('gainos.runs.userStage.outputHint'),
       // 失败/取消的 run 没有可交付产出——不要把 output 卡渲染成绿色的「完成」。
       has: terminal && (run.value?.status === 'DONE' || run.value?.status === 'PARTIAL'),
@@ -788,6 +826,8 @@ const userStages = computed(() => {
     if (def.has) tone = 'done';
     else if (failedKey === def.key) tone = 'failed';
     else if (!terminal) {
+      // 有阶段标记时按标记走；标记里还没轮到的步骤一律「等待开始」。
+      // 没有标记（旧 run，或刚建好还没开始快扫）时退回「第一个没走过的步骤就是当前步骤」。
       if (phaseCurrent) {
         tone = def.key === phaseCurrent ? 'current' : 'pending';
       } else {
@@ -894,17 +934,12 @@ onUnmounted(() => {
 
 <template>
   <div class="run">
-    <header class="run__head">
+    <header class="run__head" data-gs="run-head">
       <div>
         <button class="run__back" type="button" @click="back">← {{ $t('gainos.runs.back') }}</button>
         <span class="run__kicker">{{ $t('gainos.runs.kicker') }}</span>
         <h1>{{ $t('gainos.runs.title') }}</h1>
         <p class="run__muted">{{ $t('gainos.runs.subtitle') }}</p>
-        <p class="run__muted run__identity">
-          <span v-if="run?.icpId">{{ $t('gainos.runs.icp') }} {{ run.icpId.slice(0, 8) }}</span>
-          <span v-if="run?.planId"> · {{ $t('gainos.runs.plan') }} {{ run.planId.slice(0, 8) }}</span>
-          <span v-if="run"> · {{ $t('gainos.runs.taskId') }} {{ run.id.slice(0, 8) }}</span>
-        </p>
       </div>
       <div class="run__head-actions">
         <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
@@ -1048,10 +1083,17 @@ onUnmounted(() => {
       </section>
 
       <section class="run__user-stages" :aria-label="$t('gainos.runs.userProgress')">
-        <article v-for="(stage, index) in userStages" :key="stage.key" class="run__user-stage" :class="`is-${stage.tone}`">
+        <article
+          v-for="(stage, index) in userStages"
+          :key="stage.key"
+          class="run__user-stage"
+          :class="`is-${stage.tone}`"
+          :data-gs-state="stage.tone"
+          data-gs="run-stage"
+        >
           <span class="run__stage-index">{{ index + 1 }}</span>
           <strong>{{ stage.label }}</strong>
-          <span class="run__user-stage-value">{{ stage.value }}</span>
+          <span class="run__user-stage-value" data-gs="run-stage-value">{{ stage.value }}</span>
           <span class="run__stage-hint">{{ stage.hint }}</span>
         </article>
       </section>
@@ -1095,6 +1137,16 @@ onUnmounted(() => {
           </tbody>
         </table>
       </section>
+
+      <!-- 内部编号对用户没有意义，从页头挪到这里：反馈问题时才需要拿来对账。 -->
+      <details class="run__tech">
+        <summary>{{ $t('gainos.runs.techIdentity') }}</summary>
+        <p class="run__muted run__identity" data-gs="run-identity">
+          <span v-if="run.icpId">{{ $t('gainos.runs.icp') }} <code class="run__mono">{{ run.icpId }}</code></span>
+          <span v-if="run.planId"> · {{ $t('gainos.runs.plan') }} <code class="run__mono">{{ run.planId }}</code></span>
+          <span> · {{ $t('gainos.runs.taskId') }} <code class="run__mono">{{ run.id }}</code></span>
+        </p>
+      </details>
 
       <details class="run__tech">
         <summary>{{ $t('gainos.runs.techStages') }}</summary>

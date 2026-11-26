@@ -48,10 +48,10 @@ interface CockpitAction {
   urgency: number;
 }
 
-type CockpitTone = 'danger' | 'processing' | 'success' | 'warning';
+type CockpitTone = 'danger' | 'neutral' | 'processing' | 'success' | 'warning';
 
 interface CockpitAlert {
-  category: 'abnormal' | 'opportunity' | 'suggestion';
+  category: 'abnormal' | 'notice' | 'opportunity' | 'suggestion';
   detail?: string;
   key: string;
   notification?: AppNotification;
@@ -1095,9 +1095,30 @@ function alertToneForType(type: string): CockpitTone {
   return 'processing';
 }
 
+/**
+ * 没有可跳转目标的通知只是告知一件事（例如「一条企业事实已被撤销」）。
+ * 归到「建议」并配「去处理」会让人以为还有事要做，点了却没反应，所以单独归为「通知」。
+ */
+function notificationCategory(item: AppNotification): CockpitAlert['category'] {
+  const category = alertCategoryForType(item.type);
+  return category === 'suggestion' && !item.link ? 'notice' : category;
+}
+
+function notificationTone(item: AppNotification): CockpitTone {
+  const tone = alertToneForType(item.type);
+  return tone === 'processing' && !item.link ? 'neutral' : tone;
+}
+
+/** 这一行点「去处理」有没有地方可去：通知要有链接，其余提醒要有目标页。 */
+function alertHasTarget(alert: CockpitAlert): boolean {
+  if (alert.notification) return Boolean(alert.notification.link);
+  return Boolean(alert.to);
+}
+
 function alertCategoryLabel(alert: CockpitAlert): string {
   if (alert.category === 'abnormal') return $t('gainos.workspace.cockpitAlertAbnormal');
   if (alert.category === 'opportunity') return $t('gainos.workspace.cockpitAlertOpportunity');
+  if (alert.category === 'notice') return $t('gainos.workspace.cockpitAlertNotice');
   return $t('gainos.workspace.cockpitAlertSuggestion');
 }
 
@@ -1164,13 +1185,13 @@ const alertRows = computed<CockpitAlert[]>(() => {
   }
   for (const item of notifications.value.slice(0, 4)) {
     rows.push({
-      category: alertCategoryForType(item.type),
+      category: notificationCategory(item),
       detail: notificationMessage(item) || undefined,
       key: `notification-${item.id}`,
       notification: item,
       time: formatTime(item.createdAt),
       title: notificationTitle(item),
-      tone: alertToneForType(item.type),
+      tone: notificationTone(item),
     });
   }
   return rows.slice(0, 6);
@@ -1661,7 +1682,12 @@ onUnmounted(() => {
             </button>
           </div>
           <ul v-else-if="alertRows.length" class="wk__alert-list">
-            <li v-for="alert in alertRows" :key="alert.key" class="wk__alert">
+            <li
+              v-for="alert in alertRows"
+              :key="alert.key"
+              class="wk__alert"
+              data-gs="workspace-alert"
+            >
               <button type="button" class="wk__alert-main" @click="handleAlert(alert)">
                 <span class="gs-badge" :class="alertBadgeClass(alert)">
                   {{ alertCategoryLabel(alert) }}
@@ -1679,9 +1705,12 @@ onUnmounted(() => {
                   aria-hidden="true"
                 ></span>
               </span>
+              <!-- 没有目标页的通知不给「去处理」：点了没反应，比不给更让人困惑。 -->
               <button
+                v-if="alertHasTarget(alert)"
                 type="button"
                 class="wk__alert-go"
+                data-gs="alert-go"
                 :aria-label="`${handleLabel}：${alert.title}`"
                 @click="handleAlert(alert)"
               >

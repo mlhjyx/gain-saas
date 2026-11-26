@@ -99,15 +99,24 @@ async function open(group: NotificationGroup): Promise<void> {
   const row = group.latest;
   const unreadRows = group.rows.filter((item) => !item.readAt);
   if (unreadRows.length > 0) {
-    await Promise.all(
-      unreadRows.map((item) =>
-        gainosApi.readNotification(item.id).catch(() => undefined),
-      ),
+    const results = await Promise.allSettled(
+      unreadRows.map((item) => gainosApi.readNotification(item.id)),
     );
     const now = new Date().toISOString();
-    unreadRows.forEach((item) => (item.readAt = now));
-    group.unread = 0;
-    unreadCount.value = Math.max(0, unreadCount.value - unreadRows.length);
+    let readCount = 0;
+    results.forEach((result, index) => {
+      // 只有服务端确认已读的才在本地划掉；否则这里显示已读、侧栏红点却还在，两边对不上。
+      if (result.status === 'fulfilled') {
+        unreadRows[index]!.readAt = now;
+        readCount += 1;
+      }
+    });
+    if (readCount > 0) {
+      group.unread = group.rows.filter((item) => !item.readAt).length;
+      unreadCount.value = Math.max(0, unreadCount.value - readCount);
+      // 侧栏红点是布局里另一份轮询数据，已读后要主动通知它刷新，不然要等下一次 30 秒轮询。
+      window.dispatchEvent(new Event('gainos:notifications-changed'));
+    }
   }
   if (row.link) {
     if (row.link.startsWith('http://') || row.link.startsWith('https://')) {
@@ -126,6 +135,7 @@ async function markAllRead(): Promise<void> {
     const now = new Date().toISOString();
     items.value.forEach((row) => (row.readAt = row.readAt ?? now));
     unreadCount.value = 0;
+    window.dispatchEvent(new Event('gainos:notifications-changed'));
     notice.value = $t('gainos.notifications.markAllDone');
   } catch (err) {
     error.value = failureText(err);

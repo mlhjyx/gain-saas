@@ -10,6 +10,7 @@ import EmptyState from '#/components/gainos/empty-state.vue';
 import SettingsShell from '#/components/gainos/settings-shell.vue';
 
 import { failureText, gainosApi, type MembersResponse } from '#/api/gainos';
+import { copyText } from '#/utils/clipboard';
 
 defineOptions({ name: 'SettingsMembers' });
 
@@ -66,11 +67,13 @@ async function invite(): Promise<void> {
 async function copyLink(): Promise<void> {
   if (!inviteLink.value) return;
   try {
-    await navigator.clipboard.writeText(inviteLink.value);
+    await copyText(inviteLink.value);
     copied.value = true;
     setTimeout(() => (copied.value = false), 2000);
   } catch {
     copied.value = false;
+    // 邀请链接只在这一次弹出里出现，复制失败了必须说出来，不能让用户以为已经复制。
+    feedback.message.error($t('gainos.common.copyFailed'));
   }
 }
 
