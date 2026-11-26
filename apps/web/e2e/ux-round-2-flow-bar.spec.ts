@@ -285,7 +285,7 @@ test('关键操作后进度立刻更新：激活画像后从第 2 步走到第 3
   await expect(current(page)).toHaveText('设定买家画像');
 
   await page.locator("[data-gs='icp-next-button']").click();
-  expect(backend.callsTo('POST', '/icps/icp-1/activate')).toHaveLength(1);
+  await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);
   await expect(current(page)).toHaveText('确认寻源方案');
 
   // 页面在顶部时，贴底的「下一步」浮在浮窗上方 12px

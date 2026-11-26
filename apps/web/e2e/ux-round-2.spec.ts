@@ -267,7 +267,7 @@ test('#9 #12 没激活的画像只看内容和激活；下一步贴在底部引�
   expect(Math.abs(box.y + box.height - (flowBar.y - 12))).toBeLessThan(2);
 
   await page.locator("[data-gs='icp-next-button']").click();
-  expect(backend.callsTo('POST', '/icps/icp-1/activate')).toHaveLength(1);
+  await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);
   await expect(page.locator("[data-gs='icp-plans']")).toBeVisible();
   await expect(page.locator("[data-gs='icp-runs']")).toBeVisible();
   await expect(next).toContainText('下一步：生成寻源方案');
@@ -309,7 +309,7 @@ test('#13 寻源方案先给结论，按渠道看搜索词；内部代码收进�
   const next = page.locator("[data-gs='icp-next']");
   await expect(next).toContainText('下一步：确认方案');
   await page.locator("[data-gs='icp-next-button']").click();
-  expect(backend.callsTo('POST', '/query-plans/plan-1/confirm')).toHaveLength(1);
+  await expect.poll(() => backend.callsTo('POST', '/query-plans/plan-1/confirm').length).toBe(1);
   await expect(next).toContainText('下一步：开始寻源');
 });
 
@@ -347,12 +347,12 @@ test('#10 编辑画像是表单：属性按字段填，原始数据收在最后'
 
   await edit.getByLabel('客户难题').fill('需要把数据搬到云端\n要和现有设备打通');
   await edit.getByRole('button', { name: '保存修改' }).click();
-  expect(backend.callsTo('PATCH', '/icps/icp-1')).toHaveLength(1);
+  await expect.poll(() => backend.callsTo('PATCH', '/icps/icp-1').length).toBe(1);
+  await expect(edit).toBeHidden();
   expect(patch).toMatchObject({
     companyAttributes: PROFILE.companyAttributes,
     expectedVersion: 1,
     painPoints: ['需要把数据搬到云端', '要和现有设备打通'],
   });
-  await expect(edit).toBeHidden();
   await expect(page.locator("[data-gs='icp-overview']")).toContainText('需要把数据搬到云端');
 });
