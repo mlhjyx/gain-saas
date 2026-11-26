@@ -18,6 +18,7 @@ import { useAccessStore } from '@vben/stores';
 
 import { useMagicKeys, whenever } from '@vueuse/core';
 
+import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 import { $t } from '#/locales';
 
 defineOptions({ name: 'CommandPalette' });
@@ -60,7 +61,7 @@ const actionItems = computed<PaletteItem[]>(() => {
         notifications: '查看通知',
         replies: '回复收件箱',
       };
-  return [
+  const items: PaletteItem[] = [
     { hint: t.discover, id: 'act-discover', kind: 'action', label: t.discover, path: '/find-buyers' },
     { hint: t.newCampaign, id: 'act-campaign', kind: 'action', label: t.newCampaign, path: '/campaigns' },
     { hint: t.viewLeads, id: 'act-leads', kind: 'action', label: t.viewLeads, path: '/leads' },
@@ -75,6 +76,8 @@ const actionItems = computed<PaletteItem[]>(() => {
       query: { tab: 'replies' },
     },
   ];
+  // 「商机与触达」隐藏期间，指向它的快捷动作一并隐藏。
+  return GROWTH_PAGE_HIDDEN ? items.filter((item) => item.path !== '/growth') : items;
 });
 
 /** 页面：拍平 accessMenus（分组名作为 hint），与侧边栏同源。 */
