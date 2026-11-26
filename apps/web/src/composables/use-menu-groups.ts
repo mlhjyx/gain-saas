@@ -34,13 +34,13 @@ const GROUPS: MenuGroup[] = [
     icon: 'lucide:radar',
     key: 'acquisition',
     labelKey: 'gainos.menu.groupAcquisition',
-    paths: ['/companies', '/find-buyers'],
+    paths: ['/companies'],
   },
   {
     icon: 'lucide:users',
     key: 'leads',
     labelKey: 'gainos.menu.groupLeads',
-    paths: ['/leads'],
+    paths: ['/find-buyers', '/leads'],
   },
   {
     icon: 'lucide:list-checks',

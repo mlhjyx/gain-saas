@@ -3,7 +3,7 @@
  *
  * 依据：M2 步 14 设计 §4（docs/superpowers/plans/2026-11-08-p6-frontend-m2-step14.md）、
  * 计划 v1.5 §3.9 零术语红线、PRD §14.2 用语映射（M2 起按 Q32「公司为身份、任务为导航主轴」
- * 更新：run→挖掘任务、ICP→目标客户画像、campaign→战役计划、QGO→商机）。
+ * 更新：run→挖掘任务、ICP→买家画像、campaign→战役计划、QGO→商机）。
  *
  * 规则：
  * - 引擎/系统术语（`engine` 字段）只允许出现在「技术详情」折叠区与开发者注释里；
@@ -41,11 +41,11 @@ export const GLOSSARY = {
     zh: '挖掘任务',
     en: 'Discovery task',
     engine: ['DiscoveryRun', 'TaskRun', 'run', 'runs'],
-    note: 'Run 2.0 起一个目标客户画像复用一个活动任务；单次执行称「本轮」。',
+    note: 'Run 2.0 起一个买家画像复用一个活动任务；单次执行称「本轮」。',
   },
   icp: {
-    zh: '目标客户画像',
-    en: 'Target customer profile',
+    zh: '买家画像',
+    en: 'Buyer profile',
     engine: ['ICP'],
     note: '2026-11-08 起替代旧词「目标买家」（PRD §14.2 旧表）。',
   },
@@ -101,7 +101,7 @@ export type GlossaryKey = keyof typeof GLOSSARY;
 export const NAV = {
   workspace: { zh: '工作台', en: 'Workspace' },
   companies: { zh: '公司档案', en: 'Companies' },
-  findBuyers: { zh: '找买家', en: 'Find buyers' },
+  findBuyers: { zh: '买家画像', en: 'Buyer profiles' },
   leads: { zh: '买家线索', en: 'Buyer leads' },
   growth: {
     zh: '商机与触达',
@@ -137,7 +137,7 @@ export const RUN_STATUS = {
 
 export const ICP_STATUS = {
   DRAFT: { zh: '初稿', en: 'Draft', tone: 'warning', engine: ['DRAFT'] },
-  HYPOTHESIS: { zh: '假设', en: 'Hypothesis', tone: 'warning', engine: ['HYPOTHESIS'] },
+  HYPOTHESIS: { zh: '待激活', en: 'To activate', tone: 'warning', engine: ['HYPOTHESIS'] },
   VALIDATING: { zh: '验证中', en: 'Validating', tone: 'processing', engine: ['VALIDATING'] },
   ACTIVE: { zh: '生效中', en: 'Active', tone: 'success', engine: ['ACTIVE'] },
   SUPERSEDED: { zh: '已被取代', en: 'Superseded', tone: 'neutral', engine: ['SUPERSEDED'] },

@@ -2,6 +2,7 @@
 import type { NotificationItem } from '@vben/layouts';
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import { useTabs, useWatermark } from '@vben/hooks';
@@ -14,9 +15,11 @@ import { $t } from '#/locales';
 import { gainosApi, type AppNotification } from '#/api/gainos';
 import type { GainosUserInfo } from '#/api/core/user';
 import CommandPalette from '#/components/gainos/command-palette.vue';
+import FlowProgressBar from '#/components/gainos/flow-progress-bar.vue';
 import SdrSidebar from '#/components/gainos/sdr-sidebar.vue';
 import SettingsDialog from '#/components/gainos/settings-dialog.vue';
 import { useMenuGroups } from '#/composables/use-menu-groups';
+import { isFlowPath } from '#/composables/use-main-chain-progress';
 import { useAuthStore } from '#/store';
 import { formatDateTime } from '@gain-saas/shared';
 import LoginForm from '#/views/_core/authentication/login.vue';
@@ -30,6 +33,7 @@ let notificationTimer: ReturnType<typeof setInterval> | null = null;
 let notificationPending = false;
 
 const userStore = useUserStore();
+const route = useRoute();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
 // 路由仍是扁平结构；只把 Vben 的菜单数据收进 6 个业务组（工作空间/获客/线索/活动/增长/设置）。
@@ -446,6 +450,8 @@ onUnmounted(() => {
     @toggle-theme="toggleTheme"
   />
   <SettingsDialog v-model:open="settingsOpen" />
+  <!-- 主链路进度浮窗：只在主流程页面挂载（公司档案、买家画像、挖掘任务、运行页、买家线索）。 -->
+  <FlowProgressBar v-if="isFlowPath(route.path)" />
   <CommandPalette ref="paletteRef" />
 </template>
 

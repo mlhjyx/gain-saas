@@ -80,7 +80,7 @@ describe('glossary 词表（M2 步 14 §4）', () => {
   it('取词按语言切换，未登记状态返回 null（不得把裸枚举写上界面）', () => {
     expect(glossaryTerm('run')).toBe('挖掘任务');
     expect(glossaryTerm('run', 'en-US')).toBe('Discovery task');
-    expect(glossaryTerm('icp')).toBe('目标客户画像');
+    expect(glossaryTerm('icp')).toBe('买家画像');
     expect(glossaryStatus('run', 'PARTIAL')).toEqual({ label: '部分完成', tone: 'warning' });
     expect(glossaryStatus('run', 'PARTIAL', 'en-US')).toEqual({
       label: 'Partially completed',
@@ -93,7 +93,7 @@ describe('glossary 词表（M2 步 14 §4）', () => {
 
   it('关键对象按 M2 词表映射（任务卡钉死的四组）', () => {
     expect(glossaryTerm('run')).toBe('挖掘任务');
-    expect(glossaryTerm('icp')).toBe('目标客户画像');
+    expect(glossaryTerm('icp')).toBe('买家画像');
     expect(glossaryTerm('campaign')).toBe('战役计划');
     expect(glossaryTerm('qgo')).toBe('商机');
   });

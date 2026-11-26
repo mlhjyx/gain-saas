@@ -177,12 +177,13 @@ test('五维判定在列表/详情只展示业务语言，雷达图可读', asyn
 
   // 渐变页头 + 药丸页签（当前队列以 aria-pressed 标记）
   await expect(page.getByRole('heading', { level: 1, name: '买家线索' })).toBeVisible();
-  await expect(page.locator("[data-gs='stage-steps']")).toBeVisible();
+  // 2026-11-26：步骤条从页面里挪到底部进度浮窗（主流程页面共用）
+  await expect(page.locator("[data-gs='flow-bar']")).toBeVisible();
   // 当前步不显示序号（用户看不懂「5」指什么），用圆点标记
   await expect(
-    page.locator("[data-gs='stage-steps'] .ant-steps-icon").filter({ hasText: /\d/ }),
+    page.locator("[data-gs='flow-bar'] .ant-steps-icon").filter({ hasText: /\d/ }),
   ).toHaveCount(0);
-  await expect(page.locator("[data-gs='stage-steps']").getByText('判断线索')).toBeVisible();
+  await expect(page.locator("[data-gs='flow-bar']").getByText('判断线索')).toBeVisible();
   await expect(
     page.locator("[data-gs='queue-switch'] [aria-pressed='true']"),
   ).toHaveText(/待我判断\s*2/);

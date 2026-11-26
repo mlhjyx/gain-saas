@@ -134,6 +134,8 @@
   --gs-space-8: 32px;
   --gs-page-max: 1280px;
   --gs-page-pad: clamp(20px, 2.4vw, 32px);
+  /* 底部进度浮窗的高度：浮窗出现时由组件写入；滚动区用它留白，贴底的按钮用它抬高。 */
+  --gs-flow-bar-h: 0px;
 
   color-scheme: light;
 }
@@ -371,6 +373,19 @@ h6 {
    - 非当前页：纯文字，hover 浮出极浅底；关闭符只在 hover/当前页出现，
      平时不可见也不可点（防误关），一排 × 的视觉噪音随之消失。
    Vben card 式默认蓝底蓝字，全部由这里接管（packages/ 禁改）。 */
+/* 底部进度浮窗出现时，页面末尾补一块同样高度的占位，最后一段不会被盖住。
+   两个位置都试过，都不行（2026-11-26 实测）：
+   - 加在滚动区自己身上（padding-bottom）：浏览器会把滚动区的内边距算进贴底元素
+     （position: sticky 的 bottom）的参照边，浮窗高度等于被扣两次，「下一步」高出 40px；
+   - 加在路由视图容器的 padding-bottom 上：这个容器高度是固定的，内容溢出时内边距排在容器底边、
+     不在内容后面，等于没加。
+   所以用容器末尾的占位块：它排在内容后面，又不影响贴底元素的参照边。 */
+[data-layout-region='scroll'] .page-route-container::after {
+  display: block;
+  height: var(--gs-flow-bar-h);
+  content: '';
+}
+
 [data-layout-region='header'] {
   --gs-tab-hover: rgba(23, 23, 23, 0.05);
 }

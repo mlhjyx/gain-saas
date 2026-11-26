@@ -254,7 +254,9 @@ test('侧栏拖拽有最小宽度：低于 224px 时拉回且品牌行不重叠'
   await installMockBackend(page);
   await loginAs(page);
   await page.goto('/workspace');
-  await settle(page);
+  // 量尺寸前先等侧栏渲染出来：固定等待在较慢的机器上会赶在布局完成前，拿到 null。
+  await expect(page.locator("aside[data-layout-region='sidebar']")).toBeVisible();
+  await expect(page.locator('.sdr-brandtools')).toBeVisible();
 
   const geo = await page.evaluate(() => {
     const aside = document.querySelector(
@@ -301,7 +303,7 @@ test('移动端：汉堡按钮打开新版侧栏抽屉（导航 + 通知/设置/
   await expect(burger).toHaveAttribute('aria-expanded', 'true');
 
   // 与桌面侧栏同一份内容：分组导航 + 底部三行。
-  for (const name of ['工作台', '公司档案', '找买家', '买家线索', '通知', '设置', '帮助']) {
+  for (const name of ['工作台', '公司档案', '买家画像', '买家线索', '通知', '设置', '帮助']) {
     await expect(drawer.getByRole('menuitem', { name })).toBeVisible();
   }
   // Vben 自带的旧菜单抽屉不再出现（它的菜单项是浅色字落在白底上，也没有底部账号区）
@@ -313,7 +315,7 @@ test('移动端：汉堡按钮打开新版侧栏抽屉（导航 + 通知/设置/
 
   // 点菜单项：跳转并收起抽屉
   await drawer.locator('.sdr-mobile__name').click();
-  await drawer.getByRole('menuitem', { name: '找买家' }).click();
+  await drawer.getByRole('menuitem', { name: '买家画像' }).click();
   await page.waitForURL(/\/find-buyers/);
   await expect(drawer).toBeHidden();
   await ctx.close();

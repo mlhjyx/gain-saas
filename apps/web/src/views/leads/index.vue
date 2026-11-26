@@ -15,17 +15,14 @@ import { Alert, Button, Input, Modal, Skeleton } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
 import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
-import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
-import GsSteps from '#/components/gainos/ui/gs-steps.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
 import { usePendingAction } from '#/composables/use-pending-action';
 import { feedback } from '#/feedback';
-import { acquisitionStep, type AcquisitionProgress } from '#/utils/acquisition-step';
 import { copyText } from '#/utils/clipboard';
 
 import {
@@ -53,18 +50,6 @@ function queueFromRoute(): string | null {
   return (QUEUE_KEYS as readonly string[]).includes(queue) ? queue : null;
 }
 
-/**
- * 步骤条跟着真实进度走（与找买家共用同一判定）：没有生效画像是第 2 步，之后看生效画像的
- * 最新方案与最近一次寻源。进度还没取到时先按「判断线索」显示，避免一进页面先跳到别的步骤。
- */
-const stepProgress = ref<AcquisitionProgress | null>(null);
-/** 画像和进度都到手之前，步骤条先停在最后一步（原先固定显示的就是它），避免加载时来回跳。 */
-const stepsReady = ref(false);
-const currentStep = computed(() => {
-  if (!stepsReady.value) return 5;
-  if (!icps.value.some((icp) => icp.status === 'ACTIVE')) return 2;
-  return acquisitionStep(stepProgress.value ?? undefined);
-});
 const isAdmin = ref(false);
 
 // 队列名称与状态色取自 @gain-saas/shared 的 glossary（P6 §4）；描述文案留在 i18n。
@@ -402,35 +387,7 @@ async function loadIcps(): Promise<void> {
   } catch {
     icps.value = [];
     activeIcpId.value = '';
-  } finally {
-    // 不拖慢线索列表：进度在后台取，取完后步骤条一次性落到实际位置。
-    void loadStepProgress().finally(() => {
-      stepsReady.value = true;
-    });
   }
-}
-
-/** 步骤条进度：生效画像的最新方案与最近一次寻源；取不到不影响线索列表本身。 */
-async function loadStepProgress(): Promise<void> {
-  const icpId = icps.value.find((icp) => icp.status === 'ACTIVE')?.id;
-  if (!icpId) {
-    stepProgress.value = null;
-    return;
-  }
-  const [plans, tasks] = await Promise.allSettled([
-    gainosApi.queryPlans(icpId),
-    gainosApi.acquisitionTasks(icpId),
-  ]);
-  // 请求期间画像变了就丢弃这次结果，避免把上一家的进度画到步骤条上。
-  if (icps.value.find((icp) => icp.status === 'ACTIVE')?.id !== icpId) return;
-  stepProgress.value = {
-    plans: plans.status === 'fulfilled' ? (Array.isArray(plans.value) ? plans.value : []) : undefined,
-    // 一个画像下可以有多个任务，运行记录合在一起，由 acquisitionStep 取最近的一次。
-    runs:
-      tasks.status === 'fulfilled'
-        ? (tasks.value ?? []).flatMap((task) => task.runs ?? [])
-        : undefined,
-  };
 }
 
 async function loadQueueCounts(): Promise<void> {
@@ -588,14 +545,6 @@ onUnmounted(() => {
        卡片按内容区实际宽度分级，而不是按视口。 -->
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
-
-    <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上：antd 给
-         .ant-card 写了 margin:0，且其样式不在 cascade layer 里，会压过工具类） -->
-    <div class="relative z-[1] -mt-12">
-      <GsCard data-gs="stage-steps" dense>
-        <GsSteps :current="currentStep" />
-      </GsCard>
-    </div>
 
     <GsEmpty
       v-if="!loading && !activeIcpId"

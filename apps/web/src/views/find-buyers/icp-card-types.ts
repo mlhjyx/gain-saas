@@ -27,7 +27,7 @@ export interface RunSummary {
 export interface IcpCardRow {
   company: string;
   id: string;
-  /** 目标客户画像本身（打开详情时用）。 */
+  /** 买家画像本身（打开详情时用）。 */
   icp: Icp;
   markets: string[];
   name: string;

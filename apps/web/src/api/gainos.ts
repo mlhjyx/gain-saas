@@ -64,7 +64,7 @@ export interface CompanyOffering {
   createdAt?: string;
 }
 
-/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入目标客户画像设计。 */
+/** 企业事实（引擎 Claim）：只有「已通过」的事实会进入买家画像设计。 */
 export interface CompanyClaim {
   id: string;
   companyId: string;

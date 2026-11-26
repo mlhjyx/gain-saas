@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 /**
- * 目标客户画像卡（找买家列表）。与买家线索卡同一套语言：
+ * 买家画像卡（买家画像页的列表）。与买家线索卡同一套语言：
  * 五列对齐（画像 / 目标市场 / 寻源方案 / 最近寻源 / 操作），无边框白卡 + 柔和投影。
  *
  * 「寻源方案」「最近寻源」直接摆在卡片上：这一页的目的是发起寻源，
@@ -14,11 +14,13 @@ import { Button, Tag } from 'ant-design-vue';
 
 import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import { ICP_ADVANCED_HIDDEN } from '#/feature-flags';
 import { $t } from '#/locales';
+import { regionName } from '#/utils/region-name';
 
 defineOptions({ name: 'IcpCard' });
 
-const props = defineProps<{ row: IcpCardRow }>();
+const props = defineProps<{ row: IcpCardRow; selected?: boolean }>();
 
 const emit = defineEmits<{ open: [] }>();
 
@@ -39,10 +41,21 @@ function fallbackText(state: SummaryState, noneKey: string): string {
 }
 const planFallback = computed(() => fallbackText(props.row.planState, 'gainos.findBuyers.noPlans'));
 const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.findBuyers.noRuns'));
+/**
+ * 还没生效的画像谈不上方案和寻源：不写「还没有寻源方案」（会让人以为该去生成），直接说要先激活。
+ * 已被取代、已归档的画像没有下一步，显示「—」。
+ */
+const inactiveText = computed(() => {
+  const status = props.row.icp.status;
+  if (status === 'ACTIVE') return '';
+  return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(status) ? $t('gainos.findBuyers.planNeedsActive') : '—';
+});
+const planText = computed(() => inactiveText.value || planFallback.value);
+const runText = computed(() => inactiveText.value || runFallback.value);
 </script>
 
 <template>
-  <GsCard class="icp-card" data-gs="icp-card" padding="18px 24px">
+  <GsCard class="icp-card" :class="{ 'icp-card--selected': selected }" data-gs="icp-card" padding="18px 24px">
     <div class="icp-card__grid">
       <!-- 画像 -->
       <div class="icp-card__identity">
@@ -60,7 +73,8 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
           </p>
           <div class="icp-card__tags">
             <GsTag :tone="row.statusTone">{{ row.statusLabel }}</GsTag>
-            <Tag :bordered="false" class="icp-chip">
+            <!-- 「资格规则与回测」隐藏期间，规则数一并隐藏，免得用户去找一个不存在的入口。 -->
+            <Tag v-if="!ICP_ADVANCED_HIDDEN" :bordered="false" class="icp-chip">
               {{ $t('gainos.findBuyers.rulesCount', { count: row.rules }) }}
             </Tag>
             <Tag :bordered="false" class="icp-chip">
@@ -74,8 +88,8 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
       <div class="icp-card__cell icp-card__cell--markets">
         <p class="icp-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
         <div v-if="row.markets.length > 0" class="icp-card__tags icp-card__tags--tight">
-          <Tag v-for="market in row.markets" :key="market" :bordered="false" class="icp-chip">
-            {{ market }}
+          <Tag v-for="market in row.markets" :key="market" :bordered="false" class="icp-chip" :title="market">
+            {{ regionName(market) }}
           </Tag>
         </div>
         <p v-else class="icp-card__meta">—</p>
@@ -90,7 +104,7 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
             {{ $t('gainos.findBuyers.planSearchCount', { count: row.plan.queries }) }}
           </span>
         </div>
-        <p v-else class="icp-card__meta">{{ planFallback }}</p>
+        <p v-else class="icp-card__meta">{{ planText }}</p>
       </div>
 
       <!-- 最近寻源 -->
@@ -100,7 +114,7 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
           <GsTag :tone="row.run.tone">{{ row.run.label }}</GsTag>
           <span class="icp-card__meta">{{ row.run.startedAt }}</span>
         </div>
-        <p v-else class="icp-card__meta">{{ runFallback }}</p>
+        <p v-else class="icp-card__meta">{{ runText }}</p>
       </div>
 
       <!-- 操作 -->
@@ -118,6 +132,10 @@ const runFallback = computed(() => fallbackText(props.row.runState, 'gainos.find
  *   ≥ 560px   两列：画像 + 操作 / 目标市场 + 寻源方案 / 最近寻源
  *   ≥ 1120px  五列并排（卡片内边距 48 + 五列最小 1066）
  */
+/* 当前在工作区里展示的画像 */
+.icp-card--selected {
+  box-shadow: 0 0 0 2px var(--gs-accent-soft-border), var(--gs-shadow-float);
+}
 .icp-card__grid {
   display: grid;
   grid-template-areas:

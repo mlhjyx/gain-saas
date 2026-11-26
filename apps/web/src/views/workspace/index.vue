@@ -1284,7 +1284,7 @@ async function load(): Promise<void> {
         : 0;
     }
 
-    // 同一工作空间可能有多份生效中的目标客户画像；优先展示最近真实发起过寻源的那份，
+    // 同一工作空间可能有多份生效中的买家画像；优先展示最近真实发起过寻源的那份，
     // 其次才是最近创建的，避免看板停留在尚未使用的示例档案上。
     const activeCandidates = icps.value.filter(
       (icp) => icp.status === 'ACTIVE',

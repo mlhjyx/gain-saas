@@ -80,9 +80,9 @@ function errorBody(payload: unknown, status: number): MockHandler {
   };
 }
 
-/** 步骤条当前所在步骤的标题（antd 给当前步加 ant-steps-item-process）。 */
+/** 主链路进度当前所在步骤的标题。2026-11-26 起步骤条在底部进度浮窗里（antd 给当前步加 ant-steps-item-process）。 */
 function currentStep(page: Page) {
-  return page.locator("[data-gs='stage-steps'] .ant-steps-item-process .ant-steps-item-title");
+  return page.locator("[data-gs='flow-bar'] .ant-steps-item-process .ant-steps-item-title");
 }
 
 /** 运行页五张进度卡的状态，按顺序（已完成 / 进行中 / 等待开始分别记为 done / current / pending）。 */
@@ -114,7 +114,7 @@ test('#11 命令面板关闭时不吞掉回车和方向键', async ({ page }) =>
 // #1（注册引导返回修改官网）与 #2（引导页行业选项去分类码）已移交并行 PR feat/onboarding-intake-combine
 // 随 acq-p2-fast-onboarding-and-streaming.spec.ts 一并收口，此处不再重复断言 onboarding 页面。
 
-test('#14 找买家：步骤条跟着寻源进度走', async ({ page }) => {
+test('#14 买家画像：进度跟着寻源进度走', async ({ page }) => {
   const backend = await installMockBackend(page);
   backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', [ICP]);
@@ -147,10 +147,11 @@ test('#14 找买家：步骤条跟着寻源进度走', async ({ page }) => {
   await expect(currentStep(page)).toHaveText('等待寻源');
 });
 
-test('#14 买家线索：步骤条按实际进度显示，多个任务的运行合并取最近一次', async ({ page }) => {
+test('#14 买家线索：进度按实际显示，多个任务的运行合并取最近一次', async ({ page }) => {
   const backend = await installMockBackend(page);
   const icp = { ...ICP };
   const progress = { plans: [] as unknown[], runs: [] as unknown[] };
+  backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', json(() => [icp]));
   backend.set('GET', '/icps/icp-1/query-plans', json(() => progress.plans));
   backend.set(
@@ -176,10 +177,10 @@ test('#14 买家线索：步骤条按实际进度显示，多个任务的运行�
   await page.reload();
   await expect(currentStep(page)).toHaveText('等待寻源');
 
-  // 画像还没生效：回到「设定目标客户画像」
+  // 画像还没生效：回到「设定买家画像」
   icp.status = 'DRAFT';
   await page.reload();
-  await expect(currentStep(page)).toHaveText('设定目标客户画像');
+  await expect(currentStep(page)).toHaveText('设定买家画像');
 });
 
 test('#15 #18 运行页：编号收进技术详情，五步进度按引擎阶段显示', async ({ page }) => {
@@ -456,7 +457,7 @@ test('#3 #6 建议 2 公司档案：页签不带数量，档案就绪后收起�
   await expect(next).toHaveCount(1);
   await expect(next).not.toContainText('下一步');
   await expect(next).not.toContainText('已通过');
-  await expect(next.locator("[data-gs='primary-next']")).toHaveText('设定目标客户画像');
+  await expect(next.locator("[data-gs='primary-next']")).toHaveText('去买家画像');
 
   // 从档案生成草稿、一条新的都没有：说清楚「没有新增」，清单原地刷新不进加载态
   await page.getByRole('button', { name: '从档案生成事实草稿' }).click();

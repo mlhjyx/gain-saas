@@ -19,6 +19,7 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
  * 2026-11-22 UI 重设计：一级导航按业务分组（工作空间/获客/线索/活动/增长/设置）。
  * 路由仍是扁平的；分组只是 Vben 菜单数据的展示层。测试按“组 → 叶子”点击，
  * 并保留原断言：所有页面可达、无死链、无「周报」、战役计划不占一级导航。
+ * 2026-11-26：「找买家」改名「买家画像」，并从「获客」移到「线索」分组，和「买家线索」放在一起。
  */
 const NAV_GROUPS = [
   {
@@ -29,12 +30,14 @@ const NAV_GROUPS = [
     group: '获客',
     items: [
       { heading: '公司档案', landmark: '[data-gs="page-header"]', name: '公司档案', path: '/companies' },
-      { heading: '找买家', landmark: '[data-gs="page-header"]', name: '找买家', path: '/find-buyers' },
     ],
   },
   {
     group: '线索',
-    items: [{ heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' }],
+    items: [
+      { heading: '买家画像', landmark: '[data-gs="page-header"]', name: '买家画像', path: '/find-buyers' },
+      { heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' },
+    ],
   },
   {
     group: '活动',

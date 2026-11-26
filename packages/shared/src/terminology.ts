@@ -2,7 +2,7 @@
  * 界面用语映射(PRD §14.2 旧表,保留兼容)。
  *
  * @deprecated M2 步 14 起,对象/状态词表以 ./glossary.ts 为唯一真值
- * (run→挖掘任务、ICP→目标客户画像、campaign→战役计划、QGO→商机)。
+ * (run→挖掘任务、ICP→买家画像、campaign→战役计划、QGO→商机)。
  * 新代码一律从 glossary 取词;本文件不再新增词条。
  */
 
@@ -14,7 +14,7 @@ export interface Term {
 }
 
 export const TERMINOLOGY = {
-  icp: { zh: '目标客户画像', note: '引擎 ICP;旧词「目标买家」已并入 glossary' },
+  icp: { zh: '买家画像', note: '引擎 ICP;旧词「目标买家」已并入 glossary' },
   queryPlan: { zh: '寻源方案', note: '引擎 Query Plan' },
   discoveryRun: { zh: '挖掘任务', note: '引擎 DiscoveryRun;状态词以 glossary RUN_STATUS 为准' },
   runRunning: { zh: '进行中', note: 'run 状态' },

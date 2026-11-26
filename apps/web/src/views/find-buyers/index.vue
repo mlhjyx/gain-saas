@@ -1,11 +1,19 @@
 <script lang="ts" setup>
 /**
- * 找买家（目标客户画像 + 寻源方案）。
+ * 买家画像页（原「找买家」：买家画像 + 寻源方案）。
+ *
+ * 2026-11-26 体验问题第二轮：
+ * - 「目标客户画像」全站统一叫「买家画像」，页面与菜单随之改名，和「买家线索」放同一个分组；
+ * - 画像里的五个板块换成用户读得懂的说法并各加一行说明（客户难题 / 采购信号 / 不找的对象 /
+ *   我们的卖点 / 该找的人）；
+ * - 「目标公司属性」里的英文字段补中文名；引擎写入的四个输入血缘字段不是目标公司属性，
+ *   单独列成「画像依据」并用白话写；
+ * - 画像详情从右侧抽屉改成页内工作区（和公司档案一致）：画像列表在上，选中的画像在下方展开，
+ *   右下角始终有当前该做的「下一步」；「资格规则与回测」用开关隐藏；寻源方案、最近寻源只在画像
+ *   生效后出现；编辑表单不再让人直接改 JSON；寻源方案先给结论，内部代码收进技术详情。
  *
  * 2026-11-25 按买家线索页的风格与理念重排：
  * - 列表 = 对齐分列的画像卡，「寻源方案 / 最近寻源」直接摆在卡片上（进入页面时并行预取）；
- * - 详情 = 右侧抽屉，内容按卡片分区（画像概览 / 反馈建议 / 寻源方案 / 最近运行 / 高级），
- *   取代原来一个 920px 的手写大弹层；
  * - 控件全部走 antd + Gs 封装；结果提示走统一反馈层。
  *
  * 业务逻辑（规则、回测、方案、发起寻源、本机运行记录）保持不变。
@@ -32,7 +40,7 @@ import type {
 } from '#/api/gainos';
 import type { FbTone, IcpCardRow, SummaryState } from './icp-card-types';
 
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -57,15 +65,14 @@ import {
   CollapsePanel,
   Descriptions,
   DescriptionsItem,
-  Drawer,
   Input,
   InputNumber,
   Modal,
   Skeleton,
-  Space,
   Tag,
 } from 'ant-design-vue';
 
+import { ICP_ADVANCED_HIDDEN } from '#/feature-flags';
 import ErrorNotice from '#/components/error-notice.vue';
 import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
 import ThreeLayerProfileCard from '#/components/gainos/ThreeLayerProfileCard.vue';
@@ -73,12 +80,12 @@ import GsCard from '#/components/gainos/ui/gs-card.vue';
 import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
-import GsSteps from '#/components/gainos/ui/gs-steps.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
-import { acquisitionStep } from '#/utils/acquisition-step';
+import { notifyChainChanged } from '#/composables/use-main-chain-progress';
+import { regionName } from '#/utils/region-name';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
@@ -231,8 +238,34 @@ const editForm = ref({
   triggerSignals: '',
   exclusions: '',
   valueProps: '',
-  attributesText: '{}',
+  /** 已登记的目标公司属性：键 → 文本（列表类一项一行）。 */
+  attributes: {} as Record<string, string>,
+  /** 没登记的属性、嵌套结构的属性，以及引擎写入的输入血缘字段：保持原始 JSON。 */
+  otherAttributesText: '{}',
 });
+
+/**
+ * 编辑表单里直接摆出来的目标公司属性。`list` 为 true 的是列表（一项一行），其余是单个值。
+ * 引擎的 companyAttributes 是自由对象，这里只覆盖已登记的键；其余进「其他属性」。
+ */
+const ATTRIBUTE_FIELDS: ReadonlyArray<{ key: string; list: boolean }> = [
+  { key: 'country', list: false },
+  { key: 'industry', list: false },
+  { key: 'sub_industry', list: false },
+  { key: 'end_markets', list: true },
+  { key: 'product', list: true },
+  { key: 'trade_side', list: false },
+  { key: 'tech', list: true },
+  { key: 'keywords', list: true },
+  { key: 'business_model', list: false },
+  { key: 'role', list: false },
+  { key: 'company_size', list: false },
+  { key: 'employee_count', list: false },
+  { key: 'region', list: false },
+  { key: 'revenue', list: false },
+  { key: 'certifications', list: true },
+];
+const ATTRIBUTE_KEYS = new Set(ATTRIBUTE_FIELDS.map((field) => field.key));
 
 const ruleOpen = ref(false);
 const editingRuleId = ref<string | null>(null);
@@ -279,7 +312,7 @@ const orderedCompanies = computed(() =>
 function toneOf(tone: StatusTone): FbTone {
   return tone === 'processing' ? 'info' : tone;
 }
-// 目标客户画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
+// 买家画像与挖掘任务的状态文案/色板一律取自 @gain-saas/shared 的 glossary（P6 §4）；
 // 未登记的状态显示占位符，绝不把裸枚举直接渲染进界面。
 function icpStatus(status?: string): { label: string; tone: FbTone } {
   const meta = glossaryStatus('icp', status, preferences.app.locale);
@@ -341,14 +374,6 @@ function planCostLabel(cents?: number | null): string {
   if (!Number.isFinite(n) || n <= 0) return '';
   return `$${(n / 100).toFixed(2)}`;
 }
-function planSourceSummary(plan: QueryPlan): string {
-  const counts = new Map<string, number>();
-  for (const query of plan.queries) {
-    const label = querySourceLabel(query);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  return [...counts.entries()].map(([label, count]) => `${label} ${count}`).join(' · ');
-}
 function kindLabel(kind: string): string {
   const key = `gainos.findBuyers.ruleKind.${kind}`;
   const value = $t(key);
@@ -398,8 +423,42 @@ function attrText(value: unknown): string {
 
 function attributesOf(icp: Icp): Array<{ key: string; value: string }> {
   return Object.entries(icp.companyAttributes ?? {})
+    .filter(([key]) => !LINEAGE_KEYS.has(key))
     .map(([key, value]) => ({ key: attributeLabel(key), value: attrText(value) }))
     .filter((item) => item.value.length > 0);
+}
+
+/**
+ * 引擎写进 companyAttributes 的「输入血缘」字段：记录这份画像依据什么生成（用了哪些产品、
+ * 市场按什么定），不是目标公司的属性。单独列成「画像依据」，值是内部代码，要换成白话。
+ */
+const LINEAGE_KEYS = new Set(['inputBasis', 'inputProducts', 'marketBasis', 'modelSuggestedMarkets']);
+
+function lineageLabel(group: 'lineageBasis' | 'lineageMarket', value: unknown): string {
+  const code = attrText(value);
+  const key = `gainos.findBuyers.${group}.${code}`;
+  const translated = $t(key);
+  return translated === key ? code : translated;
+}
+
+/** 「画像依据」：依据的产品、市场按什么定、AI 另外建议了哪些市场。只显示有内容的项。 */
+function lineageOf(icp: Icp): Array<{ key: string; value: string }> {
+  const attributes = icp.companyAttributes ?? {};
+  return [
+    { key: $t('gainos.findBuyers.lineageProducts'), value: attrText(attributes.inputProducts) },
+    {
+      key: $t('gainos.findBuyers.lineageProductBasis'),
+      value: lineageLabel('lineageBasis', attributes.inputBasis),
+    },
+    {
+      key: $t('gainos.findBuyers.lineageMarketBasis'),
+      value: lineageLabel('lineageMarket', attributes.marketBasis),
+    },
+    {
+      key: $t('gainos.findBuyers.lineageSuggestedMarkets'),
+      value: attrText(attributes.modelSuggestedMarkets),
+    },
+  ].filter((row) => row.value.length > 0);
 }
 function canActivate(icp: Icp): boolean {
   return ['DRAFT', 'HYPOTHESIS', 'VALIDATING'].includes(icp.status);
@@ -428,6 +487,26 @@ async function load(): Promise<void> {
     icps.value = Array.isArray(icpData) ? icpData : [];
     companies.value = Array.isArray(companyData) ? companyData : ((companyData as { data?: CompanyProfile[] })?.data ?? []);
     void prefetchSummaries();
+    // 工作区常驻：已选中的画像还在就保持选中；首次进入优先尊重路由 ?icp=&run=，否则默认展示生效中的那份（没有就取第一份）。
+    const kept = selected.value ? icps.value.find((item) => item.id === selected.value?.id) : undefined;
+    if (kept) {
+      selected.value = kept;
+    } else {
+      selected.value = null;
+      const routeIcpRaw = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
+      const routeRunRaw = Array.isArray(route.query.run) ? route.query.run[0] : route.query.run;
+      const routeTarget =
+        typeof routeIcpRaw === 'string' && routeIcpRaw
+          ? icps.value.find((item) => item.id === routeIcpRaw)
+          : undefined;
+      const initial = routeTarget ?? icps.value.find((item) => item.status === 'ACTIVE') ?? icps.value[0];
+      if (initial) {
+        await openDetail(initial, {
+          focusRunId: routeTarget && typeof routeRunRaw === 'string' ? routeRunRaw : undefined,
+          scroll: false,
+        });
+      }
+    }
   } catch (error) {
     loadError.value = failureText(error);
     icps.value = [];
@@ -452,7 +531,10 @@ async function loadTaskRuns(icpId: string): Promise<void> {
   try {
     const tasks = await gainosApi.acquisitionTasks(icpId);
     taskCache = tasks[0] ?? null;
-    taskRuns.value = taskCache?.runs ?? [];
+    // 列表和「是否还有寻源在跑」要看这个画像下所有任务的运行，按发起时间倒序。
+    taskRuns.value = tasks
+      .flatMap((task) => task.runs ?? [])
+      .sort((a, b) => Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? ''));
   } catch {
     taskCache = null;
     taskRuns.value = [];
@@ -566,7 +648,11 @@ function goSelectedIcpLeads(): void {
   void router.push({ path: '/leads', query: { icp: selected.value.id } });
 }
 
-async function openDetail(icp: Icp, focusRunId?: string): Promise<void> {
+/** 在工作区里展示一份画像。`scroll` 为 true（从画像卡进来）时滚到工作区；默认选中和切换时不滚。 */
+async function openDetail(
+  icp: Icp,
+  options: { focusRunId?: string; scroll?: boolean } = {},
+): Promise<void> {
   selected.value = icp;
   detailError.value = null;
   detailLoading.value = true;
@@ -586,7 +672,7 @@ async function openDetail(icp: Icp, focusRunId?: string): Promise<void> {
     selected.value = await gainosApi.icp(icp.id);
     await Promise.all([loadPlans(icp.id), loadRunLinks(icp.id), loadTaskRuns(icp.id), loadFeedback(icp.id)]);
     const latestRunId =
-      focusRunId ||
+      options.focusRunId ||
       taskRuns.value.find((r) => Boolean(r.runId))?.runId ||
       Object.values(runRefs.value)[0]?.runId ||
       null;
@@ -598,21 +684,10 @@ async function openDetail(icp: Icp, focusRunId?: string): Promise<void> {
   } finally {
     detailLoading.value = false;
   }
-}
-function closeDetail(): void {
-  stopDetailStreamPoll();
-  detailStreamRunId.value = null;
-  detailStreamDto.value = null;
-  detailStreamRun.value = null;
-  selected.value = null;
-  plans.value = [];
-  taskRuns.value = [];
-  taskCache = null;
-  feedback.value = null;
-  feedbackSummary.value = null;
-  profileEdited.value = false;
-  backtest.value = null;
-  ruleOpen.value = false;
+  if (options.scroll) {
+    await nextTick();
+    workspaceRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 async function checkApprovedClaims(companyId: string): Promise<void> {
@@ -748,6 +823,7 @@ async function createIcp(): Promise<void> {
     });
     createOpen.value = false;
     uiFeedback.message.success($t('gainos.findBuyers.created'));
+    notifyChainChanged();
     await load();
     await openDetail(icp);
   } catch (error) {
@@ -773,6 +849,7 @@ async function activate(): Promise<void> {
       hasSiblingActive && keepExistingActive.value ? { keepExistingActive: true } : undefined,
     );
     uiFeedback.message.success($t('gainos.findBuyers.activated'));
+    notifyChainChanged();
     await load();
     await loadPlans(selected.value.id);
   } catch (error) {
@@ -782,9 +859,47 @@ async function activate(): Promise<void> {
   }
 }
 
+/** 属性值 → 表单文本。列表类一项一行，其余用「、」连起来。嵌套对象没法用文本框改，返回 null，留在「其他属性」里。 */
+function attributeText(value: unknown, list: boolean): null | string {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    const items = value.map((item) => attrText(item)).filter(Boolean);
+    return list ? items.join('\n') : items.join('、');
+  }
+  if (typeof value === 'object') return null;
+  return String(value);
+}
+
+/**
+ * 表单文本 → 属性值。原来是数字的仍是数字；列表类按行拆成数组；单个值可以写多个（逗号或顿号分隔），
+ * 只有一个时保持字符串，和引擎原来的写法一致。
+ */
+function attributeValue(text: string, original: unknown, list: boolean): undefined | unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  const items = list ? lines(trimmed) : trimmed.split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean);
+  if (typeof original === 'number' || (original === undefined && items.length === 1 && /^\d+(?:\.\d+)?$/.test(trimmed))) {
+    return Number(trimmed);
+  }
+  // 只有一项、且原来就是单个值（或新填）时保持字符串，不把引擎写的 "US" 变成 ["US"]；列表类的原来就是数组就仍是数组。
+  if (items.length === 1 && (typeof original === 'string' || original === undefined)) return items[0];
+  return items;
+}
+
 function openEdit(): void {
   if (!selected.value) return;
   const icp = selected.value;
+  const source = icp.companyAttributes ?? {};
+  const texts: Record<string, string> = {};
+  const other: Record<string, unknown> = {};
+  for (const field of ATTRIBUTE_FIELDS) {
+    const text = attributeText(source[field.key], field.list);
+    if (text === null) other[field.key] = source[field.key];
+    else texts[field.key] = text;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (!ATTRIBUTE_KEYS.has(key)) other[key] = value;
+  }
   editForm.value = {
     name: icp.name,
     targetMarkets: (icp.targetMarkets ?? []).join(', '),
@@ -792,7 +907,8 @@ function openEdit(): void {
     triggerSignals: (icp.triggerSignals ?? []).join('\n'),
     exclusions: (icp.exclusions ?? []).join('\n'),
     valueProps: (icp.valueProps ?? []).join('\n'),
-    attributesText: JSON.stringify(icp.companyAttributes ?? {}, null, 2),
+    attributes: texts,
+    otherAttributesText: JSON.stringify(other, null, 2),
   };
   editError.value = null;
   editOpen.value = true;
@@ -805,14 +921,25 @@ function commas(text: string): string[] {
 }
 async function saveEdit(): Promise<void> {
   if (!selected.value) return;
-  let attributes: Record<string, unknown>;
+  let other: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(editForm.value.attributesText || '{}');
+    const parsed = JSON.parse(editForm.value.otherAttributesText || '{}');
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
-    attributes = parsed as Record<string, unknown>;
+    other = parsed as Record<string, unknown>;
   } catch {
-    editError.value = { title: $t('gainos.findBuyers.attributesInvalid'), next: $t('gainos.findBuyers.attributesHint') };
+    editError.value = {
+      title: $t('gainos.findBuyers.attributesInvalid'),
+      next: $t('gainos.findBuyers.attributesOtherHint'),
+    };
     return;
+  }
+  // 「其他属性」原样保留；文本框里的已登记属性写回去（留空的删掉，嵌套结构的不被覆盖）。
+  const original = selected.value.companyAttributes ?? {};
+  const attributes: Record<string, unknown> = { ...other };
+  for (const field of ATTRIBUTE_FIELDS) {
+    if (field.key in other) continue;
+    const value = attributeValue(editForm.value.attributes[field.key] ?? '', original[field.key], field.list);
+    if (value !== undefined) attributes[field.key] = value;
   }
   editing.value = true;
   editError.value = null;
@@ -941,6 +1068,7 @@ async function createPlan(): Promise<void> {
     profileEdited.value = false;
     void prefetchSummary(selected.value.id);
     uiFeedback.message.success($t('gainos.findBuyers.planCreated'));
+    notifyChainChanged();
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -955,6 +1083,7 @@ async function confirmPlan(plan: QueryPlan): Promise<void> {
     await loadPlans(plan.icpId);
     void prefetchSummary(plan.icpId);
     uiFeedback.message.success($t('gainos.findBuyers.planConfirmed'));
+    notifyChainChanged();
   } catch (error) {
     plansError.value = failureText(error);
   } finally {
@@ -977,6 +1106,7 @@ async function executePlan(plan: QueryPlan): Promise<void> {
       return;
     }
     rememberRun(plan.id, result.runId);
+    notifyChainChanged();
     try {
       await gainosApi.recordDiscoveryRun({ runId: result.runId, planId: plan.id, icpId: plan.icpId });
     } catch {
@@ -1008,12 +1138,6 @@ interface IcpSummary {
 const summaries = ref<Record<string, IcpSummary>>({});
 const summaryPending = ref<Set<string>>(new Set());
 
-/** 步骤条跟着真实进度走：没有生效画像是第 2 步，之后看生效画像的最新方案与最近一次寻源。 */
-const currentStep = computed(() => {
-  const icp = activeIcp.value;
-  return icp ? acquisitionStep(summaries.value[icp.id]) : 2;
-});
-
 /**
  * 并行预取一个画像的方案与最近运行：取不到只影响对应那一列（显示「—」），
  * 不打断列表，也不把「没取到」显示成「还没有」。
@@ -1030,7 +1154,10 @@ async function prefetchSummary(icpId: string): Promise<void> {
   }
   if (tasksResult.status === 'fulfilled') {
     const tasks = Array.isArray(tasksResult.value) ? tasksResult.value : [];
-    summary.runs = tasks[0]?.runs ?? [];
+    // 一个画像下可以有多个任务，运行记录合在一起按发起时间倒序，取最近的一次。
+    summary.runs = tasks
+      .flatMap((task) => task.runs ?? [])
+      .sort((a, b) => Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? ''));
   }
   summaries.value = { ...summaries.value, [icpId]: summary };
   const next = new Set(summaryPending.value);
@@ -1086,24 +1213,59 @@ const rows = computed<IcpCardRow[]>(() =>
   }),
 );
 
-// ── 详情抽屉 ────────────────────────────────────────────────────────────
-/** antd Drawer 的 v-model:open：关窗统一走 closeDetail（清空方案/运行/反馈等临时状态）。 */
-const detailOpen = computed({
-  get: () => selected.value !== null,
-  set: (open: boolean) => {
-    if (!open) closeDetail();
-  },
-});
+// ── 画像工作区（页内常驻，取代原来的右侧抽屉）────────────────────────────
+const workspaceRef = ref<HTMLElement | null>(null);
 
 const statusOfSelected = computed(() => icpStatus(selected.value?.status));
 const versionOfSelected = computed(() => selected.value?.version ?? 1);
 
-const overviewSections = computed(() => [
-  { items: selected.value?.painPoints ?? [], key: 'painPoints', title: $t('gainos.findBuyers.painPoints') },
-  { items: selected.value?.triggerSignals ?? [], key: 'triggerSignals', title: $t('gainos.findBuyers.triggerSignals') },
-  { items: selected.value?.exclusions ?? [], key: 'exclusions', title: $t('gainos.findBuyers.exclusions') },
-  { items: selected.value?.valueProps ?? [], key: 'valueProps', title: $t('gainos.findBuyers.valueProps') },
-]);
+/** 多份画像时在工作区头部切换；只有一份时不显示。 */
+const profileOptions = computed(() =>
+  rows.value.map((row) => ({ label: `${row.name}（${row.statusLabel}）`, value: row.id })),
+);
+function switchProfile(id: unknown): void {
+  const icp = icps.value.find((item) => item.id === id);
+  if (icp && icp.id !== selected.value?.id) void openDetail(icp);
+}
+
+const overviewSections = computed(() =>
+  (['painPoints', 'triggerSignals', 'exclusions', 'valueProps'] as const).map((key) => ({
+    hint: $t(`gainos.findBuyers.${key}Hint`),
+    items: selected.value?.[key] ?? [],
+    key,
+    title: $t(`gainos.findBuyers.${key}`),
+  })),
+);
+
+interface ProfilePerson {
+  concerns: string[];
+  goals: string[];
+  pains: string[];
+  title: string;
+}
+/** 「该找的人」：personas 和 buyingCommittee 是引擎对同一批角色的两种写法（一个带目标和难题，一个带关注点），按职务合并。 */
+const peopleOfSelected = computed<ProfilePerson[]>(() => {
+  const byTitle = new Map<string, ProfilePerson>();
+  const slot = (raw: string | undefined): ProfilePerson => {
+    const title = (raw ?? '').trim();
+    const key = title.toLowerCase();
+    let row = byTitle.get(key);
+    if (!row) {
+      row = { concerns: [], goals: [], pains: [], title };
+      byTitle.set(key, row);
+    }
+    return row;
+  };
+  for (const persona of selected.value?.personas ?? []) {
+    const row = slot(persona.title);
+    row.goals.push(...(persona.goals ?? []));
+    row.pains.push(...(persona.painPoints ?? []));
+  }
+  for (const role of selected.value?.buyingCommittee ?? []) {
+    slot(role.title || role.role).concerns.push(...(role.concerns ?? []));
+  }
+  return [...byTitle.values()].filter((row) => row.title.length > 0);
+});
 
 const companyOptions = computed(() =>
   orderedCompanies.value.map((company) => {
@@ -1128,13 +1290,187 @@ const operatorOptions = computed(() =>
 const ruleModalTitle = computed(() =>
   editingRuleId.value ? $t('gainos.findBuyers.editRule') : $t('gainos.findBuyers.addRule'),
 );
-const planMetaOf = (plan: QueryPlan): string[] => {
-  const parts = [$t('gainos.findBuyers.planSearchCount', { count: plan.queries?.length ?? 0 })];
-  if (plan.estimatedVolume) parts.push($t('gainos.findBuyers.planEstimated', { count: plan.estimatedVolume }));
+
+// ── 下一步：这份画像现在该做什么，页面上只给一个按钮 ────────────────────
+/** 最新的一份方案。引擎允许同一画像多份方案，对用户来说「下一步」只看最新的。 */
+const latestPlan = computed<null | QueryPlan>(() =>
+  [...plans.value].sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''))[0] ?? null,
+);
+const selectedActive = computed(() => selected.value?.status === 'ACTIVE');
+const hasSiblingActive = computed(() =>
+  Boolean(
+    selected.value &&
+      icps.value.some(
+        (item) =>
+          item.companyId === selected.value?.companyId &&
+          item.id !== selected.value?.id &&
+          item.status === 'ACTIVE',
+      ),
+  ),
+);
+
+interface NextAction {
+  desc: string;
+  loading?: boolean;
+  run: () => void;
+  title: string;
+}
+
+function openLatestRun(): void {
+  const running = taskRuns.value.find((run) => run.runId && !TERMINAL_RUN_STATUSES.has(String(run.status ?? '').toUpperCase()));
+  const planId = latestPlan.value?.id;
+  const runId = running?.runId ?? (planId ? runRefs.value[planId]?.runId : undefined) ?? taskRuns.value.find((run) => run.runId)?.runId;
+  if (runId) void openRun(runId);
+}
+
+/**
+ * 按状态给出唯一明确的下一步：没激活 → 激活；生效后没方案 → 生成方案；方案待确认 → 确认；
+ * 可执行 → 开始寻源；寻源在跑 → 看进度；这一轮已产出线索 → 去判断；没跑成 → 再跑一次。
+ * 数据还在加载或出错时不显示，避免给出错误的引导。
+ */
+const nextAction = computed<null | NextAction>(() => {
+  const icp = selected.value;
+  if (!icp || detailLoading.value || detailError.value) return null;
+  if (canActivate(icp)) {
+    return {
+      desc: $t('gainos.findBuyers.nextActivateDesc'),
+      loading: planBusy.value === 'activate',
+      run: activate,
+      title: $t('gainos.findBuyers.activate'),
+    };
+  }
+  // 寻源方案、最近寻源只在画像生效后才出现，下一步也只从生效后开始给。
+  if (!selectedActive.value || plansLoading.value || plansError.value) return null;
+  const plan = latestPlan.value;
+  if (!plan) {
+    return {
+      desc: $t('gainos.findBuyers.nextCreatePlanDesc'),
+      loading: planBusy.value === 'create',
+      run: createPlan,
+      title: $t('gainos.findBuyers.createPlan'),
+    };
+  }
+  if (plan.status === 'DRAFT') {
+    return {
+      desc: $t('gainos.findBuyers.nextConfirmPlanDesc'),
+      loading: planBusy.value === plan.id,
+      run: () => confirmPlan(plan),
+      title: $t('gainos.findBuyers.confirmPlan'),
+    };
+  }
+  if (taskRunning.value) {
+    return { desc: $t('gainos.findBuyers.nextRunningDesc'), run: openLatestRun, title: $t('gainos.findBuyers.viewRun') };
+  }
+  if (plan.status === 'READY') {
+    return {
+      desc: $t('gainos.findBuyers.nextExecutePlanDesc'),
+      loading: planBusy.value === plan.id,
+      run: () => executePlan(plan),
+      title: $t('gainos.findBuyers.executePlan'),
+    };
+  }
+  const run = taskRuns.value[0];
+  if (run && (run.status === 'DONE' || run.status === 'PARTIAL')) {
+    return {
+      desc: $t('gainos.findBuyers.nextJudgeDesc'),
+      run: () => void router.push('/leads'),
+      title: $t('gainos.findBuyers.goLeads'),
+    };
+  }
+  return {
+    desc: $t('gainos.findBuyers.nextRerunDesc'),
+    loading: planBusy.value === plan.id,
+    run: () => executePlan(plan),
+    title: $t('gainos.findBuyers.rerunPlan'),
+  };
+});
+
+// ── 寻源方案：先给结论，再按渠道看搜索词 ────────────────────────────────
+interface PlanGroup {
+  key: string;
+  label: string;
+  queries: Array<Record<string, unknown>>;
+}
+
+/** 同一份方案里的搜索按来源渠道分组，用户先看到「去哪几个渠道找」。 */
+function planGroups(plan: QueryPlan): PlanGroup[] {
+  const groups = new Map<string, PlanGroup>();
+  for (const query of plan.queries) {
+    const key = String(query.source_class ?? 'other') || 'other';
+    const existing = groups.get(key);
+    if (existing) existing.queries.push(query);
+    else groups.set(key, { key, label: querySourceLabel(query), queries: [query] });
+  }
+  return [...groups.values()];
+}
+
+/** 一句话结论：去几个渠道、几组搜索、预计多少家、费用多少。 */
+function planLead(plan: QueryPlan): string {
+  let text = $t('gainos.findBuyers.planLead', {
+    channels: planGroups(plan).length,
+    queries: plan.queries?.length ?? 0,
+  });
+  if (plan.estimatedVolume) {
+    text += $t('gainos.findBuyers.planLeadEstimated', { count: plan.estimatedVolume });
+  }
   const cost = planCostLabel(plan.estimatedCostCents);
-  if (cost) parts.push($t('gainos.findBuyers.planEstimatedCost', { cost }));
-  return parts;
-};
+  if (cost) text += $t('gainos.findBuyers.planLeadCost', { cost });
+  return text;
+}
+
+/** 内部代码：snake_case 标识（source_filter、seed_gap）或全大写常量（SOURCE_QUERY_BUDGET、CPV）。 */
+const INTERNAL_CODE = /(^|[^A-Za-z0-9])[a-z]+(?:_[a-z0-9]+)+(?![A-Za-z0-9])|\b[A-Z][A-Z_]{2,}\b/;
+const WARNING_PREFIX = /^(icp_fit_warning|icp_seed_gap)\s*[:：]\s*/i;
+
+/**
+ * 引擎写在搜索条件旁的说明里常混着内部代码（`[source_filter] 已移除…: SOURCE_QUERY_BUDGET…`）。
+ * 按「；」「。」和换行切成小句：`icp_fit_warning:` 去掉前缀是给用户看的提醒，换成「注意」留在正文；
+ * 其余带代码的小句收进技术详情，不带代码的照常展示。
+ */
+function splitRationale(text: string): { notes: string[]; technical: string[] } {
+  const notes: string[] = [];
+  const technical: string[] = [];
+  const segments = text
+    .replace(/\[source_filter\]/gi, '')
+    .split(/[;；。\n]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  for (const raw of segments) {
+    const warning = WARNING_PREFIX.exec(raw);
+    if (warning && warning[1]!.toLowerCase() === 'icp_fit_warning') {
+      const body = raw.slice(warning[0].length).trim();
+      if (body && !/[a-z]+(?:_[a-z0-9]+)+/.test(body)) {
+        notes.push(`${$t('gainos.findBuyers.noteWarning')}：${body}`);
+        continue;
+      }
+    }
+    if (INTERNAL_CODE.test(raw)) technical.push(raw);
+    else notes.push(raw);
+  }
+  return { notes, technical };
+}
+function queryNotes(query: Record<string, unknown>): string[] {
+  return splitRationale(textOf(query.rationale)).notes;
+}
+function queryTechnical(query: Record<string, unknown>): string[] {
+  return splitRationale(textOf(query.rationale)).technical;
+}
+
+/** 哪个方案的哪个渠道展开了搜索词；默认都收起，先看结论。 */
+const expandedGroups = ref<Set<string>>(new Set());
+function groupKey(planId: string, group: PlanGroup): string {
+  return `${planId}:${group.key}`;
+}
+function isGroupExpanded(planId: string, group: PlanGroup): boolean {
+  return expandedGroups.value.has(groupKey(planId, group));
+}
+function toggleGroup(planId: string, group: PlanGroup): void {
+  const key = groupKey(planId, group);
+  const next = new Set(expandedGroups.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedGroups.value = next;
+}
 
 async function loadPrimaryCompany(): Promise<void> {
   try {
@@ -1160,14 +1496,6 @@ onMounted(async () => {
   loadRunRefs();
   void loadPrimaryCompany();
   await load();
-  const routeIcpRaw = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
-  const routeRunRaw = Array.isArray(route.query.run) ? route.query.run[0] : route.query.run;
-  if (typeof routeIcpRaw === 'string' && routeIcpRaw) {
-    const target = icps.value.find((item) => item.id === routeIcpRaw);
-    if (target) {
-      await openDetail(target, typeof routeRunRaw === 'string' ? routeRunRaw : undefined);
-    }
-  }
 });
 onUnmounted(stopDetailStreamPoll);
 </script>
@@ -1175,13 +1503,6 @@ onUnmounted(stopDetailStreamPoll);
 <template>
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage art="find-buyers" :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
-
-    <!-- 主链路步骤：白色薄面板压在页头渐变上（上移量写在普通 div 上，见设计系统 §1） -->
-    <div class="relative z-[1] -mt-12">
-      <GsCard data-gs="stage-steps" dense>
-        <GsSteps :current="currentStep" />
-      </GsCard>
-    </div>
 
     <GsToolbar data-gs="icp-toolbar">
       <div class="fb-toolbar__main">
@@ -1261,7 +1582,7 @@ onUnmounted(stopDetailStreamPoll);
     </GsCard>
 
     <GsCard v-else-if="rows.length === 0" data-gs="icp-empty" padding="40px 24px">
-      <GsEmpty :description="$t('gainos.findBuyers.emptyDesc')" :title="$t('gainos.findBuyers.emptyTitle')">
+      <GsEmpty :description="$t(ICP_ADVANCED_HIDDEN ? 'gainos.findBuyers.emptyDescSimple' : 'gainos.findBuyers.emptyDesc')" :title="$t('gainos.findBuyers.emptyTitle')">
         <template #actions>
           <Button type="primary" @click="openCreate()">{{ $t('gainos.findBuyers.emptyCta') }}</Button>
           <Button @click="router.push('/companies')">{{ $t('gainos.companies.title') }}</Button>
@@ -1271,458 +1592,536 @@ onUnmounted(stopDetailStreamPoll);
     </GsCard>
 
     <template v-else>
-      <IcpCard v-for="row in filteredRows" :key="row.id" :row="row" @open="openDetail(row.icp)" />
-    </template>
+      <IcpCard
+        v-for="row in filteredRows"
+        :key="row.id"
+        :row="row"
+        :selected="row.id === selected?.id"
+        @open="openDetail(row.icp, { scroll: true })"
+      />
 
-    <!-- 详情：右侧抽屉，内容按卡片分区 -->
-    <Drawer
-      v-model:open="detailOpen"
-      :body-style="{ padding: '16px 24px 28px' }"
-      class="fb-drawer"
-      data-gs="icp-detail"
-      width="min(920px, 100vw)"
-    >
-      <template #title>
-        <div class="fb-drawer__title">
-          <p class="fb-kicker">{{ $t('gainos.findBuyers.detailKicker') }}</p>
-          <h2 class="fb-drawer__name">{{ selected?.name }}</h2>
-          <div class="fb-drawer__meta">
-            <GsTag :tone="statusOfSelected.tone">{{ statusOfSelected.label }}</GsTag>
-            <span class="fb-muted">
-              {{ companyName(selected?.companyId) }} ·
-              {{ $t('gainos.findBuyers.version', { version: versionOfSelected }) }}
-            </span>
-          </div>
-        </div>
-      </template>
-      <template #extra>
-        <Space :size="8" wrap>
-          <Checkbox
-            v-if="selected && canActivate(selected) && icps.some((item) => item.companyId === selected?.companyId && item.id !== selected?.id && item.status === 'ACTIVE')"
-            v-model:checked="keepExistingActive"
-            data-gs="keep-existing-active"
-          >
-            <span class="text-xs">{{ $t('gainos.findBuyers.keepExistingActive') }}</span>
-          </Checkbox>
-          <Button
-            v-if="selected && canActivate(selected)"
-            :loading="planBusy === 'activate'"
-            type="primary"
-            @click="activate"
-          >
-            {{ $t('gainos.findBuyers.activate') }}
-          </Button>
-          <Button v-if="selected" @click="openEdit">{{ $t('gainos.findBuyers.edit') }}</Button>
-        </Space>
-      </template>
-
-      <p class="fb-muted fb-drawer__hint">{{ $t('gainos.findBuyers.detailHint') }}</p>
-
-      <Skeleton v-if="detailLoading" active :paragraph="{ rows: 8 }" />
-      <ErrorNotice v-else-if="detailError" :next="detailError.next" :title="detailError.title" />
-      <div v-else-if="selected" class="fb-drawer__body">
-        <!-- 方案 B 流式三段实时进度看板（有运行记录时直接可见，不等黑盒结束） -->
-        <StreamingProgressBoard
-          v-if="detailStreamingProgress"
-          :cancelling="detailStreamCancelling"
-          :progress="detailStreamingProgress"
-          :show-cancel-action="detailStreamingProgress.isRunning"
-          :title="$t('gainos.findBuyers.streamingProgressTitle')"
-          @cancel="cancelDetailStreamRun"
-          @refresh="detailStreamRunId && loadDetailStreamingProgress(detailStreamRunId)"
-          @view-leads="goSelectedIcpLeads"
-        />
-
-        <!-- 三层画像结构（卖方 / 买方 / 同行排除彻底解耦） -->
-        <GsCard
-          v-if="selectedThreeLayer"
-          :title="$t('gainos.findBuyers.threeLayerTitle')"
-          data-gs="icp-three-layer"
-        >
-          <p class="fb-muted" style="margin-bottom: 10px">{{ $t('gainos.findBuyers.threeLayerDesc') }}</p>
-          <ThreeLayerProfileCard :profile="selectedThreeLayer" />
-        </GsCard>
-
-        <!-- 画像概览 -->
-        <GsCard :title="$t('gainos.findBuyers.overviewTitle')" data-gs="icp-overview">
-          <div class="fb-sections">
-          <div class="fb-block">
-            <p class="fb-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
-            <div v-if="(selected.targetMarkets ?? []).length > 0" class="fb-chips">
-              <Tag v-for="market in selected.targetMarkets" :key="market" :bordered="false" class="fb-chip">
-                {{ market }}
-              </Tag>
-            </div>
-            <p v-else class="fb-muted">—</p>
-          </div>
-
-          <div class="fb-block">
-            <p class="fb-label">{{ $t('gainos.findBuyers.companyAttributes') }}</p>
-            <Descriptions
-              v-if="attributesOf(selected).length > 0"
-              :colon="false"
-              :column="{ md: 2, xs: 1 }"
-              size="small"
-            >
-              <DescriptionsItem
-                v-for="item in attributesOf(selected)"
-                :key="item.key"
-                :label="item.key"
-              >
-                {{ item.value }}
-              </DescriptionsItem>
-            </Descriptions>
-            <p v-else class="fb-muted">—</p>
-          </div>
-
-          <div class="fb-grid-2">
-            <div v-for="section in overviewSections" :key="section.key" class="fb-block">
-              <p class="fb-label">{{ section.title }}</p>
-              <ul v-if="section.items.length > 0" class="fb-list">
-                <li v-for="(item, i) in section.items" :key="i">{{ item }}</li>
-              </ul>
-              <p v-else class="fb-muted">—</p>
-            </div>
-          </div>
-
-          <div v-if="(selected.personas ?? []).length > 0" class="fb-block">
-            <p class="fb-label">{{ $t('gainos.findBuyers.personas') }}</p>
-            <div class="fb-personas">
-              <div v-for="persona in selected.personas" :key="persona.title" class="fb-persona">
-                <p class="fb-persona__title">{{ persona.title }}</p>
-                <p v-if="persona.goals?.length" class="fb-muted">
-                  <em class="fb-key">{{ $t('gainos.findBuyers.goals') }}</em>{{ persona.goals.join(' · ') }}
-                </p>
-                <p v-if="persona.painPoints?.length" class="fb-muted">
-                  <em class="fb-key">{{ $t('gainos.findBuyers.painPoints') }}</em>
-                  {{ persona.painPoints.join(' · ') }}
-                </p>
+      <!-- 画像工作区：查看、激活、确认方案、发起寻源都在页内完成（和公司档案一致），不再用右侧抽屉 -->
+      <div ref="workspaceRef" class="scroll-mt-24">
+        <GsCard class="fb-workspace" data-gs="icp-workspace" padding="0">
+          <header class="fb-workspace__head">
+            <div class="min-w-0">
+              <p class="fb-kicker">{{ $t('gainos.findBuyers.workspaceEyebrow') }}</p>
+              <h2 class="fb-workspace__name">{{ selected?.name }}</h2>
+              <div class="fb-workspace__meta">
+                <GsTag :tone="statusOfSelected.tone">{{ statusOfSelected.label }}</GsTag>
+                <span class="fb-muted">
+                  {{ companyName(selected?.companyId) }} ·
+                  {{ $t('gainos.findBuyers.version', { version: versionOfSelected }) }}
+                </span>
               </div>
             </div>
-          </div>
-
-          <div v-if="(selected.buyingCommittee ?? []).length > 0" class="fb-block">
-            <p class="fb-label">{{ $t('gainos.findBuyers.buyingCommittee') }}</p>
-            <ul class="fb-list">
-              <li v-for="(role, i) in selected.buyingCommittee" :key="i">
-                <strong>{{ role.title || role.role }}</strong>
-                <span v-if="role.concerns?.length"> · {{ role.concerns.join(' · ') }}</span>
-              </li>
-            </ul>
-          </div>
-          </div>
-        </GsCard>
-
-        <!-- Phase 3B：已沉淀的排除规则与反例学习摘要 -->
-        <GsCard
-          v-if="feedbackSummary"
-          :title="$t('gainos.findBuyers.learnedFeedbackTitle')"
-          data-gs="icp-learned-feedback"
-        >
-          <template #extra>
-            <GsTag tone="info">
-              {{ $t('gainos.findBuyers.learnedTotalCount', { count: feedbackSummary.stats.totalRecorded }) }}
-            </GsTag>
-          </template>
-          <p class="fb-muted">{{ $t('gainos.findBuyers.learnedFeedbackDesc') }}</p>
-          <div
-            v-if="
-              feedbackSummary.excludedDomains.length === 0 &&
-              feedbackSummary.excludedKeywords.length === 0 &&
-              feedbackSummary.counterExamples.length === 0 &&
-              feedbackSummary.positiveExamples.length === 0
-            "
-            class="fb-muted"
-          >
-            {{ $t('gainos.findBuyers.learnedEmpty') }}
-          </div>
-          <div v-else class="fb-stack">
-            <div v-if="feedbackSummary.excludedDomains.length > 0" class="fb-block">
-              <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedDomains') }}</p>
-              <div class="fb-chips" data-gs="icp-learned-domains">
-                <Tag
-                  v-for="domain in feedbackSummary.excludedDomains"
-                  :key="domain"
-                  :bordered="false"
-                  class="fb-chip"
-                  color="red"
-                >
-                  {{ domain }}
-                </Tag>
-              </div>
+            <div class="fb-workspace__tools">
+              <label v-if="profileOptions.length > 1" class="fb-workspace__field">
+                <span>{{ $t('gainos.findBuyers.workspaceProfile') }}</span>
+                <GsSelect
+                  :ariaLabel="$t('gainos.findBuyers.workspaceProfile')"
+                  class="fb-workspace__select"
+                  :options="profileOptions"
+                  :value="selected?.id"
+                  @change="switchProfile"
+                />
+              </label>
+              <Button data-gs="icp-edit" @click="openEdit">{{ $t('gainos.findBuyers.edit') }}</Button>
             </div>
-            <div v-if="feedbackSummary.excludedKeywords.length > 0" class="fb-block">
-              <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedKeywords') }}</p>
-              <div class="fb-chips" data-gs="icp-learned-keywords">
-                <Tag
-                  v-for="kw in feedbackSummary.excludedKeywords"
-                  :key="kw"
-                  :bordered="false"
-                  class="fb-chip"
-                  color="orange"
-                >
-                  {{ kw }}
-                </Tag>
-              </div>
+          </header>
+
+          <div class="fb-workspace__body">
+            <div v-if="detailLoading" class="fb-section">
+              <Skeleton active :paragraph="{ rows: 8 }" />
             </div>
-            <div v-if="feedbackSummary.counterExamples.length > 0" class="fb-block">
-              <p class="fb-label">{{ $t('gainos.findBuyers.learnedCounterExamples') }}</p>
-              <ul class="fb-list" data-gs="icp-learned-counter-examples">
-                <li v-for="(ex, idx) in feedbackSummary.counterExamples" :key="`${ex.domain ?? idx}-${idx}`">
-                  <strong>{{ ex.companyName || ex.domain || '—' }}</strong>
-                  <Tag :bordered="false" class="ml-2 text-xs">{{ learnedReasonLabel(ex.reason) }}</Tag>
-                  <span v-if="ex.note" class="fb-muted"> · {{ ex.note }}</span>
-                  <span v-if="ex.recordedAt" class="fb-muted"> · {{ formatDateTime(ex.recordedAt) }}</span>
-                </li>
-              </ul>
+            <div v-else-if="detailError" class="fb-section">
+              <ErrorNotice :next="detailError.next" :title="detailError.title" />
             </div>
-          </div>
-        </GsCard>
-
-        <!-- 反馈建议（只建议，采纳=手动编辑画像） -->
-        <GsCard
-          v-if="feedback && feedback.suggestions.length > 0"
-          :title="$t('gainos.findBuyers.suggestionsTitle')"
-          data-gs="icp-suggestions"
-        >
-          <p class="fb-muted">{{ $t('gainos.findBuyers.suggestionsDesc') }}</p>
-          <ul class="fb-list">
-            <li v-for="(card, index) in feedback.suggestions" :key="index">{{ card.message }}</li>
-          </ul>
-        </GsCard>
-
-        <!-- 寻源方案 -->
-        <GsCard data-gs="icp-plans">
-          <template #title>{{ $t('gainos.findBuyers.plansTitle') }}</template>
-          <template #extra>
-            <!-- 画像生效中随时可以再生成：迭代画像后靠它出新方案，已有方案不会自动跟着变。 -->
-            <Button
-              v-if="!plansLoading"
-              :disabled="selected.status !== 'ACTIVE' || planBusy === 'create'"
-              :loading="planBusy === 'create'"
-              :title="selected.status !== 'ACTIVE' ? $t('gainos.findBuyers.planNeedsActive') : undefined"
-              type="primary"
-              @click="createPlan"
-            >
-              {{
-                plans.length > 0
-                  ? $t('gainos.findBuyers.regeneratePlan')
-                  : $t('gainos.findBuyers.createPlan')
-              }}
-            </Button>
-          </template>
-          <p class="fb-muted">{{ $t('gainos.findBuyers.plansDesc') }}</p>
-          <Alert
-            v-if="profileEdited"
-            :message="$t('gainos.findBuyers.planStaleAfterEdit', { version: versionOfSelected })"
-            role="status"
-            show-icon
-            type="warning"
-          />
-
-          <ErrorNotice v-if="plansError" :next="plansError.next" :title="plansError.title" />
-          <Skeleton v-else-if="plansLoading" active :paragraph="{ rows: 2 }" />
-          <ul v-else-if="plans.length > 0" class="fb-stack">
-            <li v-for="plan in plans" :key="plan.id" class="fb-plan">
-              <div class="fb-plan__head">
-                <GsTag :tone="planTone(plan.status)">{{ planStatusLabel(plan.status) }}</GsTag>
-                <span class="fb-muted">{{ planMetaOf(plan).join(' · ') }}</span>
-              </div>
-              <p class="fb-muted">
-                {{ $t('gainos.findBuyers.planSources') }}：{{ planSourceSummary(plan) }}
-              </p>
-
-              <Collapse expand-icon-position="end" ghost>
-                <CollapsePanel
-                  key="conditions"
-                  :header="$t('gainos.findBuyers.planConditions', { count: plan.queries.length })"
-                >
-                  <ul class="fb-stack">
-                    <li v-for="(query, i) in plan.queries" :key="i" class="fb-query">
-                      <div class="fb-query__head">
-                        <strong>{{ querySourceLabel(query) }}</strong>
-                        <span v-if="query.priority" class="fb-muted">
-                          {{ $t('gainos.findBuyers.planPriority', { priority: query.priority }) }}
-                        </span>
-                      </div>
-                      <div v-if="queryFilterItems(query).length > 0" class="fb-chips">
-                        <span
-                          v-for="item in queryFilterItems(query)"
-                          :key="item.label"
-                          class="fb-query__filter"
-                        >
-                          <em>{{ item.label }}</em>{{ item.value }}
-                        </span>
-                      </div>
-                      <div v-if="queryKeywords(query).length > 0" class="fb-chips">
-                        <Tag
-                          v-for="keyword in queryKeywords(query)"
-                          :key="keyword"
-                          :bordered="false"
-                          class="fb-chip"
-                        >
-                          {{ keyword }}
-                        </Tag>
-                      </div>
-                      <p v-if="query.rationale" class="fb-muted">{{ textOf(query.rationale) }}</p>
-                    </li>
-                  </ul>
-                  <details class="fb-raw">
-                    <summary>{{ $t('gainos.findBuyers.planRaw') }}</summary>
-                    <pre>{{ JSON.stringify(plan.queries, null, 2) }}</pre>
-                  </details>
-                </CollapsePanel>
-              </Collapse>
-
-              <div class="fb-plan__actions">
-                <Button v-if="runRefs[plan.id]" @click="openPlanRun(plan)">
-                  {{ $t('gainos.findBuyers.viewRun') }}
-                </Button>
-                <Button
-                  v-if="plan.status === 'DRAFT'"
-                  :disabled="planBusy === plan.id"
-                  @click="confirmPlan(plan)"
-                >
-                  {{ $t('gainos.findBuyers.confirmPlan') }}
-                </Button>
-                <Button
-                  v-if="plan.status === 'READY' && !runRefs[plan.id]"
-                  :disabled="planBusy === plan.id || taskRunning"
-                  :loading="planBusy === plan.id"
-                  :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
-                  type="primary"
-                  @click="executePlan(plan)"
-                >
-                  {{ $t('gainos.findBuyers.executePlan') }}
-                </Button>
-                <!-- 已执行或已有历史运行的方案可按原样再跑一次：引擎凭新的尝试标识放行，每次都是一条新的运行。 -->
-                <Button
-                  v-if="plan.status === 'EXECUTED' || (plan.status === 'READY' && Boolean(runRefs[plan.id]))"
-                  :disabled="planBusy === plan.id || taskRunning"
-                  :loading="planBusy === plan.id"
-                  :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
-                  @click="executePlan(plan)"
-                >
-                  {{ $t('gainos.findBuyers.rerunPlan') }}
-                </Button>
-              </div>
-              <p v-if="runRefs[plan.id]" class="fb-muted">{{ $t('gainos.findBuyers.runStarted') }}</p>
-              <p v-else-if="plan.status === 'EXECUTED'" class="fb-muted">
-                {{ $t('gainos.findBuyers.runLinkMissing') }}
-              </p>
-            </li>
-          </ul>
-          <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noPlans') }}</p>
-        </GsCard>
-
-        <!-- 最近运行 -->
-        <GsCard :title="$t('gainos.findBuyers.latestRun')" data-gs="icp-runs">
-          <p class="fb-muted">{{ $t('gainos.findBuyers.taskRunsDesc') }}</p>
-          <ul v-if="taskRuns.length > 0" class="fb-stack">
-            <li v-for="run in taskRuns" :key="run.id" class="fb-run">
-              <div class="fb-run__head">
-                <GsTag :tone="taskRunStatusTone(run.status)">{{ taskRunStatusLabel(run.status) }}</GsTag>
-                <span class="fb-muted">{{ formatRunTime(run.startedAt) }}</span>
-              </div>
-              <Button v-if="run.runId" class="fb-run__action" size="small" @click="openRun(run.runId)">
-                {{ $t('gainos.findBuyers.viewRun') }}
-              </Button>
-            </li>
-          </ul>
-          <p v-else class="fb-muted">{{ $t('gainos.findBuyers.taskRunsEmpty') }}</p>
-        </GsCard>
-
-        <!-- 高级：资格规则与回测（默认收起） -->
-        <GsCard data-gs="icp-advanced" padding="4px 20px">
-          <Collapse ghost>
-            <CollapsePanel key="advanced" :header="$t('gainos.findBuyers.advanced')">
-              <div class="fb-stack">
+            <template v-else-if="selected">
+              <!-- 还没激活：这一步只需要看内容和激活。寻源方案、最近寻源要等画像生效后才出现。 -->
+              <div v-if="canActivate(selected)" class="fb-section">
                 <Alert
-                  v-if="selected.ruleLint.length > 0"
-                  :message="$t('gainos.findBuyers.ruleLint')"
+                  :message="$t('gainos.findBuyers.activateHint')"
+                  role="status"
                   show-icon
-                  type="warning"
+                  type="info"
+                />
+                <Checkbox
+                  v-if="hasSiblingActive"
+                  v-model:checked="keepExistingActive"
+                  data-gs="keep-existing-active"
                 >
-                  <template #description>
-                    <ul class="fb-list">
-                      <li v-for="(warning, i) in selected.ruleLint" :key="i">{{ warning }}</li>
-                    </ul>
-                  </template>
-                </Alert>
+                  <span class="text-xs">{{ $t('gainos.findBuyers.keepExistingActive') }}</span>
+                </Checkbox>
+              </div>
 
-                <div class="fb-sub">
-                  <div class="fb-sub__head">
-                    <div>
-                      <p class="fb-h3">{{ $t('gainos.findBuyers.rulesTitle') }}</p>
-                      <p class="fb-muted">{{ $t('gainos.findBuyers.rulesDesc') }}</p>
+              <!-- 方案 B 流式三段实时进度看板（有运行记录时直接可见，不等黑盒结束） -->
+              <section v-if="detailStreamingProgress" class="fb-section">
+                <StreamingProgressBoard
+                  :cancelling="detailStreamCancelling"
+                  :progress="detailStreamingProgress"
+                  :show-cancel-action="detailStreamingProgress.isRunning"
+                  :title="$t('gainos.findBuyers.streamingProgressTitle')"
+                  @cancel="cancelDetailStreamRun"
+                  @refresh="detailStreamRunId && loadDetailStreamingProgress(detailStreamRunId)"
+                  @view-leads="goSelectedIcpLeads"
+                />
+              </section>
+
+              <template v-if="selectedActive">
+                <!-- 寻源方案：先给结论（去哪几个渠道、几组搜索、预计多少家），搜索词按渠道展开看 -->
+                <section class="fb-section" data-gs="icp-plans">
+                  <header class="fb-section__head">
+                    <div class="min-w-0">
+                      <h3 class="fb-section__title">{{ $t('gainos.findBuyers.plansTitle') }}</h3>
+                      <p class="fb-muted">{{ $t('gainos.findBuyers.plansDesc') }}</p>
                     </div>
-                    <Button size="small" @click="openRule()">{{ $t('gainos.findBuyers.addRule') }}</Button>
-                  </div>
-                  <ErrorNotice
-                    v-if="ruleError && !ruleOpen"
-                    :next="ruleError.next"
-                    :title="ruleError.title"
+                    <!-- 画像生效中随时可以再生成：迭代画像后靠它出新方案，已有方案不会自动跟着变。 -->
+                    <Button
+                      v-if="!plansLoading"
+                      :disabled="planBusy === 'create'"
+                      :loading="planBusy === 'create'"
+                      type="primary"
+                      @click="createPlan"
+                    >
+                      {{
+                        plans.length > 0
+                          ? $t('gainos.findBuyers.regeneratePlan')
+                          : $t('gainos.findBuyers.createPlan')
+                      }}
+                    </Button>
+                  </header>
+                  <Alert
+                    v-if="profileEdited"
+                    :message="$t('gainos.findBuyers.planStaleAfterEdit', { version: versionOfSelected })"
+                    role="status"
+                    show-icon
+                    type="warning"
                   />
-                  <ul v-if="selected.rules.length > 0" class="fb-stack">
-                    <li v-for="rule in selected.rules" :key="rule.id" class="fb-rule">
-                      <Tag :bordered="false" class="fb-chip">{{ kindLabel(rule.kind) }}</Tag>
-                      <code class="fb-rule__expr">
-                        {{ rule.field }} {{ operatorLabel(rule.operator) }} {{ ruleValueText(rule.value) }}
-                      </code>
-                      <span v-if="rule.kind === 'NICE_TO_HAVE'" class="fb-muted">×{{ rule.weight }}</span>
-                      <span v-if="rule.rationale" class="fb-muted fb-rule__why">{{ rule.rationale }}</span>
-                      <span class="fb-rule__actions">
-                        <Button size="small" type="link" @click="openRule(rule)">
-                          {{ $t('gainos.findBuyers.editRule') }}
+
+                  <ErrorNotice v-if="plansError" :next="plansError.next" :title="plansError.title" />
+                  <Skeleton v-else-if="plansLoading" active :paragraph="{ rows: 2 }" />
+                  <ul v-else-if="plans.length > 0" class="fb-stack">
+                    <li v-for="plan in plans" :key="plan.id" class="fb-plan">
+                      <div class="fb-plan__head">
+                        <GsTag :tone="planTone(plan.status)">{{ planStatusLabel(plan.status) }}</GsTag>
+                        <p class="fb-plan__lead">{{ planLead(plan) }}</p>
+                      </div>
+
+                      <ul class="fb-channels">
+                        <li v-for="group in planGroups(plan)" :key="group.key" class="fb-channel">
+                          <div class="fb-channel__head">
+                            <strong class="fb-channel__name">{{ group.label }}</strong>
+                            <span class="fb-muted">
+                              {{ $t('gainos.findBuyers.planSearchCount', { count: group.queries.length }) }}
+                            </span>
+                            <Button
+                              :aria-expanded="isGroupExpanded(plan.id, group)"
+                              class="fb-channel__toggle"
+                              size="small"
+                              type="link"
+                              @click="toggleGroup(plan.id, group)"
+                            >
+                              {{
+                                isGroupExpanded(plan.id, group)
+                                  ? $t('gainos.findBuyers.planQueriesHide')
+                                  : $t('gainos.findBuyers.planQueriesShow')
+                              }}
+                            </Button>
+                          </div>
+                          <ol v-if="isGroupExpanded(plan.id, group)" class="fb-queries">
+                            <li v-for="(query, i) in group.queries" :key="i" class="fb-query">
+                              <p v-if="query.priority" class="fb-muted fb-query__meta">
+                                {{ $t('gainos.findBuyers.planPriority', { priority: query.priority }) }}
+                              </p>
+                              <div v-if="queryFilterItems(query).length > 0" class="fb-chips">
+                                <span
+                                  v-for="item in queryFilterItems(query)"
+                                  :key="item.label"
+                                  class="fb-query__filter"
+                                >
+                                  <em>{{ item.label }}</em>{{ item.value }}
+                                </span>
+                              </div>
+                              <div v-if="queryKeywords(query).length > 0" class="fb-chips">
+                                <Tag
+                                  v-for="keyword in queryKeywords(query)"
+                                  :key="keyword"
+                                  :bordered="false"
+                                  class="fb-chip fb-chip--keyword"
+                                >
+                                  {{ keyword }}
+                                </Tag>
+                              </div>
+                              <!-- 引擎的说明里混着内部代码：给人看的留在正文，带代码的收进技术详情 -->
+                              <ul v-if="queryNotes(query).length > 0" class="fb-notes">
+                                <li v-for="(note, index) in queryNotes(query)" :key="index">{{ note }}</li>
+                              </ul>
+                              <details v-if="queryTechnical(query).length > 0" class="fb-raw">
+                                <summary>{{ $t('gainos.findBuyers.technicalDetails') }}</summary>
+                                <ul class="fb-list">
+                                  <li v-for="(item, index) in queryTechnical(query)" :key="index">{{ item }}</li>
+                                </ul>
+                              </details>
+                            </li>
+                          </ol>
+                        </li>
+                      </ul>
+
+                      <div class="fb-plan__actions">
+                        <Button v-if="runRefs[plan.id]" @click="openPlanRun(plan)">
+                          {{ $t('gainos.findBuyers.viewRun') }}
                         </Button>
-                        <Button danger size="small" type="link" @click="removeRule(rule)">
-                          {{ $t('gainos.findBuyers.deleteRule') }}
+                        <Button
+                          v-if="plan.status === 'DRAFT'"
+                          :disabled="planBusy === plan.id"
+                          @click="confirmPlan(plan)"
+                        >
+                          {{ $t('gainos.findBuyers.confirmPlan') }}
                         </Button>
-                      </span>
+                        <Button
+                          v-if="plan.status === 'READY' && !runRefs[plan.id]"
+                          :disabled="planBusy === plan.id || taskRunning"
+                          :loading="planBusy === plan.id"
+                          :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
+                          type="primary"
+                          @click="executePlan(plan)"
+                        >
+                          {{ $t('gainos.findBuyers.executePlan') }}
+                        </Button>
+                        <!-- 已执行或已有历史运行的方案可按原样再跑一次：引擎凭新的尝试标识放行，每次都是一条新的运行。 -->
+                        <Button
+                          v-if="plan.status === 'EXECUTED' || (plan.status === 'READY' && Boolean(runRefs[plan.id]))"
+                          :disabled="planBusy === plan.id || taskRunning"
+                          :loading="planBusy === plan.id"
+                          :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
+                          @click="executePlan(plan)"
+                        >
+                          {{ $t('gainos.findBuyers.rerunPlan') }}
+                        </Button>
+                      </div>
+                      <details class="fb-raw">
+                        <summary>{{ $t('gainos.findBuyers.planRaw') }}</summary>
+                        <pre>{{ JSON.stringify(plan.queries, null, 2) }}</pre>
+                      </details>
+                      <p v-if="runRefs[plan.id]" class="fb-muted">{{ $t('gainos.findBuyers.runStarted') }}</p>
+                      <p v-else-if="plan.status === 'EXECUTED'" class="fb-muted">
+                        {{ $t('gainos.findBuyers.runLinkMissing') }}
+                      </p>
                     </li>
                   </ul>
-                  <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noRules') }}</p>
-                </div>
+                  <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noPlans') }}</p>
+                </section>
 
-                <div class="fb-sub">
-                  <p class="fb-h3">{{ $t('gainos.findBuyers.backtestTitle') }}</p>
-                  <p class="fb-muted">{{ $t('gainos.findBuyers.backtestDesc') }}</p>
-                  <Input.TextArea
-                    v-model:value="backtestText"
-                    :aria-label="$t('gainos.findBuyers.backtestSamples')"
-                    :rows="8"
-                    class="fb-mono"
-                  />
-                  <ErrorNotice
-                    v-if="backtestError"
-                    :next="backtestError.next"
-                    :title="backtestError.title"
-                  />
-                  <Button :loading="backtestBusy" class="justify-self-start" type="primary" @click="runBacktest">
-                    {{ $t('gainos.findBuyers.runBacktest') }}
-                  </Button>
-                  <template v-if="backtest">
-                    <dl class="fb-facts">
-                      <div v-for="(value, key) in backtest.metrics" :key="key">
-                        <dt>{{ key }}</dt>
-                        <dd>{{ textOf(value) || JSON.stringify(value) }}</dd>
+                <!-- 最近寻源 -->
+                <section class="fb-section" data-gs="icp-runs">
+                  <header class="fb-section__head">
+                    <div class="min-w-0">
+                      <h3 class="fb-section__title">{{ $t('gainos.findBuyers.latestRun') }}</h3>
+                      <p class="fb-muted">{{ $t('gainos.findBuyers.taskRunsDesc') }}</p>
+                    </div>
+                  </header>
+                  <ul v-if="taskRuns.length > 0" class="fb-stack">
+                    <li v-for="run in taskRuns" :key="run.id" class="fb-run">
+                      <div class="fb-run__head">
+                        <GsTag :tone="taskRunStatusTone(run.status)">{{ taskRunStatusLabel(run.status) }}</GsTag>
+                        <span class="fb-muted">{{ formatRunTime(run.startedAt) }}</span>
+                        <Button v-if="run.runId" class="fb-run__action" size="small" @click="openRun(run.runId)">
+                          {{ $t('gainos.findBuyers.viewRun') }}
+                        </Button>
                       </div>
-                    </dl>
-                    <ul class="fb-list">
-                      <li v-for="(result, i) in backtest.results" :key="i">
-                        {{ textOf(result) || JSON.stringify(result) }}
+                    </li>
+                  </ul>
+                  <p v-else class="fb-muted">{{ $t('gainos.findBuyers.taskRunsEmpty') }}</p>
+                </section>
+              </template>
+
+              <!-- 三层画像结构（卖方 / 买方 / 同行排除彻底解耦） -->
+              <section
+                v-if="selectedThreeLayer"
+                class="fb-section"
+                data-gs="icp-three-layer"
+              >
+                <header class="fb-section__head">
+                  <div class="min-w-0">
+                    <h3 class="fb-section__title">{{ $t('gainos.findBuyers.threeLayerTitle') }}</h3>
+                    <p class="fb-muted">{{ $t('gainos.findBuyers.threeLayerDesc') }}</p>
+                  </div>
+                </header>
+                <ThreeLayerProfileCard :profile="selectedThreeLayer" />
+              </section>
+
+              <!-- 画像概览 -->
+              <section class="fb-section" data-gs="icp-overview">
+                <header class="fb-section__head">
+                  <div class="min-w-0">
+                    <h3 class="fb-section__title">{{ $t('gainos.findBuyers.overviewTitle') }}</h3>
+                    <p class="fb-muted">{{ $t('gainos.findBuyers.detailHint') }}</p>
+                  </div>
+                </header>
+                <div class="fb-sections">
+                  <div class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.targetMarkets') }}</p>
+                    <div v-if="(selected.targetMarkets ?? []).length > 0" class="fb-chips">
+                      <Tag
+                        v-for="market in selected.targetMarkets"
+                        :key="market"
+                        :bordered="false"
+                        class="fb-chip"
+                        :title="market"
+                      >
+                        {{ regionName(market) }}
+                      </Tag>
+                    </div>
+                    <p v-else class="fb-muted">—</p>
+                  </div>
+
+                  <div class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.companyAttributes') }}</p>
+                    <Descriptions
+                      v-if="attributesOf(selected).length > 0"
+                      :colon="false"
+                      :column="{ md: 2, xs: 1 }"
+                      size="small"
+                    >
+                      <DescriptionsItem
+                        v-for="item in attributesOf(selected)"
+                        :key="item.key"
+                        :label="item.key"
+                      >
+                        {{ item.value }}
+                      </DescriptionsItem>
+                    </Descriptions>
+                    <p v-else class="fb-muted">—</p>
+                  </div>
+
+                  <!-- 画像依据：引擎记录的「这份画像按什么生成」，和上面的目标公司属性不是一回事。 -->
+                  <div v-if="lineageOf(selected).length > 0" class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.lineageTitle') }}</p>
+                    <Descriptions :colon="false" :column="{ md: 2, xs: 1 }" size="small">
+                      <DescriptionsItem
+                        v-for="item in lineageOf(selected)"
+                        :key="item.key"
+                        :label="item.key"
+                      >
+                        {{ item.value }}
+                      </DescriptionsItem>
+                    </Descriptions>
+                  </div>
+
+                  <div class="fb-grid-2">
+                    <div v-for="section in overviewSections" :key="section.key" class="fb-block">
+                      <p class="fb-label">{{ section.title }}</p>
+                      <p class="fb-hint">{{ section.hint }}</p>
+                      <ul v-if="section.items.length > 0" class="fb-list">
+                        <li v-for="(item, i) in section.items" :key="i">{{ item }}</li>
+                      </ul>
+                      <p v-else class="fb-muted">—</p>
+                    </div>
+                  </div>
+
+                  <!-- 该找的人：角色卡（想达成什么 / 客户难题 / 关注点） -->
+                  <div v-if="peopleOfSelected.length > 0" class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.personas') }}</p>
+                    <p class="fb-hint">{{ $t('gainos.findBuyers.personasHint') }}</p>
+                    <div class="fb-personas">
+                      <div v-for="person in peopleOfSelected" :key="person.title" class="fb-persona">
+                        <p class="fb-persona__title">{{ person.title }}</p>
+                        <p v-if="person.goals.length" class="fb-muted">
+                          <em class="fb-key">{{ $t('gainos.findBuyers.goals') }}</em>{{ person.goals.join(' · ') }}
+                        </p>
+                        <p v-if="person.pains.length" class="fb-muted">
+                          <em class="fb-key">{{ $t('gainos.findBuyers.painPoints') }}</em>
+                          {{ person.pains.join(' · ') }}
+                        </p>
+                        <p v-if="person.concerns.length" class="fb-muted">
+                          <em class="fb-key">{{ $t('gainos.findBuyers.concerns') }}</em>{{ person.concerns.join(' · ') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Phase 3B：已沉淀的排除规则与反例学习摘要 -->
+              <section
+                v-if="feedbackSummary"
+                class="fb-section"
+                data-gs="icp-learned-feedback"
+              >
+                <header class="fb-section__head">
+                  <div class="min-w-0">
+                    <h3 class="fb-section__title">{{ $t('gainos.findBuyers.learnedFeedbackTitle') }}</h3>
+                    <p class="fb-muted">{{ $t('gainos.findBuyers.learnedFeedbackDesc') }}</p>
+                  </div>
+                  <GsTag tone="info">
+                    {{ $t('gainos.findBuyers.learnedTotalCount', { count: feedbackSummary.stats.totalRecorded }) }}
+                  </GsTag>
+                </header>
+                <div
+                  v-if="
+                    feedbackSummary.excludedDomains.length === 0 &&
+                    feedbackSummary.excludedKeywords.length === 0 &&
+                    feedbackSummary.counterExamples.length === 0 &&
+                    feedbackSummary.positiveExamples.length === 0
+                  "
+                  class="fb-muted"
+                >
+                  {{ $t('gainos.findBuyers.learnedEmpty') }}
+                </div>
+                <div v-else class="fb-stack">
+                  <div v-if="feedbackSummary.excludedDomains.length > 0" class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedDomains') }}</p>
+                    <div class="fb-chips" data-gs="icp-learned-domains">
+                      <Tag
+                        v-for="domain in feedbackSummary.excludedDomains"
+                        :key="domain"
+                        :bordered="false"
+                        class="fb-chip"
+                        color="red"
+                      >
+                        {{ domain }}
+                      </Tag>
+                    </div>
+                  </div>
+                  <div v-if="feedbackSummary.excludedKeywords.length > 0" class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.learnedExcludedKeywords') }}</p>
+                    <div class="fb-chips" data-gs="icp-learned-keywords">
+                      <Tag
+                        v-for="kw in feedbackSummary.excludedKeywords"
+                        :key="kw"
+                        :bordered="false"
+                        class="fb-chip"
+                        color="orange"
+                      >
+                        {{ kw }}
+                      </Tag>
+                    </div>
+                  </div>
+                  <div v-if="feedbackSummary.counterExamples.length > 0" class="fb-block">
+                    <p class="fb-label">{{ $t('gainos.findBuyers.learnedCounterExamples') }}</p>
+                    <ul class="fb-list" data-gs="icp-learned-counter-examples">
+                      <li v-for="(ex, idx) in feedbackSummary.counterExamples" :key="`${ex.domain ?? idx}-${idx}`">
+                        <strong>{{ ex.companyName || ex.domain || '—' }}</strong>
+                        <Tag :bordered="false" class="ml-2 text-xs">{{ learnedReasonLabel(ex.reason) }}</Tag>
+                        <span v-if="ex.note" class="fb-muted"> · {{ ex.note }}</span>
+                        <span v-if="ex.recordedAt" class="fb-muted"> · {{ formatDateTime(ex.recordedAt) }}</span>
                       </li>
                     </ul>
-                  </template>
+                  </div>
                 </div>
-              </div>
-            </CollapsePanel>
-          </Collapse>
+              </section>
+
+              <!-- 反馈建议（只建议，采纳=手动编辑画像） -->
+              <section
+                v-if="feedback && feedback.suggestions.length > 0"
+                class="fb-section"
+                data-gs="icp-suggestions"
+              >
+                <header class="fb-section__head">
+                  <div class="min-w-0">
+                    <h3 class="fb-section__title">{{ $t('gainos.findBuyers.suggestionsTitle') }}</h3>
+                    <p class="fb-muted">{{ $t('gainos.findBuyers.suggestionsDesc') }}</p>
+                  </div>
+                </header>
+                <ul class="fb-list">
+                  <li v-for="(card, index) in feedback.suggestions" :key="index">{{ card.message }}</li>
+                </ul>
+              </section>
+
+              <!-- 高级：资格规则与回测。产品决定暂时隐藏（feature-flags.ts）；恢复时仍是默认收起。 -->
+              <section v-if="!ICP_ADVANCED_HIDDEN" class="fb-section fb-section--flush" data-gs="icp-advanced">
+                <Collapse ghost>
+                  <CollapsePanel key="advanced" :header="$t('gainos.findBuyers.advanced')">
+                    <div class="fb-stack">
+                      <Alert
+                        v-if="selected.ruleLint.length > 0"
+                        :message="$t('gainos.findBuyers.ruleLint')"
+                        show-icon
+                        type="warning"
+                      >
+                        <template #description>
+                          <ul class="fb-list">
+                            <li v-for="(warning, i) in selected.ruleLint" :key="i">{{ warning }}</li>
+                          </ul>
+                        </template>
+                      </Alert>
+
+                      <div class="fb-sub">
+                        <div class="fb-sub__head">
+                          <div>
+                            <p class="fb-h3">{{ $t('gainos.findBuyers.rulesTitle') }}</p>
+                            <p class="fb-muted">{{ $t('gainos.findBuyers.rulesDesc') }}</p>
+                          </div>
+                          <Button size="small" @click="openRule()">{{ $t('gainos.findBuyers.addRule') }}</Button>
+                        </div>
+                        <ErrorNotice
+                          v-if="ruleError && !ruleOpen"
+                          :next="ruleError.next"
+                          :title="ruleError.title"
+                        />
+                        <ul v-if="selected.rules.length > 0" class="fb-stack">
+                          <li v-for="rule in selected.rules" :key="rule.id" class="fb-rule">
+                            <Tag :bordered="false" class="fb-chip">{{ kindLabel(rule.kind) }}</Tag>
+                            <code class="fb-rule__expr">
+                              {{ rule.field }} {{ operatorLabel(rule.operator) }} {{ ruleValueText(rule.value) }}
+                            </code>
+                            <span v-if="rule.kind === 'NICE_TO_HAVE'" class="fb-muted">×{{ rule.weight }}</span>
+                            <span v-if="rule.rationale" class="fb-muted fb-rule__why">{{ rule.rationale }}</span>
+                            <span class="fb-rule__actions">
+                              <Button size="small" type="link" @click="openRule(rule)">
+                                {{ $t('gainos.findBuyers.editRule') }}
+                              </Button>
+                              <Button danger size="small" type="link" @click="removeRule(rule)">
+                                {{ $t('gainos.findBuyers.deleteRule') }}
+                              </Button>
+                            </span>
+                          </li>
+                        </ul>
+                        <p v-else class="fb-muted">{{ $t('gainos.findBuyers.noRules') }}</p>
+                      </div>
+
+                      <div class="fb-sub">
+                        <p class="fb-h3">{{ $t('gainos.findBuyers.backtestTitle') }}</p>
+                        <p class="fb-muted">{{ $t('gainos.findBuyers.backtestDesc') }}</p>
+                        <Input.TextArea
+                          v-model:value="backtestText"
+                          :aria-label="$t('gainos.findBuyers.backtestSamples')"
+                          :rows="8"
+                          class="fb-mono"
+                        />
+                        <ErrorNotice
+                          v-if="backtestError"
+                          :next="backtestError.next"
+                          :title="backtestError.title"
+                        />
+                        <Button :loading="backtestBusy" class="justify-self-start" type="primary" @click="runBacktest">
+                          {{ $t('gainos.findBuyers.runBacktest') }}
+                        </Button>
+                        <template v-if="backtest">
+                          <dl class="fb-facts">
+                            <div v-for="(value, key) in backtest.metrics" :key="key">
+                              <dt>{{ key }}</dt>
+                              <dd>{{ textOf(value) || JSON.stringify(value) }}</dd>
+                            </div>
+                          </dl>
+                          <ul class="fb-list">
+                            <li v-for="(result, i) in backtest.results" :key="i">
+                              {{ textOf(result) || JSON.stringify(result) }}
+                            </li>
+                          </ul>
+                        </template>
+                      </div>
+                    </div>
+                  </CollapsePanel>
+                </Collapse>
+              </section>
+            </template>
+          </div>
         </GsCard>
       </div>
-    </Drawer>
-
-    <!-- 设定目标客户画像（从公司档案生成初稿） -->
+    </template>
+    <!-- 设定买家画像（从公司档案生成初稿） -->
     <Modal
       v-model:open="createOpen"
       :confirm-loading="creating"
@@ -1734,7 +2133,7 @@ onUnmounted(stopDetailStreamPoll);
       @ok="createIcp"
     >
       <div class="fb-dialog">
-        <p class="fb-muted">{{ $t('gainos.findBuyers.createDesc') }}</p>
+        <p class="fb-muted">{{ $t(ICP_ADVANCED_HIDDEN ? 'gainos.findBuyers.createDescSimple' : 'gainos.findBuyers.createDesc') }}</p>
         <ErrorNotice
           v-if="createError"
           :code="createError.code"
@@ -1881,48 +2280,68 @@ onUnmounted(stopDetailStreamPoll);
       </div>
     </Modal>
 
-    <!-- 编辑画像 -->
+    <!-- 编辑画像：常用内容都是普通输入框；目标公司属性按字段填，没登记的才留在「其他属性」的原始数据里 -->
     <Modal
       v-model:open="editOpen"
       :confirm-loading="editing"
       :ok-text="$t('gainos.findBuyers.saveChanges')"
       :title="$t('gainos.findBuyers.editTitle')"
-      :width="640"
-      data-gs="icp-edit-modal"
+      :width="760"
       @ok="saveEdit"
     >
       <div class="fb-dialog">
         <ErrorNotice v-if="editError" :next="editError.next" :title="editError.title" />
-        <label class="fb-field">
-          <span>{{ $t('gainos.findBuyers.name') }}</span>
-          <Input v-model:value="editForm.name" />
-        </label>
-        <label class="fb-field">
-          <span>{{ $t('gainos.findBuyers.targetMarkets') }}</span>
-          <Input v-model:value="editForm.targetMarkets" :placeholder="$t('gainos.findBuyers.marketsHint')" />
-        </label>
+        <div class="fb-form-grid">
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.name') }}</span>
+            <Input v-model:value="editForm.name" />
+          </label>
+          <label class="fb-field">
+            <span>{{ $t('gainos.findBuyers.targetMarkets') }}</span>
+            <Input v-model:value="editForm.targetMarkets" :placeholder="$t('gainos.findBuyers.marketsHint')" />
+          </label>
+        </div>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.painPoints') }}</span>
-          <Input.TextArea v-model:value="editForm.painPoints" :rows="3" />
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.painPointsHint') }}</em>
+          <Input.TextArea v-model:value="editForm.painPoints" :auto-size="{ maxRows: 6, minRows: 2 }" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.triggerSignals') }}</span>
-          <Input.TextArea v-model:value="editForm.triggerSignals" :rows="3" />
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.triggerSignalsHint') }}</em>
+          <Input.TextArea v-model:value="editForm.triggerSignals" :auto-size="{ maxRows: 6, minRows: 2 }" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.exclusions') }}</span>
-          <Input.TextArea v-model:value="editForm.exclusions" :rows="3" />
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.exclusionsHint') }}</em>
+          <Input.TextArea v-model:value="editForm.exclusions" :auto-size="{ maxRows: 6, minRows: 2 }" />
         </label>
         <label class="fb-field">
           <span>{{ $t('gainos.findBuyers.valueProps') }}</span>
-          <Input.TextArea v-model:value="editForm.valueProps" :rows="3" />
+          <em class="fb-field-hint">{{ $t('gainos.findBuyers.valuePropsHint') }}</em>
+          <Input.TextArea v-model:value="editForm.valueProps" :auto-size="{ maxRows: 6, minRows: 2 }" />
         </label>
-        <label class="fb-field">
-          <span>{{ $t('gainos.findBuyers.companyAttributes') }}</span>
-          <Input.TextArea v-model:value="editForm.attributesText" :rows="6" class="fb-mono" />
-        </label>
-        <p class="fb-muted">{{ $t('gainos.findBuyers.attributesHint') }}</p>
-        <pre class="fb-code">{{ '{"industry": "metal fabrication", "country": "DE"}' }}</pre>
+
+        <fieldset class="fb-fieldset">
+          <legend>{{ $t('gainos.findBuyers.companyAttributes') }}</legend>
+          <p class="fb-hint fb-fieldset__hint">{{ $t('gainos.findBuyers.attributesSectionHint') }}</p>
+          <div class="fb-form-grid">
+            <label v-for="field in ATTRIBUTE_FIELDS" :key="field.key" class="fb-field">
+              <span>{{ attributeLabel(field.key) }}</span>
+              <Input.TextArea
+                v-if="field.list"
+                v-model:value="editForm.attributes[field.key]"
+                :auto-size="{ maxRows: 5, minRows: 1 }"
+              />
+              <Input v-else v-model:value="editForm.attributes[field.key]" />
+            </label>
+          </div>
+          <details class="fb-adv">
+            <summary>{{ $t('gainos.findBuyers.attributesOther') }}</summary>
+            <p class="fb-hint">{{ $t('gainos.findBuyers.attributesOtherHint') }}</p>
+            <Input.TextArea v-model:value="editForm.otherAttributesText" :rows="5" class="fb-mono" />
+          </details>
+        </fieldset>
       </div>
     </Modal>
 
@@ -1976,6 +2395,24 @@ onUnmounted(stopDetailStreamPoll);
         </div>
       </div>
     </Modal>
+
+    <!-- 下一步：贴在视口底部。这份画像现在该做什么，全页只给这一个按钮（和方案里的具体按钮做同一件事）。 -->
+    <div v-if="nextAction" class="fb-next" data-gs="icp-next">
+      <p class="fb-next__hint">
+        <strong>{{ $t('gainos.findBuyers.nextLabel') }}：{{ nextAction.title }}</strong>
+        <span>{{ nextAction.desc }}</span>
+      </p>
+      <Button
+        class="fb-next__btn"
+        data-gs="icp-next-button"
+        :loading="nextAction.loading"
+        size="large"
+        type="primary"
+        @click="nextAction.run"
+      >
+        {{ $t('gainos.findBuyers.nextLabel') }} <span aria-hidden="true">→</span>
+      </Button>
+    </div>
   </div>
 </template>
 
@@ -2007,6 +2444,21 @@ onUnmounted(stopDetailStreamPoll);
   font-size: 12px;
   line-height: 18px;
 }
+/* 板块标题下的一行白话说明：让没看过文档的人也知道这一栏是问什么。 */
+.fb-hint {
+  margin: -2px 0 2px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.fb-field-hint {
+  display: block;
+  margin: -2px 0 4px;
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  line-height: 18px;
+  font-style: normal;
+}
 .fb-toolbar__main {
   min-width: 0;
   padding-left: 12px;
@@ -2027,15 +2479,7 @@ onUnmounted(stopDetailStreamPoll);
   white-space: nowrap;
 }
 
-/* ── 详情抽屉 ─────────────────────────────────────────────────────────── */
-.fb-drawer :deep(.ant-drawer-header) {
-  padding: 18px 24px 14px;
-}
-.fb-drawer__title {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
+/* ── 画像工作区（页内常驻）─────────────────────────────────────────────── */
 .fb-kicker {
   margin: 0;
   color: var(--gs-accent-fg);
@@ -2043,28 +2487,115 @@ onUnmounted(stopDetailStreamPoll);
   line-height: 18px;
   font-weight: 500;
 }
-.fb-drawer__name {
+.fb-workspace__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--gs-divider);
+}
+.fb-workspace__name {
   margin: 0;
   color: var(--gs-fg);
   font-size: 20px;
   line-height: 28px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
-.fb-drawer__meta {
+.fb-workspace__meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 4px;
+}
+.fb-workspace__tools {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-workspace__field {
+  display: grid;
+  gap: 4px;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+}
+.fb-workspace__select {
+  min-width: 280px;
+}
+.fb-workspace__body {
+  display: grid;
+}
+.fb-section {
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px;
+}
+.fb-section + .fb-section {
+  border-top: 1px solid var(--gs-divider);
+}
+.fb-section--flush {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.fb-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.fb-section__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.fb-section__head .fb-muted {
   margin-top: 2px;
 }
-.fb-drawer__hint {
-  margin-bottom: 16px;
-}
-.fb-drawer__body {
-  display: grid;
+
+/* ── 下一步：贴在视口底部 ──────────────────────────────────────────────── */
+.fb-next {
+  position: sticky;
+  /* 底部有进度浮窗时抬到它上面 */
+  bottom: calc(12px + var(--gs-flow-bar-h, 0px));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
+  padding: 10px 12px 10px 18px;
+  border-radius: 10px;
+  background: var(--gs-surface);
+  box-shadow: var(--gs-shadow-float);
+}
+.fb-next__hint {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+.fb-next__hint strong {
+  color: var(--gs-fg);
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.fb-next__hint span {
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.fb-next__btn {
+  flex: none;
 }
 
+/* ── 画像概览 ─────────────────────────────────────────────────────────── */
 .fb-block {
   display: grid;
   gap: 6px;
@@ -2084,9 +2615,6 @@ onUnmounted(stopDetailStreamPoll);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px 24px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--gs-divider);
 }
 .fb-list {
   display: grid;
@@ -2114,6 +2642,10 @@ onUnmounted(stopDetailStreamPoll);
   font-size: 12px;
   line-height: 22px;
 }
+.fb-chip--keyword {
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent-fg);
+}
 .fb-personas {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -2134,7 +2666,7 @@ onUnmounted(stopDetailStreamPoll);
   line-height: 20px;
 }
 
-/* ── 方案 / 运行 / 搜索条件 ────────────────────────────────────────────── */
+/* ── 寻源方案：结论 → 渠道 → 搜索词 ───────────────────────────────────── */
 .fb-stack {
   display: grid;
   gap: 10px;
@@ -2159,25 +2691,61 @@ onUnmounted(stopDetailStreamPoll);
   flex-wrap: wrap;
   gap: 8px;
 }
+.fb-plan__lead {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+}
 .fb-plan__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 .fb-run__action {
-  justify-self: start;
+  margin-left: auto;
 }
-.fb-query__head {
+.fb-channels {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fb-channel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--gs-surface);
+}
+.fb-channel__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
 }
-.fb-query__head strong {
+.fb-channel__name {
   color: var(--gs-fg);
   font-size: 13px;
   font-weight: 600;
+}
+.fb-channel__toggle {
+  height: auto;
+  margin-left: auto;
+  padding: 0;
+}
+.fb-queries {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+  border-left: 2px solid var(--gs-divider);
+}
+.fb-query__meta {
+  margin: 0;
 }
 .fb-query__filter {
   padding: 1px 8px;
@@ -2192,14 +2760,14 @@ onUnmounted(stopDetailStreamPoll);
   color: var(--gs-fg-muted);
   font-style: normal;
 }
-/* 方案盒内的折叠头与内容贴齐盒子内边距（antd 默认 16px 横向内边距） */
-.fb-plan :deep(.ant-collapse-header) {
-  padding-inline: 0;
-  color: var(--gs-fg-muted);
-  font-size: 12.5px;
-}
-.fb-plan :deep(.ant-collapse-content-box) {
-  padding-inline: 0;
+.fb-notes {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--gs-fg);
+  font-size: 13px;
+  line-height: 1.7;
 }
 .fb-raw > summary {
   color: var(--gs-fg-subtle);
@@ -2214,6 +2782,10 @@ onUnmounted(stopDetailStreamPoll);
   border-radius: 8px;
   background: var(--gs-surface);
   font-size: 11.5px;
+}
+.fb-raw .fb-list {
+  margin-top: 6px;
+  color: var(--gs-fg-muted);
 }
 
 /* ── 高级：规则与回测 ──────────────────────────────────────────────────── */
@@ -2274,17 +2846,6 @@ onUnmounted(stopDetailStreamPoll);
   font-family: var(--gs-font-mono);
   font-size: 12px;
 }
-.fb-code {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--gs-surface-2);
-  font-family: var(--gs-font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 /* ── 弹层表单 ─────────────────────────────────────────────────────────── */
 .fb-dialog {
@@ -2338,11 +2899,54 @@ onUnmounted(stopDetailStreamPoll);
   color: var(--gs-accent-fg, #1d4ed8);
   font-weight: 600;
 }
+.fb-fieldset {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--gs-divider);
+  border-radius: 10px;
+}
+.fb-fieldset > legend {
+  padding: 0 6px;
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fb-fieldset__hint {
+  margin: 0;
+}
+.fb-adv > summary {
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.fb-adv[open] > summary {
+  margin-bottom: 6px;
+}
 
-@media (max-width: 719px) {
+/* ── 窄屏（按内容区宽度）──────────────────────────────────────────────── */
+@container (max-width: 719px) {
   .fb-grid-2,
   .fb-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .fb-section,
+  .fb-workspace__head {
+    padding: 16px;
+  }
+  .fb-workspace__select {
+    min-width: 0;
+    width: 100%;
+  }
+  .fb-next {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 12px 12px 14px;
+  }
+  .fb-next__btn {
+    width: 100%;
   }
 }
 </style>

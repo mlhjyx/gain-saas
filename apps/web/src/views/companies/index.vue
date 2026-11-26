@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
+import { notifyChainChanged } from '#/composables/use-main-chain-progress';
 import { newAttemptId } from '#/utils/attempt-id';
 import { Plus, RotateCw } from '@vben/icons';
 
@@ -540,7 +541,7 @@ const formError = ref<string | null>(null);
 const createdNotice = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-// ── 企业事实（Claim）审批：只有「已通过」的事实会进入目标客户画像设计 ──
+// ── 企业事实（Claim）审批：只有「已通过」的事实会进入买家画像设计 ──
 const claimsOpen = ref(false);
 const claimsRecoveryReadOnly = ref(false);
 let claimsEpoch = 0;
@@ -906,6 +907,7 @@ async function reviewSelected(action: 'approve' | 'reject'): Promise<void> {
   // 审批达 3 条通过会把企业自动激活（REVIEW→ACTIVE）：列表状态必须跟上，
   // 否则卡片仍显示「待确认」，再点「确认档案」会撞 INVALID_STATE。
   if (action === 'approve' && failed < total) void load(true);
+  notifyChainChanged();
   if (failed > 0) {
     claimActionError.value = $t('gainos.companies.claimsPartialFail', { count: failed });
   } else {
@@ -1514,6 +1516,7 @@ async function confirmCompany(company: CompanyProfile): Promise<void> {
   error.value = null;
   try {
     await gainosApi.confirmCompany(companyId);
+    notifyChainChanged();
     await load();
   } catch (err) {
     // 事实审批达阈值会自动激活（引擎 claim 审批事务内 REVIEW→ACTIVE），
@@ -1589,7 +1592,7 @@ onMounted(async () => {
   await load();
 });
 onActivated(() => {
-  // 从「找买家」回来时，目标客户画像可能刚变化：刷新画像与事实计数。
+  // 从「找买家」回来时，买家画像可能刚变化：刷新画像与事实计数。
   if (!loading.value) {
     void loadIcps();
     void loadSummaries();

@@ -94,3 +94,7 @@
 - e2e 前先看 4173 上是谁：`ss -ltnp 'sport = :4173'`，再对 pid 做 `readlink /proc/<pid>/cwd`。只有确认是自己留下的残留进程才 kill；
   如果是别的 worktree 正在用（同机多任务并行很常见），不要动它，改用 `GAINOS_E2E_PORT=4183 pnpm exec playwright test …` 换端口跑。
   Playwright 见端口已被占用会直接复用，等于拿别的目录的构建在测：断言成片失败，却查不出原因（2026-11-26 踩过）。
+- 给 Playwright 限时用 `--global-timeout=<毫秒>`，不要用 shell 的 `timeout` 包：后者会留下孤儿预览进程占着端口。
+- 本地跑门禁时不要写 `pnpm lint:terms | tail -1` 这种管道（失败会被 `tail` 的退出码盖住），先 `set -o pipefail`，或直接看输出。
+- e2e 会改写 `docs/evidence/ui-restyle/{antd-system,pass2,pass3}/` 下的截图与扫描结果。还原它们时只写这三个子目录，
+  不要 `git checkout -- docs/evidence/ui-restyle`：`inventory.md` 在上一级目录，会连同没提交的改动一起被冲掉（2026-11-26 踩过）。
