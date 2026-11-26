@@ -1254,6 +1254,26 @@ export const ENGINE_ERROR_COPY = {
       next: 'Ask platform operations to configure the internal purge service token and retry.',
     },
   },
+  INSUFFICIENT_CREDITS: {
+    title: '积分余额不足，无法发起当前操作',
+    why: '当前工作空间可用积分不足以预占本次作业所需点数；系统未发起扣费，且按有效产出计费（空跑或失败全额退还）。',
+    next: '前往「设置 → 积分与账单」查看余额与价目表，联系管理员或平台运营充值后再试。',
+    en: {
+      title: 'Insufficient credits for this action',
+      why: 'Available workspace credits are below the required hold amount. No credits were deducted; valid-outcome billing refunds failed or empty tasks automatically.',
+      next: 'Check your balance and pricing under Settings → Credits & billing, then top up and retry.',
+    },
+  },
+  WALLET_FROZEN: {
+    title: '当前工作空间钱包已冻结',
+    why: '该工作空间的积分钱包当前处于冻结状态，暂时无法扣减或预占积分。',
+    next: '请联系平台运营核实账户状态并恢复后再试。',
+    en: {
+      title: 'Workspace wallet is frozen',
+      why: 'This workspace credit wallet is currently frozen and cannot hold or spend credits.',
+      next: 'Contact platform operations to review and restore wallet status before retrying.',
+    },
+  },
 } as const satisfies Record<string, ErrorCopy>;
 
 export type EngineErrorCode = keyof typeof ENGINE_ERROR_COPY;

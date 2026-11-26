@@ -1,9 +1,11 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { Prisma, type EventInbox } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
 import { PrismaService } from '../shared/prisma.service.js';
+import { extractDiscoveryBillableUnits } from '../wallet/bff-wallet-billing.js';
+import { WalletService } from '../wallet/wallet.service.js';
 
 /**
  * 事件消费(SD4):pull + ack 主通道。
@@ -199,6 +201,7 @@ export class EventConsumerService implements OnModuleInit {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly signer: EngineTokenSigner,
     private readonly prisma: PrismaService,
+    @Optional() private readonly wallet?: WalletService,
   ) {}
 
   onModuleInit(): void {
@@ -579,6 +582,19 @@ export class EventConsumerService implements OnModuleInit {
               ? 'The discovery task was stopped — leads from the finished part are kept'
               : 'The discovery task finished — leads are ready';
       await this.notify(tx, workspaceId, notificationType, runId, title, titleEn);
+      // M9 充值钱包异步结算：仅在 WALLET_BILLING_ENABLED 开启且存在活跃预占单时按合格线索数结算；
+      // FAILED / CANCELLED / 0 线索自动 0 扣费全额退点（兼容真实引擎 stats.quickScan.leads / stats.fit.match）。
+      if (this.wallet?.billingEnabled) {
+        const billableUnits = extractDiscoveryBillableUnits(status, payload);
+        await this.wallet.settleHoldByRef(
+          workspaceId,
+          'discovery_run',
+          runId,
+          billableUnits,
+          `DiscoveryRunCompleted:${status}`,
+          'system:event-consumer',
+        );
+      }
       return;
     }
 

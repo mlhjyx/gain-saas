@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web';
-import { type CanActivate, type ExecutionContext, HttpException, Inject, Injectable, Logger, Module } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, HttpException, Inject, Injectable, Logger, Module, Optional } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { EngineHttp } from './engine-http.js';
 import { EngineBudgetGrantService, EngineBudgetQuoteError } from './engine-budget-grant.service.js';
@@ -24,6 +24,15 @@ import { APP_CONFIG, ConfigModule } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
 import { ComplianceDeclarationService } from '../service/compliance-declaration.service.js';
+import { WalletModule } from '../wallet/wallet.module.js';
+import { WalletService } from '../wallet/wallet.service.js';
+import { InsufficientCreditsError, WalletFrozenError } from '../wallet/wallet.types.js';
+import {
+  buildBffHoldIdempotencyKey,
+  extractDiscoveryRunId,
+  extractSyncBillableUnits,
+  resolveBffWalletAction,
+} from '../wallet/bff-wallet-billing.js';
 import { copyForError } from '@gain-saas/shared';
 
 /**
@@ -116,6 +125,7 @@ export class BffHandler {
     private readonly audit: AuditService,
     private readonly compliance: ComplianceDeclarationService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Optional() private readonly wallet?: WalletService,
   ) {}
 
   async handle(req: Request, res: Response): Promise<void> {
@@ -183,15 +193,86 @@ export class BffHandler {
     const headers: Record<string, string> = {};
     const idempotencyKey = req.get('idempotency-key');
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
+
+    // M9 充值钱包灰度扣费（WALLET_BILLING_ENABLED=true 时生效，默认 false）：
+    // 建档与 ICP 免费；核心收费动作按「预占 → 执行 → 有效产出实扣 / 失败自动退还」闭环处理。
+    const walletSpec = this.wallet?.billingEnabled
+      ? resolveBffWalletAction(route.method, route.enginePath)
+      : null;
+    let activeHoldId: string | null = null;
+    if (walletSpec && this.wallet) {
+      const refId = params[walletSpec.refParam] ?? route.saasPath;
+      const holdKey = buildBffHoldIdempotencyKey(walletSpec, refId, idempotencyKey, forwardBody);
+      try {
+        const held = await this.wallet.holdCredits(tenant.workspaceId, {
+          idempotencyKey: holdKey,
+          actionCode: walletSpec.actionCode,
+          refType: walletSpec.refType,
+          refId,
+          actorId: tenant.userId,
+        });
+        // 仅新建的预占单才归属本次请求释放/结算；若命中幂等重放（idempotent === true），
+        // 绝不得在并发或重试遇上游 409/5xx/超时时误释放原在途请求的 HELD 冻结（防 0 积分白嫖）。
+        if (!held.free && !held.idempotent && held.hold) {
+          activeHoldId = held.hold.id;
+        }
+      } catch (err) {
+        const lang = req.headers?.['accept-language'] as string | undefined;
+        if (err instanceof InsufficientCreditsError) {
+          const copy = copyForError('INSUFFICIENT_CREDITS', lang);
+          res.status(402).json({
+            error: {
+              code: 'INSUFFICIENT_CREDITS',
+              userCopy: { title: copy.title, why: copy.why, next: copy.next },
+              details: {
+                availableCredits: err.availableCredits,
+                requiredCredits: err.requiredCredits,
+                actionCode: err.actionCode,
+              },
+            },
+            meta: { engineCode: 'INSUFFICIENT_CREDITS', engineMessage: err.message },
+          });
+          return;
+        }
+        if (err instanceof WalletFrozenError) {
+          const copy = copyForError('WALLET_FROZEN', lang);
+          res.status(403).json({
+            error: {
+              code: 'WALLET_FROZEN',
+              userCopy: { title: copy.title, why: copy.why, next: copy.next },
+            },
+            meta: { engineCode: 'WALLET_FROZEN', engineMessage: err.message },
+          });
+          return;
+        }
+        throw err;
+      }
+    }
+
+    const releaseActiveHold = async (reason: string): Promise<void> => {
+      if (!activeHoldId || !this.wallet) return;
+      const holdToRelease = activeHoldId;
+      activeHoldId = null;
+      try {
+        await this.wallet.releaseHold(tenant.workspaceId, holdToRelease, reason, tenant.userId);
+      } catch (releaseErr) {
+        this.logger.warn(
+          `预占积分退还失败(hold=${holdToRelease}, reason=${reason}): ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+        );
+      }
+    };
+
     if (route.grant) {
       const quoteRequest = budgetQuoteRequest(route, params, forwardBody, quoteOptions);
       if (!quoteRequest) {
+        await releaseActiveHold('BFF_BUDGET_ROUTE_INVALID');
         res.status(500).json({ error: { code: 'BFF_BUDGET_ROUTE_INVALID', message: '写路由缺少预算 quote 映射' } });
         return;
       }
       try {
         headers['x-execution-budget-grant'] = await this.budget.issue(tenant, quoteRequest);
       } catch (err) {
+        await releaseActiveHold('BUDGET_GRANT_FAILED');
         if (err instanceof WorkspaceBudgetQuotaExceededError) {
           res.status(err.status).json(
             this.engine.toClientError(err.status, { error: { code: err.code, message: err.message } }, req.headers?.['accept-language'] as string | undefined),
@@ -291,10 +372,33 @@ export class BffHandler {
         timeoutMs: route.timeoutMs,
       });
       if (result.status >= 400) {
+        await releaseActiveHold(`DISPATCH_FAILED_HTTP_${result.status}`);
         // 引擎 401/403 折算 502:不能让上游授权问题触发前端「会话过期」登出
         const clientStatus = this.engine.toClientStatus(result.status, result.body);
         res.status(clientStatus).json(this.engine.toClientError(result.status, result.body, req.headers?.['accept-language'] as string | undefined));
         return;
+      }
+      if (activeHoldId && walletSpec && this.wallet) {
+        try {
+          if (walletSpec.mode === 'async') {
+            const runId = extractDiscoveryRunId(result.body);
+            if (runId) {
+              await this.wallet.attachHoldRef(tenant.workspaceId, activeHoldId, runId);
+            }
+          } else {
+            const units = extractSyncBillableUnits(walletSpec.actionCode, result.body);
+            await this.wallet.settleHold(tenant.workspaceId, {
+              holdId: activeHoldId,
+              billableUnits: units,
+              actorId: tenant.userId,
+            });
+          }
+          activeHoldId = null;
+        } catch (settleErr) {
+          this.logger.warn(
+            `预占积分结算/绑定失败(hold=${activeHoldId}): ${settleErr instanceof Error ? settleErr.message : String(settleErr)}`,
+          );
+        }
       }
       if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
         void this.audit.record({
@@ -315,6 +419,7 @@ export class BffHandler {
       }
       res.status(result.status).json(result.body);
     } catch (err) {
+      await releaseActiveHold('ENGINE_DISPATCH_ERROR');
       // 引擎不可达:三层文案 + 技术详情(与引擎业务错误同构)
       res.status(502).json(
         this.engine.toClientError(502, { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } }, req.headers?.['accept-language'] as string | undefined),
@@ -335,7 +440,7 @@ export function registerBffMiddleware(
   guard: BffGuard,
 ): void {
   express.use(async (req: Request, res: Response, next: () => void) => {
-    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/tasks') || req.path.startsWith('/api/campaigns') || req.path.startsWith('/api/qgos') || req.path.startsWith('/api/saos') || req.path.startsWith('/api/outreach') || req.path.startsWith('/api/public/outreach') || req.path.startsWith('/api/public/cooperation-intents') || req.path.startsWith('/api/internal/')) {
+    if (!req.path.startsWith('/api/') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/members') || req.path.startsWith('/api/ops') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/runs') || req.path.startsWith('/api/notifications') || req.path.startsWith('/api/workspace') || req.path.startsWith('/api/wallet') || req.path.startsWith('/api/onboarding') || req.path.startsWith('/api/tasks') || req.path.startsWith('/api/campaigns') || req.path.startsWith('/api/qgos') || req.path.startsWith('/api/saos') || req.path.startsWith('/api/outreach') || req.path.startsWith('/api/public/outreach') || req.path.startsWith('/api/public/cooperation-intents') || req.path.startsWith('/api/internal/')) {
       next();
       return;
     }
@@ -365,7 +470,7 @@ export function registerBffMiddleware(
 }
 
 @Module({
-  imports: [ConfigModule, TenantModule, ServiceModule],
+  imports: [ConfigModule, TenantModule, ServiceModule, WalletModule],
   controllers: [OnboardingController, AcquisitionTasksController],
   providers: [
     EngineHttp,

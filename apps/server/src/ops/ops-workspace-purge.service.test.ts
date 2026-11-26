@@ -86,6 +86,21 @@ function makeTx(options: {
     auditLog: {
       updateMany: vi.fn(async () => ({ count: 3 })),
     },
+    walletAccount: {
+      findUnique: vi.fn(async () => null),
+      update: vi.fn(async () => ({})),
+    },
+    walletHold: {
+      findMany: vi.fn(async () => []),
+      update: vi.fn(async () => ({})),
+    },
+    walletCreditLot: {
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
+    walletLedger: {
+      create: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
     outreachSendJob: del(),
     outreachSend: del(),
     outreachBounceWriteback: del(),

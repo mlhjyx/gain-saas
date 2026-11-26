@@ -4,6 +4,7 @@ import { PrismaService } from '../shared/prisma.service.js';
 import { EngineTokenSigner } from './engine-token.signer.js';
 import { EngineBudgetGrantSigner } from './engine-budget-grant.signer.js';
 import { EventConsumerService } from './event-consumer.service.js';
+import { WalletModule } from '../wallet/wallet.module.js';
 
 /**
  * 服务域(SD4/SD5):JWKS 签发 + 事件消费。
@@ -36,7 +37,7 @@ export function rolesForMembership(role: string): 'saas-admin' | 'saas-member' {
 }
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, WalletModule],
   controllers: [JwksController],
   providers: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],
   exports: [EngineTokenSigner, EngineBudgetGrantSigner, EventConsumerService, PrismaService],

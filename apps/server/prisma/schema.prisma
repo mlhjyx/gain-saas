@@ -56,6 +56,7 @@ model Workspace {
   complianceDeclarations WorkspaceComplianceDeclaration[]
   budgetPolicy WorkspaceBudgetPolicy?
   storageQuota WorkspaceStorageQuota?
+  walletAccount WalletAccount?
   offboardingRequests WorkspaceOffboardingRequest[]
   tasks       AcquisitionTask[]
   taskRuns    TaskRun[]
@@ -1714,4 +1715,131 @@ model CooperationIntent {
   @@index([createdAt], map: "cooperation_intent_created_at_idx")
   @@index([email], map: "cooperation_intent_email_idx")
   @@map("cooperation_intent")
+}
+
+// ─── M9 商业化充值钱包（Prepaid Credits Wallet，全表 BIGINT + FORCE RLS）───
+
+/// 租户钱包总账（每 workspace 一行，并发扣费 SELECT ... FOR UPDATE 行锁锚点）。
+model WalletAccount {
+  workspaceId      String   @id @map("workspace_id") @db.Uuid
+  currency         String   @default("CREDITS") @db.VarChar(16)
+  availableCredits BigInt   @default(0) @map("available_credits")
+  heldCredits      BigInt   @default(0) @map("held_credits")
+  lifetimeToppedUp BigInt   @default(0) @map("lifetime_topped_up")
+  lifetimeSpent    BigInt   @default(0) @map("lifetime_spent")
+  /// ACTIVE | FROZEN
+  status           String   @default("ACTIVE") @db.VarChar(16)
+  version          BigInt   @default(1)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  creditLots WalletCreditLot[]
+  holds      WalletHold[]
+  ledgers    WalletLedger[]
+
+  @@map("wallet_account")
+}
+
+/// 点数批次表（赠点 priority=1 优先消耗且可到期，充值 priority=10 永不过期）。
+model WalletCreditLot {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  /// TOPUP_PAID | PLAN_GRANT | PROMO_BONUS | MANUAL_ADJUST
+  sourceType       String    @map("source_type") @db.VarChar(32)
+  initialCredits   BigInt    @map("initial_credits")
+  remainingCredits BigInt    @map("remaining_credits")
+  /// 实付折算单价（µUSD / credit；赠点为 0，用于毛利核算）
+  unitPriceMicros  BigInt    @default(0) @map("unit_price_micros")
+  /// 消耗优先级：数值越小越先扣（赠点=1，充值=10）
+  priority         Int       @default(10) @db.SmallInt
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(3)
+  externalOrderId  String?   @map("external_order_id") @db.VarChar(128)
+  note             String?   @db.VarChar(500)
+  actorId          String?   @map("actor_id") @db.VarChar(128)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account WalletAccount  @relation(fields: [workspaceId], references: [workspaceId], onDelete: Restrict, onUpdate: Cascade)
+  ledgers WalletLedger[]
+
+  @@unique([workspaceId, externalOrderId], map: "wallet_credit_lot_workspace_id_external_order_id_key")
+  @@index([workspaceId, priority, expiresAt, createdAt], map: "wallet_credit_lot_consume_order_idx")
+  @@map("wallet_credit_lot")
+}
+
+/// 预占冻结单（关联同步或异步收费动作，保证幂等防双扣、失败与空跑全额退还）。
+model WalletHold {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  idempotencyKey  String    @map("idempotency_key") @db.VarChar(160)
+  actionCode      String    @map("action_code") @db.VarChar(64)
+  refType         String    @map("ref_type") @db.VarChar(64)
+  refId           String    @map("ref_id") @db.VarChar(160)
+  heldCredits     BigInt    @map("held_credits")
+  settledCredits  BigInt    @default(0) @map("settled_credits")
+  releasedCredits BigInt    @default(0) @map("released_credits")
+  /// HELD | SETTLED | RELEASED | EXPIRED_RELEASED
+  status          String    @default("HELD") @db.VarChar(24)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  settledAt       DateTime? @map("settled_at") @db.Timestamptz(3)
+
+  account WalletAccount  @relation(fields: [workspaceId], references: [workspaceId], onDelete: Restrict, onUpdate: Cascade)
+  ledgers WalletLedger[]
+
+  @@unique([workspaceId, idempotencyKey], map: "wallet_hold_workspace_id_idempotency_key_key")
+  @@index([status, expiresAt], map: "wallet_hold_status_expires_at_idx")
+  @@index([workspaceId, refType, refId], map: "wallet_hold_workspace_ref_idx")
+  @@map("wallet_hold")
+}
+
+/// 不可变双录账本流水（append-only，运行时 gain_saas_app 禁止 DELETE 与改金额，仅允许离网清理脱敏 note）。
+model WalletLedger {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String   @map("workspace_id") @db.Uuid
+  idempotencyKey   String   @map("idempotency_key") @db.VarChar(160)
+  /// TOPUP | PLAN_GRANT | HOLD | SETTLE | RELEASE | REFUND | EXPIRE | ADJUST
+  entryType        String   @map("entry_type") @db.VarChar(24)
+  deltaAvailable   BigInt   @default(0) @map("delta_available")
+  deltaHeld        BigInt   @default(0) @map("delta_held")
+  balanceAvailable BigInt   @map("balance_available")
+  balanceHeld      BigInt   @map("balance_held")
+  /// 实收折算收入（µUSD，SETTLE 时按实扣批次单价累加，用于毛利对账）
+  revenueMicros    BigInt   @default(0) @map("revenue_micros")
+  holdId           String?  @map("hold_id") @db.Uuid
+  lotId            String?  @map("lot_id") @db.Uuid
+  actionCode       String?  @map("action_code") @db.VarChar(64)
+  refType          String?  @map("ref_type") @db.VarChar(64)
+  refId            String?  @map("ref_id") @db.VarChar(160)
+  billableUnits    Int?     @map("billable_units")
+  note             String?  @db.VarChar(500)
+  actorId          String?  @map("actor_id") @db.VarChar(128)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account WalletAccount    @relation(fields: [workspaceId], references: [workspaceId], onDelete: Restrict, onUpdate: Cascade)
+  hold    WalletHold?      @relation(fields: [holdId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lot     WalletCreditLot? @relation(fields: [lotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, idempotencyKey], map: "wallet_ledger_workspace_id_idempotency_key_key")
+  @@index([workspaceId, createdAt], map: "wallet_ledger_workspace_id_created_at_idx")
+  @@index([entryType, createdAt], map: "wallet_ledger_entry_type_created_at_idx")
+  @@map("wallet_ledger")
+}
+
+/// 平台商业价目表（对 gain_saas_app 仅开放 SELECT 只读，写操作须经运营鉴权与 SECURITY DEFINER RPC）。
+model BillingPriceCard {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actionCode       String    @map("action_code") @db.VarChar(64)
+  displayName      String    @map("display_name") @db.VarChar(120)
+  /// PER_UNIT_OUTCOME | FLAT_ACTION
+  pricingMode      String    @map("pricing_mode") @db.VarChar(32)
+  creditsPerUnit   BigInt    @map("credits_per_unit")
+  defaultHoldUnits Int       @default(1) @map("default_hold_units")
+  effectiveFrom    DateTime  @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveTo      DateTime? @map("effective_to") @db.Timestamptz(3)
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([actionCode, active, effectiveFrom], map: "billing_price_card_action_active_idx")
+  @@map("billing_price_card")
 }

@@ -68,6 +68,17 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   WORKSPACE_QUOTA_WINDOW_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   WORKSPACE_QUOTA_MAX_RUNS: z.coerce.number().int().min(1).default(30),
+  // M9 商业化充值钱包（Prepaid Credits Wallet W1）：默认 false 灰度开关，打开后核心收费动作走 hold -> execute -> settle/release
+  WALLET_BILLING_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  WALLET_HOLD_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(360),
+  WALLET_HOLD_SWEEP_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  WALLET_HOLD_SWEEP_INTERVAL_MS: z.coerce.number().int().min(10_000).max(3_600_000).default(600_000),
   // M2.0 Campaign 控制面（docs/technical/campaign-control-plane-m2-0.md §11 D-i3）：
   // 审批 TTL（超时=拒绝）、授权 TTL/单批使用、受众规模上限，env 可调。
   CAMPAIGN_APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
