@@ -88,3 +88,80 @@ test('dark mode semantic tokens reach WCAG AA and GS_BRAND unifies light bgLayou
     .analyze();
   expect(axe.violations, JSON.stringify(axe.violations, null, 2)).toEqual([]);
 });
+
+test('onboarding guard redirects unauthenticated users and allows logged-in incomplete workspaces', async ({
+  page,
+}, testInfo) => {
+  await installMockBackend(page, {
+    onboardingComplete: false,
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+
+  // 1. Unauthenticated direct navigation to /onboarding must redirect to /auth/login.
+  await page.goto('/onboarding');
+  await page.waitForURL(/\/auth\/login/, { timeout: 5000 });
+
+  // 2. Dead auth routes must still redirect cleanly to /auth/login.
+  for (const deadPath of ['/auth/code-login', '/auth/qrcode-login', '/auth/forget-password']) {
+    await page.goto(deadPath);
+    await page.waitForURL(/\/auth\/login/, { timeout: 5000 });
+  }
+
+  // 3. Logged-in user with onboardingComplete: false can stay on /onboarding.
+  await loginAs(page);
+  await page.waitForURL(/\/onboarding/, { timeout: 5000 });
+  await page.waitForTimeout(300);
+  expect(new URL(page.url()).pathname).toBe('/onboarding');
+});
+
+test('raw template braces are not rendered on suppressions and sources loading states', async ({
+  page,
+}, testInfo) => {
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+
+  let releaseSuppressions!: () => void;
+  const suppressionsGate = new Promise<void>((resolvePromise) => {
+    releaseSuppressions = resolvePromise;
+  });
+  backend.set('GET', '/suppressions', async ({ route }) => {
+    await suppressionsGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { data: [], page: { has_more: false, next_cursor: null } } }),
+    });
+    return true;
+  });
+
+  let releaseChannels!: () => void;
+  const channelsGate = new Promise<void>((resolvePromise) => {
+    releaseChannels = resolvePromise;
+  });
+  backend.set('GET', '/source-channels/available', async ({ route }) => {
+    await channelsGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [] }),
+    });
+    return true;
+  });
+
+  await loginAs(page);
+
+  await page.goto('/settings/suppressions');
+  const spSr = page.locator('.sp__state-sr');
+  await expect(spSr).toBeAttached();
+  await expect(spSr).not.toContainText('{ $t(');
+  await expect(spSr).toHaveText('正在加载…');
+  releaseSuppressions();
+
+  await page.goto('/settings/sources');
+  const srcSr = page.locator('.src__state-sr');
+  await expect(srcSr).toBeAttached();
+  await expect(srcSr).not.toContainText('{ $t(');
+  await expect(srcSr).toHaveText('正在加载…');
+  releaseChannels();
+});
