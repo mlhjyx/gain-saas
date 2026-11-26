@@ -109,6 +109,8 @@ export class ImapFlowClient implements OutreachImapClient {
       host,
       port,
       secure,
+      // 143 端口非直连 TLS 模式强制要求 STARTTLS 升级，拒绝明文传输凭据（防降级攻击）
+      ...(!secure ? { doSTARTTLS: true } : {}),
       auth,
       tls: {
         servername: credentials?.host ?? host,
@@ -118,6 +120,9 @@ export class ImapFlowClient implements OutreachImapClient {
     });
     await client.connect();
     try {
+      if (!client.secureConnection) {
+        throw new Error('IMAP 服务器未启用 TLS/STARTTLS 加密通道，已拒绝拉取');
+      }
       const lock = await client.getMailboxLock(mailboxName);
       try {
         return await fn(client);
@@ -255,15 +260,25 @@ export class OutreachImapPoller implements OnModuleInit, OnModuleDestroy {
       FROM public.app_list_byo_imap_mailboxes()
     `;
 
+    const hasGlobalImapEnv = Boolean(this.config.OUTREACH_IMAP_HOST);
     const legacyWorkspaces = new Set(
       rows
-        .filter((r) => !(r.imap_host && r.credentials_ciphertext))
+        .filter((r) => !r.credentials_ciphertext && !r.imap_host)
         .map((r) => r.workspace_id),
     );
     const legacyMultiTenant = legacyWorkspaces.size > 1;
 
     for (const row of rows) {
-      const isIsolatedByo = Boolean(row.imap_host && row.credentials_ciphertext);
+      const hasByoCreds = Boolean(row.credentials_ciphertext);
+      const isIsolatedByo = hasByoCreds && Boolean(row.imap_host);
+      // 关键安全边界：仅配置 SMTP 未配 IMAP 的 BYO 信箱绝不能回落平台共享 env IMAP，防止跨租户串信！
+      if (hasByoCreds && !row.imap_host) {
+        continue;
+      }
+      // 历史非 BYO 行仅在显式配置了平台全局 OUTREACH_IMAP_HOST 时走兼容通道
+      if (!isIsolatedByo && !hasGlobalImapEnv) {
+        continue;
+      }
       let credentials: OutreachImapCredentials | undefined;
       if (isIsolatedByo) {
         try {

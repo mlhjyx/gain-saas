@@ -59,7 +59,9 @@ export class OutreachSendController {
       });
     }
 
-    const preflight = await this.sends.preflightBatch(req.tenant!, batchId);
+    const preflight = await this.sends.preflightBatch(req.tenant!, batchId, {
+      mailboxId: parsed.data.mailboxId,
+    });
     if (preflight.enterpriseApprovalRequired) {
       throw new ConflictException({
         error: {
@@ -73,6 +75,14 @@ export class OutreachSendController {
         error: {
           code: 'OUTREACH_MAILBOX_PAUSED',
           message: preflight.health.error ?? '发信健康度熔断中，暂不可发送',
+        },
+      });
+    }
+    if (parsed.data.mailboxId && !preflight.mailbox.ready) {
+      throw new ConflictException({
+        error: {
+          code: 'OUTREACH_MAILBOX_PAUSED',
+          message: preflight.mailbox.error ?? '所选发件信箱尚未就绪或处于非活跃状态',
         },
       });
     }

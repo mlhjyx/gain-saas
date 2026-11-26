@@ -272,6 +272,7 @@ export class OutreachSendService {
   async preflightBatch(
     tenant: OutreachTenant,
     batchId: string,
+    options: { mailboxId?: string } = {},
   ): Promise<OutreachBatchPreflightSummary> {
     if (!UUID_RE.test(batchId)) notFound();
     const batch = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
@@ -290,7 +291,8 @@ export class OutreachSendService {
     }));
 
     const now = new Date();
-    const preferredMailboxId = (batch as { mailboxId?: string | null }).mailboxId ?? null;
+    const preferredMailboxId =
+      options.mailboxId?.trim() || (batch as { mailboxId?: string | null }).mailboxId || null;
     const byoMailbox = this.mailboxes.findActiveByoMailbox
       ? await this.mailboxes.findActiveByoMailbox(tenant.workspaceId, preferredMailboxId).catch(() => null)
       : null;

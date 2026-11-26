@@ -16,23 +16,27 @@ import { AdminGuard } from '../tenant/admin.guard.js';
 import { TenantGuard } from '../tenant/tenant.guard.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 
-const strictPortSchema = z.union([
-  z.number().int().min(1).max(65535),
-  z
-    .string()
-    .trim()
-    .regex(/^[1-9]\d{0,4}$/)
-    .transform((v) => Number(v))
-    .refine((v) => v >= 1 && v <= 65535),
-]);
+function strictIntRangeSchema(min: number, max: number) {
+  return z.union([
+    z.number().int().min(min).max(max),
+    z
+      .string()
+      .trim()
+      .regex(/^[1-9]\d{0,4}$/)
+      .transform((v) => Number(v))
+      .refine((v) => v >= min && v <= max),
+  ]);
+}
+
+const strictPortSchema = strictIntRangeSchema(1, 65535);
 
 const mailboxBody = z.object({
   address: z.string().trim().email().max(320).optional(),
   displayName: z.string().trim().min(1).max(200).optional(),
   provider: z.string().trim().max(32).optional(),
   warmupStage: z.enum(['W1', 'W2', 'W3', 'MATURE']).optional(),
-  dailyCap: z.coerce.number().int().min(1).max(500).optional(),
-  weeklyCap: z.coerce.number().int().min(1).max(2000).optional(),
+  dailyCap: strictIntRangeSchema(1, 500).optional(),
+  weeklyCap: strictIntRangeSchema(1, 2000).optional(),
   timezone: z.string().trim().max(64).optional(),
   state: z.enum(['ACTIVE', 'PAUSED', 'RETIRED']).optional(),
 });

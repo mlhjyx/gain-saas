@@ -34,14 +34,16 @@ export class OutreachOAuthController {
   }
 
   @Get('oauth/:provider/callback')
+  @UseGuards(TenantGuard, AdminGuard)
   async callback(
+    @Req() req: Request,
     @Param('provider') provider: string,
     @Query('code') code?: string,
     @Query('state') state?: string,
     @Query('error') error?: string,
   ) {
     return {
-      data: await this.oauth.handleCallback(provider, { code, state, error }),
+      data: await this.oauth.handleCallback(req.tenant!, provider, { code, state, error }),
     };
   }
 }

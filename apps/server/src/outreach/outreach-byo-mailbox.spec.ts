@@ -19,6 +19,7 @@ import {
   type OutreachImapCredentials,
 } from './outreach-imap.poller.js';
 import type { OutreachIngestService } from './outreach-ingest.service.js';
+import { OutreachMailboxController } from './outreach-mailbox.controller.js';
 import { OutreachMailboxService } from './outreach-mailbox.service.js';
 import {
   OutreachOAuthService,
@@ -688,16 +689,32 @@ describe('M9-PR3 BYO 发信箱加密托管、OAuth2、隔离 IMAP 与 SMB 一键
 
     // 篡改 state → 拒绝（防 CSRF）
     await expect(
-      oauth.handleCallback('google', { code: 'auth-code-1', state: `${state}tampered` }),
+      oauth.handleCallback(tenantA, 'google', { code: 'auth-code-1', state: `${state}tampered` }),
     ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_STATE_INVALID');
 
     // 跨 provider 提交 state → 拒绝（AAD 绑定 provider）
     await expect(
-      oauth.handleCallback('m365', { code: 'auth-code-1', state }),
+      oauth.handleCallback(tenantA, 'm365', { code: 'auth-code-1', state }),
     ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_STATE_INVALID');
 
+    // 跨用户 / 跨工作空间回调（Login-CSRF）→ 403 拒绝且不消费合法管理员的 nonce
+    await expect(
+      oauth.handleCallback(
+        { userId: 'other-admin', workspaceId: WS_A, role: 'admin' },
+        'google',
+        { code: 'auth-code-1', state },
+      ),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_SESSION_MISMATCH');
+    await expect(
+      oauth.handleCallback(
+        { userId: 'admin-a', workspaceId: WS_B, role: 'admin' },
+        'google',
+        { code: 'auth-code-1', state },
+      ),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_SESSION_MISMATCH');
+
     // 正常回调绑定成功且不回显令牌
-    const connected = await oauth.handleCallback('google', { code: 'auth-code-1', state });
+    const connected = await oauth.handleCallback(tenantA, 'google', { code: 'auth-code-1', state });
     expect(connected.mailbox.authMode).toBe('oauth_google');
     expect(connected.mailbox.smtpHost).toBe('smtp.gmail.com');
     expect(connected.mailbox.imapHost).toBe('imap.gmail.com');
@@ -708,8 +725,32 @@ describe('M9-PR3 BYO 发信箱加密托管、OAuth2、隔离 IMAP 与 SMB 一键
 
     // 重放同一 state → 拒绝
     await expect(
-      oauth.handleCallback('google', { code: 'auth-code-1', state }),
+      oauth.handleCallback(tenantA, 'google', { code: 'auth-code-1', state }),
     ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_STATE_REPLAYED');
+
+    // 缺失 email claim 或 emailVerified=false → fail-closed 拒绝（不得静默放行）
+    const startedMissingEmail = await oauth.startAuthorization(tenantA, created.id, 'google');
+    const stateMissingEmail = new URL(startedMissingEmail.authorizeUrl).searchParams.get('state')!;
+    (httpClient.exchangeCode as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      accessToken: 'no-email-token',
+      refreshToken: 'no-email-refresh',
+      expiresIn: 3600,
+    });
+    await expect(
+      oauth.handleCallback(tenantA, 'google', { code: 'code-no-email', state: stateMissingEmail }),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_EMAIL_UNVERIFIED');
+
+    const startedUnverified = await oauth.startAuthorization(tenantA, created.id, 'google');
+    const stateUnverified = new URL(startedUnverified.authorizeUrl).searchParams.get('state')!;
+    (httpClient.exchangeCode as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      accessToken: 'unverified-token',
+      expiresIn: 3600,
+      email: 'sales@exporter.example',
+      emailVerified: false,
+    });
+    await expect(
+      oauth.handleCallback(tenantA, 'google', { code: 'code-unverified', state: stateUnverified }),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_EMAIL_UNVERIFIED');
 
     // 邮箱不匹配 → 拒绝绑定
     const started2 = await oauth.startAuthorization(tenantA, created.id, 'google');
@@ -719,9 +760,10 @@ describe('M9-PR3 BYO 发信箱加密托管、OAuth2、隔离 IMAP 与 SMB 一键
       refreshToken: 'wrong-refresh',
       expiresIn: 3600,
       email: 'attacker@other.example',
+      emailVerified: true,
     });
     await expect(
-      oauth.handleCallback('google', { code: 'code-2', state: state2 }),
+      oauth.handleCallback(tenantA, 'google', { code: 'code-2', state: state2 }),
     ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_OAUTH_EMAIL_MISMATCH');
 
     // 令牌临近过期时自动静默续期并重写密文
@@ -815,6 +857,138 @@ describe('M9-PR3 BYO 发信箱加密托管、OAuth2、隔离 IMAP 与 SMB 一键
       { account: 'a@tenant-a.example', uid: 101, host: 'imap.tenant-a.example' },
       { account: 'b@tenant-b.example', uid: 202, host: 'imap.tenant-b.example' },
     ]);
+  });
+
+  it('BYO 仅配置 SMTP（未配 IMAP）的信箱绝不回落平台共享 env IMAP，防跨租户串信', async () => {
+    const config = makeConfig({ OUTREACH_IMAP_HOST: 'imap.shared-platform.example' });
+    const crypto = new PiiCryptoService(config);
+    const ctSmtpOnly = crypto.encryptSecret(
+      WS_A,
+      JSON.stringify({ authMode: 'password', username: 'smtp-only@tenant-a.example', password: 'pw' }),
+      OUTREACH_PII_PURPOSE.MAILBOX_CREDENTIALS,
+    ).ciphertext;
+
+    const fakePrisma = {
+      $queryRaw: vi.fn(async () => [
+        {
+          id: 'mb-smtp-only',
+          workspace_id: WS_A,
+          address: 'smtp-only@tenant-a.example',
+          auth_mode: 'password',
+          imap_host: null,
+          imap_port: null,
+          imap_secure: true,
+          imap_mailbox: 'INBOX',
+          credentials_ciphertext: ctSmtpOnly,
+        },
+      ]),
+    } as unknown as PrismaService;
+
+    const client: OutreachImapClient = {
+      fetchUnseen: vi.fn(async () => [{ uid: 1, raw: 'should-never-be-fetched' }]),
+      markSeen: vi.fn(async () => undefined),
+    };
+    const ingest = { ingest: vi.fn(async () => ({ outcome: 'RECORDED' })) } as unknown as OutreachIngestService;
+
+    const poller = new OutreachImapPoller(fakePrisma, ingest, client, config, crypto);
+    const summary = await poller.pollOnce();
+    expect(summary).toEqual({ processed: 0, duplicates: 0, unmatched: 0, errors: 0 });
+    expect(client.fetchUnseen).not.toHaveBeenCalled();
+    expect(ingest.ingest).not.toHaveBeenCalled();
+  });
+
+  it('OutreachMailboxController 拒绝 dailyCap/weeklyCap/smtpPort 传入布尔值，quickConfirm 拦截 PAUSED 信箱', async () => {
+    const prisma = new FakeByoPrisma();
+    const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
+    const config = makeConfig();
+    const crypto = new PiiCryptoService(config);
+    const mailboxSvc = new OutreachMailboxService(
+      prisma as unknown as PrismaService,
+      audit,
+      config,
+      crypto,
+    );
+    const controller = new OutreachMailboxController(mailboxSvc);
+    const fakeReq = { tenant: tenantA } as never;
+
+    await expect(
+      controller.create(fakeReq, {
+        address: 'strict@exporter.example',
+        displayName: 'Strict',
+        dailyCap: true,
+      }),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'VALIDATION_ERROR');
+
+    await expect(
+      controller.create(fakeReq, {
+        address: 'strict@exporter.example',
+        displayName: 'Strict',
+        weeklyCap: false,
+      }),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'VALIDATION_ERROR');
+
+    // PAUSED 信箱在 preflight 与 quickConfirmBatch 均被拒绝
+    const pausedMb = await mailboxSvc.createMailbox(tenantA, {
+      address: 'paused@exporter.example',
+      displayName: 'Paused',
+      state: 'PAUSED',
+    });
+    await mailboxSvc.configureCredentials(tenantA, pausedMb.id, {
+      authMode: 'password',
+      smtpHost: 'smtp.gmail.com',
+      smtpPort: 465,
+      smtpSecure: true,
+      password: 'secret',
+    });
+
+    const signer = new CampaignTokenSigner(config);
+    const issuer = new OutreachAuthorizationIssuer(
+      prisma as unknown as PrismaService,
+      signer,
+      audit,
+      config,
+      crypto,
+    );
+    const batches = new OutreachBatchService(
+      prisma as unknown as PrismaService,
+      audit,
+      config,
+      issuer,
+      crypto,
+    );
+    const batch = await batches.createBatch(tenantA, { name: 'Paused Mailbox Check' });
+    await batches.addDraft(tenantA, batch.id as string, {
+      contactRef: CONTACT_1,
+      recipientEmail: 'buyer@us-importer.example',
+      countryCode: 'US',
+      companyName: 'US Corp',
+      subject: 'Hello',
+      body: 'Body',
+    });
+    await expect(
+      batches.quickConfirmBatch(tenantA, batch.id as string, { mailboxId: pausedMb.id }),
+    ).rejects.toSatisfy((e) => errorCode(e) === 'OUTREACH_MAILBOX_PAUSED');
+
+    const sendSvc = new OutreachSendService(
+      prisma as unknown as PrismaService,
+      audit,
+      new OutreachSendGate(config),
+      { ensureConfigured: vi.fn(), send: vi.fn() },
+      { check: vi.fn(async () => new Map()) },
+      { check: vi.fn(async () => new Map()) } as never,
+      { enqueue: vi.fn(async () => undefined) } as never,
+      { issue: vi.fn() } as never,
+      config,
+      new OutreachSendControls(prisma as unknown as PrismaService, config, crypto),
+      new OutreachAuthorizationConsumer(prisma as unknown as PrismaService, config),
+      mailboxSvc,
+      new OutreachHealthService(prisma as unknown as PrismaService, audit, config),
+      new OutreachExperimentsService(prisma as unknown as PrismaService, audit),
+      crypto,
+    );
+    const pf = await sendSvc.preflightBatch(tenantA, batch.id as string, { mailboxId: pausedMb.id });
+    expect(pf.mailbox.ready).toBe(false);
+    expect(pf.mailbox.error).toContain('PAUSED');
   });
 
   it('SMB 合规预检 → 一键确认 → BYO 凭据发送 + PII 落库 enc:v2，且保留全部法域与企业审批底线', async () => {

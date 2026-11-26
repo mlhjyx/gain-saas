@@ -683,12 +683,18 @@ export class OutreachBatchService {
       if (mailboxId) {
         const mailbox = await tx.outreachMailbox.findFirst({
           where: { id: mailboxId, workspaceId: tenant.workspaceId },
-          select: { id: true },
+          select: { id: true, state: true, address: true },
         });
         if (!mailbox) {
           throw new NotFoundException({
             error: { code: 'OUTREACH_MAILBOX_NOT_FOUND', message: '发件信箱不存在' },
           });
+        }
+        if (mailbox.state !== 'ACTIVE') {
+          conflict(
+            'OUTREACH_MAILBOX_PAUSED',
+            `发件信箱 ${mailbox.address} 处于 ${mailbox.state} 状态，无法用于一键确认发送`,
+          );
         }
       }
 

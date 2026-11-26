@@ -53,7 +53,10 @@ function poller(
   }),
 ) {
   const ingest = { ingest: vi.fn(async (_tenant, raw: string) => ingestResult(raw)) };
-  const config = { OUTREACH_IMAP_ENABLED: false } as AppConfig;
+  const config = {
+    OUTREACH_IMAP_ENABLED: false,
+    OUTREACH_IMAP_HOST: 'imap.example.test',
+  } as AppConfig;
   return {
     ingest,
     instance: new OutreachImapPoller(
@@ -132,7 +135,7 @@ describe('OutreachImapPoller（P4-06，配置门控）', () => {
       prisma as unknown as PrismaService,
       ingest as never,
       imapClient,
-      { OUTREACH_IMAP_ENABLED: false } as AppConfig,
+      { OUTREACH_IMAP_ENABLED: false, OUTREACH_IMAP_HOST: 'imap.example.test' } as AppConfig,
     );
 
     const summary = await instance.pollOnce();
@@ -165,7 +168,7 @@ describe('OutreachImapPoller（P4-06，配置门控）', () => {
       prisma as unknown as PrismaService,
       ingest as never,
       imapClient,
-      { OUTREACH_IMAP_ENABLED: false } as AppConfig,
+      { OUTREACH_IMAP_ENABLED: false, OUTREACH_IMAP_HOST: 'imap.example.test' } as AppConfig,
     );
 
     const summary = await instance.pollOnce();

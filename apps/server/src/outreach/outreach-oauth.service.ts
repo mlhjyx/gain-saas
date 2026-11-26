@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -31,6 +32,7 @@ export interface OAuthTokenResponse {
   readonly tokenType?: string;
   readonly scope?: string;
   readonly email?: string;
+  readonly emailVerified?: boolean;
 }
 
 export interface OutreachOAuthHttpClient {
@@ -105,20 +107,25 @@ const PROVIDER_MAIL_DEFAULTS: Record<
   },
 };
 
-function decodeJwtEmail(idToken?: string): string | undefined {
-  if (!idToken || typeof idToken !== 'string') return undefined;
+function decodeJwtEmail(idToken?: string): { email?: string; emailVerified?: boolean } {
+  if (!idToken || typeof idToken !== 'string') return {};
   const parts = idToken.split('.');
-  if (parts.length < 2) return undefined;
+  if (parts.length < 2) return {};
   try {
     const payload = JSON.parse(
       Buffer.from(parts[1]!, 'base64url').toString('utf8'),
     ) as Record<string, unknown>;
-    const email = payload.email ?? payload.preferred_username ?? payload.upn;
-    return typeof email === 'string' && email.includes('@')
-      ? email.trim().toLowerCase()
-      : undefined;
+    const rawEmail = payload.email ?? payload.preferred_username ?? payload.upn;
+    const email =
+      typeof rawEmail === 'string' && rawEmail.includes('@')
+        ? rawEmail.trim().toLowerCase()
+        : undefined;
+    // 若声明中显式携带 email_verified=false，必须判为未验证（fail-closed）
+    const emailVerified =
+      payload.email_verified === undefined ? undefined : payload.email_verified === true;
+    return { email, emailVerified };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -174,13 +181,15 @@ export class FetchOutreachOAuthHttpClient implements OutreachOAuthHttpClient {
         error: { code: 'OUTREACH_OAUTH_TOKEN_EXCHANGE_FAILED', message: `OAuth 令牌换取失败：${errDesc}` },
       });
     }
+    const identity = decodeJwtEmail(typeof json.id_token === 'string' ? json.id_token : undefined);
     return {
       accessToken: json.access_token,
       refreshToken: typeof json.refresh_token === 'string' ? json.refresh_token : undefined,
       expiresIn: typeof json.expires_in === 'number' ? json.expires_in : undefined,
       tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
       scope: typeof json.scope === 'string' ? json.scope : undefined,
-      email: decodeJwtEmail(typeof json.id_token === 'string' ? json.id_token : undefined),
+      email: identity.email,
+      emailVerified: identity.emailVerified,
     };
   }
 }
@@ -348,6 +357,7 @@ export class OutreachOAuthService {
   }
 
   async handleCallback(
+    tenant: OutreachTenant,
     rawProvider: string,
     query: { code?: string; state?: string; error?: string },
   ): Promise<{ mailbox: SanitizedMailboxView; provider: OutreachOAuthProvider }> {
@@ -400,6 +410,20 @@ export class OutreachOAuthService {
         error: { code: 'OUTREACH_OAUTH_STATE_EXPIRED', message: 'OAuth 授权链接已过期，请重新发起' },
       });
     }
+
+    // 强绑定发起授权的管理员会话（防 Login-CSRF 与跨租户/跨用户回调劫持）
+    if (
+      tenant.workspaceId !== statePayload.workspaceId ||
+      tenant.userId !== statePayload.userId
+    ) {
+      throw new ForbiddenException({
+        error: {
+          code: 'OUTREACH_OAUTH_SESSION_MISMATCH',
+          message: '当前登录会话与发起 OAuth 授权的管理员或工作空间不一致，已拒绝绑定',
+        },
+      });
+    }
+
     const nowMs = Date.now();
     for (const [n, expMs] of this.usedNonces) {
       if (expMs <= nowMs) this.usedNonces.delete(n);
@@ -409,7 +433,12 @@ export class OutreachOAuthService {
         error: { code: 'OUTREACH_OAUTH_STATE_REPLAYED', message: 'OAuth state 已被使用，请重新发起授权' },
       });
     }
-    if (this.usedNonces.size > 10_000) this.usedNonces.clear();
+    // 按插入顺序淘汰最旧条目，绝不一次性清空仍在有效期内的全部 nonce
+    while (this.usedNonces.size >= 10_000) {
+      const oldest = this.usedNonces.keys().next().value;
+      if (oldest === undefined) break;
+      this.usedNonces.delete(oldest);
+    }
     this.usedNonces.set(statePayload.nonce, statePayload.exp);
 
     const cfg = this.providerConfig(provider);
@@ -421,6 +450,18 @@ export class OutreachOAuthService {
       redirectUri: cfg.redirectUri,
       code,
     });
+
+    // fail-closed：必须从 id_token 解析出已验证邮箱（不可在缺失 email claim 或 email_verified=false 时静默放行）
+    const verifiedEmail =
+      tokens.email && tokens.emailVerified !== false ? tokens.email.trim().toLowerCase() : null;
+    if (!verifiedEmail) {
+      throw new BadRequestException({
+        error: {
+          code: 'OUTREACH_OAUTH_EMAIL_UNVERIFIED',
+          message: 'OAuth 令牌缺少已验证的邮箱声明，拒绝绑定发件信箱',
+        },
+      });
+    }
 
     const defaults = PROVIDER_MAIL_DEFAULTS[provider];
     const now = new Date();
@@ -437,7 +478,7 @@ export class OutreachOAuthService {
           error: { code: 'OUTREACH_MAILBOX_NOT_FOUND', message: '发件信箱不存在' },
         });
       }
-      if (tokens.email && tokens.email !== mailbox.address.toLowerCase()) {
+      if (verifiedEmail !== mailbox.address.toLowerCase()) {
         throw new BadRequestException({
           error: {
             code: 'OUTREACH_OAUTH_EMAIL_MISMATCH',

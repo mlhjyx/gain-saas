@@ -15,11 +15,27 @@ describe('outreach-host-guard (BYO SMTP/IMAP SSRF protection)', () => {
     expect(isPrivateOrReservedIp('169.254.169.254')).toBe(true);
     expect(isPrivateOrReservedIp('100.64.0.1')).toBe(true);
     expect(isPrivateOrReservedIp('::1')).toBe(true);
+    expect(isPrivateOrReservedIp('0:0:0:0:0:0:0:1')).toBe(true);
+    expect(isPrivateOrReservedIp('0::1')).toBe(true);
+    expect(isPrivateOrReservedIp('0:0:0:0:0:0:0:0')).toBe(true);
     expect(isPrivateOrReservedIp('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('0:0:0:0:0:ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('0:0:0:0:0:ffff:169.254.169.254')).toBe(true);
+    expect(isPrivateOrReservedIp('::127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('64:ff9b::127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('64:ff9b::169.254.169.254')).toBe(true);
+    expect(isPrivateOrReservedIp('64:ff9b:1::1')).toBe(true);
+    expect(isPrivateOrReservedIp('::ffff:0:127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('2002:7f00:1::')).toBe(true);
+    expect(isPrivateOrReservedIp('100::1')).toBe(true);
+    expect(isPrivateOrReservedIp('2001:db8::1')).toBe(true);
     expect(isPrivateOrReservedIp('fe80::1')).toBe(true);
+    expect(isPrivateOrReservedIp('fe80::1%eth0')).toBe(true);
     expect(isPrivateOrReservedIp('fc00::1')).toBe(true);
+    expect(isPrivateOrReservedIp('ff02::1')).toBe(true);
 
     expect(isPrivateOrReservedIp('74.125.133.108')).toBe(false);
+    expect(isPrivateOrReservedIp('::ffff:74.125.133.108')).toBe(false);
     expect(isPrivateOrReservedIp('2607:f8b0:4004:c07::6c')).toBe(false);
   });
 
