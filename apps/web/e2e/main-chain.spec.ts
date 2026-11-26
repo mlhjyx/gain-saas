@@ -410,8 +410,8 @@ test('主链路 4：线索接受 → 提升为商机', async ({ page }) => {
 
   await loginAs(page);
   await page.goto('/leads');
-  const card = page.locator("[data-gs='lead-card']").filter({ hasText: 'Muster Metallbau GmbH' });
-  await card.getByRole('button', { name: '跟进', exact: true }).click();
+  await page.locator('[data-gs="lead-review-pane"]').getByRole('heading', { name: 'Muster Metallbau GmbH' }).waitFor();
+  await page.locator('[data-gs="lead-review-pane"] [data-gs="quick-drawer-accept"]').click();
   await page.getByRole('dialog').getByRole('button', { name: '确认跟进' }).click();
   await expect(page.getByText('已移入「值得跟进」')).toBeVisible();
   await page.getByRole('button', { name: '提升为商机' }).first().click();
@@ -597,11 +597,9 @@ test('主链路 7（展示侧）：禁联队列联动——对象不可裁决', 
   await page.goto('/leads?queue=suppressed');
   await settle(page);
   await expect(page.getByText('禁联', { exact: true }).first()).toBeVisible();
-  // 合规红线：禁联对象没有「跟进 / 排除」的可裁决按钮
-  const card = page.locator("[data-gs='lead-card']").first();
-  await expect(card.getByRole('button', { name: '跟进', exact: true })).toHaveCount(0);
-  await expect(card.getByRole('button', { name: '排除', exact: true })).toHaveCount(0);
-  await expect(card.locator("[data-gs='lead-accept'], [data-gs='lead-reject']")).toHaveCount(0);
+  const pane = page.locator('[data-gs="lead-review-pane"]');
+  await expect(pane.getByRole('heading', { name: 'Beispiel Handel AG' })).toBeVisible();
+  await expect(pane.locator('[data-gs="quick-drawer-accept"], [data-gs="quick-drawer-reject"]')).toHaveCount(0);
 });
 
 test('主链路 8：触达批次草稿审批（发送通道关闭，页面无发送动作）', async ({ page }) => {

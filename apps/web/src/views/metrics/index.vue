@@ -1,30 +1,43 @@
 <script lang="ts" setup>
 /**
- * 度量（引擎 ch01 PR-04）：VRIC 成对趋势 + 指标目录 / 观测 / 聚合三类只读表。
- *
- * VRIC 口径（T0-001 STRICT 与 T0-002 PLUS）由引擎成对返回：同一桶某侧缺数据时
- * 该侧为 null，折线在缺数据处断开——界面不用 0 冒充缺失。图表复用 vben 的
- * EchartsUI 封装，颜色取 --gs-* 令牌（深色模式切换时重取并重绘）。
+ * 成效复盘（PR-UI2：原「度量」全面白话化与视觉统一）：
+ * - 页面主标题统一为「成效复盘」（与左侧栏菜单和顶栏面包屑完全一致）；
+ * - 全部原生 <select> 替换为 GsSelect，全部按钮统一 AntDV Button（8px 圆角，清零 9999px 胶囊）；
+ * - 消除「大白卡套虚线圆角框」双层套娃，统一单层 1px 细线表面与 GsEmpty；
+ * - 面向外贸管理者的主表面改写为业务白话，将 VRIC / 聚合桶等工程口径收入折叠「数据口径说明」区；
+ * - 保持缺侧 null 断线语义（不以 0 冒充缺失）与明暗双主题 ECharts 联动。
  */
 import type { MetricCatalogItem, MetricObservation, MetricRollup, VricBucket } from '#/api/gainos';
 
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
-import { formatDate, formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
+import { formatDate, formatDateTime, glossaryStatus } from '@gain-saas/shared';
+import { RotateCw, Search } from '@vben/icons';
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 import { preferences, usePreferences } from '@vben/preferences';
 
+import { Button, Input, Skeleton, TabPane, Tabs } from 'ant-design-vue';
+
+import ErrorNotice from '#/components/error-notice.vue';
+import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
+import GsPage from '#/components/gainos/ui/gs-page.vue';
+import GsSelect from '#/components/gainos/ui/gs-select.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
 import { $t } from '#/locales';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
 defineOptions({ name: 'GainMetrics' });
 
-// 内嵌在「商机与触达」枢纽时不渲染自己的页头容器。
+// 内嵌在其他页面时不渲染自己的页头容器。
 defineProps<{ embedded?: boolean }>();
 
-type ErrorCopy = { title: string; why?: string; next?: string };
+const router = useRouter();
+
+type ErrorCopy = { next?: string; title: string; why?: string };
 type ChartOption = Parameters<ReturnType<typeof useEcharts>['renderEcharts']>[0];
+type GsTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
 
 function cssVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
@@ -37,8 +50,13 @@ function num(value: null | number | undefined): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(3);
 }
 
-function metricStatus(value: string | undefined | null) {
+function metricStatus(value: null | string | undefined) {
   return glossaryStatus('metricStatus', value ?? undefined, preferences.app.locale);
+}
+
+function metricTone(value: null | string | undefined): GsTone {
+  const tone = metricStatus(value)?.tone ?? 'neutral';
+  return tone === 'processing' ? 'info' : tone;
 }
 
 function tierLabel(tier: string): string {
@@ -46,6 +64,7 @@ function tierLabel(tier: string): string {
   const text = $t(key);
   return text === key ? tier : text;
 }
+
 function unitLabel(unit: string): string {
   const key = `gainos.metrics.units.${unit}`;
   const text = $t(key);
@@ -62,10 +81,6 @@ const STRATUM_DIMENSIONS = [
   'employee_band',
 ] as const;
 
-/**
- * stratum_key 是引擎按 JSONB 规范化的文本（如 {"channel":"email_only","workspace_id":"…"}）。
- * 界面只展示业务维度，绝不把 workspace/icp 等标识原样带上屏（零术语红线）。
- */
 function stratumLabel(key: string): string {
   let parsed: Record<string, unknown> = {};
   try {
@@ -91,7 +106,7 @@ function stratumLabel(key: string): string {
   return hasOtherKeys ? $t('gainos.metrics.stratumOther') : $t('gainos.metrics.stratumDefault');
 }
 
-// ── VRIC 趋势 ───────────────────────────────────────────────────────────────
+// ── 寻源可达与转化趋势（VRIC 双口径）────────────────────────────────────────
 const granularity = ref<'daily' | 'weekly'>('daily');
 const vricBuckets = ref<VricBucket[]>([]);
 const vricHasMore = ref(false);
@@ -99,9 +114,16 @@ const vricLoading = ref(true);
 const vricError = ref<ErrorCopy | null>(null);
 const stratum = ref('');
 
-const strata = computed(() => [...new Set(vricBuckets.value.map((bucket) => bucket.stratumKey))].sort());
+const granularityOptions = computed(() => [
+  { label: $t('gainos.metrics.daily'), value: 'daily' },
+  { label: $t('gainos.metrics.weekly'), value: 'weekly' },
+]);
 
-/** stratum 里除标识（workspace/icp）之外的业务维度；空数组 = 工作空间总行。 */
+const strata = computed(() => [...new Set(vricBuckets.value.map((bucket) => bucket.stratumKey))].sort());
+const stratumOptions = computed(() =>
+  strata.value.map((key) => ({ label: stratumLabel(key), value: key })),
+);
+
 function stratumDimensions(key: string): string[] {
   try {
     const value = JSON.parse(key) as unknown;
@@ -114,10 +136,6 @@ function stratumDimensions(key: string): string[] {
   }
 }
 
-/**
- * 默认分层：优先工作空间总行（只含标识维度），其次不含 channel 的行；
- * 通道拆分行（stratum 带 channel）是附加项，不能抢默认选中。
- */
 function pickDefaultStratum(list: string[]): string {
   return (
     list.find((key) => stratumDimensions(key).length === 0) ??
@@ -134,8 +152,8 @@ const chartBuckets = computed(() =>
     .sort((left, right) => left.bucket.localeCompare(right.bucket)),
 );
 const latestBucket = computed(() => chartBuckets.value[chartBuckets.value.length - 1] ?? null);
-const strictLabel = computed(() => $t('gainos.metrics.strict'));
-const plusLabel = computed(() => $t('gainos.metrics.plus'));
+const strictLabel = computed(() => $t('gainosUi2.analytics.strictShort'));
+const plusLabel = computed(() => $t('gainosUi2.analytics.plusShort'));
 
 function seriesValues(side: 'plus' | 'strict'): Array<null | number> {
   return chartBuckets.value.map((bucket) => bucket[side]?.value ?? null);
@@ -146,10 +164,10 @@ const { renderEcharts } = useEcharts(chartRef);
 const { isDark } = usePreferences();
 
 function buildChartOption(): ChartOption {
-  const axisColor = cssVar('--gs-fg-subtle', '#5C5C5C');
-  const gridColor = cssVar('--gs-divider', '#F5F5F5');
-  const strictColor = cssVar('--gs-accent-strong', '#335CFF');
-  const plusColor = cssVar('--gs-indigo', '#3559E9');
+  const axisColor = cssVar('--gs-fg-muted', '#5C5C5C');
+  const gridColor = cssVar('--gs-divider', '#F0F0F0');
+  const strictColor = cssVar('--gs-accent', '#335CFF');
+  const plusColor = cssVar('--gs-success', '#1A7544');
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: [strictLabel.value, plusLabel.value], textStyle: { color: axisColor } },
@@ -189,11 +207,6 @@ function buildChartOption(): ChartOption {
   } as ChartOption;
 }
 
-/**
- * 图表容器在 vricLoading=false 且数据非空时才挂载；useEcharts 的 renderEcharts
- * 在容器不可见时按 30ms 重试，所以这里必须 fire-and-forget——await 它会把
- * loading 锁死（等待一个只有 loading 结束才会出现的容器）。
- */
 function renderChart(): void {
   if (chartBuckets.value.length === 0) return;
   void nextTick(() => {
@@ -223,11 +236,9 @@ async function loadVric(): Promise<void> {
 watch([granularity], () => {
   void loadVric();
 });
-// chartBuckets 依赖数据与分层选择：任一变化都重绘（loading 结束后的下一帧容器才存在）。
 watch([chartBuckets], () => {
   renderChart();
 });
-// 图例文案随语言切换，深色切换时颜色令牌也要重取。
 watch([isDark, strictLabel, plusLabel], () => {
   renderChart();
 });
@@ -240,10 +251,10 @@ const vricChartLabel = computed(() => {
         plus: num(latest.plus?.value),
         strict: num(latest.strict?.value),
       })
-    : $t('gainos.metrics.chartAria');
+    : $t('gainosUi2.analytics.trendTitle');
 });
 
-// ── 指标目录 ────────────────────────────────────────────────────────────────
+// ── 指标口径 ────────────────────────────────────────────────────────────────
 const catalog = ref<MetricCatalogItem[]>([]);
 const catalogLoading = ref(true);
 const catalogError = ref<ErrorCopy | null>(null);
@@ -252,8 +263,24 @@ const catalogStatus = ref('');
 const catalogTier = ref('');
 
 const catalogTiers = computed(() => [...new Set(catalog.value.map((item) => item.tier))].sort());
-/** 同一指标可能有多个版本：筛选项按 metricId 去重。 */
 const catalogMetricIds = computed(() => [...new Set(catalog.value.map((item) => item.metricId))]);
+
+const catalogTierOptions = computed(() => [
+  { label: $t('gainos.metrics.all'), value: '' },
+  ...catalogTiers.value.map((tier) => ({ label: tierLabel(tier), value: tier })),
+]);
+const catalogStatusOptions = computed(() => [
+  { label: $t('gainos.metrics.all'), value: '' },
+  { label: metricStatus('ACTIVE')?.label ?? 'ACTIVE', value: 'ACTIVE' },
+  { label: metricStatus('DRAFT')?.label ?? 'DRAFT', value: 'DRAFT' },
+  { label: metricStatus('DEPRECATED')?.label ?? 'DEPRECATED', value: 'DEPRECATED' },
+  { label: metricStatus('RETIRED')?.label ?? 'RETIRED', value: 'RETIRED' },
+]);
+const metricIdOptions = computed(() => [
+  { label: $t('gainos.metrics.metricAll'), value: '' },
+  ...catalogMetricIds.value.map((metricId) => ({ label: metricId, value: metricId })),
+]);
+
 const catalogRows = computed(() => {
   const needle = catalogSearch.value.trim().toLowerCase();
   return catalog.value.filter((item) => {
@@ -277,9 +304,8 @@ async function loadCatalog(): Promise<void> {
   }
 }
 
-// ── 观测与聚合（分页只读表）─────────────────────────────────────────────────
-const TABLE_TABS = ['catalog', 'observations', 'rollups'] as const;
-type TableTab = (typeof TABLE_TABS)[number];
+// ── 周期明细与汇总报表 ──────────────────────────────────────────────────────
+type TableTab = 'catalog' | 'observations' | 'rollups';
 const activeTable = ref<TableTab>('catalog');
 
 interface TableFilters {
@@ -295,14 +321,14 @@ const observations = ref<MetricObservation[]>([]);
 const observationLoading = ref(false);
 const observationLoadingMore = ref(false);
 const observationError = ref<ErrorCopy | null>(null);
-const observationNextCursor = ref<string | null>(null);
+const observationNextCursor = ref<null | string>(null);
 const observationLoaded = ref(false);
 
 const rollups = ref<MetricRollup[]>([]);
 const rollupLoading = ref(false);
 const rollupLoadingMore = ref(false);
 const rollupError = ref<ErrorCopy | null>(null);
-const rollupNextCursor = ref<string | null>(null);
+const rollupNextCursor = ref<null | string>(null);
 const rollupLoaded = ref(false);
 
 function filterParams(filters: TableFilters): Record<string, string> {
@@ -358,10 +384,13 @@ async function loadRollups(reset = true): Promise<void> {
   }
 }
 
-watch(activeTable, (tab) => {
-  if (tab === 'observations' && !observationLoaded.value) void loadObservations(true);
-  if (tab === 'rollups' && !rollupLoaded.value) void loadRollups(true);
-});
+function onTableTabChange(next: number | string): void {
+  const key = String(next) as TableTab;
+  activeTable.value = key;
+  if (key === 'observations' && !observationLoaded.value) void loadObservations(true);
+  if (key === 'rollups' && !rollupLoaded.value) void loadRollups(true);
+}
+
 watch(rollupGranularity, () => {
   if (activeTable.value === 'rollups') void loadRollups(true);
 });
@@ -370,9 +399,17 @@ function resetObservationFilters(): void {
   observationFilters.value = { from: '', metricId: '', to: '' };
   void loadObservations(true);
 }
+
 function resetRollupFilters(): void {
   rollupFilters.value = { from: '', metricId: '', to: '' };
   void loadRollups(true);
+}
+
+function refreshAll(): void {
+  void loadVric();
+  void loadCatalog();
+  if (activeTable.value === 'observations' && observationLoaded.value) void loadObservations(true);
+  if (activeTable.value === 'rollups' && rollupLoaded.value) void loadRollups(true);
 }
 
 onMounted(() => {
@@ -382,415 +419,587 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mt" :class="{ 'is-embedded': embedded }">
-    <header class="mt__head">
+  <div
+    :class="
+      embedded
+        ? 'grid grid-cols-1 gap-4 @container'
+        : 'mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-4 px-[var(--gs-page-pad)] pb-12 @container'
+    "
+    data-gs="analytics-page"
+  >
+    <GsPage
+      v-if="!embedded"
+      :subtitle="$t('gainosUi2.analytics.subtitle')"
+      :title="$t('gainosUi2.analytics.title')"
+    >
+      <template #actions>
+        <Button :loading="vricLoading" data-gs="analytics-refresh" size="small" @click="refreshAll">
+          <template v-if="!vricLoading" #icon>
+            <RotateCw :size="14" />
+          </template>
+          {{ $t('gainos.common.refresh') }}
+        </Button>
+      </template>
+    </GsPage>
+    <div v-else class="flex items-center justify-between gap-3">
       <div>
-        <h1 v-if="!embedded">{{ $t('gainos.metrics.title') }}</h1>
-        <h2 v-else>{{ $t('gainos.metrics.title') }}</h2>
-        <p class="mt__sub">{{ $t('gainos.metrics.subtitle') }}</p>
+        <h2 class="m-0 text-[18px] font-semibold text-[var(--gs-fg)]">
+          {{ $t('gainosUi2.analytics.title') }}
+        </h2>
+        <p class="m-0 mt-0.5 text-[13px] text-[var(--gs-fg-muted)]">
+          {{ $t('gainosUi2.analytics.subtitle') }}
+        </p>
       </div>
-      <button class="mt__ghost" type="button" :disabled="vricLoading" @click="loadVric">
+      <Button :loading="vricLoading" size="small" @click="refreshAll">
+        <template v-if="!vricLoading" #icon>
+          <RotateCw :size="14" />
+        </template>
         {{ $t('gainos.common.refresh') }}
-      </button>
-    </header>
+      </Button>
+    </div>
 
-    <section class="mt__card" :aria-label="$t('gainos.metrics.vricTitle')">
-      <header class="mt__card-head">
-        <div>
-          <h3>{{ $t('gainos.metrics.vricTitle') }}</h3>
-          <p class="mt__hint">{{ $t('gainos.metrics.vricSub') }}</p>
+    <!-- 寻源可达与转化趋势（单层 1px 细线表面，0 虚线套娃） -->
+    <section
+      :aria-label="$t('gainosUi2.analytics.trendTitle')"
+      class="an-surface"
+      data-gs="analytics-trend"
+    >
+      <header class="an-surface__head">
+        <div class="min-w-0">
+          <h2 class="an-surface__title">{{ $t('gainosUi2.analytics.trendTitle') }}</h2>
+          <p class="an-surface__sub">{{ $t('gainosUi2.analytics.trendSubtitle') }}</p>
         </div>
-        <div class="mt__controls">
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.granularity') }}</span>
-            <select v-model="granularity">
-              <option value="daily">{{ $t('gainos.metrics.daily') }}</option>
-              <option value="weekly">{{ $t('gainos.metrics.weekly') }}</option>
-            </select>
-          </label>
-          <label v-if="strata.length > 1" class="mt__field">
-            <span>{{ $t('gainos.metrics.stratum') }}</span>
-            <select v-model="stratum">
-              <option v-for="key in strata" :key="key" :value="key">{{ stratumLabel(key) }}</option>
-            </select>
-          </label>
+        <div class="an-controls">
+          <div class="w-[116px]" data-gs="analytics-granularity">
+            <GsSelect
+              v-model="granularity"
+              :aria-label="$t('gainosUi2.analytics.granularity')"
+              :ariaLabel="$t('gainosUi2.analytics.granularity')"
+              :options="granularityOptions"
+              class="w-full"
+              size="small"
+            />
+          </div>
+          <div v-if="strata.length > 1" class="w-[168px]" data-gs="analytics-stratum">
+            <GsSelect
+              v-model="stratum"
+              :aria-label="$t('gainosUi2.analytics.stratum')"
+              :ariaLabel="$t('gainosUi2.analytics.stratum')"
+              :options="stratumOptions"
+              class="w-full"
+              size="small"
+            />
+          </div>
         </div>
       </header>
 
-      <p v-if="vricLoading" class="mt__muted">{{ $t('gainos.common.loading') }}</p>
-      <div v-else-if="vricError" class="mt__error" role="alert">
-        <strong>{{ vricError.title }}</strong>
-        <p v-if="vricError.next">{{ vricError.next }}</p>
-        <button class="mt__ghost mt__ghost--sm" type="button" @click="loadVric">
+      <Skeleton v-if="vricLoading" active :paragraph="{ rows: 4 }" />
+      <div v-else-if="vricError" class="grid gap-3">
+        <ErrorNotice :next="vricError.next" :title="vricError.title" />
+        <Button class="justify-self-start" size="small" @click="loadVric">
           {{ $t('gainos.common.retry') }}
-        </button>
+        </Button>
       </div>
-      <div v-else-if="chartBuckets.length === 0" class="mt__empty">
-        <p class="mt__empty-title">{{ $t('gainos.metrics.vricEmpty') }}</p>
-        <p class="mt__muted">{{ $t('gainos.metrics.vricEmptyHint') }}</p>
-        <div class="mt__empty-actions">
-          <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
-          <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
-        </div>
-      </div>
+      <GsEmpty
+        v-else-if="chartBuckets.length === 0"
+        :description="$t('gainosUi2.analytics.emptyDesc')"
+        :title="$t('gainosUi2.analytics.emptyTitle')"
+      >
+        <template #actions>
+          <Button type="primary" @click="router.push('/leads')">
+            {{ $t('gainosUi2.analytics.emptyPrimaryCta') }}
+          </Button>
+          <Button @click="router.push('/leads?view=reviews')">
+            {{ $t('gainosUi2.analytics.emptySecondaryCta') }}
+          </Button>
+        </template>
+      </GsEmpty>
       <template v-else>
-        <p class="mt__summary">
-          <span>{{ $t('gainos.metrics.latestBucket') }}：{{ latestBucket?.bucket }}</span>
-          <span class="gs-badge gs-badge--success">
-            {{ strictLabel }} {{ num(latestBucket?.strict?.value) }}
+        <div class="mt__summary an-summary" data-gs="analytics-summary">
+          <span class="an-summary__item">
+            <span class="an-summary__label">{{ $t('gainosUi2.analytics.latestDate') }}</span>
+            <strong class="an-summary__val">{{ latestBucket?.bucket }}</strong>
           </span>
-          <span class="gs-badge gs-badge--processing">
-            {{ plusLabel }} {{ num(latestBucket?.plus?.value) }}
+          <span aria-hidden="true" class="an-summary__sep" />
+          <span class="an-summary__item">
+            <span aria-hidden="true" class="an-dot an-dot--brand" />
+            <span class="an-summary__label">{{ strictLabel }}</span>
+            <strong class="an-summary__val">{{ num(latestBucket?.strict?.value) }}</strong>
           </span>
-          <span v-if="vricHasMore" class="mt__muted">{{ $t('gainos.metrics.windowTruncated') }}</span>
-        </p>
+          <span aria-hidden="true" class="an-summary__sep" />
+          <span class="an-summary__item">
+            <span aria-hidden="true" class="an-dot an-dot--success" />
+            <span class="an-summary__label">{{ plusLabel }}</span>
+            <strong class="an-summary__val">{{ num(latestBucket?.plus?.value) }}</strong>
+          </span>
+          <span v-if="vricHasMore" class="text-xs text-[var(--gs-fg-muted)]">
+            {{ $t('gainos.metrics.windowTruncated') }}
+          </span>
+        </div>
         <EchartsUI
           ref="chartRef"
           :aria-label="vricChartLabel"
-          class="mt__chart"
-          height="340px"
+          class="mt__chart w-full"
+          height="320px"
           role="img"
         />
-        <p class="mt__hint">{{ $t('gainos.metrics.vricGapNote') }}</p>
       </template>
+
+      <!-- 工程口径说明（默认折叠，VRIC 与聚合桶术语不干扰主视觉） -->
+      <details class="an-methodology" data-gs="analytics-methodology">
+        <summary>{{ $t('gainosUi2.analytics.methodologyTitle') }}</summary>
+        <ul class="an-methodology__list">
+          <li>{{ $t('gainosUi2.analytics.methodologyVric') }}</li>
+          <li>{{ $t('gainosUi2.analytics.methodologyGap') }}</li>
+          <li>{{ $t('gainosUi2.analytics.methodologyRollup') }}</li>
+        </ul>
+      </details>
     </section>
 
-    <section class="mt__card" :aria-label="$t('gainos.metrics.tablesTitle')">
-      <nav class="mt__tabs" role="tablist" :aria-label="$t('gainos.metrics.tablesTitle')">
-        <button
-          v-for="tab in TABLE_TABS"
-          :key="tab"
-          :aria-selected="activeTable === tab"
-          :class="{ 'is-active': activeTable === tab }"
-          class="mt__tab"
-          role="tab"
-          type="button"
-          @click="activeTable = tab"
-        >
-          {{
-            tab === 'catalog'
-              ? $t('gainos.metrics.tabCatalog')
-              : tab === 'observations'
-                ? $t('gainos.metrics.tabObservations')
-                : $t('gainos.metrics.tabRollups')
-          }}
-        </button>
-      </nav>
-
-      <!-- 指标目录 -->
-      <div v-if="activeTable === 'catalog'" role="tabpanel">
-        <div class="mt__controls mt__controls--filters">
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.catalogSearch') }}</span>
-            <input v-model="catalogSearch" :placeholder="$t('gainos.metrics.catalogSearchPlaceholder')" type="search" />
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.colTier') }}</span>
-            <select v-model="catalogTier">
-              <option value="">{{ $t('gainos.metrics.all') }}</option>
-              <option v-for="tier in catalogTiers" :key="tier" :value="tier">{{ tierLabel(tier) }}</option>
-            </select>
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.colStatus') }}</span>
-            <select v-model="catalogStatus">
-              <option value="">{{ $t('gainos.metrics.all') }}</option>
-              <option value="ACTIVE">{{ metricStatus('ACTIVE')?.label ?? 'ACTIVE' }}</option>
-              <option value="DRAFT">{{ metricStatus('DRAFT')?.label ?? 'DRAFT' }}</option>
-              <option value="DEPRECATED">{{ metricStatus('DEPRECATED')?.label ?? 'DEPRECATED' }}</option>
-              <option value="RETIRED">{{ metricStatus('RETIRED')?.label ?? 'RETIRED' }}</option>
-            </select>
-          </label>
-        </div>
-
-        <p v-if="catalogLoading" class="mt__muted">{{ $t('gainos.common.loading') }}</p>
-        <div v-else-if="catalogError" class="mt__error" role="alert">
-          <strong>{{ catalogError.title }}</strong>
-          <p v-if="catalogError.next">{{ catalogError.next }}</p>
-          <button class="mt__ghost mt__ghost--sm" type="button" @click="loadCatalog">
-            {{ $t('gainos.common.retry') }}
-          </button>
-        </div>
-        <div v-else-if="catalogRows.length === 0" class="mt__empty">
-          <p class="mt__empty-title">{{ $t('gainos.metrics.catalogEmpty') }}</p>
-          <p class="mt__muted">{{ $t('gainos.metrics.catalogEmptyHint') }}</p>
-          <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
-            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
-          </div>
-        </div>
-        <div v-else class="mt__tablewrap">
-          <table class="mt__table">
-            <thead>
-              <tr>
-                <th scope="col">{{ $t('gainos.metrics.colMetric') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colName') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colTier') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colUnit') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colStatus') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colOwner') }}</th>
-                <th scope="col">{{ $t('gainos.metrics.colEffective') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in catalogRows" :key="`${item.metricId}-${item.version}`">
-                <td class="mt__mono">{{ item.metricId }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ tierLabel(item.tier) }}</td>
-                <td>{{ unitLabel(item.unit) }}</td>
-                <td>
-                  <span class="gs-badge" :class="statusClass(metricStatus(item.status)?.tone ?? 'neutral')">
-                    {{ metricStatus(item.status)?.label ?? $t('gainos.common.unknownStatus') }}
-                  </span>
-                </td>
-                <td>{{ item.owner }}</td>
-                <td>{{ formatDate(item.effectiveFrom) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+    <!-- 指标明细与口径（单层 1px 细线容器 + AntDV Tabs + GsSelect） -->
+    <section
+      :aria-label="$t('gainosUi2.analytics.tablesTitle')"
+      class="an-surface"
+      data-gs="analytics-tables"
+    >
+      <div class="an-surface__head">
+        <h2 class="an-surface__title">{{ $t('gainosUi2.analytics.tablesTitle') }}</h2>
       </div>
 
-      <!-- 观测 -->
-      <div v-else-if="activeTable === 'observations'" role="tabpanel">
-        <form class="mt__controls mt__controls--filters" @submit.prevent="loadObservations(true)">
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.colMetric') }}</span>
-            <select v-model="observationFilters.metricId">
-              <option value="">{{ $t('gainos.metrics.metricAll') }}</option>
-              <option v-for="metricId in catalogMetricIds" :key="metricId" :value="metricId">
-                {{ metricId }}
-              </option>
-            </select>
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.from') }}</span>
-            <input v-model="observationFilters.from" type="date" />
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.to') }}</span>
-            <input v-model="observationFilters.to" type="date" />
-          </label>
-          <div class="mt__actions">
-            <button class="mt__primary" type="submit" :disabled="observationLoading">
-              {{ $t('gainos.metrics.apply') }}
-            </button>
-            <button class="mt__ghost" type="button" @click="resetObservationFilters">
-              {{ $t('gainos.metrics.reset') }}
-            </button>
+      <Tabs :active-key="activeTable" class="an-tabs" @change="onTableTabChange">
+        <!-- 指标口径 -->
+        <TabPane key="catalog" :tab="$t('gainosUi2.analytics.tabCatalog')">
+          <div class="an-filters">
+            <div class="w-[220px] @max-[640px]:w-full">
+              <Input
+                v-model:value="catalogSearch"
+                :aria-label="$t('gainosUi2.analytics.searchPlaceholder')"
+                :placeholder="$t('gainosUi2.analytics.searchPlaceholder')"
+                allow-clear
+                size="small"
+                type="search"
+              >
+                <template #prefix><Search :size="13" /></template>
+              </Input>
+            </div>
+            <div class="w-[140px]" data-gs="analytics-catalog-tier">
+              <GsSelect
+                v-model="catalogTier"
+                :aria-label="$t('gainos.metrics.colTier')"
+                :ariaLabel="$t('gainos.metrics.colTier')"
+                :options="catalogTierOptions"
+                class="w-full"
+                size="small"
+              />
+            </div>
+            <div class="w-[140px]" data-gs="analytics-catalog-status">
+              <GsSelect
+                v-model="catalogStatus"
+                :aria-label="$t('gainos.metrics.colStatus')"
+                :ariaLabel="$t('gainos.metrics.colStatus')"
+                :options="catalogStatusOptions"
+                class="w-full"
+                size="small"
+              />
+            </div>
           </div>
-        </form>
 
-        <p v-if="observationLoading" class="mt__muted">{{ $t('gainos.common.loading') }}</p>
-        <div v-else-if="observationError" class="mt__error" role="alert">
-          <strong>{{ observationError.title }}</strong>
-          <p v-if="observationError.next">{{ observationError.next }}</p>
-          <button class="mt__ghost mt__ghost--sm" type="button" @click="loadObservations(true)">
-            {{ $t('gainos.common.retry') }}
-          </button>
-        </div>
-        <div v-else-if="observations.length === 0" class="mt__empty">
-          <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
-          <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
-          <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
-            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          <Skeleton v-if="catalogLoading" active :paragraph="{ rows: 3 }" />
+          <div v-else-if="catalogError" class="grid gap-3">
+            <ErrorNotice :next="catalogError.next" :title="catalogError.title" />
+            <Button class="justify-self-start" size="small" @click="loadCatalog">
+              {{ $t('gainos.common.retry') }}
+            </Button>
           </div>
-        </div>
-        <template v-else>
-          <div class="mt__tablewrap">
-            <table class="mt__table">
+          <GsEmpty
+            v-else-if="catalogRows.length === 0"
+            :description="$t('gainosUi2.analytics.catalogEmptyDesc')"
+            :title="$t('gainosUi2.analytics.catalogEmptyTitle')"
+            simple
+          />
+          <div v-else class="an-tablewrap">
+            <table class="an-table">
               <thead>
                 <tr>
                   <th scope="col">{{ $t('gainos.metrics.colMetric') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colWindow') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colValue') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colRatio') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colCi') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colSample') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colComputedAt') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colName') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colTier') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colUnit') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colStatus') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colOwner') }}</th>
+                  <th scope="col">{{ $t('gainos.metrics.colEffective') }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in observations" :key="row.id">
-                  <td class="mt__mono">{{ row.metricId }}</td>
-                  <td>{{ formatDate(row.windowStart) }} – {{ formatDate(row.windowEnd) }}</td>
-                  <td>{{ num(row.value) }}</td>
-                  <td>{{ num(row.numerator) }} / {{ num(row.denominator) }}</td>
+                <tr v-for="item in catalogRows" :key="`${item.metricId}-${item.version}`">
+                  <td class="an-mono">{{ item.metricId }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ tierLabel(item.tier) }}</td>
+                  <td>{{ unitLabel(item.unit) }}</td>
                   <td>
-                    {{ row.ciLow === null && row.ciHigh === null ? '—' : `${num(row.ciLow)} – ${num(row.ciHigh)}` }}
+                    <GsTag :tone="metricTone(item.status)">
+                      {{ metricStatus(item.status)?.label ?? $t('gainos.common.unknownStatus') }}
+                    </GsTag>
                   </td>
-                  <td>{{ num(row.sampleN) }}</td>
-                  <td>{{ formatDateTime(row.computedAt) }}</td>
+                  <td>{{ item.owner }}</td>
+                  <td class="an-num">{{ formatDate(item.effectiveFrom) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <button
-            v-if="observationNextCursor"
-            class="mt__ghost mt__loadmore"
-            type="button"
-            :disabled="observationLoadingMore"
-            @click="loadObservations(false)"
-          >
-            {{ observationLoadingMore ? $t('gainos.common.loading') : $t('gainos.metrics.loadMore') }}
-          </button>
-        </template>
-      </div>
+        </TabPane>
 
-      <!-- 聚合 -->
-      <div v-else role="tabpanel">
-        <form class="mt__controls mt__controls--filters" @submit.prevent="loadRollups(true)">
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.granularity') }}</span>
-            <select v-model="rollupGranularity">
-              <option value="daily">{{ $t('gainos.metrics.daily') }}</option>
-              <option value="weekly">{{ $t('gainos.metrics.weekly') }}</option>
-            </select>
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.colMetric') }}</span>
-            <select v-model="rollupFilters.metricId">
-              <option value="">{{ $t('gainos.metrics.metricAll') }}</option>
-              <option v-for="metricId in catalogMetricIds" :key="metricId" :value="metricId">
-                {{ metricId }}
-              </option>
-            </select>
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.from') }}</span>
-            <input v-model="rollupFilters.from" type="date" />
-          </label>
-          <label class="mt__field">
-            <span>{{ $t('gainos.metrics.to') }}</span>
-            <input v-model="rollupFilters.to" type="date" />
-          </label>
-          <div class="mt__actions">
-            <button class="mt__primary" type="submit" :disabled="rollupLoading">
+        <!-- 周期明细（观测） -->
+        <TabPane key="observations" :tab="$t('gainosUi2.analytics.tabObservations')">
+          <form class="an-filters" @submit.prevent="loadObservations(true)">
+            <div class="w-[168px]" data-gs="analytics-obs-metric">
+              <GsSelect
+                v-model="observationFilters.metricId"
+                :aria-label="$t('gainos.metrics.colMetric')"
+                :ariaLabel="$t('gainos.metrics.colMetric')"
+                :options="metricIdOptions"
+                class="w-full"
+                size="small"
+              />
+            </div>
+            <div class="w-[144px]">
+              <Input
+                v-model:value="observationFilters.from"
+                :aria-label="$t('gainos.metrics.from')"
+                size="small"
+                type="date"
+              />
+            </div>
+            <div class="w-[144px]">
+              <Input
+                v-model:value="observationFilters.to"
+                :aria-label="$t('gainos.metrics.to')"
+                size="small"
+                type="date"
+              />
+            </div>
+            <Button :loading="observationLoading" html-type="submit" size="small" type="primary">
               {{ $t('gainos.metrics.apply') }}
-            </button>
-            <button class="mt__ghost" type="button" @click="resetRollupFilters">
+            </Button>
+            <Button size="small" @click="resetObservationFilters">
               {{ $t('gainos.metrics.reset') }}
-            </button>
-          </div>
-        </form>
+            </Button>
+          </form>
 
-        <p v-if="rollupLoading" class="mt__muted">{{ $t('gainos.common.loading') }}</p>
-        <div v-else-if="rollupError" class="mt__error" role="alert">
-          <strong>{{ rollupError.title }}</strong>
-          <p v-if="rollupError.next">{{ rollupError.next }}</p>
-          <button class="mt__ghost mt__ghost--sm" type="button" @click="loadRollups(true)">
-            {{ $t('gainos.common.retry') }}
-          </button>
-        </div>
-        <div v-else-if="rollups.length === 0" class="mt__empty">
-          <p class="mt__empty-title">{{ $t('gainos.metrics.rowsEmpty') }}</p>
-          <p class="mt__muted">{{ $t('gainos.metrics.rowsEmptyHint') }}</p>
-          <div class="mt__empty-actions">
-            <RouterLink class="mt__empty-link is-primary" to="/leads?view=reviews">{{ $t('gainos.reviews.tab') }}</RouterLink>
-            <RouterLink class="mt__empty-link" to="/leads">{{ $t('gainos.leads.title') }}</RouterLink>
+          <Skeleton v-if="observationLoading" active :paragraph="{ rows: 3 }" />
+          <div v-else-if="observationError" class="grid gap-3">
+            <ErrorNotice :next="observationError.next" :title="observationError.title" />
+            <Button class="justify-self-start" size="small" @click="loadObservations(true)">
+              {{ $t('gainos.common.retry') }}
+            </Button>
           </div>
-        </div>
-        <template v-else>
-          <div class="mt__tablewrap">
-            <table class="mt__table">
-              <thead>
-                <tr>
-                  <th scope="col">{{ $t('gainos.metrics.colBucket') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colMetric') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colStratum') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colValue') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colRatio') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colSample') }}</th>
-                  <th scope="col">{{ $t('gainos.metrics.colRefreshedAt') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in rollups" :key="`${row.bucket}-${row.metricId}-${row.metricVersion}-${row.stratumKey}`">
-                  <td>{{ row.bucket }}</td>
-                  <td class="mt__mono">{{ row.metricId }}</td>
-                  <td>{{ stratumLabel(row.stratumKey) }}</td>
-                  <td>{{ num(row.value) }}</td>
-                  <td>{{ num(row.numerator) }} / {{ num(row.denominator) }}</td>
-                  <td>{{ num(row.sampleN) }}</td>
-                  <td>{{ formatDateTime(row.refreshedAt) }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <GsEmpty
+            v-else-if="observations.length === 0"
+            :description="$t('gainosUi2.analytics.rowsEmptyDesc')"
+            :title="$t('gainosUi2.analytics.rowsEmptyTitle')"
+            simple
+          />
+          <template v-else>
+            <div class="an-tablewrap">
+              <table class="an-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{{ $t('gainos.metrics.colMetric') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colWindow') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colValue') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colRatio') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colCi') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colSample') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colComputedAt') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in observations" :key="row.id">
+                    <td class="an-mono">{{ row.metricId }}</td>
+                    <td class="an-num">{{ formatDate(row.windowStart) }} – {{ formatDate(row.windowEnd) }}</td>
+                    <td class="an-num">{{ num(row.value) }}</td>
+                    <td class="an-num">{{ num(row.numerator) }} / {{ num(row.denominator) }}</td>
+                    <td class="an-num">
+                      {{ row.ciLow === null && row.ciHigh === null ? '—' : `${num(row.ciLow)} – ${num(row.ciHigh)}` }}
+                    </td>
+                    <td class="an-num">{{ num(row.sampleN) }}</td>
+                    <td class="an-num">{{ formatDateTime(row.computedAt) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="observationNextCursor" class="mt-3 flex justify-center">
+              <Button :loading="observationLoadingMore" size="small" @click="loadObservations(false)">
+                {{ observationLoadingMore ? $t('gainos.common.loading') : $t('gainos.metrics.loadMore') }}
+              </Button>
+            </div>
+          </template>
+        </TabPane>
+
+        <!-- 汇总报表（聚合） -->
+        <TabPane key="rollups" :tab="$t('gainosUi2.analytics.tabRollups')">
+          <form class="an-filters" @submit.prevent="loadRollups(true)">
+            <div class="w-[116px]" data-gs="analytics-rollup-granularity">
+              <GsSelect
+                v-model="rollupGranularity"
+                :aria-label="$t('gainosUi2.analytics.granularity')"
+                :ariaLabel="$t('gainosUi2.analytics.granularity')"
+                :options="granularityOptions"
+                class="w-full"
+                size="small"
+              />
+            </div>
+            <div class="w-[168px]" data-gs="analytics-rollup-metric">
+              <GsSelect
+                v-model="rollupFilters.metricId"
+                :aria-label="$t('gainos.metrics.colMetric')"
+                :ariaLabel="$t('gainos.metrics.colMetric')"
+                :options="metricIdOptions"
+                class="w-full"
+                size="small"
+              />
+            </div>
+            <div class="w-[144px]">
+              <Input
+                v-model:value="rollupFilters.from"
+                :aria-label="$t('gainos.metrics.from')"
+                size="small"
+                type="date"
+              />
+            </div>
+            <div class="w-[144px]">
+              <Input
+                v-model:value="rollupFilters.to"
+                :aria-label="$t('gainos.metrics.to')"
+                size="small"
+                type="date"
+              />
+            </div>
+            <Button :loading="rollupLoading" html-type="submit" size="small" type="primary">
+              {{ $t('gainos.metrics.apply') }}
+            </Button>
+            <Button size="small" @click="resetRollupFilters">
+              {{ $t('gainos.metrics.reset') }}
+            </Button>
+          </form>
+
+          <Skeleton v-if="rollupLoading" active :paragraph="{ rows: 3 }" />
+          <div v-else-if="rollupError" class="grid gap-3">
+            <ErrorNotice :next="rollupError.next" :title="rollupError.title" />
+            <Button class="justify-self-start" size="small" @click="loadRollups(true)">
+              {{ $t('gainos.common.retry') }}
+            </Button>
           </div>
-          <button
-            v-if="rollupNextCursor"
-            class="mt__ghost mt__loadmore"
-            type="button"
-            :disabled="rollupLoadingMore"
-            @click="loadRollups(false)"
-          >
-            {{ rollupLoadingMore ? $t('gainos.common.loading') : $t('gainos.metrics.loadMore') }}
-          </button>
-        </template>
-      </div>
+          <GsEmpty
+            v-else-if="rollups.length === 0"
+            :description="$t('gainosUi2.analytics.rowsEmptyDesc')"
+            :title="$t('gainosUi2.analytics.rowsEmptyTitle')"
+            simple
+          />
+          <template v-else>
+            <div class="an-tablewrap">
+              <table class="an-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{{ $t('gainosUi2.analytics.colPeriod') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colMetric') }}</th>
+                    <th scope="col">{{ $t('gainosUi2.analytics.colSegment') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colValue') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colRatio') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colSample') }}</th>
+                    <th scope="col">{{ $t('gainos.metrics.colRefreshedAt') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in rollups"
+                    :key="`${row.bucket}-${row.metricId}-${row.metricVersion}-${row.stratumKey}`"
+                  >
+                    <td class="an-num">{{ row.bucket }}</td>
+                    <td class="an-mono">{{ row.metricId }}</td>
+                    <td>{{ stratumLabel(row.stratumKey) }}</td>
+                    <td class="an-num">{{ num(row.value) }}</td>
+                    <td class="an-num">{{ num(row.numerator) }} / {{ num(row.denominator) }}</td>
+                    <td class="an-num">{{ num(row.sampleN) }}</td>
+                    <td class="an-num">{{ formatDateTime(row.refreshedAt) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="rollupNextCursor" class="mt-3 flex justify-center">
+              <Button :loading="rollupLoadingMore" size="small" @click="loadRollups(false)">
+                {{ rollupLoadingMore ? $t('gainos.common.loading') : $t('gainos.metrics.loadMore') }}
+              </Button>
+            </div>
+          </template>
+        </TabPane>
+      </Tabs>
     </section>
   </div>
 </template>
 
 <style scoped>
-.mt {
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px);
-  box-sizing: border-box;
+.an-surface {
   display: grid;
-  gap: 16px;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
 }
-.mt.is-embedded { padding: 0; max-width: none; margin: 0; }
-.mt__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.mt__head h1,
-.mt__head h2 { margin: 0 0 4px; font-size: 22px; color: var(--gs-fg); }
-.mt__sub { margin: 0; color: var(--gs-fg-muted); font-size: 13px; line-height: 1.6; max-width: 720px; }
-.mt__card { border: 1px solid var(--gs-border-strong); border-radius: 16px; background: var(--gs-surface); padding: 18px 20px; display: grid; gap: 12px; min-width: 0; }
-.mt__card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.mt__card-head h3 { margin: 0 0 4px; font-size: 17px; }
-.mt__hint { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--gs-fg-subtle); }
-.mt__controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
-.mt__controls--filters { margin-bottom: 12px; }
-.mt__field { display: grid; gap: 4px; font-size: 12.5px; color: var(--gs-fg-2); }
-.mt__field select, .mt__field input { padding: 7px 10px; border: 1px solid var(--gs-border-strong); border-radius: 8px; background: var(--gs-surface); color: var(--gs-fg); font: inherit; min-width: 140px; }
-.mt__actions { display: flex; gap: 8px; }
-.mt__ghost, .mt__primary { padding: 8px 14px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font: inherit; }
-.mt__ghost { background: var(--gs-surface); border-color: var(--gs-border-strong); color: var(--gs-fg-2); }
-.mt__ghost--sm { padding: 6px 10px; font-size: 12.5px; }
-.mt__primary { background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
-.mt__ghost:disabled, .mt__primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.mt__muted { margin: 0; color: var(--gs-fg-subtle); font-size: 13px; }
-.mt__summary { margin: 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--gs-fg-2); }
-.mt__chart { width: 100%; }
-.mt__error { border: 1px solid var(--gs-danger-border); background: var(--gs-danger-bg); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; color: var(--gs-danger); font-size: 13px; }
-.mt__error p { margin: 0; }
-.mt__error button { justify-self: start; }
-.mt__empty { border: 1px dashed var(--gs-border-dashed); border-radius: 16px; background: var(--gs-surface-3); padding: 32px 20px; text-align: center; display: grid; gap: 6px; }
-.mt__empty-title { margin: 0; font-weight: 600; color: var(--gs-fg-2); }
-.mt__empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
-.mt__empty-link {
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gs-border); border-radius: 8px; padding: 8px 16px;
-  background: var(--gs-surface); color: var(--gs-fg-2); font-size: 13px; text-decoration: none;
+
+.an-surface__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
-.mt__empty-link.is-primary { border-color: transparent; background: var(--gs-accent-cta); color: var(--gs-accent-cta-fg); }
-.mt__empty-link:hover { border-color: var(--gs-accent); color: var(--gs-accent-strong); }
-.mt__empty-link.is-primary:hover { background: var(--gs-accent-cta-hover); color: var(--gs-accent-cta-fg); }
-.mt__tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--gs-surface-2); border-radius: 12px; width: fit-content; }
-.mt__tab { border: none; background: transparent; color: var(--gs-fg-2); font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 9px; cursor: pointer; }
-.mt__tab.is-active { background: var(--gs-surface); color: var(--gs-fg); box-shadow: var(--gs-shadow-card); }
-.mt__tablewrap { overflow-x: auto; border: 1px solid var(--gs-border); border-radius: 12px; }
-.mt__table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.mt__table th, .mt__table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--gs-divider); vertical-align: top; }
-.mt__table thead th { font-size: 12px; font-weight: 600; color: var(--gs-fg-subtle); }
-.mt__table tbody tr:last-child td { border-bottom: none; }
-.mt__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-.mt__loadmore { justify-self: center; margin-top: 10px; }
-@media (max-width: 720px) {
-  .mt__field select, .mt__field input { min-width: 0; width: 100%; }
-  .mt__field { flex: 1 1 140px; }
+
+.an-surface__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.an-surface__sub {
+  margin: 2px 0 0;
+  max-width: 720px;
+  color: var(--gs-fg-muted);
+  font-size: 12.5px;
+  line-height: 19px;
+}
+
+.an-controls,
+.an-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.an-filters {
+  margin-bottom: 12px;
+}
+
+.an-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--gs-divider);
+  border-radius: 8px;
+  background: var(--gs-surface-3);
+  font-size: 12.5px;
+}
+
+.an-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.an-summary__label {
+  color: var(--gs-fg-muted);
+}
+
+.an-summary__val {
+  color: var(--gs-fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.an-summary__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--gs-border);
+}
+
+.an-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  flex: none;
+}
+
+.an-dot--brand {
+  background: var(--gs-accent);
+}
+
+.an-dot--success {
+  background: var(--gs-success);
+}
+
+.an-methodology {
+  padding-top: 10px;
+  border-top: 1px solid var(--gs-divider);
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+}
+
+.an-methodology summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.an-methodology__list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.65;
+}
+
+.an-tabs :deep(.ant-tabs-nav) {
+  margin-bottom: 14px;
+}
+
+.an-tablewrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+}
+
+.an-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.an-table th,
+.an-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--gs-divider);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.an-table thead tr {
+  background: var(--gs-table-head);
+}
+
+.an-table thead th {
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.an-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.an-mono {
+  font-family: var(--gs-font-mono);
+  font-size: 12px;
+}
+
+.an-num {
+  font-variant-numeric: tabular-nums;
 }
 </style>

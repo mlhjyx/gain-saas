@@ -8,9 +8,10 @@ import {
   mapRejectCodeToFeedbackReason,
   type StreamingProgressDto,
 } from '@gain-saas/shared';
-import { RotateCw, Search } from '@vben/icons';
+import { LayoutGrid, List, RotateCw, Search } from '@vben/icons';
 import { preferences } from '@vben/preferences';
 
+import { useElementSize } from '@vueuse/core';
 import { Alert, Button, Checkbox, Input, Modal, Skeleton } from 'ant-design-vue';
 
 import ErrorNotice from '#/components/error-notice.vue';
@@ -21,7 +22,6 @@ import GsModal from '#/components/gainos/ui/gs-modal.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSegmented from '#/components/gainos/ui/gs-segmented.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
-import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { $t } from '#/locales';
 import { usePendingAction } from '#/composables/use-pending-action';
 import { useWorkspaceAccess } from '#/composables/use-workspace-access';
@@ -41,6 +41,9 @@ import {
 } from '#/api/gainos';
 
 import LeadCard from './lead-card.vue';
+import LeadCompactTable from './lead-compact-table.vue';
+import LeadQuickDrawer from './lead-quick-drawer.vue';
+import LeadReviewQueue from './lead-review-queue.vue';
 
 defineOptions({ name: 'Leads' });
 
@@ -76,6 +79,47 @@ const viewOptions = computed(() => [
   { label: $t('gainosP0.leadsView.list'), value: 'list' },
   { label: $t('gainosP0.leadsView.reviews'), value: 'reviews' },
 ]);
+
+type LeadsDisplayMode = 'card' | 'review' | 'table';
+const displayMode = ref<LeadsDisplayMode>('review');
+const contentRef = ref<HTMLElement | null>(null);
+const { width: contentWidth } = useElementSize(contentRef);
+const inlineReview = computed(() =>
+  displayMode.value === 'review' && activeView.value === 'list' && contentWidth.value >= 860,
+);
+
+const previewLeadId = ref<null | string>(null);
+const previewOpen = computed({
+  get: () => Boolean(previewLeadId.value && previewLead.value),
+  set: (value: boolean) => {
+    if (!value) previewLeadId.value = null;
+  },
+});
+const previewIndex = computed(() =>
+  previewLeadId.value ? filteredLeads.value.findIndex((item) => item.id === previewLeadId.value) : -1,
+);
+const previewLead = computed<Lead | null>(() =>
+  previewIndex.value >= 0 ? (filteredLeads.value[previewIndex.value] ?? null) : null,
+);
+
+function openPreview(lead: Lead): void {
+  previewLeadId.value = lead.id;
+}
+function setDisplayMode(mode: LeadsDisplayMode): void {
+  if (displayMode.value === mode) return;
+  previewLeadId.value = null;
+  displayMode.value = mode;
+}
+function previewPrev(): void {
+  const idx = previewIndex.value;
+  if (idx > 0) previewLeadId.value = filteredLeads.value[idx - 1]?.id ?? null;
+}
+function previewNext(): void {
+  const idx = previewIndex.value;
+  if (idx >= 0 && idx < filteredLeads.value.length - 1) {
+    previewLeadId.value = filteredLeads.value[idx + 1]?.id ?? null;
+  }
+}
 
 const leadsInitialized = ref(false);
 
@@ -191,6 +235,20 @@ const filteredLeads = computed(() => {
       .toLowerCase();
     return haystack.includes(query);
   });
+});
+
+watch([inlineReview, filteredLeads], ([inline, items], [wasInline]) => {
+  if (inline) {
+    if (!items.some((item) => item.id === previewLeadId.value)) {
+      previewLeadId.value = items[0]?.id ?? null;
+    }
+  } else if (wasInline) {
+    previewLeadId.value = null;
+  }
+});
+
+watch(activeView, () => {
+  previewLeadId.value = inlineReview.value ? filteredLeads.value[0]?.id ?? null : null;
 });
 
 // ── 批量选择与 GsBulkActionBar 操作 ───────────────────────────────────────
@@ -756,21 +814,31 @@ async function loadIcps(): Promise<void> {
   }
 }
 
-async function loadQueueCounts(): Promise<void> {
-  if (!activeIcpId.value) {
-    queueCounts.value = null;
-    return;
-  }
+let leadLoadSeq = 0;
+let countsIcpId = '';
+
+async function loadQueueCounts(icpId: string, seq: number): Promise<void> {
   try {
-    const data = await gainosApi.leadQueues(activeIcpId.value);
-    queueCounts.value = (data as unknown as { data?: LeadQueueCounts })?.data ?? data;
+    const data = await gainosApi.leadQueues(icpId);
+    if (seq === leadLoadSeq && icpId === activeIcpId.value) {
+      countsIcpId = icpId;
+      queueCounts.value = (data as unknown as { data?: LeadQueueCounts })?.data ?? data;
+    }
   } catch {
-    queueCounts.value = null;
+    if (seq === leadLoadSeq && icpId === activeIcpId.value) queueCounts.value = null;
   }
 }
 
 async function load(): Promise<void> {
-  if (!activeIcpId.value) {
+  const seq = ++leadLoadSeq;
+  const icpId = activeIcpId.value;
+  const queue = activeQueue.value;
+  const status = activeStatus.value;
+  const isCurrent = () =>
+    seq === leadLoadSeq && icpId === activeIcpId.value &&
+    queue === activeQueue.value && status === activeStatus.value;
+  if (countsIcpId !== icpId) queueCounts.value = null;
+  if (!icpId) {
     leads.value = [];
     queueCounts.value = null;
     loading.value = false;
@@ -778,27 +846,30 @@ async function load(): Promise<void> {
   }
   loading.value = true;
   loadError.value = null;
+  void loadQueueCounts(icpId, seq);
   try {
     const data = await gainosApi.leads({
-      icpId: activeIcpId.value,
-      queue: activeQueue.value,
-      ...(activeStatus.value ? { status: activeStatus.value } : {}),
+      icpId,
+      queue,
+      ...(status ? { status } : {}),
       limit: pageLimit.value,
     });
+    if (!isCurrent()) return;
     leads.value = Array.isArray(data) ? data : ((data as { data?: Lead[] })?.data ?? []);
     // 清理已不在当前结果集中的勾选项
     const validIds = new Set(leads.value.map((lead) => lead.id));
     selectedLeadIds.value = new Set([...selectedLeadIds.value].filter((id) => validIds.has(id)));
-    await loadQueueCounts();
   } catch (error) {
+    if (!isCurrent()) return;
     loadError.value = failureText(error);
     leads.value = [];
   } finally {
-    loading.value = false;
+    if (isCurrent()) loading.value = false;
   }
 }
 
 function openAccept(lead: Lead): void {
+  if (submitting.value) return;
   target.value = lead;
   modal.value = 'accept';
   reasonCode.value = '';
@@ -806,6 +877,7 @@ function openAccept(lead: Lead): void {
   actionError.value = null;
 }
 function openReject(lead: Lead): void {
+  if (submitting.value) return;
   target.value = lead;
   modal.value = 'reject';
   reasonCode.value = '';
@@ -813,6 +885,7 @@ function openReject(lead: Lead): void {
   actionError.value = null;
 }
 function closeModal(): void {
+  if (submitting.value) return;
   modal.value = null;
   target.value = null;
   reasonCode.value = '';
@@ -821,7 +894,7 @@ function closeModal(): void {
 }
 
 async function submitDecision(): Promise<void> {
-  if (!target.value || !modal.value) return;
+  if (!target.value || !modal.value || submitting.value) return;
   if (modal.value === 'reject' && !reasonCode.value) {
     actionError.value = { title: $t('gainos.leads.reasonRequired'), next: $t('gainos.leads.rejectDesc') };
     return;
@@ -829,6 +902,7 @@ async function submitDecision(): Promise<void> {
   actionError.value = null;
   const lead = target.value;
   const leadId = lead.id;
+  const targetIcpId = lead.icpId || activeIcpId.value;
   const kind = modal.value;
   const selectedReasonCode = reasonCode.value;
   const noteTrimmed = reasonNote.value.trim();
@@ -844,7 +918,6 @@ async function submitDecision(): Promise<void> {
         feedback.message.success($t('gainos.leads.acceptedNotice'));
       } else {
         await gainosApi.rejectLead(leadId, input, idempotencyKey);
-        const targetIcpId = lead.icpId || activeIcpId.value;
         let synced = false;
         if (targetIcpId) {
           const mappedReason = mapRejectCodeToFeedbackReason(selectedReasonCode);
@@ -955,19 +1028,48 @@ onUnmounted(() => {
 
 <template>
   <!-- grid-cols-1 + @container：约束列宽（子内容再宽也不会把整列撑出屏幕），并作为容器查询的参照——
-       卡片按内容区实际宽度分级，而不是按视口。 -->
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
-    <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')" />
-
-    <div class="flex items-center" data-gs="leads-view-switch">
-      <div class="rounded-xl border border-[var(--gs-border)] bg-[var(--gs-surface)] p-1 shadow-[var(--gs-shadow-xs)]">
-        <GsSegmented
-          v-model="activeView"
-          :ariaLabel="$t('gainosP0.leadsView.ariaLabel')"
-          :options="viewOptions"
-        />
-      </div>
-    </div>
+       表格与卡片按内容区实际宽度分级，而不是按视口。 -->
+  <div ref="contentRef" class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
+    <GsPage art="leads" :subtitle="$t('gainos.leads.subtitle')" :title="$t('gainos.leads.title')">
+      <template #actions>
+        <div class="leads-head-actions">
+          <div class="leads-view-seg" data-gs="leads-view-switch">
+            <GsSegmented
+              v-model="activeView"
+              :ariaLabel="$t('gainosP0.leadsView.ariaLabel')"
+              :options="viewOptions"
+            />
+          </div>
+          <template v-if="activeView === 'list' && activeIcpId">
+            <Button
+              v-if="isAdmin"
+              :loading="exportingCsv"
+              :title="$t('gainos.leads.exportBattleCsvHint')"
+              data-gs="export-battle-csv"
+              size="small"
+              @click="exportBattleCsv"
+            >
+              {{ exportingCsv ? $t('gainos.leads.exportingBattleCsv') : $t('gainos.leads.exportBattleCsv') }}
+            </Button>
+            <Button data-gs="qgo-entry" size="small" @click="$router.push('/opportunities')">
+              {{ $t('gainos.leads.qgoEntry') }}
+            </Button>
+            <Button
+              :aria-label="$t('gainos.common.refresh')"
+              :loading="loading"
+              :title="$t('gainos.common.refresh')"
+              data-gs="refresh"
+              size="small"
+              @click="load"
+            >
+              <template v-if="!loading" #icon>
+                <RotateCw :size="14" />
+              </template>
+            </Button>
+          </template>
+        </div>
+      </template>
+    </GsPage>
 
     <div v-if="activeView === 'reviews'" data-gs="leads-reviews-panel">
       <JudgmentReviews embedded />
@@ -993,26 +1095,34 @@ onUnmounted(() => {
     </GsEmpty>
 
     <template v-if="activeIcpId">
-      <GsToolbar data-gs="queue-toolbar">
-        <GsSegmented
-          v-model="activeQueue"
-          :ariaLabel="$t('gainos.leads.statusLabel')"
-          data-gs="queue-switch"
-          :options="queueOptions"
-        />
-        <div class="ml-auto flex flex-wrap items-center gap-2 @max-[640px]:ml-0 @max-[640px]:w-full">
-          <GsSelect
-            v-if="icps.length"
-            v-model="activeIcpId"
-            :aria-label="$t('gainos.leads.icpFilter')"
-            :ariaLabel="$t('gainos.leads.icpFilter')"
-            :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
-            class="w-[200px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
-            data-gs="icp-filter"
-            @change="refreshStreamingAndLeads()"
+      <!-- 单行 44px 极轻细线工具栏（无孤悬圆角白块，压缩纵向壳层还空间给数据列表） -->
+      <div class="leads-bar" data-gs="queue-toolbar">
+        <div class="leads-bar__queues">
+          <GsSegmented
+            v-model="activeQueue"
+            :ariaLabel="$t('gainos.leads.statusLabel')"
+            data-gs="queue-switch"
+            :options="queueOptions"
           />
+        </div>
+        <div class="leads-bar__filters">
           <div
-            class="w-[140px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
+            v-if="icps.length"
+            class="w-[172px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
+            data-gs="icp-filter"
+          >
+            <GsSelect
+              v-model="activeIcpId"
+              :aria-label="$t('gainos.leads.icpFilter')"
+              :ariaLabel="$t('gainos.leads.icpFilter')"
+              :options="icps.map((icp) => ({ label: icp.name, value: icp.id }))"
+              class="w-full"
+              size="small"
+              @change="refreshStreamingAndLeads()"
+            />
+          </div>
+          <div
+            class="w-[116px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
             data-gs="lead-status-filter"
           >
             <GsSelect
@@ -1020,42 +1130,67 @@ onUnmounted(() => {
               :ariaLabel="$t('gainosB4.leadsBulk.statusFilterLabel')"
               :options="statusFilterOptions"
               class="w-full"
+              size="small"
             />
           </div>
-          <div class="w-[240px] @max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="lead-search">
+          <div
+            class="w-[184px] @max-[640px]:min-w-0 @max-[640px]:flex-1 @max-[640px]:basis-[calc(60%-4px)]"
+            data-gs="lead-search"
+          >
             <Input
               v-model:value="searchQuery"
               :aria-label="$t('gainos.companies.searchPlaceholder')"
               :placeholder="$t('gainos.companies.searchPlaceholder')"
               allow-clear
+              size="small"
               type="search"
             >
               <template #prefix>
-                <Search :size="14" />
+                <Search :size="13" />
               </template>
             </Input>
           </div>
-          <Button
-            v-if="isAdmin"
-            class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]"
-            :loading="exportingCsv"
-            :title="$t('gainos.leads.exportBattleCsvHint')"
-            data-gs="export-battle-csv"
-            @click="exportBattleCsv"
+          <div
+            :aria-label="$t('gainosUi2.leads.viewSwitchAria')"
+            class="leads-mode"
+            data-gs="leads-display-mode"
+            role="group"
           >
-            {{ exportingCsv ? $t('gainos.leads.exportingBattleCsv') : $t('gainos.leads.exportBattleCsv') }}
-          </Button>
-          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="qgo-entry" @click="$router.push('/opportunities')">
-            {{ $t('gainos.leads.qgoEntry') }}
-          </Button>
-          <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
-            <template v-if="!loading" #icon>
-              <RotateCw :size="14" />
-            </template>
-            {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-          </Button>
+            <button
+              :aria-pressed="displayMode === 'review'"
+              :class="{ 'is-active': displayMode === 'review' }"
+              class="leads-mode__btn"
+              data-gs="leads-display-review"
+              type="button"
+              @click="setDisplayMode('review')"
+            >
+              <span>{{ $t('gainosUi2.leads.viewReview') }}</span>
+            </button>
+            <button
+              :aria-pressed="displayMode === 'table'"
+              :class="{ 'is-active': displayMode === 'table' }"
+              class="leads-mode__btn"
+              data-gs="leads-display-table"
+              type="button"
+              @click="setDisplayMode('table')"
+            >
+              <List :size="13" />
+              <span>{{ $t('gainosUi2.leads.viewTable') }}</span>
+            </button>
+            <button
+              :aria-pressed="displayMode === 'card'"
+              :class="{ 'is-active': displayMode === 'card' }"
+              class="leads-mode__btn"
+              data-gs="leads-display-card"
+              type="button"
+              @click="setDisplayMode('card')"
+            >
+              <LayoutGrid :size="13" />
+              <span>{{ $t('gainosUi2.leads.viewCard') }}</span>
+            </button>
+          </div>
         </div>
-      </GsToolbar>
+      </div>
 
       <StreamingProgressBoard
         v-if="liveStreamingProgress && liveStreamingProgress.isRunning"
@@ -1113,47 +1248,100 @@ onUnmounted(() => {
       </GsEmpty>
 
       <template v-else>
-        <div
-          v-if="filteredLeads.length > 0"
-          class="flex items-center justify-between px-1"
-          data-gs="leads-selection-bar"
-        >
-          <Checkbox
-            :checked="allPageSelected"
-            :indeterminate="somePageSelected"
-            data-gs="leads-select-all"
-            @change="(e: { target?: { checked?: boolean } }) => toggleSelectAllPage(Boolean(e?.target?.checked))"
-          >
-            <span class="text-xs text-[var(--gs-fg-muted)]">
-              {{ $t('gainosB4.leadsBulk.selectAllPage') }}
-            </span>
-          </Checkbox>
-          <span v-if="selectedLeads.length > 0" class="text-xs text-[var(--gs-fg-muted)]">
-            {{ $t('gainosB4.leadsBulk.selectedSummary', { count: selectedLeads.length }) }}
-          </span>
-        </div>
-
-        <p v-if="filteredLeads.length === 0" class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+        <p v-if="filteredLeads.length === 0" class="m-0 py-6 text-center text-[13px] text-[var(--gs-fg-muted)]">
           {{ $t('gainos.companies.noMatch') }}
         </p>
 
-        <LeadCard
-          v-for="lead in filteredLeads"
-          :key="lead.id"
-          :basis-label="basisLabel(lead.queueBasis)"
-          :can-act="canAct(lead)"
-          :expanded="isExpanded(lead.id)"
-          :lead="lead"
-          :selectable="true"
-          :selected="isLeadSelected(lead.id)"
-          @accept="openAccept(lead)"
-          @copy="copyDomain(lead)"
-          @package="openPackage(lead)"
-          @promote="openPromote(lead)"
-          @reject="openReject(lead)"
-          @select="(checked) => toggleLeadSelection(lead.id, checked)"
-          @toggle="toggleExpanded(lead.id)"
+        <div
+          v-else
+          :class="{ 'leads-results--inline': inlineReview }"
+          :data-gs="displayMode === 'review' ? 'leads-review-workbench' : undefined"
+          class="leads-results"
+        >
+        <LeadReviewQueue
+          v-if="displayMode === 'review'"
+          :active-id="previewLeadId"
+          :all-selected="allPageSelected"
+          :leads="filteredLeads"
+          :selected-ids="selectedLeadIds"
+          :some-selected="somePageSelected"
+          @preview="openPreview"
+          @select="toggleLeadSelection"
+          @select-all="toggleSelectAllPage"
         />
+
+        <LeadCompactTable
+          v-else-if="displayMode === 'table'"
+          :active-lead-id="previewLeadId"
+          :all-selected="allPageSelected"
+          :can-act="canAct"
+          :leads="filteredLeads"
+          :selected-ids="selectedLeadIds"
+          :some-selected="somePageSelected"
+          @accept="openAccept"
+          @package="openPackage"
+          @preview="openPreview"
+          @promote="openPromote"
+          @reject="openReject"
+          @select="toggleLeadSelection"
+          @select-all="toggleSelectAllPage"
+        />
+
+        <!-- 卡片视图（按需切换，保留展开五维详解与完整触达通道条） -->
+        <template v-else>
+          <div
+            class="flex items-center justify-between px-1"
+            data-gs="leads-selection-bar"
+          >
+            <Checkbox
+              :checked="allPageSelected"
+              :indeterminate="somePageSelected"
+              data-gs="leads-select-all"
+              @change="(e: { target?: { checked?: boolean } }) => toggleSelectAllPage(Boolean(e?.target?.checked))"
+            >
+              <span class="text-xs text-[var(--gs-fg-muted)]">
+                {{ $t('gainosB4.leadsBulk.selectAllPage') }}
+              </span>
+            </Checkbox>
+            <span v-if="selectedLeads.length > 0" class="text-xs text-[var(--gs-fg-muted)]">
+              {{ $t('gainosB4.leadsBulk.selectedSummary', { count: selectedLeads.length }) }}
+            </span>
+          </div>
+
+          <LeadCard
+            v-for="lead in filteredLeads"
+            :key="lead.id"
+            :basis-label="basisLabel(lead.queueBasis)"
+            :can-act="canAct(lead)"
+            :expanded="isExpanded(lead.id)"
+            :lead="lead"
+            :selectable="true"
+            :selected="isLeadSelected(lead.id)"
+            @accept="openAccept(lead)"
+            @copy="copyDomain(lead)"
+            @package="openPackage(lead)"
+            @promote="openPromote(lead)"
+            @reject="openReject(lead)"
+            @select="(checked) => toggleLeadSelection(lead.id, checked)"
+            @toggle="toggleExpanded(lead.id)"
+          />
+        </template>
+
+        <LeadQuickDrawer
+          v-model:open="previewOpen"
+          :can-act="previewLead ? canAct(previewLead) : false"
+          :current-index="previewIndex"
+          :inline="inlineReview"
+          :lead="previewLead"
+          :total-count="filteredLeads.length"
+          @accept="openAccept"
+          @next="previewNext"
+          @package="openPackage"
+          @prev="previewPrev"
+          @promote="openPromote"
+          @reject="openReject"
+        />
+        </div>
 
         <!-- 底部批量操作栏：抬高 --gs-flow-bar-h 与底部主链路浮窗零遮挡 -->
         <GsBulkActionBar
@@ -1216,7 +1404,11 @@ onUnmounted(() => {
     <!-- 裁决弹层 -->
     <Modal
       v-model:open="decisionOpen"
+      :cancel-button-props="{ disabled: submitting }"
+      :closable="!submitting"
       :confirm-loading="submitting"
+      :keyboard="!submitting"
+      :mask-closable="!submitting"
       :ok-button-props="{ danger: modal === 'reject' }"
       :ok-text="confirmLabel"
       :title="modalTitle"
@@ -1423,3 +1615,121 @@ onUnmounted(() => {
     </GsModal>
   </div>
 </template>
+
+<style scoped>
+.leads-results {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.leads-results--inline {
+  grid-template-columns: minmax(250px, 29%) minmax(0, 1fr);
+}
+
+.leads-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.leads-view-seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-surface-2);
+}
+
+.leads-view-seg :deep(.gs-segmented__item) {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.leads-view-seg :deep(.gs-segmented__item.is-active) {
+  background: var(--gs-surface);
+  color: var(--gs-fg);
+  box-shadow: var(--gs-shadow-xs);
+}
+
+.leads-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-height: 44px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--gs-border);
+}
+
+.leads-bar__queues {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.leads-bar__queues :deep(.gs-segmented__item) {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.leads-bar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.leads-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-surface-2);
+}
+
+.leads-mode__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gs-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.leads-mode__btn:hover {
+  color: var(--gs-fg);
+}
+
+.leads-mode__btn.is-active {
+  background: var(--gs-surface);
+  color: var(--gs-fg);
+  box-shadow: var(--gs-shadow-xs);
+}
+
+@container (max-width: 640px) {
+  .leads-bar__filters {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+</style>

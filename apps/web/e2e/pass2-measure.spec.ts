@@ -94,6 +94,7 @@ test('pass2 measurable specs', async ({ page }) => {
 
   await page.goto('/leads');
   await page.waitForLoadState('networkidle').catch(() => {});
+  await page.locator("[data-gs='leads-display-card']").click();
   await page.waitForTimeout(500);
   const leads = await page.evaluate(() => {
     const style = (el: Element | null) => (el ? getComputedStyle(el) : null);

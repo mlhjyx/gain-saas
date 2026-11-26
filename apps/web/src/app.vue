@@ -192,6 +192,7 @@ function componentTokens(c: (typeof GS_BRAND)['light' | 'dark']) {
       controlHeightLG: 44,
       controlHeightSM: 32,
     },
+    Checkbox: { borderRadiusSM: 4 },
     Card: { borderRadiusLG: 10, paddingLG: 24 },
     // 弹层与全站统一 10px（原 20 属于圆润风格，企业系统改为方正）
     Modal: { borderRadiusLG: 10 },

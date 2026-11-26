@@ -223,6 +223,16 @@ export function hasMachineDetail(summary: JudgeSummary): boolean {
 
 export type ScoreGrade = 'high' | 'low' | 'medium' | 'none';
 
+/** 引擎当前存 0–1，历史和部分列表数据使用 0–100。界面分数统一为百分制。 */
+export function displayLeadScore(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(Math.min(100, value <= 1 ? value * 100 : value));
+}
+
+export function leadScoreDimension(scores: Record<string, unknown>, dimension: string): unknown {
+  return scores[dimension] ?? (dimension === 'demand_proof' ? scores.demandProof : undefined);
+}
+
 /** 线索总分（0–100）分档：80+ 高价值，60+ 潜力客户，其余待观察。 */
 export function scoreGrade(score?: null | number): ScoreGrade {
   if (typeof score !== 'number' || !Number.isFinite(score)) return 'none';

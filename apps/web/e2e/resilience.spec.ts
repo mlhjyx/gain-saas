@@ -48,10 +48,9 @@ test('双击「确认跟进」只提交一次', async ({ page }) => {
 
   await loginAs(page);
   await page.goto('/leads');
-  // 详情页操作条也有同名按钮，必须限定在线索卡片内。
+  // 使用默认研判视图，覆盖首次进入线索页的路径。
   await page
-    .locator("[data-gs='lead-card']")
-    .filter({ hasText: 'Muster Metallbau GmbH' })
+    .locator("[data-gs='lead-review-pane']")
     .getByRole('button', { name: '跟进', exact: true })
     .click();
   const dialog = page.getByRole('dialog');
@@ -89,5 +88,5 @@ test('断网时显示可重试错误，恢复后重试成功', async ({ page }) 
 
   offline = false;
   await page.getByRole('button', { name: '重试' }).first().click();
-  await expect(page.getByText('Muster Metallbau GmbH')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Muster Metallbau GmbH' })).toBeVisible();
 });
