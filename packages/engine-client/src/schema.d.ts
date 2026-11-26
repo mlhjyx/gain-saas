@@ -408,6 +408,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies/{companyId}/understanding/recompute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重算企业理解草稿（扫描 ready 资料库与当前档案事实，不降级 ACTIVE 状态）
+         * @description 零成本重算企业理解草稿：读取档案当前行业/目标市场/已选产品与 ready 且未删除的卖家资料（支持可选 documentIds 过滤与 force=true 强制重扫），确定性生成 NEEDS_REVIEW Claim 草稿并写回 seller_document.facts_extracted_at；不触发网页重抓、不消费 Budget Grant，且绝不降级 ACTIVE 状态（ENRICHING 期间返回 409 UNDERSTANDING_IN_PROGRESS）。需要 acquisition:write。
+         */
+        post: operations["CompanyController_recomputeUnderstanding_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/companies/{companyId}": {
         parameters: {
             query?: never;
@@ -550,6 +570,250 @@ export interface paths {
         get: operations["CompanyController_listOfferings_v1"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 为卖家资料上传签发短时 presigned PUT（校验类型与配额）
+         * @description 为卖家资料上传签发短时 presigned PUT（15 分钟）。校验 MIME 白名单与单文件上限（PDF/Word/PPT/Excel ≤50MB，文本/Markdown ≤10MB）与配额（每空间 500 份/2 GiB、每公司 200 份，env 可调）；超限返回 409。返回 documentId 与 uploadUrl，上传对象带 1 天过期的 staging 生命周期标签。
+         */
+        post: operations["SellerCompanyDocumentsController_presign_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 确认上传：HEAD/魔数/sha256 校验、转存 canonical 并入队解析
+         * @description 确认上传完成：对 staging 对象做 HEAD、流式 sha256 与魔数校验（声明的 MIME 必须与实际内容相符），通过后转存 canonical 对象并将文档置为 queued、入队解析。上传未完成返回 409 并留在 pending_upload；内容不符置 rejected；同一公司已存在相同内容时返回 409 并清理已复制副本。
+         */
+        post: operations["SellerCompanyDocumentsController_commit_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 浏览器直传：把文件字节经引擎写入暂存对象（presign 主机对浏览器不可达时的中转）
+         * @description 仅 pending_upload 状态可用；Content-Type 必须与 presign 申报一致，字节数必须等于申报大小。写入后照常调用 commit 校验并入队。
+         */
+        put: operations["SellerCompanyDocumentsController_uploadContent_v1"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 资料库混合检索（向量 + 全文），限定公司与可检索状态
+         * @description 资料库混合检索：查询词经本机 BGE-M3 嵌入后与分块向量做余弦（权重 0.7）并与全文 ts_rank_cd（权重 0.3）合成排序；只检索该公司 status=ready 且未删除的资料，limit 上限 50。
+         */
+        get: operations["SellerCompanyDocumentsController_search_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出公司资料库（游标分页，软删不可见）
+         * @description 游标分页列出公司的卖家资料（软删不可见）：limit 默认 20、上限 100，返回 { data, page: { next_cursor, has_more } }。每条含状态（pending_upload/committing/queued/processing/ready/failed_terminal/rejected）、类型与字节数。
+         */
+        get: operations["SellerCompanyDocumentsController_list_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 资料详情（跨租户 404）
+         * @description 按 id 取单份资料详情。资源属于其他 workspace 或已软删时返回 404，不泄露存在性。
+         */
+        get: operations["SellerDocumentsController_get_v1"];
+        put?: never;
+        post?: never;
+        /**
+         * 软删资料（恢复窗口内可由运营恢复；物理清理见 DSR/清理管线）
+         * @description 软删一份资料：置 deleted_at 并从列表与下载中消失；对象与分块的物理清理在受控清理管线（DSR 同路径）完成。需要 acquisition:review。
+         */
+        delete: operations["SellerDocumentsController_remove_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 短时 presigned GET 下载地址
+         * @description 返回 10 分钟有效的 presigned GET；尚未上传完成（pending_upload/committing）或已被拒绝时返回 409。
+         */
+        get: operations["SellerDocumentsController_downloadUrl_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 流式下载资料原文件（经服务端鉴权代理，不暴露内网对象存储签名）
+         * @description 流式代理下载资料原文件：校验 workspace 隔离与状态（ready/queued/processing；未完成返回 409 SELLER_DOCUMENT_NOT_READY，缺失或跨租户 404，对象存储不可用 503），不暴露内网 MinIO 地址。需要 acquisition:read。
+         */
+        get: operations["SellerDocumentsController_downloadContent_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller-documents/{documentId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重试失败或排队中的资料解析
+         * @description 重试解析：仅 failed_terminal 或 queued 状态可调用，重置错误码后重新入队（202）。需要 acquisition:write。
+         */
+        post: operations["SellerDocumentsController_retry_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/chunks/{seq}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取当前发布版本的单个分块（有界本地 DB，不调用 search/embedding）
+         * @description 读取 ready 文档当前发布解析版本的单块文本（seq 从 0 起），返回 documentContentHash、parseRevision、chunkTextHash 与上下文元数据；只查本地数据库，不调用 search/embedding、不落写。文档未 ready 返回 409（DOCUMENT_CLAIM_SOURCE_UNAVAILABLE），分块不存在 404，seq 非法 400；需要 acquisition:read。
+         */
+        get: operations["SellerDocumentClaimsController_readChunk_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 校验 typed 引用并返回服务端重建的原句、bindingHash 与 requestDigest（纯检查，不写 Claim）
+         * @description typed 引用预览（纯检查）：服务端重读文档与分块，逐项校验 documentContentHash、parseRevision、chunkSeq、chunkTextHash 与 UTF-8 字节区间原句一致后，返回重建原句、bindingHash 与 requestDigest；不写 Claim、不耗 Grant、不调模型。引用或文档失效返回 409，参数非法 400；需要 acquisition:write。
+         */
+        post: operations["SellerDocumentClaimsController_preview_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 事务重读引用并写入 NEEDS_REVIEW 草稿；同 key 同体返原件，异体 409
+         * @description 在同一事务内重读引用并写入 NEEDS_REVIEW 草稿（Claim + Evidence + typed 文档引用），首次写入必为 NEEDS_REVIEW；同来源同陈述跨请求者重放返回原件（replayed=true，201），requestDigest 或引用异体返回 409（DOCUMENT_CLAIM_REQUEST_MISMATCH / DOCUMENT_CLAIM_CONFLICT）；需要 acquisition:write。
+         */
+        post: operations["SellerDocumentClaimsController_createDraft_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2669,250 +2933,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/companies/{companyId}/seller-documents/presign": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 为卖家资料上传签发短时 presigned PUT（校验类型与配额）
-         * @description 为卖家资料上传签发短时 presigned PUT（15 分钟）。校验 MIME 白名单与单文件上限（PDF/Word/PPT/Excel ≤50MB，文本/Markdown ≤10MB）与配额（每空间 500 份/2 GiB、每公司 200 份，env 可调）；超限返回 409。返回 documentId 与 uploadUrl，上传对象带 1 天过期的 staging 生命周期标签。
-         */
-        post: operations["SellerCompanyDocumentsController_presign_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/{documentId}/commit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 确认上传：HEAD/魔数/sha256 校验、转存 canonical 并入队解析
-         * @description 确认上传完成：对 staging 对象做 HEAD、流式 sha256 与魔数校验（声明的 MIME 必须与实际内容相符），通过后转存 canonical 对象并将文档置为 queued、入队解析。上传未完成返回 409 并留在 pending_upload；内容不符置 rejected；同一公司已存在相同内容时返回 409 并清理已复制副本。
-         */
-        post: operations["SellerCompanyDocumentsController_commit_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/{documentId}/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * 浏览器直传：把文件字节经引擎写入暂存对象（presign 主机对浏览器不可达时的中转）
-         * @description 仅 pending_upload 状态可用；Content-Type 必须与 presign 申报一致，字节数必须等于申报大小。写入后照常调用 commit 校验并入队。
-         */
-        put: operations["SellerCompanyDocumentsController_uploadContent_v1"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 资料库混合检索（向量 + 全文），限定公司与可检索状态
-         * @description 资料库混合检索：查询词经本机 BGE-M3 嵌入后与分块向量做余弦（权重 0.7）并与全文 ts_rank_cd（权重 0.3）合成排序；只检索该公司 status=ready 且未删除的资料，limit 上限 50。
-         */
-        get: operations["SellerCompanyDocumentsController_search_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 列出公司资料库（游标分页，软删不可见）
-         * @description 游标分页列出公司的卖家资料（软删不可见）：limit 默认 20、上限 100，返回 { data, page: { next_cursor, has_more } }。每条含状态（pending_upload/committing/queued/processing/ready/failed_terminal/rejected）、类型与字节数。
-         */
-        get: operations["SellerCompanyDocumentsController_list_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/seller-documents/{documentId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 资料详情（跨租户 404）
-         * @description 按 id 取单份资料详情。资源属于其他 workspace 或已软删时返回 404，不泄露存在性。
-         */
-        get: operations["SellerDocumentsController_get_v1"];
-        put?: never;
-        post?: never;
-        /**
-         * 软删资料（恢复窗口内可由运营恢复；物理清理见 DSR/清理管线）
-         * @description 软删一份资料：置 deleted_at 并从列表与下载中消失；对象与分块的物理清理在受控清理管线（DSR 同路径）完成。需要 acquisition:review。
-         */
-        delete: operations["SellerDocumentsController_remove_v1"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/seller-documents/{documentId}/download-url": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 短时 presigned GET 下载地址
-         * @description 返回 10 分钟有效的 presigned GET；尚未上传完成（pending_upload/committing）或已被拒绝时返回 409。
-         */
-        get: operations["SellerDocumentsController_downloadUrl_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/seller-documents/{documentId}/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 流式下载资料原文件（经服务端鉴权代理，不暴露内网对象存储签名）
-         * @description 流式代理下载资料原文件：校验 workspace 隔离与状态（ready/queued/processing；未完成返回 409 SELLER_DOCUMENT_NOT_READY，缺失或跨租户 404，对象存储不可用 503），不暴露内网 MinIO 地址。需要 acquisition:read。
-         */
-        get: operations["SellerDocumentsController_downloadContent_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/seller-documents/{documentId}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 重试失败或排队中的资料解析
-         * @description 重试解析：仅 failed_terminal 或 queued 状态可调用，重置错误码后重新入队（202）。需要 acquisition:write。
-         */
-        post: operations["SellerDocumentsController_retry_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/{documentId}/chunks/{seq}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 读取当前发布版本的单个分块（有界本地 DB，不调用 search/embedding）
-         * @description 读取 ready 文档当前发布解析版本的单块文本（seq 从 0 起），返回 documentContentHash、parseRevision、chunkTextHash 与上下文元数据；只查本地数据库，不调用 search/embedding、不落写。文档未 ready 返回 409（DOCUMENT_CLAIM_SOURCE_UNAVAILABLE），分块不存在 404，seq 非法 400；需要 acquisition:read。
-         */
-        get: operations["SellerDocumentClaimsController_readChunk_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-previews": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 校验 typed 引用并返回服务端重建的原句、bindingHash 与 requestDigest（纯检查，不写 Claim）
-         * @description typed 引用预览（纯检查）：服务端重读文档与分块，逐项校验 documentContentHash、parseRevision、chunkSeq、chunkTextHash 与 UTF-8 字节区间原句一致后，返回重建原句、bindingHash 与 requestDigest；不写 Claim、不耗 Grant、不调模型。引用或文档失效返回 409，参数非法 400；需要 acquisition:write。
-         */
-        post: operations["SellerDocumentClaimsController_preview_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/companies/{companyId}/seller-documents/{documentId}/claim-drafts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 事务重读引用并写入 NEEDS_REVIEW 草稿；同 key 同体返原件，异体 409
-         * @description 在同一事务内重读引用并写入 NEEDS_REVIEW 草稿（Claim + Evidence + typed 文档引用），首次写入必为 NEEDS_REVIEW；同来源同陈述跨请求者重放返回原件（replayed=true，201），requestDigest 或引用异体返回 409（DOCUMENT_CLAIM_REQUEST_MISMATCH / DOCUMENT_CLAIM_CONFLICT）；需要 acquisition:write。
-         */
-        post: operations["SellerDocumentClaimsController_createDraft_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/companies/{companyId}/market-candidate-sets/latest": {
         parameters: {
             query?: never;
@@ -3449,6 +3469,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 同步工作空间名称（支持懒创建空间幂等 upsert）
+         * @description 同步当前工作空间名称：trim 后长度须为 1–128（空串/超长返回 400 VALIDATION_ERROR），在 withWorkspace(RLS) 内执行幂等 upsert（支持尚未建档的懒创建空间），返回 200 { data: WorkspaceDto }。需要 acquisition:write。
+         */
+        patch: operations["WorkspaceController_update_v1"];
+        trace?: never;
+    };
+    "/api/v1/workspace/usage-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取当前工作空间的实体数量与存储用量全景
+         * @description 只读查询当前工作空间的实体数量与存储用量全景：单次 withWorkspace(RLS) 事务内聚合 company_profile（未删）、seller_document（未删及配额上限）、icp_definition、discovery_run、canonical_company、canonical_contact、asset/asset_variant、site_release（未删），并经只读 SECURITY DEFINER RPC 汇总 generic_operation_artifact 计数与字节数。需要 acquisition:read。
+         */
+        get: operations["WorkspaceController_usageSummary_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/workspaces/{id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询整工作空间物理清理回执状态（非 PII 审计回执）
+         * @description 服务身份查询整工作空间物理清理回执状态（x-service-token 鉴权，withWorkspace RLS）：返回 PENDING / RUNNING / COMPLETED / FAILED 非 PII 审计计数与错误码；未触发返回 404。
+         */
+        get: operations["WorkspacePurgeInternalController_getPurgeReceipt_v1"];
+        put?: never;
+        /**
+         * 服务身份触发整工作空间物理离网清理（异步 Temporal 编排，返回 202 回执）
+         * @description 服务身份触发整工作空间物理离网清理（x-service-token 鉴权，无 loopback 限制）：经 begin_workspace_purge_v1 落非 PII 回执并幂等启动 Temporal workspacePurgeWorkflow，依次取消运行中工作流、物理清理 ~145 张租户表及 3 个私有 MinIO 桶与 Redis 限流键。
+         */
+        post: operations["WorkspacePurgeInternalController_purge_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 游标分页列出当前工作空间的异步数据导出任务
+         * @description 游标分页列出当前工作空间的异步数据导出任务：支持 ?limit=（1–100，默认 20）、?cursor=（UUID）与 ?status= 过滤，按创建时间倒序返回。需要 acquisition:read 与 acquisition:export。
+         */
+        get: operations["DataExportsController_list_v1"];
+        put?: never;
+        /**
+         * 提交异步租户数据导出任务（返回 202 + 任务 ID）
+         * @description 提交异步租户数据导出任务（leads / companies / contacts / outreach / full_archive × csv / jsonl）：受每空间最多 2 个活跃任务（409 DATA_EXPORT_IN_PROGRESS）与 24 小时最多 10 次（429 DATA_EXPORT_RATE_LIMITED）限制，返回 202 与任务 ID。需要 acquisition:read 与 acquisition:export。
+         */
+        post: operations["DataExportsController_create_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询单个异步数据导出任务状态与元数据
+         * @description 查询单个异步数据导出任务状态、文件名、字节数、行数与过期时间；跨租户不可见（RLS）。需要 acquisition:read 与 acquisition:export。
+         */
+        get: operations["DataExportsController_get_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-exports/{exportId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 流式下载已就绪的数据导出文件（不暴露内网对象存储签名）
+         * @description 经服务端鉴权代理流式下载已就绪的数据导出文件（CSV / JSONL / ZIP）：未就绪返回 409 DATA_EXPORT_NOT_READY，已过期返回 410 DATA_EXPORT_EXPIRED，绝不暴露内网对象存储签名 URL。需要 acquisition:read 与 acquisition:export。
+         */
+        get: operations["DataExportsController_download_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3627,6 +3775,24 @@ export interface components {
              */
             attemptId: string;
         };
+        RecomputeUnderstandingResponseDto: {
+            /** Format: uuid */
+            companyId: string;
+            /** @enum {string} */
+            status: "DRAFT" | "ENRICHING" | "REVIEW" | "ACTIVE";
+            documentsScanned: number;
+            draftsCreated: number;
+            profileDraftsCreated: number;
+        };
+        RecomputeUnderstandingDto: {
+            /** @description 可选：限定只重算指定的 ready 文档 id 列表 */
+            documentIds?: string[];
+            /**
+             * @description 为 true 时强制重新扫描已提取过的 ready 文档（facts_extracted_at 非空）
+             * @default false
+             */
+            force: boolean;
+        };
         OnboardingFactsDto: {
             /** @description 企业名称 */
             name?: string;
@@ -3693,6 +3859,123 @@ export interface components {
             confidence: number | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        PresignSellerDocumentResponseDto: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uri */
+            uploadUrl: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        PresignSellerDocumentDto: {
+            /** @example 产品目录-2026.pdf */
+            filename: string;
+            /**
+             * @description pdf / docx / pptx / xlsx / text/plain / text/markdown
+             * @example application/pdf
+             */
+            mime: string;
+            /** @description 字节数（≤50MB，txt/md ≤10MB） */
+            size: number;
+        };
+        SellerDocumentDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            companyId: string;
+            filename: string;
+            mime: string;
+            /** @description 字节数（字符串表示，避免 JSON 大整数截断） */
+            sizeBytes: string;
+            /** @enum {string} */
+            kind: "pdf" | "docx" | "pptx" | "txt" | "md" | "other";
+            /** @enum {string} */
+            status: "pending_upload" | "committing" | "queued" | "processing" | "ready" | "failed_terminal" | "rejected" | "deleted";
+            processingErrorCode?: string | null;
+            chunkCount: number;
+            /** Format: date-time */
+            factsExtractedAt?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DocumentChunkViewDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentContentHash: string;
+            parseRevision: number;
+            chunkSeq: number;
+            chunkTextHash: string;
+            text: string;
+            /** @description 页/章节等结构上下文；未知为 null */
+            context?: Record<string, never> | null;
+        };
+        DocumentClaimPreviewDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentContentHash: string;
+            parseRevision: number;
+            chunkSeq: number;
+            quote: string;
+            quoteStartByte: number;
+            quoteEndByte: number;
+            quoteDigest: string;
+            statementDigest: string;
+            bindingHash: string;
+            requestDigest: string;
+            /** @description 页/章节等解释上下文；未知为 null */
+            context: Record<string, never> | null;
+        };
+        DocumentClaimSourceRefDto: {
+            /**
+             * Format: uuid
+             * @description 当前可读 ready 文档 id（不得跨公司）
+             */
+            documentId: string;
+            /** @description 服务端读取端口返回的文档内容 sha256 */
+            documentContentHash: string;
+            /** @description 发布的解析修订（读取端口返回） */
+            parseRevision: number;
+            /** @description 分块序号 */
+            chunkSeq: number;
+            /** @description 分块文本 sha256（读取端口返回） */
+            chunkTextHash: string;
+            /** @description 选区起始字节（UTF-8，服务端核验） */
+            quoteStartByte: number;
+            /** @description 选区结束字节（UTF-8，不截断多字节） */
+            quoteEndByte: number;
+        };
+        PreviewDocumentClaimDto: {
+            reference: components["schemas"]["DocumentClaimSourceRefDto"];
+            /** @description Claim 类型（1–50，字母数字 ._: -） */
+            type: string;
+            /** @description 人审陈述（≤4000 字符） */
+            statement: string;
+        };
+        DocumentClaimDraftDto: {
+            /** Format: uuid */
+            claimId: string;
+            /** Format: uuid */
+            evidenceId: string;
+            /** Format: uuid */
+            referenceId: string;
+            bindingHash: string;
+            /** @enum {string} */
+            status: "NEEDS_REVIEW" | "APPROVED" | "REJECTED" | "REVOKED";
+            claimVersion: number;
+            /** @description 同来源/陈述重放返回原件；不重置审批记录 */
+            replayed: boolean;
+            /** @description 当前文档/引用是否仍可读且与绑定一致 */
+            available: boolean;
+        };
+        CreateDocumentClaimDraftDto: {
+            reference: components["schemas"]["DocumentClaimSourceRefDto"];
+            /** @description Claim 类型（1–50，字母数字 ._: -） */
+            type: string;
+            /** @description 人审陈述（≤4000 字符） */
+            statement: string;
+            /** @description preview 返回的规范请求摘要；写入口独立重算 */
+            requestDigest: string;
         };
         ClaimEvidenceDto: {
             /** @description 来源 URL */
@@ -4399,123 +4682,6 @@ export interface components {
             targetId?: string;
             options?: components["schemas"]["BuildOptionsDto"];
         };
-        PresignSellerDocumentResponseDto: {
-            /** Format: uuid */
-            documentId: string;
-            /** Format: uri */
-            uploadUrl: string;
-            /** Format: date-time */
-            expiresAt: string;
-        };
-        PresignSellerDocumentDto: {
-            /** @example 产品目录-2026.pdf */
-            filename: string;
-            /**
-             * @description pdf / docx / pptx / xlsx / text/plain / text/markdown
-             * @example application/pdf
-             */
-            mime: string;
-            /** @description 字节数（≤50MB，txt/md ≤10MB） */
-            size: number;
-        };
-        SellerDocumentDto: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            companyId: string;
-            filename: string;
-            mime: string;
-            /** @description 字节数（字符串表示，避免 JSON 大整数截断） */
-            sizeBytes: string;
-            /** @enum {string} */
-            kind: "pdf" | "docx" | "pptx" | "txt" | "md" | "other";
-            /** @enum {string} */
-            status: "pending_upload" | "committing" | "queued" | "processing" | "ready" | "failed_terminal" | "rejected" | "deleted";
-            processingErrorCode?: string | null;
-            chunkCount: number;
-            /** Format: date-time */
-            factsExtractedAt?: string | null;
-            /** Format: date-time */
-            createdAt: string;
-        };
-        DocumentChunkViewDto: {
-            /** Format: uuid */
-            documentId: string;
-            documentContentHash: string;
-            parseRevision: number;
-            chunkSeq: number;
-            chunkTextHash: string;
-            text: string;
-            /** @description 页/章节等结构上下文；未知为 null */
-            context?: Record<string, never> | null;
-        };
-        DocumentClaimPreviewDto: {
-            /** Format: uuid */
-            documentId: string;
-            documentContentHash: string;
-            parseRevision: number;
-            chunkSeq: number;
-            quote: string;
-            quoteStartByte: number;
-            quoteEndByte: number;
-            quoteDigest: string;
-            statementDigest: string;
-            bindingHash: string;
-            requestDigest: string;
-            /** @description 页/章节等解释上下文；未知为 null */
-            context: Record<string, never> | null;
-        };
-        DocumentClaimSourceRefDto: {
-            /**
-             * Format: uuid
-             * @description 当前可读 ready 文档 id（不得跨公司）
-             */
-            documentId: string;
-            /** @description 服务端读取端口返回的文档内容 sha256 */
-            documentContentHash: string;
-            /** @description 发布的解析修订（读取端口返回） */
-            parseRevision: number;
-            /** @description 分块序号 */
-            chunkSeq: number;
-            /** @description 分块文本 sha256（读取端口返回） */
-            chunkTextHash: string;
-            /** @description 选区起始字节（UTF-8，服务端核验） */
-            quoteStartByte: number;
-            /** @description 选区结束字节（UTF-8，不截断多字节） */
-            quoteEndByte: number;
-        };
-        PreviewDocumentClaimDto: {
-            reference: components["schemas"]["DocumentClaimSourceRefDto"];
-            /** @description Claim 类型（1–50，字母数字 ._: -） */
-            type: string;
-            /** @description 人审陈述（≤4000 字符） */
-            statement: string;
-        };
-        DocumentClaimDraftDto: {
-            /** Format: uuid */
-            claimId: string;
-            /** Format: uuid */
-            evidenceId: string;
-            /** Format: uuid */
-            referenceId: string;
-            bindingHash: string;
-            /** @enum {string} */
-            status: "NEEDS_REVIEW" | "APPROVED" | "REJECTED" | "REVOKED";
-            claimVersion: number;
-            /** @description 同来源/陈述重放返回原件；不重置审批记录 */
-            replayed: boolean;
-            /** @description 当前文档/引用是否仍可读且与绑定一致 */
-            available: boolean;
-        };
-        CreateDocumentClaimDraftDto: {
-            reference: components["schemas"]["DocumentClaimSourceRefDto"];
-            /** @description Claim 类型（1–50，字母数字 ._: -） */
-            type: string;
-            /** @description 人审陈述（≤4000 字符） */
-            statement: string;
-            /** @description preview 返回的规范请求摘要；写入口独立重算 */
-            requestDigest: string;
-        };
         MarketCandidateCompanyBasisDto: {
             /** Format: uuid */
             companyId: string;
@@ -4736,6 +4902,159 @@ export interface components {
         MarketCandidateGenerationExecuteDto: {
             /** @description prepare 持久返回的不可变意图摘要，不是客户端授权。 */
             intentDigest: string;
+        };
+        WorkspaceDto: {
+            /** Format: uuid */
+            id: string;
+            name: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        UpdateWorkspaceDto: {
+            /** @example Acme Export Co. */
+            name: string;
+        };
+        WorkspaceCompaniesUsageDto: {
+            total: number;
+            draft: number;
+            enriching: number;
+            review: number;
+            active: number;
+        };
+        WorkspaceSellerDocumentQuotaDto: {
+            maxPerWorkspace: number;
+            maxPerCompany: number;
+            maxBytesPerWorkspace: number;
+        };
+        WorkspaceSellerDocumentsUsageDto: {
+            total: number;
+            ready: number;
+            pendingUpload: number;
+            processing: number;
+            failed: number;
+            totalBytes: number;
+            readyBytes: number;
+            pendingUploadBytes: number;
+            quota: components["schemas"]["WorkspaceSellerDocumentQuotaDto"];
+        };
+        WorkspaceIcpsUsageDto: {
+            total: number;
+        };
+        WorkspaceDiscoveryRunsUsageDto: {
+            total: number;
+            running: number;
+            completed: number;
+            failed: number;
+        };
+        WorkspaceCanonicalCompaniesUsageDto: {
+            total: number;
+            suppressed: number;
+        };
+        WorkspaceCanonicalContactsUsageDto: {
+            total: number;
+        };
+        WorkspaceSiteAssetsUsageDto: {
+            total: number;
+            totalBytes: number;
+            variants: number;
+            variantBytes: number;
+        };
+        WorkspaceSiteReleasesUsageDto: {
+            total: number;
+            ready: number;
+        };
+        WorkspaceOperationArtifactsUsageDto: {
+            total: number;
+            totalBytes: number;
+            personalDataCount: number;
+            personalDataBytes: number;
+        };
+        WorkspaceUsageSummaryDto: {
+            /** Format: uuid */
+            workspaceId: string;
+            companies: components["schemas"]["WorkspaceCompaniesUsageDto"];
+            sellerDocuments: components["schemas"]["WorkspaceSellerDocumentsUsageDto"];
+            icps: components["schemas"]["WorkspaceIcpsUsageDto"];
+            discoveryRuns: components["schemas"]["WorkspaceDiscoveryRunsUsageDto"];
+            canonicalCompanies: components["schemas"]["WorkspaceCanonicalCompaniesUsageDto"];
+            canonicalContacts: components["schemas"]["WorkspaceCanonicalContactsUsageDto"];
+            siteAssets: components["schemas"]["WorkspaceSiteAssetsUsageDto"];
+            siteReleases: components["schemas"]["WorkspaceSiteReleasesUsageDto"];
+            operationArtifacts: components["schemas"]["WorkspaceOperationArtifactsUsageDto"];
+        };
+        WorkspacePurgeReceiptDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspaceId: string;
+            idempotencyKey: string;
+            /** @enum {string} */
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+            /** Format: uuid */
+            requestedBy: string | null;
+            cleanupManifest: Record<string, never>;
+            dbRowsDeleted: Record<string, never> | null;
+            minioObjectsDeleted: Record<string, never> | null;
+            redisKeysDeleted: number;
+            temporalWorkflowsCancelled: number;
+            errorCode: string | null;
+            ruleVersion: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        RequestWorkspacePurgeDto: {
+            /** @example purge-ws-20261126-001 */
+            idempotencyKey: string;
+            /** Format: uuid */
+            requestedBy?: string;
+            campaignPlanJobIds?: string[];
+        };
+        DataExportJobDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspaceId: string;
+            /** Format: uuid */
+            requestedBy: string;
+            /** @enum {string} */
+            scope: "leads" | "companies" | "contacts" | "outreach" | "full_archive";
+            /** @enum {string} */
+            format: "csv" | "jsonl";
+            /** @enum {string} */
+            status: "pending" | "processing" | "ready" | "failed" | "expired";
+            contentType: string | null;
+            filename: string | null;
+            byteSize: number | null;
+            rowCount: number | null;
+            errorCode: string | null;
+            /** Format: date-time */
+            expiresAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CreateDataExportDto: {
+            /**
+             * @example leads
+             * @enum {string}
+             */
+            scope: "leads" | "companies" | "contacts" | "outreach" | "full_archive";
+            /**
+             * @example csv
+             * @enum {string}
+             */
+            format: "csv" | "jsonl";
         };
     };
     responses: never;
@@ -6555,6 +6874,33 @@ export interface operations {
             };
         };
     };
+    CompanyController_recomputeUnderstanding_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RecomputeUnderstandingDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RecomputeUnderstandingResponseDto"];
+                    };
+                };
+            };
+        };
+    };
     CompanyController_get_v1: {
         parameters: {
             query?: never;
@@ -6830,6 +7176,373 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["OfferingDto"][];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_presign_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresignSellerDocumentDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PresignSellerDocumentResponseDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_commit_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_uploadContent_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                "content-type": string;
+            };
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_search_v1: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            documentId: string;
+                            filename: string;
+                            seq: number;
+                            text: string;
+                            score: number;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    SellerCompanyDocumentsController_list_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                companyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"][];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_get_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_remove_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_downloadUrl_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uri */
+                            url: string;
+                            expiresInSeconds?: number;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentsController_downloadContent_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 资料原文件二进制字节流 */
+            200: {
+                headers: {
+                    /** @description 文件 MIME 类型 */
+                    "Content-Type"?: string;
+                    /** @description 安全转义的附件文件名 */
+                    "Content-Disposition"?: string;
+                    /** @description 文件字节数 */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description 资料不存在、已软删、属其他 workspace 或对象缺失 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 资料尚未上传完成或已被拒绝（SELLER_DOCUMENT_NOT_READY） */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 对象存储暂时不可用（SELLER_DOCUMENTS_STORAGE_UNAVAILABLE） */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SellerDocumentsController_retry_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerDocumentDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_readChunk_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentChunkViewDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_preview_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewDocumentClaimDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentClaimPreviewDto"];
+                    };
+                };
+            };
+        };
+    };
+    SellerDocumentClaimsController_createDraft_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                companyId: string;
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentClaimDraftDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DocumentClaimDraftDto"];
                     };
                 };
             };
@@ -13267,373 +13980,6 @@ export interface operations {
             };
         };
     };
-    SellerCompanyDocumentsController_presign_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                companyId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PresignSellerDocumentDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["PresignSellerDocumentResponseDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerCompanyDocumentsController_commit_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                companyId: string;
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerCompanyDocumentsController_uploadContent_v1: {
-        parameters: {
-            query?: never;
-            header: {
-                "content-type": string;
-            };
-            path: {
-                companyId: string;
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerCompanyDocumentsController_search_v1: {
-        parameters: {
-            query: {
-                q: string;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                companyId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: {
-                            /** Format: uuid */
-                            documentId: string;
-                            filename: string;
-                            seq: number;
-                            text: string;
-                            score: number;
-                        }[];
-                    };
-                };
-            };
-        };
-    };
-    SellerCompanyDocumentsController_list_v1: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                companyId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"][];
-                        page: {
-                            /** @description 下一页游标；null = 没有更多 */
-                            next_cursor: string | null;
-                            has_more: boolean;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentsController_get_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentsController_remove_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentsController_downloadUrl_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: {
-                            /** Format: uri */
-                            url: string;
-                            expiresInSeconds?: number;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentsController_downloadContent_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description 资料原文件二进制字节流 */
-            200: {
-                headers: {
-                    /** @description 文件 MIME 类型 */
-                    "Content-Type"?: string;
-                    /** @description 安全转义的附件文件名 */
-                    "Content-Disposition"?: string;
-                    /** @description 文件字节数 */
-                    "Content-Length"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description 资料不存在、已软删、属其他 workspace 或对象缺失 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description 资料尚未上传完成或已被拒绝（SELLER_DOCUMENT_NOT_READY） */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description 对象存储暂时不可用（SELLER_DOCUMENTS_STORAGE_UNAVAILABLE） */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SellerDocumentsController_retry_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["SellerDocumentDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentClaimsController_readChunk_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                companyId: string;
-                documentId: string;
-                seq: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["DocumentChunkViewDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentClaimsController_preview_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                companyId: string;
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreviewDocumentClaimDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["DocumentClaimPreviewDto"];
-                    };
-                };
-            };
-        };
-    };
-    SellerDocumentClaimsController_createDraft_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                companyId: string;
-                documentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentClaimDraftDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["DocumentClaimDraftDto"];
-                    };
-                };
-            };
-        };
-    };
     MarketCandidateSetsController_getLatest_v1: {
         parameters: {
             query?: never;
@@ -15149,6 +15495,291 @@ export interface operations {
                         };
                     };
                 };
+            };
+        };
+    };
+    WorkspaceController_update_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceDto"];
+                    };
+                };
+            };
+        };
+    };
+    WorkspaceController_usageSummary_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceUsageSummaryDto"];
+                    };
+                };
+            };
+        };
+    };
+    WorkspacePurgeInternalController_getPurgeReceipt_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 内部服务令牌（env WORKSPACE_PURGE_INTERNAL_SERVICE_TOKEN） */
+                "x-service-token": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspacePurgeReceiptDto"];
+                    };
+                };
+            };
+            /** @description 缺少或无效的服务令牌 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 清理回执不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkspacePurgeInternalController_purge_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 内部服务令牌（env WORKSPACE_PURGE_INTERNAL_SERVICE_TOKEN） */
+                "x-service-token": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestWorkspacePurgeDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspacePurgeReceiptDto"];
+                    };
+                };
+            };
+            /** @description 缺少或无效的服务令牌 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务令牌未配置或 Temporal 暂不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DataExportsController_list_v1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                status?: "pending" | "processing" | "ready" | "failed" | "expired";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DataExportJobDto"][];
+                        page: {
+                            /** @description 下一页游标；null = 没有更多 */
+                            next_cursor: string | null;
+                            has_more: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    DataExportsController_create_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDataExportDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DataExportJobDto"];
+                    };
+                };
+            };
+            /** @description 并发导出任务数达到上限（DATA_EXPORT_IN_PROGRESS） */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 24 小时导出配额超限（DATA_EXPORT_RATE_LIMITED） */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DataExportsController_get_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DataExportJobDto"];
+                    };
+                };
+            };
+            /** @description 导出任务不存在或属其他 workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DataExportsController_download_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 导出文件字节流 */
+            200: {
+                headers: {
+                    /** @description 导出文件 MIME 类型 */
+                    "Content-Type"?: string;
+                    /** @description 安全转义的附件文件名 */
+                    "Content-Disposition"?: string;
+                    /** @description 文件字节数 */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description 导出任务不存在或对象缺失 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 导出任务尚未就绪（DATA_EXPORT_NOT_READY） */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 导出文件已过期（DATA_EXPORT_EXPIRED） */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 导出存储暂时不可用（DATA_EXPORT_STORAGE_UNAVAILABLE） */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
