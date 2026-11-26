@@ -305,6 +305,67 @@ function channelLabel(channel: T0ChannelKey): string {
   return $t(`gainos.leads.t0.channel.${channel}`);
 }
 
+function regionDisplayName(code: string): string {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized || normalized === 'UNKNOWN') {
+    return $t('gainosP0.t0Compliance.unknownRegion');
+  }
+  const iso = normalized === 'UK' ? 'GB' : normalized;
+  try {
+    const formatter = new Intl.DisplayNames([preferences.app.locale || 'zh-CN'], {
+      type: 'region',
+    });
+    return formatter.of(iso) || normalized;
+  } catch {
+    return normalized;
+  }
+}
+
+function complianceTagLabel(tag: string | null | undefined): string {
+  const raw = (tag ?? '').trim();
+  if (!raw) return $t('gainosP0.t0Compliance.fallback');
+  const sep = raw.indexOf(':');
+  const regionCode = sep >= 0 ? raw.slice(0, sep).trim().toUpperCase() : '';
+  const policyCode = (sep >= 0 ? raw.slice(sep + 1) : raw).trim().toUpperCase();
+  const country = regionDisplayName(regionCode);
+
+  switch (policyCode) {
+    case 'CONSENT_REQUIRED': {
+      return $t('gainosP0.t0Compliance.consentRequired', { country });
+    }
+    case 'REVIEW_REQUIRED': {
+      return $t('gainosP0.t0Compliance.reviewRequired', { country });
+    }
+    case 'PECR_CORPORATE_LI+ART14': {
+      return $t('gainosP0.t0Compliance.ukCorporate');
+    }
+    case 'GDPR_LI+ART14': {
+      return $t('gainosP0.t0Compliance.gdprLi', { country });
+    }
+    case 'CAN_SPAM_FOOTER': {
+      return $t('gainosP0.t0Compliance.usCanSpam');
+    }
+    case 'B2B_FOOTER+WA_MANUAL_4GUARD': {
+      return $t('gainosP0.t0Compliance.warmWhatsapp', { country });
+    }
+    case 'B2B_FOOTER': {
+      return $t('gainosP0.t0Compliance.b2bFooter', { country });
+    }
+    case 'SUPPRESSED': {
+      return $t('gainosP0.t0Compliance.suppressed', { country });
+    }
+    case 'SANCTIONS_HOLD': {
+      return $t('gainosP0.t0Compliance.sanctionsHold', { country });
+    }
+    case 'DNC_UNAVAILABLE': {
+      return $t('gainosP0.t0Compliance.dncUnavailable', { country });
+    }
+    default: {
+      return $t('gainosP0.t0Compliance.fallback');
+    }
+  }
+}
+
 const mailtoHref = computed(() => {
   if (!evaluation.value.channels.mailto.allowed || !activeTarget.value.email) return null;
   return buildMailtoHref(activeTarget.value.email, subject.value, body.value);
@@ -537,9 +598,11 @@ onMounted(async () => {
     <template #title>
       <div class="flex flex-wrap items-center gap-2">
         <span>{{ $t('gainos.leads.t0.title') }}</span>
-        <GsTag :tone="evaluation.blockedAll ? 'danger' : evaluation.channels.mailto.allowed ? 'success' : 'warning'">
-          {{ evaluation.complianceTag }}
-        </GsTag>
+        <span :title="evaluation.complianceTag" data-gs="t0-compliance-tag">
+          <GsTag :tone="evaluation.blockedAll ? 'danger' : evaluation.channels.mailto.allowed ? 'success' : 'warning'">
+            {{ complianceTagLabel(evaluation.complianceTag) }}
+          </GsTag>
+        </span>
       </div>
     </template>
     <template #extra>

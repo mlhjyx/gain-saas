@@ -457,3 +457,262 @@ test('campaigns detail shows draftSucceeded notice on SUCCEEDED and renders moti
   await expect(page.locator('.cd__timeline').last()).toContainText('引擎');
   await expect(page.locator('.cd__timeline').last()).not.toContainText('· engine');
 });
+
+test('T0OutreachPanel renders human-readable complianceTag instead of DE:CONSENT_REQUIRED', async ({
+  page,
+}, testInfo) => {
+  const LEAD_ID = '44444444-4444-4444-8444-444444444441';
+  const ICP_ID = '44444444-4444-4444-8444-444444444442';
+  const CANONICAL_ID = '44444444-4444-4444-8444-444444444443';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  backend.set('GET', `/leads/${LEAD_ID}/package`, {
+    lead_id: LEAD_ID,
+    icp_id: ICP_ID,
+    status: 'REVIEW',
+    company: {
+      canonical_company_id: CANONICAL_ID,
+      name: 'Muster Pumpen GmbH',
+      domain: 'muster-pumpen.de',
+      country: 'DE',
+    },
+    company_channels: [{ channel: 'email', value: 'einkauf@muster-pumpen.de', status: 'VALID' }],
+    social_profiles: [],
+    fit: { verdict: 'FIT', reasons: ['德国工业泵分销商'] },
+    scores: { total: 0.88 },
+  });
+
+  await loginAs(page);
+  await page.goto(`/leads/${LEAD_ID}?tab=draft`);
+
+  const panel = page.locator('[data-gs="t0-outreach"]').first();
+  await expect(panel).toBeVisible();
+  const tag = panel.locator('[data-gs="t0-compliance-tag"]');
+  await expect(tag).toBeVisible();
+  await expect(tag).toContainText('需先获同意才可冷邮');
+  await expect(panel).not.toContainText('DE:CONSENT_REQUIRED');
+  await expect(tag).toHaveAttribute('title', 'DE:CONSENT_REQUIRED');
+});
+
+test('outreach removeDraft requires confirm modal and createBatch sends campaignId', async ({
+  page,
+}, testInfo) => {
+  const BATCH_ID = '55555555-5555-4555-8555-555555555551';
+  const DRAFT_ID = '55555555-5555-4555-8555-555555555552';
+  const CAMP_ID = '55555555-5555-4555-8555-555555555553';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  let drafts = [
+    {
+      id: DRAFT_ID,
+      batchId: BATCH_ID,
+      contactRef: 'contact-1',
+      recipientEmail: 'buyer@muster.de',
+      companyName: 'Muster GmbH',
+      countryCode: 'DE',
+      subject: '工业泵供货方案',
+      body: 'Hello team',
+      status: 'DRAFT',
+      createdAt: NOW,
+    },
+  ];
+  let deleteHits = 0;
+
+  backend.set('GET', '/campaigns', [
+    {
+      id: CAMP_ID,
+      name: '德国泵业拓展战役',
+      objective: '拓展德国渠道',
+      status: 'ACTIVE',
+      createdAt: NOW,
+      updatedAt: NOW,
+      latestRevision: null,
+    },
+  ]);
+  backend.set('GET', '/outreach/batches', async ({ route }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: [
+          {
+            id: BATCH_ID,
+            name: '德国泵业批次',
+            status: 'DRAFT',
+            draftCount: drafts.length,
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+      }),
+    });
+    return true;
+  });
+  backend.set('GET', `/outreach/batches/${BATCH_ID}`, async ({ route }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: BATCH_ID,
+          name: '德国泵业批次',
+          status: 'DRAFT',
+          drafts,
+          approvals: [],
+          events: [],
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    });
+    return true;
+  });
+  backend.set('DELETE', `/outreach/batches/${BATCH_ID}/drafts/${DRAFT_ID}`, async ({ route }) => {
+    deleteHits += 1;
+    drafts = [];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { removed: true } }),
+    });
+    return true;
+  });
+  backend.set('POST', '/outreach/batches', async ({ body, route }) => {
+    const input = body as { name: string; campaignId?: string };
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: 'batch-created-2',
+          name: input.name,
+          campaignId: input.campaignId,
+          status: 'DRAFT',
+          draftCount: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }),
+    });
+    return true;
+  });
+  backend.set('GET', '/outreach/batches/batch-created-2', {
+    id: 'batch-created-2',
+    name: '归因测试批次',
+    status: 'DRAFT',
+    drafts: [],
+    approvals: [],
+    events: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+
+  await loginAs(page);
+  await page.goto('/growth?tab=outreach');
+  await expect(page.getByText('buyer@muster.de')).toBeVisible();
+
+  // 1. Click remove -> Cancel must NOT call DELETE
+  await page.getByRole('button', { name: '移除' }).first().click();
+  const confirmModal = page.locator('.ant-modal-confirm');
+  await expect(confirmModal).toBeVisible();
+  await expect(confirmModal).toContainText('buyer@muster.de');
+  await expect(confirmModal).toContainText('工业泵供货方案');
+  await confirmModal.getByRole('button', { name: '取消' }).click();
+  await expect(confirmModal).toHaveCount(0);
+  expect(deleteHits).toBe(0);
+  await expect(page.getByText('buyer@muster.de')).toBeVisible();
+
+  // 2. Click remove -> Confirm calls DELETE once
+  await page.getByRole('button', { name: '移除' }).first().click();
+  await expect(confirmModal).toBeVisible();
+  await confirmModal.locator('.ant-btn-dangerous').click();
+  await expect.poll(() => deleteHits).toBe(1);
+  await expect(page.getByText('buyer@muster.de')).toHaveCount(0);
+
+  // 3. Create batch with linked campaignId
+  await page.getByRole('button', { name: '新建批次' }).click();
+  await page.locator('.ob__create input').first().fill('归因测试批次');
+  await page.locator('[data-gs="batch-campaign-select"] .ant-select-selector').click();
+  await page.locator('.ant-select-item-option', { hasText: '德国泵业拓展战役' }).click();
+  await page.locator('.ob__create').getByRole('button', { name: '创建' }).click();
+
+  await expect.poll(() => backend.callsTo('POST', '/outreach/batches').length).toBe(1);
+  const createCall = backend.take('POST', '/outreach/batches');
+  expect(createCall?.body).toEqual({ name: '归因测试批次', campaignId: CAMP_ID });
+});
+
+test('outreach auditPackage renders structured summary with raw JSON folded in details', async ({
+  page,
+}, testInfo) => {
+  const BATCH_ID = '66666666-6666-4666-8666-666666666661';
+  const NOW = '2026-11-26T08:00:00.000Z';
+
+  const backend = await installMockBackend(page, {
+    origin: testOrigin(testInfo.project.use.baseURL),
+  });
+  backend.set('GET', '/outreach/batches', [
+    { id: BATCH_ID, name: '意大利光伏外发批次', status: 'APPROVED', draftCount: 2, createdAt: NOW, updatedAt: NOW },
+  ]);
+  backend.set('GET', `/outreach/batches/${BATCH_ID}`, {
+    id: BATCH_ID,
+    name: '意大利光伏外发批次',
+    status: 'APPROVED',
+    drafts: [],
+    approvals: [],
+    events: [],
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  backend.set('GET', `/outreach/batches/${BATCH_ID}/audit-package`, {
+    package: {
+      schemaVersion: 'outreach-audit-package/v1',
+      generatedAt: NOW,
+      batch: {
+        id: BATCH_ID,
+        name: '意大利光伏外发批次',
+        status: 'APPROVED',
+        contentHash: 'digest-audit-9876',
+      },
+      approval: {
+        state: 'APPROVED',
+        decidedBy: 'admin@example.com',
+        decidedAt: NOW,
+      },
+      authorization: {
+        id: 'auth-99',
+        consumedUses: 2,
+      },
+      drafts: [
+        { draftId: 'd1', status: 'SENT' },
+        { draftId: 'd2', status: 'DRAFT' },
+      ],
+    },
+    packageHash: 'pkg-hash-9876',
+    contentHash: 'digest-audit-9876',
+  });
+
+  await loginAs(page);
+  await page.goto('/growth?tab=outreach');
+  await page.locator('[data-gs="audit-package-btn"]').click();
+
+  const modal = page.locator('.ant-modal-content').filter({ hasText: '批次发送前审计包' });
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('[data-gs="audit-package-summary"]')).toBeVisible();
+  await expect(modal.locator('[data-gs="audit-package-summary"]')).toContainText('意大利光伏外发批次');
+  await expect(modal.locator('[data-gs="audit-package-summary"]')).toContainText('digest-audit-9876');
+  await expect(modal.locator('[data-gs="audit-package-summary"]')).toContainText('共 2 封草稿');
+
+  const rawDetails = modal.locator('details.error-notice__details');
+  await expect(rawDetails).toBeVisible();
+  expect(await rawDetails.getAttribute('open')).toBeNull();
+  await expect(rawDetails.locator('pre')).toBeHidden();
+
+  await rawDetails.locator('summary').click();
+  await expect(rawDetails.locator('pre')).toBeVisible();
+  await expect(rawDetails.locator('pre')).toContainText('outreach-audit-package/v1');
+});
