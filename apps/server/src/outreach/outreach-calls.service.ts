@@ -4,13 +4,16 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -98,7 +101,32 @@ export class OutreachCallsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
+
+  private decryptBasis<T extends { phoneE164: string }>(workspaceId: string, row: T): T {
+    if (!this.crypto) return row;
+    return {
+      ...row,
+      phoneE164: this.crypto.decryptField(
+        workspaceId,
+        row.phoneE164,
+        OUTREACH_PII_PURPOSE.CALL_BASIS_PHONE_E164,
+      ),
+    };
+  }
+
+  private decryptAttempt<T extends { notesRef: string | null }>(workspaceId: string, row: T): T {
+    if (!this.crypto || !row.notesRef) return row;
+    return {
+      ...row,
+      notesRef: this.crypto.decryptNullableField(
+        workspaceId,
+        row.notesRef,
+        OUTREACH_PII_PURPOSE.CALL_ATTEMPT_NOTES_REF,
+      ),
+    };
+  }
 
   async createBasis(tenant: OutreachTenant, input: CallBasisInput) {
     if (typeof input.contactRef !== 'string' || !UUID_RE.test(input.contactRef)) {
@@ -195,11 +223,18 @@ export class OutreachCallsService {
           },
         });
       }
+      const storedPhone = this.crypto
+        ? this.crypto.encryptField(
+            tenant.workspaceId,
+            phoneE164,
+            OUTREACH_PII_PURPOSE.CALL_BASIS_PHONE_E164,
+          )
+        : phoneE164;
       return tx.outreachCallBasis.create({
         data: {
           workspaceId: tenant.workspaceId,
           contactRef,
-          phoneE164,
+          phoneE164: storedPhone,
           companyName,
           contactRole,
           triggerType,
@@ -224,12 +259,12 @@ export class OutreachCallsService {
       target: row.id,
       detail: { triggerType, scriptTemplateId: input.scriptTemplateId, validUntil: validUntil.toISOString() },
     });
-    return row;
+    return this.decryptBasis(tenant.workspaceId, row);
   }
 
   async listBasis(tenant: OutreachTenant, contactRef?: string) {
     if (contactRef !== undefined && !UUID_RE.test(contactRef)) invalid('contactRef must be a UUID');
-    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
       tx.outreachCallBasis.findMany({
         where: {
           workspaceId: tenant.workspaceId,
@@ -239,20 +274,23 @@ export class OutreachCallsService {
         take: 100,
       }),
     );
+    return rows.map((row) => this.decryptBasis(tenant.workspaceId, row));
   }
 
   async getBasis(tenant: OutreachTenant, basisId: string) {
-    return this.requireBasis(tenant, basisId);
+    const row = await this.requireBasis(tenant, basisId);
+    return this.decryptBasis(tenant.workspaceId, row);
   }
 
   async listAttempts(tenant: OutreachTenant, basisId: string) {
-    return this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, async (tx) => {
       await this.requireBasisTx(tx, tenant, basisId);
       return tx.outreachCallAttempt.findMany({
         where: { basisId, workspaceId: tenant.workspaceId },
         orderBy: { attemptNo: 'asc' },
       });
     });
+    return rows.map((row) => this.decryptAttempt(tenant.workspaceId, row));
   }
 
   async createAttempt(tenant: OutreachTenant, basisId: string, input: CallAttemptInput) {
@@ -326,6 +364,13 @@ export class OutreachCallsService {
           select: { attemptNo: true },
         });
         const attemptNo = (last?.attemptNo ?? 0) + 1;
+        const storedNotesRef = this.crypto
+          ? this.crypto.encryptNullableField(
+              tenant.workspaceId,
+              notesRef,
+              OUTREACH_PII_PURPOSE.CALL_ATTEMPT_NOTES_REF,
+            )
+          : notesRef;
         const created = await tx.outreachCallAttempt.create({
           data: {
             workspaceId: tenant.workspaceId,
@@ -337,7 +382,7 @@ export class OutreachCallsService {
             outcome,
             objectionCode,
             notesHash,
-            notesRef,
+            notesRef: storedNotesRef,
             createdBy: tenant.userId,
           },
         });
@@ -380,7 +425,7 @@ export class OutreachCallsService {
       target: attempt.id,
       detail: { basisId, outcome, objectionCode, attemptNo: attempt.attemptNo },
     });
-    return attempt;
+    return this.decryptAttempt(tenant.workspaceId, attempt);
   }
 
   private async requireBasis(tenant: OutreachTenant, basisId: string) {

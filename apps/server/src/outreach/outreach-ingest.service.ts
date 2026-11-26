@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 import {
   classifyReplyIntent,
   isAutoReplyOrOoo,
@@ -60,6 +62,7 @@ export class OutreachIngestService {
     private readonly replies: OutreachReplyService,
     private readonly audit: AuditService,
     private readonly writeback: OutreachBounceWritebackService,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
 
   async ingest(
@@ -130,16 +133,23 @@ export class OutreachIngestService {
       return { outcome: 'UNMATCHED', reason: 'DRAFT_NOT_FOUND' };
     }
 
+    const sendRecipientEmail = this.crypto
+      ? this.crypto.decryptField(
+          tenant.workspaceId,
+          send.recipientEmail,
+          OUTREACH_PII_PURPOSE.SEND_RECIPIENT_EMAIL,
+        )
+      : send.recipientEmail;
     const recipientEmail =
       dsn?.recipient ??
       arf?.recipient ??
       fromAddress(email.from) ??
-      send.recipientEmail;
+      sendRecipientEmail;
     const intentAnalysis =
       kind === 'REPLY'
         ? classifyReplyIntent(email, [
             recipientEmail,
-            send.recipientEmail,
+            sendRecipientEmail,
             fromAddress(email.from),
           ])
         : null;

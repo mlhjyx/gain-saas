@@ -20,6 +20,7 @@ import { OutreachBatchService } from './outreach-batch.service.js';
 const createBatchBody = z.object({
   name: z.string().trim().min(1).max(200),
   campaignId: z.string().uuid().optional(),
+  mailboxId: z.string().uuid().optional(),
 });
 
 const attachmentRefBody = z.object({

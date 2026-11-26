@@ -227,6 +227,48 @@ const schema = z.object({
   // contact-eligibility 检查（state=VALID 才放行）；引擎不可达整批 fail-closed。
   // 关闭（默认）时不调用引擎，行为与历史一致。
   OUTREACH_ENGINE_ELIGIBILITY_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // M9-PR2: 外联 PII enc:v2 密钥环（与 global-backend M8 同标准）与 BYO 邮箱托管/OAuth2/审批模式配置
+  PII_KEYRING_JSON: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  PII_ENCRYPTION_KEY: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  // BYO SMTP/IMAP 是否允许连接内网/回环主机（默认 false 防 SSRF；仅本地自动化测试放行）。
+  OUTREACH_BYO_ALLOW_PRIVATE_HOSTS: z.string().default('false').transform((v) => v === 'true'),
+  // 企业多级审批策略开关：默认 false（中小租户可走「合规自动预检 → 一键确认发送」快捷通道，仍保留全部法律与熔断红线）；
+  // 设为 true 时禁用一键确认，强制走两段式提交→审批流程。
+  OUTREACH_ENTERPRISE_APPROVAL_REQUIRED: z.string().default('false').transform((v) => v === 'true'),
+  // 批次数据库行级发送租约锁 TTL（秒，崩溃自动释放）。
+  OUTREACH_SEND_LOCK_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+  // Google Workspace / Microsoft 365 OAuth2 BYO 发信箱授权配置（未配置时对应 OAuth 入口返回 503）。
+  OUTREACH_OAUTH_GOOGLE_CLIENT_ID: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  OUTREACH_OAUTH_GOOGLE_CLIENT_SECRET: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  OUTREACH_OAUTH_GOOGLE_REDIRECT_URI: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
+  OUTREACH_OAUTH_M365_CLIENT_ID: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  OUTREACH_OAUTH_M365_CLIENT_SECRET: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  OUTREACH_OAUTH_M365_REDIRECT_URI: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
+  OUTREACH_OAUTH_M365_TENANT: z.string().trim().min(1).default('common'),
   // 平台级抑制写入的引擎服务令牌（须与引擎 OUTREACH_INTERNAL_SERVICE_TOKEN 一致）；
   // 未配置时退订仍生效，但跨租户抑制写入被跳过并记 warning。
   OUTREACH_ENGINE_SERVICE_TOKEN: z.string().min(16).optional(),

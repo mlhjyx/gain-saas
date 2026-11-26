@@ -548,7 +548,7 @@ describe.skipIf(!available)('PG16 57-table FORCE RLS, gain_saas_app & SECURITY D
     });
   }, 60_000);
 
-  it('keeps all 20 SECURITY DEFINER helpers working when migrations are owned by a NOSUPERUSER NOBYPASSRLS role (production parity)', async () => {
+  it('keeps all 21 SECURITY DEFINER helpers working when migrations are owned by a NOSUPERUSER NOBYPASSRLS role (production parity)', async () => {
     const ownerRole = `gain_saas_owner_${randomUUID().slice(0, 8)}`;
     const ownerPw = `owner-${randomUUID().slice(0, 12)}`;
     const dbName = `gain_saas_nonsuper_${randomUUID().slice(0, 8)}`;
@@ -586,7 +586,7 @@ describe.skipIf(!available)('PG16 57-table FORCE RLS, gain_saas_app & SECURITY D
           AND p.proname LIKE 'app_%'
           AND p.prosecdef = true
       `;
-      expect(fnOwners.length).toBe(20);
+      expect(fnOwners.length).toBe(21);
       for (const fn of fnOwners) {
         expect(fn.owner).toBe(ownerRole);
         expect(fn.rolsuper).toBe(false);
@@ -650,6 +650,12 @@ describe.skipIf(!available)('PG16 57-table FORCE RLS, gain_saas_app & SECURITY D
         SELECT workspace_id FROM public.app_list_enabled_workspaces()
       `;
       expect(enabled.map((r) => r.workspace_id)).toContain(wsId);
+
+      // Verify M9 BYO IMAP helper under NOSUPERUSER NOBYPASSRLS owner
+      const byoMailboxes = await nonSuperApp.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM public.app_list_byo_imap_mailboxes()
+      `;
+      expect(Array.isArray(byoMailboxes)).toBe(true);
 
       // Verify SELECT ... FOR UPDATE SKIP LOCKED helper on outreach_bounce_writeback
       await nonSuperApp.withWorkspace(wsId, (tx) =>

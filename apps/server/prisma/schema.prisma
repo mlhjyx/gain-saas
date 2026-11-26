@@ -322,8 +322,8 @@ model OutreachUnsubscribeToken {
   id          String    @id @default(uuid()) @db.Uuid
   workspaceId String    @map("workspace_id") @db.Uuid
   contactRef  String    @map("contact_ref") @db.Uuid
-  /// 退订时同步平台级抑制所需；11-1 签发的旧 token 为 NULL（只做租户内退订）。
-  recipientEmail String? @map("recipient_email") @db.VarChar(320)
+  /// 退订时同步平台级抑制所需；11-1 签发的旧 token 为 NULL（只做租户内退订）；M9-PR2 起支持 enc:v2 加密落库。
+  recipientEmail String? @map("recipient_email") @db.Text
   tokenHash   String    @unique @map("token_hash") @db.Char(64)
   expiresAt   DateTime  @map("expires_at")
   usedAt      DateTime? @map("used_at")
@@ -374,6 +374,11 @@ model OutreachBatch {
   campaignId   String?             @map("campaign_id") @db.Uuid
   /// 绑定的 Campaign ExecutionAuthorization（P4-03：无有效授权不发；由签发方写入，执行器只读消费）。
   authorizationId String?          @map("authorization_id") @db.Uuid
+  /// M9-PR2：可选绑定的租户 BYO 发信箱（为空时自动选取工作空间默认活跃 BYO 发信箱或兼容配置）。
+  mailboxId    String?             @map("mailbox_id") @db.Uuid
+  /// M9-PR2：数据库行级发送租约锁（替代单进程内存 inFlight Set，防多实例并发重发，进程崩溃后到期自动释放）。
+  sendLockToken   String?          @map("send_lock_token") @db.Uuid
+  sendLockedUntil DateTime?        @map("send_locked_until") @db.Timestamptz(6)
   name         String              @db.VarChar(200)
   status       OutreachBatchStatus @default(DRAFT)
   contentHash  String?             @map("content_hash") @db.Char(64)
@@ -385,6 +390,7 @@ model OutreachBatch {
   updatedAt    DateTime            @updatedAt @map("updated_at")
 
   workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  mailbox   OutreachMailbox?        @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
   drafts    OutreachDraft[]
   approvals OutreachBatchApproval[]
   events    OutreachBatchEvent[]
@@ -405,7 +411,7 @@ model OutreachDraft {
   /// 引擎 contact_point id（email 通讯点）；退信回写 /contact-points/{pointId}/bounce-events 的寻址键。
   /// legacy 草稿为 NULL——回写队列按计数跳过，不阻塞发送。
   contactPointId  String?             @map("contact_point_id") @db.Uuid
-  recipientEmail  String              @map("recipient_email") @db.VarChar(320)
+  recipientEmail  String              @map("recipient_email") @db.Text
   /// 收件人国家（ISO 3166-1 alpha-2，P4-01）；缺失/未知按 REVIEW_REQUIRED fail-closed。
   countryCode     String?             @map("country_code") @db.Char(2)
   companyName     String?             @map("company_name") @db.VarChar(200)
@@ -482,7 +488,7 @@ model OutreachSend {
   batchId         String             @map("batch_id") @db.Uuid
   draftId         String             @map("draft_id") @db.Uuid
   attempt         Int                @default(1)
-  recipientEmail  String             @map("recipient_email") @db.VarChar(320)
+  recipientEmail  String             @map("recipient_email") @db.Text
   subjectHash     String             @map("subject_hash") @db.Char(64)
   bodyHash        String             @map("body_hash") @db.Char(64)
   mailboxAddress  String             @map("mailbox_address") @db.VarChar(320)
@@ -548,7 +554,7 @@ model OutreachCallBasis {
   id                 String   @id @default(uuid()) @db.Uuid
   workspaceId        String   @map("workspace_id") @db.Uuid
   contactRef         String   @map("contact_ref") @db.Uuid
-  phoneE164          String   @map("phone_e164") @db.VarChar(32)
+  phoneE164          String   @map("phone_e164") @db.Text
   companyName        String   @map("company_name") @db.VarChar(200)
   contactRole        String?  @map("contact_role") @db.VarChar(200)
   /// fair_visit | inbound_inquiry | existing_customer | published_buying_role | association_member | referral | public_procurement
@@ -586,7 +592,7 @@ model OutreachCallAttempt {
   outcome         String    @db.VarChar(24)
   objectionCode   String?   @map("objection_code") @db.VarChar(32)
   notesHash       String?   @map("notes_hash") @db.Char(64)
-  notesRef        String?   @map("notes_ref") @db.VarChar(256)
+  notesRef        String?   @map("notes_ref") @db.Text
   createdBy       String    @map("created_by") @db.VarChar(200)
   createdAt       DateTime  @default(now()) @map("created_at")
 
@@ -766,13 +772,17 @@ model OutreachBreaker {
 
 /// 发信域资产（P4-02）：kind=cold_outbound|catchall_test|transactional；state=WARMING|ACTIVE|PAUSED|RETIRED。
 model OutreachDomain {
-  id          String   @id @default(uuid()) @db.Uuid
-  workspaceId String   @map("workspace_id") @db.Uuid
-  domain      String   @db.VarChar(253)
-  kind        String   @default("cold_outbound") @db.VarChar(16)
-  state       String   @default("WARMING") @db.VarChar(16)
-  healthState String   @default("CLOSED") @map("health_state") @db.VarChar(16)
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  domain        String    @db.VarChar(253)
+  kind          String    @default("cold_outbound") @db.VarChar(16)
+  state         String    @default("WARMING") @db.VarChar(16)
+  healthState   String    @default("CLOSED") @map("health_state") @db.VarChar(16)
+  dkimSelector  String    @default("google") @map("dkim_selector") @db.VarChar(63)
+  dnsVerifiedAt DateTime? @map("dns_verified_at") @db.Timestamptz(6)
+  dnsReady      Boolean   @default(false) @map("dns_ready")
+  dnsReport     Json?     @map("dns_report")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   mailboxes       OutreachMailbox[]
   domainCounters  OutreachDomainCounter[]
@@ -782,25 +792,43 @@ model OutreachDomain {
   @@map("outreach_domain")
 }
 
-/// 发件信箱资产（P4-02）：warmupStage=W1|W2|W3|MATURE 决定默认日/周上限；state=ACTIVE|PAUSED|RETIRED。
+/// 发件信箱资产（P4-02 + M9-PR2 BYO 加密凭据托管）：warmupStage=W1|W2|W3|MATURE 决定默认日/周上限；state=ACTIVE|PAUSED|RETIRED。
 model OutreachMailbox {
-  id          String    @id @default(uuid()) @db.Uuid
-  workspaceId String    @map("workspace_id") @db.Uuid
-  domainId    String    @map("domain_id") @db.Uuid
-  address     String    @db.VarChar(320)
-  displayName String    @map("display_name") @db.VarChar(200)
-  provider    String    @default("smtp") @db.VarChar(32)
-  dailyCap    Int       @default(10) @map("daily_cap")
-  weeklyCap   Int       @default(50) @map("weekly_cap")
-  warmupStage String    @default("W1") @map("warmup_stage") @db.VarChar(16)
-  state       String    @default("ACTIVE") @db.VarChar(16)
-  timezone    String    @default("Europe/Berlin") @db.VarChar(64)
-  healthState String    @default("CLOSED") @map("health_state") @db.VarChar(16)
-  lastSendAt  DateTime? @map("last_send_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id                    String    @id @default(uuid()) @db.Uuid
+  workspaceId           String    @map("workspace_id") @db.Uuid
+  domainId              String    @map("domain_id") @db.Uuid
+  address               String    @db.VarChar(320)
+  displayName           String    @map("display_name") @db.VarChar(200)
+  provider              String    @default("smtp") @db.VarChar(32)
+  /// password | oauth_google | oauth_m365
+  authMode              String    @default("password") @map("auth_mode") @db.VarChar(24)
+  smtpHost              String?   @map("smtp_host") @db.VarChar(253)
+  smtpPort              Int?      @map("smtp_port")
+  smtpSecure            Boolean   @default(false) @map("smtp_secure")
+  imapHost              String?   @map("imap_host") @db.VarChar(253)
+  imapPort              Int?      @map("imap_port")
+  imapSecure            Boolean   @default(true) @map("imap_secure")
+  imapMailbox           String    @default("INBOX") @map("imap_mailbox") @db.VarChar(128)
+  /// enc:v2 加密的 JSON 凭据包（SMTP/IMAP 密码或 OAuth2 token），任何 API 绝不明文回显。
+  credentialsCiphertext String?   @map("credentials_ciphertext") @db.Text
+  credentialsKeyId      String?   @map("credentials_key_id") @db.VarChar(64)
+  credentialsUpdatedAt  DateTime? @map("credentials_updated_at") @db.Timestamptz(6)
+  oauthTokenExpiresAt   DateTime? @map("oauth_token_expires_at") @db.Timestamptz(6)
+  lastVerifiedAt        DateTime? @map("last_verified_at") @db.Timestamptz(6)
+  lastVerifyStatus      String?   @map("last_verify_status") @db.VarChar(32)
+  lastVerifyError       String?   @map("last_verify_error") @db.VarChar(500)
+  dailyCap              Int       @default(10) @map("daily_cap")
+  weeklyCap             Int       @default(50) @map("weekly_cap")
+  warmupStage           String    @default("W1") @map("warmup_stage") @db.VarChar(16)
+  state                 String    @default("ACTIVE") @db.VarChar(16)
+  timezone              String    @default("Europe/Berlin") @db.VarChar(64)
+  healthState           String    @default("CLOSED") @map("health_state") @db.VarChar(16)
+  lastSendAt            DateTime? @map("last_send_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
 
-  domain   OutreachDomain          @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  domain   OutreachDomain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
   counters OutreachMailboxCounter[]
+  batches  OutreachBatch[]
 
   @@unique([workspaceId, address])
   @@map("outreach_mailbox")
@@ -905,7 +933,7 @@ model OutreachReply {
   id             String                     @id @default(uuid()) @db.Uuid
   workspaceId    String                     @map("workspace_id") @db.Uuid
   contactRef     String                     @map("contact_ref") @db.Uuid
-  recipientEmail String?                    @map("recipient_email") @db.VarChar(320)
+  recipientEmail String?                    @map("recipient_email") @db.Text
   kind           OutreachReplyKind          @default(REPLY)
   classification OutreachReplyClassification @default(UNKNOWN)
   subject        String?                    @db.VarChar(300)

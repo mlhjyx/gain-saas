@@ -1,12 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import {
   OutreachReplyClassification,
   OutreachReplyKind,
   Prisma,
 } from '@prisma/client';
 import { AuditService } from '../shared/audit.service.js';
+import { PiiCryptoService } from '../shared/pii-crypto.service.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import type { OutreachTenant } from './outreach-consent.service.js';
+import { OUTREACH_PII_PURPOSE } from './outreach-pii.constants.js';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -57,7 +59,23 @@ export class OutreachReplyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly crypto?: PiiCryptoService,
   ) {}
+
+  private decryptReplyRow<T extends { recipientEmail: string | null }>(
+    workspaceId: string,
+    row: T,
+  ): T {
+    if (!this.crypto || !row.recipientEmail) return row;
+    return {
+      ...row,
+      recipientEmail: this.crypto.decryptNullableField(
+        workspaceId,
+        row.recipientEmail,
+        OUTREACH_PII_PURPOSE.REPLY_RECIPIENT_EMAIL,
+      ),
+    };
+  }
 
   async record(tenant: OutreachTenant, input: OutreachReplyInput) {
     if (!UUID_RE.test(input.contactRef)) {
@@ -111,11 +129,18 @@ export class OutreachReplyService {
         });
         if (!sao) invalid('VALIDATION_ERROR', 'saoId 不属于当前工作空间');
       }
+      const storedEmail = this.crypto
+        ? this.crypto.encryptNullableField(
+            tenant.workspaceId,
+            recipientEmail,
+            OUTREACH_PII_PURPOSE.REPLY_RECIPIENT_EMAIL,
+          )
+        : recipientEmail;
       const reply = await tx.outreachReply.create({
         data: {
           workspaceId: tenant.workspaceId,
           contactRef: input.contactRef,
-          recipientEmail,
+          recipientEmail: storedEmail,
           kind,
           classification,
           subject,
@@ -190,16 +215,17 @@ export class OutreachReplyService {
         ...(referredEmails.length > 0 ? { referredCount: referredEmails.length } : {}),
       },
     });
-    return row;
+    return this.decryptReplyRow(tenant.workspaceId, row);
   }
 
   async list(tenant: OutreachTenant, limit = 100) {
-    return this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
+    const rows = await this.prisma.withWorkspace(tenant.workspaceId, (tx) =>
       tx.outreachReply.findMany({
         where: { workspaceId: tenant.workspaceId },
         orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
         take: Math.min(Math.max(limit, 1), 200),
       }),
     );
+    return rows.map((row) => this.decryptReplyRow(tenant.workspaceId, row));
   }
 }

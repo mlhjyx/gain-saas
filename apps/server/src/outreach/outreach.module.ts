@@ -40,7 +40,13 @@ import {
   OutreachImapPoller,
 } from './outreach-imap.poller.js';
 import { OutreachMailboxController } from './outreach-mailbox.controller.js';
-import { OutreachMailboxService } from './outreach-mailbox.service.js';
+import {
+  OUTREACH_MAILBOX_DNS_RESOLVER,
+  OutreachMailboxService,
+} from './outreach-mailbox.service.js';
+import { OutreachDomainController } from './outreach-domain.controller.js';
+import { OutreachOAuthController } from './outreach-oauth.controller.js';
+import { OutreachOAuthService } from './outreach-oauth.service.js';
 import { OutreachWarmupController } from './outreach-warmup.controller.js';
 import { OutreachWarmupService } from './outreach-warmup.service.js';
 import { OutreachSeedTestController } from './outreach-seed-test.controller.js';
@@ -90,6 +96,8 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachReplyController,
     OutreachPublicController,
     OutreachMailboxController,
+    OutreachDomainController,
+    OutreachOAuthController,
     OutreachSeedTestController,
     OutreachWarmupController,
     OutreachHealthController,
@@ -105,7 +113,9 @@ import { OutreachUnsubscribeService } from './outreach-unsubscribe.service.js';
     OutreachConsentService,
     OutreachT0Service,
     { provide: OUTREACH_DNS_RESOLVER, useValue: NODE_DNS_RESOLVER },
+    { provide: OUTREACH_MAILBOX_DNS_RESOLVER, useExisting: OUTREACH_DNS_RESOLVER },
     OutreachT1Service,
+    OutreachOAuthService,
     OutreachUnsubscribeService,
     OutreachBatchService,
     OutreachSendGate,
