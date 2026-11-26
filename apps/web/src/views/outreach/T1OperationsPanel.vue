@@ -376,7 +376,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <GsCard :title="$t('gainos.outreach.t1.workbenchTitle')" data-gs="t1-operations-panel">
+  <GsCard :title="$t('gainos.outreach.t1.workbenchTitle')" class="t1-panel" data-gs="t1-operations-panel">
     <Tabs :active-key="activeTab" size="small" @change="onTabChange">
       <!-- 1. 域名 SPF / DKIM / DMARC / MX 体检 -->
       <TabPane key="dns" :tab="$t('gainos.outreach.t1.tabDns')">
@@ -770,22 +770,26 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.t1-stack { display: grid; gap: 12px; }
-.t1-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.t1-row-between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
-.t1-muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-muted); }
-.t1-dns-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.t1-dns-tile { border: 1px solid var(--gs-divider); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; background: var(--gs-surface); }
-.t1-template-box { border: 1px dashed var(--gs-border-dashed); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
-.t1-pre { margin: 0; font-size: 12px; overflow-x: auto; white-space: pre-wrap; color: var(--gs-fg-2); }
-.t1-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.t1-card-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--gs-divider); border-radius: 10px; background: var(--gs-surface); }
-.t1-domain-box { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--gs-divider); border-radius: 10px; background: var(--gs-surface); }
-.t1-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.t1-seq-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.t1-panel { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.t1-panel :deep(.ant-tabs),
+.t1-panel :deep(.ant-tabs-nav),
+.t1-panel :deep(.ant-tabs-content-holder) { min-width: 0; max-width: 100%; }
+.t1-stack { display: grid; gap: 12px; min-width: 0; max-width: 100%; }
+.t1-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+.t1-row-between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.t1-muted { margin: 0; font-size: 12.5px; color: var(--gs-fg-muted); overflow-wrap: anywhere; }
+.t1-dns-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 10px; min-width: 0; }
+.t1-dns-tile { border: 1px solid var(--gs-divider); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; background: var(--gs-surface); min-width: 0; overflow-wrap: anywhere; }
+.t1-template-box { border: 1px dashed var(--gs-border-dashed); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; min-width: 0; max-width: 100%; }
+.t1-pre { margin: 0; font-size: 12px; max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--gs-fg-2); }
+.t1-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.t1-card-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--gs-divider); border-radius: 10px; background: var(--gs-surface); min-width: 0; overflow-wrap: anywhere; }
+.t1-domain-box { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--gs-divider); border-radius: 10px; background: var(--gs-surface); min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.t1-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.t1-seq-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
 .t1-seq-span2 { grid-column: span 2; }
 @media (max-width: 720px) {
-  .t1-seq-form { grid-template-columns: 1fr; }
+  .t1-seq-form { grid-template-columns: minmax(0, 1fr); }
   .t1-seq-span2 { grid-column: span 1; }
 }
 </style>

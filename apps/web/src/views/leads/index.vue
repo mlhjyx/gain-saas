@@ -279,7 +279,7 @@ function openPackage(lead: Lead): void {
   void router.push({
     name: 'LeadDetail',
     params: { leadId: lead.id },
-    ...(activeIcpId.value ? { query: { icp: activeIcpId.value } } : {}),
+    ...(activeIcpId.value ? { state: { icpId: activeIcpId.value } } : {}),
   });
 }
 async function copyDomain(lead: Lead): Promise<void> {

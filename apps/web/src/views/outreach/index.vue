@@ -1100,17 +1100,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.ob--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; }
-.ob__embedded-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ob--embedded { padding: 0; max-width: none; margin: 0; gap: 12px; min-width: 0; }
+.ob__embedded-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
 .ob__sub { margin: 0; color: var(--gs-fg-muted); font-size: 13px; }
 .ob__create { margin-bottom: 4px; }
-.ob__grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
-.ob__list { display: grid; gap: 8px; }
-.ob__item { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid var(--gs-border-strong); border-radius: 10px; background: var(--gs-surface); cursor: pointer; color: var(--gs-fg); font-size: 13px; }
+.ob__grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; max-width: 100%; }
+.ob__list { display: grid; gap: 8px; min-width: 0; }
+.ob__item { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid var(--gs-border-strong); border-radius: 10px; background: var(--gs-surface); cursor: pointer; color: var(--gs-fg); font-size: 13px; min-width: 0; }
 .ob__item.is-active { border-color: var(--gs-accent-cta); box-shadow: 0 0 0 2px var(--gs-accent-soft); }
 .ob__item-name { font-weight: 600; }
 .ob__item-meta { color: var(--gs-fg-muted); font-size: 12px; }
-.ob__detail { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 16px; display: grid; gap: 14px; }
+.ob__detail { border: 1px solid var(--gs-border-strong); border-radius: 10px; padding: 16px; display: grid; gap: 14px; min-width: 0; max-width: 100%; overflow-x: hidden; }
 .ob__detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .ob__detail-head h3 { margin: 0 0 6px; }
 .ob__actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1141,7 +1141,7 @@ onMounted(async () => {
 .ob__icebreaker-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 12.5px; }
 .ob__icebreaker-text { color: var(--gs-fg-2); flex: 1; }
 @media (max-width: 860px) {
-  .ob__grid { grid-template-columns: 1fr; }
-  .ob__row-2 { grid-template-columns: 1fr; }
+  .ob__grid { grid-template-columns: minmax(0, 1fr); }
+  .ob__row-2 { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

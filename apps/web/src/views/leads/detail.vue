@@ -472,6 +472,11 @@ async function resolveTargetIcpId(): Promise<string> {
   const pkgRaw = pkg.value as (LeadPackage & { icpId?: string; icp_id?: string }) | null;
   const fromPkg = pkgRaw?.icp_id || pkgRaw?.icpId || '';
   if (fromPkg) return fromPkg;
+  const rawState =
+    typeof window !== 'undefined'
+      ? (window.history.state as { icpId?: unknown } | null)?.icpId
+      : undefined;
+  if (typeof rawState === 'string' && rawState.trim()) return rawState.trim();
   const rawRoute = Array.isArray(route.query.icp) ? route.query.icp[0] : route.query.icp;
   if (typeof rawRoute === 'string' && rawRoute.trim()) return rawRoute.trim();
   try {
