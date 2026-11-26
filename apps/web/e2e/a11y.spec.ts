@@ -124,6 +124,7 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
         backend.set('GET', '/companies/c1/conflicts', []);
       }
       await loginAs(page);
+      await page.mouse.move(0, 0);
       await page.goto(path);
       await page.waitForLoadState('networkidle');
       await audit(page);
@@ -137,8 +138,7 @@ test.describe('WCAG 2.x A/AA 抽样', () => {
     await loginAs(page);
     await page.goto('/leads');
     await page
-      .locator("[data-gs='lead-card']")
-      .filter({ hasText: 'Muster Metallbau GmbH' })
+      .locator("[data-gs='lead-review-pane']")
       .getByRole('button', { name: '跟进', exact: true })
       .click();
     await expect(page.getByRole('dialog')).toBeVisible();

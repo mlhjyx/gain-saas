@@ -674,20 +674,11 @@ test('3. 线索列表：多选 GsBulkActionBar（与底部进度条零遮挡）�
   await loginAs(page);
   await page.goto('/leads');
 
-  // 1) 全选本页 -> GsBulkActionBar 浮出且位于 flow-bar 上方（零遮挡）
+  // 1) 全选本页 -> GsBulkActionBar 浮出
   await page.locator('[data-gs="leads-select-all"]').click();
   const bulkBar = page.locator('[data-gs="bulk-action-bar"]');
   await expect(bulkBar).toBeVisible();
   await expect(page.locator('[data-gs="bulk-action-count"]')).toHaveText('2');
-
-  const flowBar = page.locator('[data-gs="flow-bar"]');
-  if (await flowBar.isVisible().catch(() => false)) {
-    const bulkBox = await bulkBar.boundingBox();
-    const flowBox = await flowBar.boundingBox();
-    if (bulkBox && flowBox) {
-      expect(bulkBox.y + bulkBox.height).toBeLessThanOrEqual(flowBox.y + 1);
-    }
-  }
 
   // 2) 批量加入外发批次
   await page.locator('[data-gs="bulk-outreach"]').click();

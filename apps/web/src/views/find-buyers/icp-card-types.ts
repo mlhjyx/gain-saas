@@ -39,5 +39,5 @@ export interface IcpCardRow {
   runState: SummaryState;
   statusLabel: string;
   statusTone: FbTone;
-  version: number;
+  version?: null | number;
 }

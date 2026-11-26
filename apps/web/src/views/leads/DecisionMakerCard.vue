@@ -7,8 +7,7 @@
  *   合法依据由 BFF 按租户「数据处理声明」自动注入，这里只读取展示依据引用；
  * - 来源层级按引擎许可区分「索引片段 / 历史档案 / 公开页」，绝不把推断显示成确定。
  *
- * 2026-11-25 排版对齐买家线索卡：每位决策人一张浮起白卡，三列对齐
- * （人 / 联系方式 / 来源），状态用统一药丸；按钮、弹层、提示全部走 antd。
+ * 联系人摘要下按真实渠道分卡，保留验证动作与人级来源。
  */
 import type {
   CanonicalCompanyDetail,
@@ -22,7 +21,7 @@ import type {
 
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 
-import { formatDate as formatDateValue, formatDateTime } from '@gain-saas/shared';
+import { formatDate as formatDateValue, formatDateTime, isSafeLinkedinUrl } from '@gain-saas/shared';
 
 import { Alert, Button, Checkbox, Modal, Skeleton, Space, Tag } from 'ant-design-vue';
 
@@ -37,6 +36,7 @@ import { newAttemptId } from '#/utils/attempt-id';
 
 import { failureText, gainosApi } from '#/api/gainos';
 
+import ContactChannelCard from './contact-channel-card.vue';
 defineOptions({ name: 'DecisionMakerCard' });
 
 const props = withDefaults(
@@ -354,7 +354,7 @@ function isGuessedEmailPoint(contact: CanonicalContact, point: CanonicalContactP
 function statusText(status: string): string {
   const key = `gainos.contacts.badge.${status}`;
   const translated = $t(key);
-  return translated === key ? status : translated;
+  return translated === key ? $t('gainos.contacts.badge.UNVERIFIED') : translated;
 }
 
 /** 联系方式状态：VALID / RISKY / 推断 / BLOCKED / INVALID / UNVERIFIED 一律照实显示。 */
@@ -371,9 +371,12 @@ function pointTone(point: CanonicalContactPoint): GsTone {
 }
 
 function pointTypeLabel(type: string): string {
+  if (type === 'whatsapp') return 'WhatsApp';
+  if (type === 'facebook') return 'Facebook';
+  if (type === 'x' || type === 'twitter') return 'X';
   const key = `gainos.contacts.type.${type}`;
   const translated = $t(key);
-  return translated === key ? type : translated;
+  return translated === key ? $t('gainosUi2.contacts.otherChannel') : translated;
 }
 
 function layerLabel(license?: string): string {
@@ -400,12 +403,15 @@ function initials(name: string): string {
 }
 
 function visiblePoints(contact: CanonicalContact): CanonicalContactPoint[] {
-  return (contact.contactPoints ?? []).filter((point) => point.type !== 'external_id');
+  return (contact.contactPoints ?? []).filter((point) => point.type !== 'external_id' && point.value?.trim());
 }
 
 function pointHref(point: CanonicalContactPoint): string {
-  if (point.type === 'linkedin' && /^https?:\/\//i.test(point.value)) return point.value;
-  return '';
+  return point.type === 'linkedin' &&
+    !['BLOCKED', 'INVALID'].includes(point.status) &&
+    isSafeLinkedinUrl(point.value)
+    ? point.value.trim()
+    : '';
 }
 
 /** 链接类联系方式只显示去掉协议头的地址，避免长串 https:// 挤占一整行。 */
@@ -479,6 +485,37 @@ function roleLine(contact: CanonicalContact): string {
   return [contact.title, contact.department].filter((part): part is string => !!part && part.trim() !== '').join(' · ');
 }
 
+function channelGroups(contact: CanonicalContact) {
+  const groups = new Map<string, CanonicalContactPoint[]>();
+  for (const point of visiblePoints(contact)) {
+    const kind = point.type === 'twitter' ? 'x' : point.type;
+    const group = groups.get(kind) ?? [];
+    group.push(point);
+    groups.set(kind, group);
+  }
+  return [...groups].map(([kind, points]) => ({
+    id: `contact-${contact.id}-${kind}`,
+    kind,
+    label: pointTypeLabel(kind),
+    points: points.map((point) => ({
+      action: point.type === 'email',
+      href: pointHref(point),
+      id: point.id,
+      label: pointLabel(contact, point),
+      point,
+      text: displayValue(point),
+      tone: pointTone(point),
+      verifiedAt: point.verifiedAt ? formatDate(point.verifiedAt) : '',
+    })),
+  }));
+}
+
+function focusChannel(id: string): void {
+  const card = document.getElementById(id);
+  card?.scrollIntoView({ block: 'nearest' });
+  card?.focus({ preventScroll: true });
+}
+
 /** 渲染行：模板里不再做字符串拼接/状态判断，只负责排版。 */
 const rows = computed(() =>
   contacts.value.map((contact) => ({
@@ -488,17 +525,7 @@ const rows = computed(() =>
     name: contact.fullName,
     role: roleLine(contact) || $t('gainos.contacts.roleUnknown'),
     seniority: seniorityLabel(contact.seniority),
-    points: visiblePoints(contact).map((point) => ({
-      action: point.type === 'email',
-      href: pointHref(point),
-      id: point.id,
-      label: pointLabel(contact, point),
-      point,
-      text: displayValue(point),
-      tone: pointTone(point),
-      type: pointTypeLabel(point.type),
-      verifiedAt: point.verifiedAt ? formatDate(point.verifiedAt) : '',
-    })),
+    channels: channelGroups(contact),
     sources: contactSources(contact),
   })),
 );
@@ -832,52 +859,68 @@ onMounted(() => {
           data-gs="decision-maker"
           padding="18px 24px"
         >
-          <!-- 三列网格必须挂在卡片内容的内层：antd Card 会把插槽再包一层 .ant-card-body -->
           <div class="dm-person">
-          <!-- 人 -->
-          <div class="dm-person__identity">
+          <header class="dm-person__identity">
             <span aria-hidden="true" class="dm-person__avatar">{{ row.initials }}</span>
             <div class="min-w-0">
-              <h3 class="dm-person__name">{{ row.name }}</h3>
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="dm-person__name">{{ row.name }}</h3>
+                <Tag v-if="row.seniority" :bordered="false" class="dm-chip">
+                  {{ row.seniority }}
+                </Tag>
+              </div>
               <p class="dm-person__role">{{ row.role }}</p>
-              <Tag v-if="row.seniority" :bordered="false" class="dm-chip dm-person__seniority">
-                {{ row.seniority }}
-              </Tag>
+              <div v-if="row.channels.length > 0" class="mt-2 flex flex-wrap gap-1.5">
+                <Button
+                  v-for="channel in row.channels"
+                  :key="channel.id"
+                  :aria-controls="channel.id"
+                  :aria-label="$t('gainosUi2.contacts.jumpToChannel', { channel: channel.label })"
+                  data-gs="person-channel-jump"
+                  size="small"
+                  @click="focusChannel(channel.id)"
+                >
+                  {{ channel.label }}
+                </Button>
+              </div>
             </div>
-          </div>
+          </header>
 
-          <!-- 联系方式 -->
-          <ul v-if="row.points.length > 0" class="dm-points">
-            <li v-for="point in row.points" :key="point.id" class="dm-point">
-              <Tag :bordered="false" class="dm-chip dm-point__type">{{ point.type }}</Tag>
-              <a
-                v-if="point.href"
-                class="dm-point__value"
-                :href="point.href"
-                rel="noreferrer"
-                target="_blank"
-                :title="point.text"
-              >
-                {{ point.text }}
-              </a>
-              <span v-else class="dm-point__value" :title="point.text">{{ point.text }}</span>
-              <GsTag class="dm-point__badge" :tone="point.tone">{{ point.label }}</GsTag>
-              <!-- 日期位常驻（无日期时留空），保证各行的状态药丸上下对齐 -->
-              <span class="dm-point__date">{{ point.verifiedAt }}</span>
-              <Button
-                v-if="point.action"
-                :disabled="!!busy"
-                :loading="busy === 'verify'"
-                class="dm-point__action"
-                size="small"
-                type="link"
-                @click="openDialog('verify', row.contact, point.point)"
-              >
-                {{ $t('gainos.contacts.verify') }}
-              </Button>
-            </li>
-          </ul>
-          <p v-else class="dm-person__role dm-points">{{ $t('gainos.contacts.noPoints') }}</p>
+          <div v-if="row.channels.length > 0" class="dm-channel-grid" data-gs="person-contact-channels">
+            <ContactChannelCard
+              v-for="channel in row.channels"
+              :id="channel.id"
+              :key="channel.id"
+              :kind="channel.kind"
+              :label="channel.label"
+            >
+              <div v-for="point in channel.points" :key="point.id" class="dm-point">
+                <a
+                  v-if="point.href"
+                  class="dm-point__value"
+                  :href="point.href"
+                  rel="noreferrer"
+                  target="_blank"
+                >{{ point.text }}</a>
+                <span v-else class="dm-point__value">{{ point.text }}</span>
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <GsTag :tone="point.tone">{{ point.label }}</GsTag>
+                  <span v-if="point.verifiedAt" class="dm-point__date">{{ point.verifiedAt }}</span>
+                  <Button
+                    v-if="point.action"
+                    :disabled="!!busy"
+                    :loading="busy === 'verify'"
+                    size="small"
+                    type="link"
+                    @click="openDialog('verify', row.contact, point.point)"
+                  >
+                    {{ $t('gainos.contacts.verify') }}
+                  </Button>
+                </div>
+              </div>
+            </ContactChannelCard>
+          </div>
+          <p v-else class="dm-person__role">{{ $t('gainos.contacts.noPoints') }}</p>
 
           <!-- 来源 -->
           <div class="dm-sources">
@@ -1232,16 +1275,11 @@ onMounted(() => {
    ≥ 860px 才是「人 / 联系方式 / 来源」三列对齐（卡片内边距 48 + 三列最小 788）。 */
 .dm-person {
   display: grid;
-  grid-template-areas:
-    'identity'
-    'points'
-    'sources';
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
 .dm-person__identity {
-  grid-area: identity;
   display: flex;
   min-width: 0;
   gap: 12px;
@@ -1273,9 +1311,6 @@ onMounted(() => {
   font-size: 12.5px;
   line-height: 18px;
 }
-.dm-person__seniority {
-  margin-top: 6px;
-}
 
 .dm-chip {
   flex: none;
@@ -1288,67 +1323,37 @@ onMounted(() => {
   line-height: 22px;
 }
 
-.dm-points {
-  grid-area: points;
+.dm-channel-grid {
   display: grid;
-  gap: 4px;
-  min-width: 0;
-  margin: 0;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--gs-divider);
-  list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 9px;
 }
-/* 窄内容区放不下一整行时，状态 / 日期 / 操作折到第二行 */
 .dm-point {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  display: grid;
+  gap: 5px;
   min-width: 0;
-  min-height: 32px;
+}
+.dm-point + .dm-point {
+  padding-top: 8px;
+  border-top: 1px solid var(--gs-divider);
 }
 .dm-point__value {
-  flex: 1 1 140px;
-}
-.dm-point__type {
-  /* 等宽：邮箱 / 电话 / LinkedIn 后面的值从同一位置起排 */
-  box-sizing: border-box;
-  width: 68px;
-  padding-inline: 0;
-  text-align: center;
-}
-.dm-point__value {
-  min-width: 0;
-  overflow: hidden;
   color: var(--gs-fg);
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 a.dm-point__value {
   color: var(--gs-accent-fg);
-  text-decoration: none;
-}
-a.dm-point__value:hover {
   text-decoration: underline;
-}
-.dm-point__badge {
-  flex: none;
+  text-underline-offset: 2px;
 }
 .dm-point__date {
-  flex: none;
-  min-width: 80px;
-  color: var(--gs-fg-subtle);
+  color: var(--gs-fg-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.dm-point__action {
-  flex: none;
-  padding-inline: 6px;
-}
 
 .dm-sources {
-  grid-area: sources;
   display: grid;
   align-content: start;
   gap: 2px;
@@ -1471,25 +1476,6 @@ a.dm-point__value:hover {
   display: block;
   margin-top: 4px;
   word-break: break-all;
-}
-
-@container (min-width: 860px) {
-  .dm-person {
-    grid-template-areas: 'identity points sources';
-    grid-template-columns: 300px minmax(0, 1fr) 220px;
-    column-gap: 24px;
-  }
-  .dm-points,
-  .dm-sources {
-    padding-top: 0;
-    border-top: 0;
-  }
-  .dm-point {
-    flex-wrap: nowrap;
-  }
-  .dm-point__value {
-    flex: 1 1 auto;
-  }
 }
 
 </style>

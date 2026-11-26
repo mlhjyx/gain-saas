@@ -348,6 +348,7 @@ test('#23 #26 买家线索：卡片上直接有「查看档案包」，浏览器
 
   await loginAs(page);
   await page.goto('/leads');
+  await page.locator("[data-gs='leads-display-card']").click();
   const card = page.locator("[data-gs='lead-card']");
   const open = card.locator("[data-gs='lead-package']");
   await expect(open).toHaveText('查看档案包');

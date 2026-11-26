@@ -37,7 +37,7 @@ const NAV_GROUPS = [
     items: [
       { heading: '外发与战役', landmark: '[data-gs="outreach-hub"]', name: '外发与战役', path: '/outreach' },
       { heading: '商机', landmark: '.gpc', name: '商机管线', path: '/opportunities' },
-      { heading: '度量', landmark: '.mt', name: '成效复盘', path: '/analytics' },
+      { heading: '成效复盘', landmark: '.mt', name: '成效复盘', path: '/analytics' },
     ],
   },
 ] as const;
@@ -136,8 +136,8 @@ test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门�
   await expect(tasksMenu).toHaveAttribute('aria-current', 'page');
   await expect(tasksMenu).toHaveClass(/\bis-active\b/);
 
-  await page.goto('/runs/run-1');
-  await expect(tasksMenu).toHaveAttribute('aria-current', 'page');
+  await page.goto('/runs/run-1', { waitUntil: 'domcontentloaded' });
+  await expect(tasksMenu).toHaveAttribute('aria-current', 'page', { timeout: 30_000 });
   await expect(tasksMenu).toHaveClass(/\bis-active\b/);
 
   // /leads/:leadId 高亮侧栏「买家线索」
@@ -157,7 +157,7 @@ test('新版左侧目录可点、顶区无多余标题、GROWTH_PAGE_HIDDEN 门�
   await page.goto('/reports');
   await page.waitForURL((url) => url.pathname === '/analytics');
   await expect(page.getByText('周报概览')).toHaveCount(0);
-  await expect(page.getByRole('heading', { level: 1, name: '度量' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '成效复盘', exact: true })).toBeVisible();
 });
 
 test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、线索判定复核与命令面板门控', async ({

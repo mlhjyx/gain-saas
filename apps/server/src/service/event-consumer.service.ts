@@ -540,23 +540,23 @@ export class EventConsumerService implements OnModuleInit {
       if (!UUID.test(runId) || !TERMINAL_STATUSES.has(status)) {
         throw new Error('INVALID_DISCOVERY_COMPLETION');
       }
-      await tx.taskRun.updateMany({
-        where: { workspaceId, engineRunId: runId, status: 'RUNNING' },
-        data: { status, finishedAt: new Date() },
-      });
-      // P1：BFF 在引擎 202 后丢响应的窗口里 TaskRun.engineRunId 为 NULL——用事件 payload 的
-      // taskRef（引擎 B1 起随 DiscoveryRunCompleted 携带）按 id 回填并镜像终态。
       const taskRef = payload.taskRef as { taskRunId?: unknown } | undefined;
       const taskRunId =
         taskRef && typeof taskRef.taskRunId === 'string' && UUID.test(taskRef.taskRunId)
           ? taskRef.taskRunId
           : undefined;
-      if (taskRunId) {
-        await tx.taskRun.updateMany({
-          where: { workspaceId, id: taskRunId, engineRunId: null },
-          data: { engineRunId: runId, status, finishedAt: new Date() },
-        });
-      }
+      // Match both an existing link and an unlinked taskRef in one UPDATE so a concurrent
+      // start response linking the attempt cannot move it between two separate writes.
+      await tx.taskRun.updateMany({
+        where: {
+          workspaceId,
+          OR: [
+            { engineRunId: runId, status: 'RUNNING' },
+            ...(taskRunId ? [{ id: taskRunId, engineRunId: null }] : []),
+          ],
+        },
+        data: { engineRunId: runId, status, finishedAt: new Date() },
+      });
       const notificationType =
         status === 'PARTIAL'
           ? 'DiscoveryRunPartial'

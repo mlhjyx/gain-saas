@@ -8,6 +8,7 @@
  * 业务维度（雷达图 + 逐维理由），机器结论码收进折叠的技术详情。
  */
 import type {
+  CanonicalContact,
   ContactEnrichmentResultView,
   LeadDecisionInput,
   LeadPackage,
@@ -15,6 +16,7 @@ import type {
   QgoView,
   T0TouchRecord,
 } from '#/api/gainos';
+import type { GsKeyValueItem } from '#/components/gainos/ui/gs-key-value.vue';
 import type { JudgeSummary, ScoreGrade } from './judge';
 
 import { computed, onMounted, ref, watch } from 'vue';
@@ -23,8 +25,6 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   Alert,
   Button,
-  Descriptions,
-  DescriptionsItem,
   Input,
   Modal,
   Space,
@@ -45,6 +45,7 @@ import {
 import ErrorNotice from '#/components/error-notice.vue';
 import AsyncSection from '#/components/gainos/async-section.vue';
 import GsCard from '#/components/gainos/ui/gs-card.vue';
+import GsKeyValue from '#/components/gainos/ui/gs-key-value.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsRadar from '#/components/gainos/ui/gs-radar.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
@@ -57,9 +58,11 @@ import { feedback } from '#/feedback';
 import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
+import ContactChannelCard from './contact-channel-card.vue';
 import JudgeDimensions from './judge-dimensions.vue';
 import T0OutreachPanel from './T0OutreachPanel.vue';
 import {
+  displayLeadScore,
   isMachineAggregate,
   judgeCounts,
   keyDimension,
@@ -69,6 +72,7 @@ import {
   shortRationale,
 } from './judge';
 import { dimName, humanizeRationale, verdictLabel, verdictTone } from './judge-labels';
+import { companyContactPaths, companyPublicProfiles, hasPublicContactAccess } from './public-contact-paths';
 
 defineOptions({ name: 'LeadDetail' });
 
@@ -220,13 +224,7 @@ const radarDims = computed(() =>
   })),
 );
 
-/** 总分：引擎 scores.total 是 0–1，列表 total_score 是 0–100，两种都兼容。 */
-const totalScore = computed<null | number>(() => {
-  const total = pkg.value?.scores?.total;
-  if (typeof total !== 'number' || !Number.isFinite(total)) return null;
-  const percent = total <= 1 ? total * 100 : total;
-  return Math.round(percent);
-});
+const totalScore = computed(() => displayLeadScore(pkg.value?.scores?.total));
 const grade = computed<ScoreGrade>(() => scoreGrade(totalScore.value));
 const gradeLabel = computed(() => $t(`gainos.leads.scoreGrade.${grade.value}`));
 
@@ -294,6 +292,122 @@ const identifierRows = computed<Array<{ label: string; value: string }>>(() => {
     .map(([key, value]) => ({ label: IDENTIFIER_LABELS[key]!(), value: String(value) }));
 });
 
+/** 右侧 32% Sticky 属性栏键值表（GsKeyValue compact）：国家、行业、员工规模、官网域名、地址与标识。 */
+const inspectorProperties = computed<GsKeyValueItem[]>(() => {
+  const current = pkg.value;
+  if (!current) return [];
+  const profile = (current.company_profile ?? {}) as Record<string, unknown>;
+  const industryRaw = typeof profile.industry === 'string' ? profile.industry.trim() : '';
+  const empRaw = profile.employee_count ?? profile.employeeCount;
+  const empNum = typeof empRaw === 'number' && Number.isFinite(empRaw) ? empRaw : null;
+  const items: GsKeyValueItem[] = [
+    { key: 'country', label: $t('gainosUi2.leadDetail.propCountry'), value: current.company.country ?? null },
+    { key: 'industry', label: $t('gainosUi2.leadDetail.propIndustry'), value: industryRaw || null },
+    ...(empNum !== null
+      ? [{
+          key: 'employees',
+          label: $t('gainosUi2.leadDetail.propEmployees'),
+          numeric: true,
+          value: $t('gainosUi2.leadDetail.employeesUnit', { count: empNum }),
+        }]
+      : []),
+    {
+      copyable: Boolean(current.company.domain),
+      key: 'domain',
+      label: $t('gainosUi2.leadDetail.propWebsite'),
+      mono: true,
+      value: current.company.domain ?? null,
+    },
+    ...(current.company.city
+      ? [{ key: 'city', label: $t('gainosUi2.leadDetail.propCity'), value: current.company.city }]
+      : []),
+    ...profileRows.value.map((row, idx) => ({
+      key: `profile-${idx}`,
+      label: row.label,
+      value: row.value,
+    })),
+    ...(current.registered_address
+      ? [{ key: 'address', label: $t('gainos.leads.address'), value: current.registered_address }]
+      : []),
+    ...identifierRows.value.map((row, idx) => ({
+      copyable: true,
+      key: `ident-${idx}`,
+      label: row.label,
+      mono: true,
+      value: row.value,
+    })),
+    ...(current.valid_until
+      ? [{
+          key: 'valid-until',
+          label: $t('gainosUi2.leadDetail.propValidUntil'),
+          numeric: true,
+          value: formatDate(current.valid_until),
+        }]
+      : []),
+  ];
+  return items;
+});
+
+function onPropertyCopy(): void {
+  feedback.message.success($t('gainos.leads.copied'));
+}
+
+// ── 右侧侧栏具名决策人快捷预览（严格 isAdmin 门控，防止 member 发 403）────
+const inspectorContacts = ref<CanonicalContact[]>([]);
+const inspectorContactsLoading = ref(false);
+let inspectorContactsSeq = 0;
+
+function isSwitchboardContact(contact: CanonicalContact): boolean {
+  const name = contact.fullName?.trim().toLowerCase() ?? '';
+  const title = contact.title?.trim().toLowerCase() ?? '';
+  const dept = contact.department?.trim().toLowerCase() ?? '';
+  return (
+    dept === 'switchboard' ||
+    title === 'switchboard' ||
+    name === 'company switchboard' ||
+    name.startsWith('company switchboard') ||
+    name === 'switchboard'
+  );
+}
+
+async function loadInspectorContacts(): Promise<void> {
+  await ensureLoaded();
+  const companyId = pkg.value?.company?.canonical_company_id;
+  if (!isAdmin.value || !companyId) {
+    inspectorContacts.value = [];
+    inspectorContactsLoading.value = false;
+    return;
+  }
+  const seq = ++inspectorContactsSeq;
+  inspectorContactsLoading.value = true;
+  try {
+    const detail = await gainosApi.canonicalCompany(companyId);
+    if (seq !== inspectorContactsSeq) return;
+    const raw = detail?.company?.contacts ?? [];
+    inspectorContacts.value = raw.filter((c) => !isSwitchboardContact(c));
+  } catch {
+    if (seq === inspectorContactsSeq) inspectorContacts.value = [];
+  } finally {
+    if (seq === inspectorContactsSeq) inspectorContactsLoading.value = false;
+  }
+}
+
+const inspectorContactPreview = computed(() =>
+  inspectorContacts.value.slice(0, 3).map((contact) => {
+    const points = contact.contactPoints ?? [];
+    const primaryEmail =
+      points.find((pt) => pt.type === 'email' && pt.status === 'VALID')?.value ?? '';
+    const hasVerified = points.some((pt) => pt.type === 'email' && pt.status === 'VALID');
+    return {
+      email: primaryEmail,
+      hasVerified,
+      id: contact.id,
+      name: contact.fullName || $t('gainos.leads.unknownCompany'),
+      title: contact.title || '',
+    };
+  }),
+);
+
 /** 引擎 evidence 形状是 {field, source_url, fetched_at}（不是提升商机的 {type,url,support}）。 */
 const evidenceItems = computed(() => {
   const seen = new Set<string>();
@@ -325,49 +439,41 @@ const scoreRows = computed(() => {
       typeof row.value === 'number' && Number.isFinite(row.value));
 });
 
-function safeHttpUrl(value?: null | string): string {
-  return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : '';
-}
-
 function socialPlatformLabel(platform: string): string {
+  if (platform === 'facebook') return 'Facebook';
+  if (platform === 'whatsapp') return 'WhatsApp';
+  if (platform === 'x') return 'X';
   const key = `gainos.leads.socialPlatform.${platform.toLowerCase()}` as Parameters<typeof $t>[0];
   const translated = $t(key);
   return translated === key ? platform : translated;
 }
 
 const companyEmails = computed(() =>
-  (pkg.value?.company_channels ?? []).filter((item) => item.channel === 'email' && item.value),
+  pkg.value && hasPublicContactAccess(pkg.value)
+    ? (pkg.value.company_channels ?? []).filter((item) => item.channel === 'email' && item.value)
+    : [],
 );
 const companyPhones = computed(() =>
-  (pkg.value?.company_channels ?? []).filter((item) => item.channel === 'phone' && item.value),
+  pkg.value && hasPublicContactAccess(pkg.value)
+    ? (pkg.value.company_channels ?? []).filter((item) => item.channel === 'phone' && item.value)
+    : [],
 );
 const companySocials = computed(() =>
-  (pkg.value?.social_profiles ?? [])
-    .map((item) => ({
-      platform: item.platform,
-      label: socialPlatformLabel(item.platform),
-      url: safeHttpUrl(item.url),
-    }))
-    .filter((item) => Boolean(item.url)),
+  pkg.value ? companyPublicProfiles(pkg.value).map((item) => ({
+    ...item,
+    label: socialPlatformLabel(item.platform),
+  })) : [],
 );
-const contactPaths = computed(() => {
-  const seen = new Set<string>();
-  const out: Array<{ status?: string; url: string }> = [];
-  for (const ch of pkg.value?.company_channels ?? []) {
-    if (ch.channel !== 'form_url') continue;
-    const url = safeHttpUrl(ch.value);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    out.push({ url });
+const companySocialGroups = computed(() => {
+  const groups = new Map<string, (typeof companySocials.value)>();
+  for (const item of companySocials.value) {
+    const group = groups.get(item.platform) ?? [];
+    if (!group.some((existing) => existing.url === item.url)) group.push(item);
+    groups.set(item.platform, group);
   }
-  for (const point of pkg.value?.contact_points ?? []) {
-    const url = safeHttpUrl(point.url);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    out.push({ url, status: point.status });
-  }
-  return out;
+  return [...groups].map(([platform, entries]) => ({ platform, entries }));
 });
+const contactPaths = computed(() => pkg.value ? companyContactPaths(pkg.value) : []);
 const hasAnyContactPath = computed(
   () =>
     companyEmails.value.length > 0 ||
@@ -412,9 +518,11 @@ async function load(): Promise<void> {
     draftError.value = null;
     draft.value = null;
     void loadDraft();
+    void loadInspectorContacts();
   } catch (err) {
     error.value = failureText(err);
     pkg.value = null;
+    inspectorContacts.value = [];
   } finally {
     loading.value = false;
   }
@@ -868,24 +976,15 @@ watch(leadId, () => {
       :title="pkg?.company.name || $t('gainos.leads.unknownCompany')"
     >
       <template #actions>
-        <Space :size="8" wrap>
-          <GsTag v-if="pkg" :tone="statusTone">{{ statusLabel(status) }}</GsTag>
-          <Button v-if="canDecide" danger @click="openDecision('reject')">
-            {{ $t('gainos.leads.cardReject') }}
-          </Button>
-          <Button v-if="canDecide" type="primary" @click="openDecision('accept')">
-            {{ $t('gainos.leads.cardAccept') }}
-          </Button>
-          <Button v-if="status === 'QUALIFIED'" type="primary" @click="promoteOpen = true">
-            {{ $t('gainos.leads.promoteQgo') }}
-          </Button>
-          <Button v-if="status === 'QUALIFIED' && !GROWTH_PAGE_HIDDEN" @click="goOutreach">
-            {{ $t('gainos.leads.goOutreach') }}
-          </Button>
-          <Button data-gs="back-to-list" @click="router.push('/leads')">
+        <div class="ld-head-actions">
+          <span v-if="pkg" class="ld-status-pill" data-gs="lead-status-badge">
+            <span aria-hidden="true" class="ld-status-dot" :class="`is-${statusTone}`" />
+            <span>{{ statusLabel(status) }}</span>
+          </span>
+          <Button data-gs="back-to-list" size="small" @click="router.push('/leads')">
             {{ $t('gainos.leads.backToList') }}
           </Button>
-        </Space>
+        </div>
       </template>
     </GsPage>
 
@@ -896,617 +995,624 @@ watch(leadId, () => {
       :retry-text="$t('gainos.common.retry')"
       @retry="load"
     >
-      <div v-if="pkg" class="grid gap-4">
-      <Tabs
-        :active-key="tab"
-        data-gs="lead-tabs"
-        @change="selectTab"
-      >
-        <TabPane key="package" :tab="$t('gainos.leads.tab.package')">
-          <div class="grid gap-4">
-            <!-- 判断结果：结论 + 五维雷达 -->
-            <GsCard data-gs="judge-hero">
-              <div class="grid items-start gap-6 @min-[900px]:grid-cols-[minmax(0,1fr)_360px]">
-                <div class="min-w-0">
-                  <p class="lead-hero__label">{{ $t('gainos.leads.verdictTitle') }}</p>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <GsTag :tone="verdictTone(rawVerdict)">{{ fitLabel }}</GsTag>
-                    <span class="lead-hero__score">{{ totalScore ?? '—' }}</span>
-                    <span class="text-xs text-[var(--gs-fg-muted)]">
-                      {{ $t('gainos.leads.scoreLabel') }}
-                    </span>
-                    <span class="lead-grade" :class="`lead-grade--${grade}`">
-                      {{ gradeLabel }}
+      <!-- Attio 68:32 双栏对象页（≥960px 左右分栏；窄屏优雅堆叠为单栏） -->
+      <div v-if="pkg" :class="{ 'ld-split--people': tab === 'people' }" class="ld-split" data-gs="lead-detail-split">
+        <!-- 左侧 68% 主阅读流：顶部结论摘要带 + 清晰四页签 + 单一受控 T0OutreachPanel -->
+        <div class="ld-main" data-gs="lead-detail-main">
+          <!-- 顶部紧凑结论摘要带 -->
+          <section
+            :aria-label="$t('gainosUi2.leadDetail.summaryBadgeAria')"
+            class="ld-summary"
+            data-gs="judge-hero"
+          >
+            <div class="ld-summary__head">
+              <div class="ld-summary__score-group">
+                <span class="ld-summary__score">{{ totalScore ?? '—' }}</span>
+                <span class="text-xs text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.scoreLabel') }}
+                </span>
+                <span class="lead-grade" :class="`lead-grade--${grade}`">
+                  {{ gradeLabel }}
+                </span>
+              </div>
+              <GsTag :tone="verdictTone(rawVerdict)">{{ fitLabel }}</GsTag>
+              <span v-if="summaryText" class="text-xs text-[var(--gs-fg-muted)]">
+                {{ summaryText }}
+              </span>
+            </div>
+            <p class="ld-summary__reason">{{ keyReason }}</p>
+            <p v-if="unknownNote" class="mb-0 mt-1 text-xs text-[var(--gs-fg-subtle)]">
+              {{ unknownNote }}
+            </p>
+          </section>
+
+          <Tabs
+            :active-key="tab"
+            class="ld-tabs"
+            data-gs="lead-tabs"
+            @change="selectTab"
+          >
+            <TabPane key="package" :tab="$t('gainos.leads.tab.package')">
+              <div class="grid gap-4">
+                <!-- 五维判据与雷达图（细线整合，告别通栏空旷大卡） -->
+                <section class="ld-panel" data-gs="judge-dimensions">
+                  <div class="ld-panel__head">
+                    <h2 class="ld-panel__title">{{ $t('gainos.leads.criteriaTitle') }}</h2>
+                    <span v-if="summaryText" class="text-xs text-[var(--gs-fg-muted)]">
+                      {{ summaryText }}
                     </span>
                   </div>
-                  <p v-if="summaryText" class="mt-3 text-[13px] text-[var(--gs-fg-muted)]">
-                    {{ summaryText }}
-                  </p>
-                  <div class="lead-hero__reason-box">
-                    <p class="lead-hero__label">{{ $t('gainos.leads.reasonTitle') }}</p>
-                    <p class="lead-hero__reason">{{ keyReason }}</p>
+                  <div
+                    v-if="dims.length > 0"
+                    class="grid items-start gap-5 @min-[700px]:grid-cols-[minmax(0,1fr)_272px]"
+                  >
+                    <JudgeDimensions :dims="dims" />
+                    <div v-if="radarDims.length > 0" class="lead-radar">
+                      <p class="lead-radar__title">{{ $t('gainos.leads.radarTitle') }}</p>
+                      <GsRadar
+                        :ariaLabel="`${$t('gainos.leads.radarTitle')}：${summaryText}`"
+                        :dims="radarDims"
+                      />
+                      <p class="lead-radar__hint">{{ $t('gainos.leads.radarHint') }}</p>
+                    </div>
                   </div>
-                  <p v-if="unknownNote" class="mb-0 mt-2 text-xs text-[var(--gs-fg-subtle)]">
-                    {{ unknownNote }}
+                  <template v-else>
+                    <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                      {{ $t('gainos.leads.criteriaNone') }}
+                    </p>
+                    <ul
+                      v-if="fitReasonList.length > 0"
+                      class="mt-3 grid gap-1.5 pl-4 text-[13px] text-[var(--gs-fg-muted)]"
+                    >
+                      <li v-for="(reason, index) in fitReasonList" :key="index">{{ reason }}</li>
+                    </ul>
+                  </template>
+                </section>
+
+                <!-- 证据与意向信号 -->
+                <section class="ld-panel" data-gs="evidence">
+                  <div class="ld-panel__head">
+                    <h2 class="ld-panel__title">{{ $t('gainos.leads.evidenceTitle') }}</h2>
+                  </div>
+                  <ul v-if="evidenceItems.length > 0" class="m-0 grid list-none gap-2 p-0">
+                    <li
+                      v-for="(item, index) in evidenceItems"
+                      :key="index"
+                      class="flex flex-wrap items-baseline gap-2 text-[13px]"
+                    >
+                      <Tag :bordered="false" class="m-0">{{ item.field }}</Tag>
+                      <a
+                        v-if="item.url"
+                        class="break-all text-[var(--gs-accent-fg)]"
+                        :href="item.url"
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {{ item.url }}
+                      </a>
+                      <span v-if="item.fetchedAt" class="text-xs tabular-nums text-[var(--gs-fg-subtle)]">
+                        {{ formatDate(item.fetchedAt) }}
+                      </span>
+                    </li>
+                  </ul>
+                  <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainos.leads.evidenceEmpty') }}
                   </p>
-                  <div v-if="evidenceItems.length > 0" class="lead-hero__evidence">
-                    <p class="lead-hero__label">{{ $t('gainos.leads.evidenceHighlight') }}</p>
-                    <ul>
-                      <li v-for="(item, index) in evidenceItems.slice(0, 3)" :key="index">
-                        <span aria-hidden="true" class="lead-hero__dot" />
+
+                  <div class="ld-panel__sub">
+                    <h3 class="m-0 text-[13px] font-semibold text-[var(--gs-fg)]">
+                      {{ $t('gainos.leads.signalsTitle') }}
+                    </h3>
+                    <ul v-if="(pkg.signals ?? []).length > 0" class="m-0 mt-2 grid list-none gap-2 p-0">
+                      <li
+                        v-for="(signal, index) in pkg.signals"
+                        :key="`sig-${index}`"
+                        class="flex flex-wrap items-baseline gap-2 text-[13px]"
+                      >
+                        <Tag :bordered="false" class="m-0">{{ signal.type }}</Tag>
                         <a
-                          v-if="item.url"
-                          :href="item.url"
+                          v-if="signal.url"
+                          class="break-all text-[var(--gs-accent-fg)]"
+                          :href="signal.url"
                           rel="noreferrer"
                           target="_blank"
                         >
-                          {{ item.field }}
+                          {{ signal.url }}
                         </a>
-                        <span v-else>{{ item.field }}</span>
-                        <span v-if="item.fetchedAt" class="lead-hero__evidence-date">
-                          {{ formatDate(item.fetchedAt) }}
+                        <span class="text-xs tabular-nums text-[var(--gs-fg-subtle)]">
+                          {{ formatDateTime(signal.at) }}
                         </span>
                       </li>
                     </ul>
-                  </div>
-                </div>
-                <div v-if="radarDims.length > 0" class="lead-radar">
-                  <p class="lead-radar__title">{{ $t('gainos.leads.radarTitle') }}</p>
-                  <GsRadar
-                    :ariaLabel="`${$t('gainos.leads.radarTitle')}：${summaryText}`"
-                    :dims="radarDims"
-                  />
-                  <p class="lead-radar__hint">{{ $t('gainos.leads.radarHint') }}</p>
-                </div>
-              </div>
-            </GsCard>
-
-            <!-- 五维明细 -->
-            <GsCard :title="$t('gainos.leads.criteriaTitle')" data-gs="judge-dimensions">
-              <JudgeDimensions v-if="dims.length > 0" :dims="dims" />
-              <template v-else>
-                <p class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                  {{ $t('gainos.leads.criteriaNone') }}
-                </p>
-                <ul
-                  v-if="fitReasonList.length > 0"
-                  class="mt-3 grid gap-1.5 pl-4 text-[13px] text-[var(--gs-fg-muted)]"
-                >
-                  <li v-for="(reason, index) in fitReasonList" :key="index">{{ reason }}</li>
-                </ul>
-              </template>
-            </GsCard>
-
-            <div class="grid gap-4 @min-[760px]:grid-cols-2">
-              <GsCard :title="$t('gainos.leads.profileTitle')" data-gs="company-profile">
-                <Descriptions :column="1" :colon="false" size="small">
-                  <DescriptionsItem
-                    v-for="row in profileRows"
-                    :key="row.label"
-                    :label="row.label"
-                  >
-                    {{ row.value }}
-                  </DescriptionsItem>
-                  <DescriptionsItem
-                    v-if="pkg.registered_address"
-                    :label="$t('gainos.leads.address')"
-                  >
-                    {{ pkg.registered_address }}
-                  </DescriptionsItem>
-                  <DescriptionsItem
-                    v-for="row in identifierRows"
-                    :key="`id-${row.label}`"
-                    :label="row.label"
-                  >
-                    <span class="font-mono text-xs">{{ row.value }}</span>
-                  </DescriptionsItem>
-                  <DescriptionsItem
-                    v-if="profileRows.length === 0 && identifierRows.length === 0 && !pkg.registered_address"
-                    :label="$t('gainos.leads.profileEmpty')"
-                  >
-                    —
-                  </DescriptionsItem>
-                </Descriptions>
-              </GsCard>
-
-              <GsCard :title="$t('gainos.leads.contactTitle')" data-gs="contact-paths">
-                <div v-if="hasAnyContactPath" class="grid gap-3">
-                  <div v-if="companyEmails.length > 0" class="grid gap-1.5">
-                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                      {{ $t('gainos.leads.channelEmailsTitle') }}
+                    <p v-else class="m-0 mt-2 text-[13px] text-[var(--gs-fg-muted)]">
+                      {{ $t('gainos.leads.noSignals') }}
                     </p>
-                    <p
-                      v-for="(item, index) in companyEmails"
-                      :key="`em-${index}`"
-                      class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
+                  </div>
+                </section>
+
+                <!-- 评分细分 + 技术详情 -->
+                <section class="ld-panel" data-gs="score-detail">
+                  <div class="ld-panel__head">
+                    <h2 class="ld-panel__title">{{ $t('gainos.leads.scoresTitle') }}</h2>
+                    <span v-if="totalScore !== null" class="text-sm font-semibold tabular-nums text-[var(--gs-accent-fg)]">
+                      {{ totalScore }}
+                    </span>
+                  </div>
+                  <div v-if="scoreRows.length > 0 || totalScore !== null" class="grid gap-2">
+                    <div
+                      v-for="row in scoreRows"
+                      :key="row.dim"
+                      class="grid grid-cols-[96px_1fr_40px] items-center gap-3"
                     >
-                      <a
-                        v-if="contactEmailMailtoAllowed"
-                        class="break-all text-[var(--gs-accent-fg)]"
-                        :href="`mailto:${item.value}`"
-                      >
-                        {{ item.value }}
-                      </a>
-                      <span v-else class="break-all text-[var(--gs-fg-muted)]">
-                        {{ item.value }}
+                      <span class="text-xs text-[var(--gs-fg-muted)]">
+                        {{ $t(`gainos.leads.dim.${row.dim}`) }}
                       </span>
-                      <Tag v-if="item.email_type" :bordered="false" class="m-0 text-xs">
-                        {{ item.email_type }}
-                      </Tag>
-                    </p>
+                      <span class="h-1.5 overflow-hidden rounded-full bg-[var(--gs-surface-2)]">
+                        <span
+                          class="block h-full rounded-full bg-[var(--gs-accent-cta)]"
+                          :style="{ width: `${Math.min(100, Math.max(0, row.value * 100))}%` }"
+                        />
+                      </span>
+                      <span class="text-right text-xs tabular-nums text-[var(--gs-fg)]">
+                        {{ Math.round(row.value * 100) }}
+                      </span>
+                    </div>
                   </div>
+                  <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainos.leads.notScored') }}
+                  </p>
 
-                  <div v-if="companyPhones.length > 0" class="grid gap-1.5">
-                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                      {{ $t('gainos.leads.channelPhonesTitle') }}
-                    </p>
-                    <p
-                      v-for="(item, index) in companyPhones"
-                      :key="`ph-${index}`"
-                      class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
+                  <details v-if="judge.raw && isMachineAggregate(judge.raw)" class="lead-tech mt-3">
+                    <summary>{{ $t('gainos.findBuyers.technicalDetails') }}</summary>
+                    <dl class="lead-tech__grid">
+                      <template v-if="judge.verdict">
+                        <dt>{{ $t('gainos.leads.techVerdict') }}</dt>
+                        <dd>{{ judge.verdict }}</dd>
+                      </template>
+                      <template v-if="judge.reasonCodes.length > 0">
+                        <dt>{{ $t('gainos.leads.techReasonCodes') }}</dt>
+                        <dd>{{ judge.reasonCodes.join(' · ') }}</dd>
+                      </template>
+                      <template v-if="judge.weightedNote">
+                        <dt>{{ $t('gainos.leads.techWeighted') }}</dt>
+                        <dd>{{ judge.weightedNote }}</dd>
+                      </template>
+                    </dl>
+                    <pre class="lead-tech__raw">{{ judge.raw }}</pre>
+                  </details>
+                </section>
+              </div>
+            </TabPane>
+
+            <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
+              <div class="grid gap-4">
+                <DecisionMakerCard
+                  v-if="isAdmin && pkg.company.canonical_company_id"
+                  :company-id="pkg.company.canonical_company_id"
+                  hide-official-channels
+                  @enrichment-updated="() => { void loadOutcomes(); void loadInspectorContacts(); }"
+                />
+
+                <GsCard
+                  :title="$t('gainosB4.leadsDetail.publicChannelsTitle')"
+                  data-gs="people-public-channels"
+                >
+                  <div v-if="hasAnyContactPath" class="ld-contact-grid">
+                    <ContactChannelCard
+                      v-if="companyEmails.length > 0"
+                      kind="email"
+                      :label="$t('gainos.leads.channelEmailsTitle')"
+                    >
+                      <div v-for="(item, index) in companyEmails" :key="index" class="break-all text-[13px]">
+                        <a v-if="contactEmailMailtoAllowed" class="text-[var(--gs-accent-fg)] underline" :href="`mailto:${item.value}`">
+                          {{ item.value }}
+                        </a>
+                        <span v-else>{{ item.value }}</span>
+                      </div>
+                    </ContactChannelCard>
+                    <ContactChannelCard
+                      v-if="companyPhones.length > 0"
+                      kind="phone"
+                      :label="$t('gainos.leads.channelPhonesTitle')"
                     >
                       <a
-                        class="text-[var(--gs-fg)]"
+                        v-for="(item, index) in companyPhones"
+                        :key="index"
+                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
                         :href="`tel:${item.value}`"
-                      >
-                        {{ item.value }}
-                      </a>
-                    </p>
-                  </div>
-
-                  <div v-if="companySocials.length > 0" class="grid gap-1.5">
-                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                      {{ $t('gainos.leads.channelSocialsTitle') }}
-                    </p>
-                    <div class="flex flex-wrap gap-2">
+                      >{{ item.value }}</a>
+                    </ContactChannelCard>
+                    <ContactChannelCard
+                      v-for="group in companySocialGroups"
+                      :key="group.platform"
+                      :kind="group.platform"
+                      :label="group.entries[0]?.label ?? group.platform"
+                    >
                       <a
-                        v-for="(social, index) in companySocials"
-                        :key="`soc-${index}`"
-                        class="inline-flex items-center rounded-md bg-[var(--gs-accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                        v-for="social in group.entries"
+                        :key="social.url"
+                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
                         :href="social.url"
                         rel="noreferrer"
                         target="_blank"
-                        :title="social.url"
                       >
-                        {{ social.label }}
+                        {{ social.url.replace(/^https?:\/\//i, '') }}
                       </a>
-                    </div>
-                  </div>
-
-                  <div v-if="contactPaths.length > 0" class="grid gap-1.5">
-                    <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                      {{ $t('gainos.leads.channelFormsTitle') }}
-                    </p>
-                    <p
-                      v-for="(point, index) in contactPaths"
-                      :key="`path-${index}`"
-                      class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
+                    </ContactChannelCard>
+                    <ContactChannelCard
+                      v-if="contactPaths.length > 0"
+                      kind="form"
+                      :label="$t('gainos.leads.channelFormsTitle')"
                     >
                       <a
-                        class="break-all text-[var(--gs-accent-fg)]"
+                        v-for="point in contactPaths"
+                        :key="point.url"
+                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
                         :href="point.url"
                         rel="noreferrer"
                         target="_blank"
-                      >
-                        {{ point.url }}
-                      </a>
-                    </p>
+                      >{{ point.url }}</a>
+                    </ContactChannelCard>
                   </div>
-                </div>
-                <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                  {{ $t('gainos.leads.noContactPath') }}
-                </p>
-                <p
-                  v-if="pkg.suggested_contact_path"
-                  class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
+                  <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainosB4.leadsDetail.publicChannelsEmpty') }}
+                  </p>
+                  <p v-if="pkg.suggested_contact_path" class="mb-0 mt-3 text-xs text-[var(--gs-fg-muted)]">
+                    {{ pkg.suggested_contact_path.legal_note }}
+                  </p>
+                </GsCard>
+
+                <GsCard
+                  v-if="accessLoaded && !isAdmin"
+                  :title="$t('gainosB4.leadsDetail.decisionMakersAdminTitle')"
+                  data-gs="decision-makers-admin-only"
                 >
-                  {{ pkg.suggested_contact_path.legal_note }}
+                  <p class="m-0 text-[13px] font-medium text-[var(--gs-fg)]">
+                    {{ $t('gainos.leads.peopleAdminOnly') }}
+                  </p>
+                  <p class="mb-0 mt-1.5 text-xs text-[var(--gs-fg-muted)]">
+                    {{ $t('gainosB4.leadsDetail.decisionMakersAdminNote') }}
+                  </p>
+                </GsCard>
+              </div>
+            </TabPane>
+
+            <TabPane key="draft" :tab="$t('gainos.leads.tab.draft')">
+              <div class="grid gap-4">
+                <GsCard>
+                  <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
+                  <template #extra>
+                    <Button
+                      v-if="status === 'QUALIFIED'"
+                      :loading="draftLoading"
+                      size="small"
+                      @click="generateDraft"
+                    >
+                      {{ $t('gainos.leads.outreachDraft') }}
+                    </Button>
+                  </template>
+                  <p class="m-0 text-xs text-[var(--gs-fg-subtle)]">
+                    {{ $t('gainos.leads.outreachDraftDesc') }}
+                  </p>
+                  <ErrorNotice
+                    v-if="draftError"
+                    class="mt-3"
+                    :next="draftError.next"
+                    :title="draftError.title"
+                  />
+                  <template v-else-if="draftText">
+                    <pre class="lead-draft">{{ draftText }}</pre>
+                    <Button class="mt-3" @click="copyDraft">
+                      {{ copied ? $t('gainos.leads.copied') : $t('gainos.leads.copy') }}
+                    </Button>
+                  </template>
+                  <p
+                    v-else-if="status !== 'QUALIFIED'"
+                    class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]"
+                  >
+                    {{ $t('gainos.leads.outreachNeedsQualified') }}
+                  </p>
+                  <p v-else class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainos.leads.outreachEmpty') }}
+                  </p>
+                </GsCard>
+              </div>
+            </TabPane>
+
+            <TabPane key="outcomes" :tab="$t('gainos.leads.tab.outcomes')">
+              <GsCard
+                :title="$t('gainosB4.leadsDetail.outcomes.timelineTitle')"
+                data-gs="outcomes-timeline-card"
+              >
+                <template #extra>
+                  <Space :size="8" wrap>
+                    <Button :loading="outcomesLoading" size="small" @click="loadOutcomes">
+                      {{ $t('gainosB4.leadsDetail.outcomes.refresh') }}
+                    </Button>
+                    <Button size="small" @click="router.push('/opportunities')">
+                      {{ $t('gainos.leads.outcomesQgos') }}
+                    </Button>
+                    <Button v-if="!GROWTH_PAGE_HIDDEN" size="small" @click="goOutreach">
+                      {{ $t('gainos.leads.outcomesOutreach') }}
+                    </Button>
+                  </Space>
+                </template>
+
+                <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
+                  {{ $t('gainosB4.leadsDetail.outcomes.timelineSubtitle') }}
+                </p>
+
+                <Alert
+                  v-if="outcomesPartialError"
+                  :message="$t('gainosB4.leadsDetail.outcomes.partialNotice')"
+                  class="mt-3"
+                  data-gs="outcomes-partial-notice"
+                  show-icon
+                  type="warning"
+                />
+
+                <p v-if="outcomesLoading && !outcomesLoaded" class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
+                  {{ $t('gainosB4.leadsDetail.outcomes.loading') }}
+                </p>
+
+                <ol
+                  v-else-if="outcomeTimeline.length > 0"
+                  class="lead-timeline"
+                  data-gs="outcomes-timeline"
+                >
+                  <li
+                    v-for="entry in outcomeTimeline"
+                    :key="entry.id"
+                    class="lead-timeline__item"
+                    data-gs="outcomes-timeline-item"
+                  >
+                    <div class="lead-timeline__head">
+                      <GsTag :tone="entry.tone">{{ entry.typeLabel }}</GsTag>
+                      <span v-if="entry.at" class="text-xs tabular-nums text-[var(--gs-fg-subtle)]">
+                        {{ formatDateTime(entry.at) }}
+                      </span>
+                    </div>
+                    <p class="lead-timeline__title">{{ entry.title }}</p>
+                    <p v-if="entry.detail" class="lead-timeline__detail">{{ entry.detail }}</p>
+                  </li>
+                </ol>
+
+                <p v-else class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
+                  {{ $t('gainosB4.leadsDetail.outcomes.empty') }}
                 </p>
               </GsCard>
+            </TabPane>
+          </Tabs>
+
+          <!-- 单一受控挂载 T0OutreachPanel：切换任意 Tab 均不销毁/重置草稿与已选渠道 -->
+          <T0OutreachPanel
+            v-show="tab === 'package' || tab === 'draft'"
+            :key="pkg.lead_id"
+            :draft="draft"
+            :is-admin="isAdmin"
+            :pkg="pkg"
+            @touches-updated="onTouchesUpdated"
+          />
+        </div>
+
+        <!-- 右侧 32% Sticky 属性与决策侧栏（单层 1px 细线容器 + 内部细线分区，0 套娃） -->
+        <aside v-show="tab !== 'people'" class="ld-inspector" data-gs="lead-detail-inspector">
+          <!-- 顶部唯一主决策区 -->
+          <section class="ld-insp__sec" data-gs="inspector-actions">
+            <div class="ld-insp__sec-head">
+              <h2 class="ld-insp__title">{{ $t('gainosUi2.leadDetail.decisionTitle') }}</h2>
+              <span class="ld-status-pill">
+                <span aria-hidden="true" class="ld-status-dot" :class="`is-${statusTone}`" />
+                <span>{{ statusLabel(status) }}</span>
+              </span>
             </div>
 
-            <GsCard :title="$t('gainos.leads.evidenceTitle')" data-gs="evidence">
-              <ul v-if="evidenceItems.length > 0" class="m-0 grid list-none gap-2 p-0">
-                <li
-                  v-for="(item, index) in evidenceItems"
-                  :key="index"
-                  class="flex flex-wrap items-baseline gap-2 text-[13px]"
-                >
-                  <Tag :bordered="false" class="m-0">{{ item.field }}</Tag>
-                  <a
-                    v-if="item.url"
-                    class="break-all text-[var(--gs-accent-fg)]"
-                    :href="item.url"
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {{ item.url }}
-                  </a>
-                  <span v-if="item.fetchedAt" class="text-xs text-[var(--gs-fg-subtle)]">
-                    {{ formatDate(item.fetchedAt) }}
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                {{ $t('gainos.leads.evidenceEmpty') }}
-              </p>
+            <div v-if="canDecide" class="ld-insp__cta-row">
+              <Button class="flex-1" type="primary" @click="openDecision('accept')">
+                {{ $t('gainos.leads.cardAccept') }}
+              </Button>
+              <Button class="flex-1" danger @click="openDecision('reject')">
+                {{ $t('gainos.leads.cardReject') }}
+              </Button>
+            </div>
+            <div v-else-if="status === 'QUALIFIED'" class="ld-insp__cta-row">
+              <Button class="flex-1" type="primary" @click="promoteOpen = true">
+                {{ $t('gainos.leads.promoteQgo') }}
+              </Button>
+              <Button v-if="!GROWTH_PAGE_HIDDEN" class="flex-1" @click="goOutreach">
+                {{ $t('gainos.leads.goOutreach') }}
+              </Button>
+            </div>
 
-              <h3 class="mb-0 mt-5 text-[13px] font-semibold text-[var(--gs-fg)]">
-                {{ $t('gainos.leads.signalsTitle') }}
-              </h3>
-              <ul v-if="(pkg.signals ?? []).length > 0" class="m-0 mt-2 grid list-none gap-2 p-0">
-                <li
-                  v-for="(signal, index) in pkg.signals"
-                  :key="`sig-${index}`"
-                  class="flex flex-wrap items-baseline gap-2 text-[13px]"
-                >
-                  <Tag :bordered="false" class="m-0">{{ signal.type }}</Tag>
-                  <a
-                    v-if="signal.url"
-                    class="break-all text-[var(--gs-accent-fg)]"
-                    :href="signal.url"
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    {{ signal.url }}
-                  </a>
-                  <span class="text-xs text-[var(--gs-fg-subtle)]">
-                    {{ formatDateTime(signal.at) }}
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="m-0 mt-2 text-[13px] text-[var(--gs-fg-muted)]">
-                {{ $t('gainos.leads.noSignals') }}
-              </p>
-            </GsCard>
-
-            <div class="grid gap-4 @min-[760px]:grid-cols-2">
-              <GsCard
-                :class="{ 'is-warn': sanctionBlocked }"
-                :title="$t('gainos.leads.sanctionsTitle')"
-                data-gs="sanctions"
-              >
-                <p
-                  class="m-0 text-[13px]"
-                  :class="sanctionBlocked ? 'font-semibold text-[var(--gs-warn-fg)]' : 'text-[var(--gs-fg)]'"
+            <!-- 制裁合规状态 -->
+            <div
+              class="ld-sanctions"
+              :class="{ 'is-warn': sanctionBlocked }"
+              data-gs="sanctions"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.sanctionsTitle') }}
+                </span>
+                <span
+                  class="text-xs font-medium"
+                  :class="sanctionBlocked ? 'text-[var(--gs-warn-fg)]' : 'text-[var(--gs-fg)]'"
                 >
                   {{ sanctionLabel(pkg.sanctions?.status) }}
-                </p>
-                <p
-                  v-if="pkg.sanctions?.screened_at"
-                  class="mb-0 mt-1 text-xs text-[var(--gs-fg-subtle)]"
-                >
-                  {{ formatDateTime(pkg.sanctions.screened_at) }}
-                </p>
-                <Space v-if="isAdmin && sanctionBlocked" class="mt-3" :size="8" wrap>
-                  <Button
-                    v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                    :loading="sanctionsBusy"
-                    @click="reviewSanctions('cleared_false_positive')"
-                  >
-                    {{ $t('gainos.leads.sanctionsClear') }}
-                  </Button>
-                  <Button
-                    v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
-                    danger
-                    :loading="sanctionsBusy"
-                    @click="reviewSanctions('confirmed_true_hit')"
-                  >
-                    {{ $t('gainos.leads.sanctionsConfirm') }}
-                  </Button>
-                </Space>
-                <ErrorNotice
-                  v-if="sanctionsError"
-                  class="mt-3"
-                  :next="sanctionsError.next"
-                  :title="sanctionsError.title"
-                />
-                <p
-                  v-if="pkg.valid_until"
-                  class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
-                >
-                  {{ $t('gainos.leads.validUntil', { date: formatDate(pkg.valid_until) }) }}
-                </p>
-              </GsCard>
-
-              <GsCard :title="$t('gainos.leads.scoresTitle')" data-gs="score-detail">
-                <div v-if="scoreRows.length > 0 || totalScore !== null" class="grid gap-2.5">
-                  <div
-                    v-for="row in scoreRows"
-                    :key="row.dim"
-                    class="grid grid-cols-[96px_1fr_40px] items-center gap-3"
-                  >
-                    <span class="text-xs text-[var(--gs-fg-muted)]">
-                      {{ $t(`gainos.leads.dim.${row.dim}`) }}
-                    </span>
-                    <span class="h-1.5 overflow-hidden rounded-full bg-[var(--gs-surface-2)]">
-                      <span
-                        class="block h-full rounded-full bg-[var(--gs-accent-cta)]"
-                        :style="{ width: `${Math.min(100, Math.max(0, row.value * 100))}%` }"
-                      />
-                    </span>
-                    <span class="text-right text-xs tabular-nums text-[var(--gs-fg)]">
-                      {{ Math.round(row.value * 100) }}
-                    </span>
-                  </div>
-                  <p
-                    v-if="totalScore !== null"
-                    class="mb-0 mt-1 flex items-baseline justify-between border-t border-[var(--gs-divider)] pt-2"
-                  >
-                    <span class="text-xs text-[var(--gs-fg-muted)]">
-                      {{ $t('gainos.leads.dim.total') }}
-                    </span>
-                    <span class="text-sm font-semibold tabular-nums text-[var(--gs-accent-fg)]">
-                      {{ totalScore }}
-                    </span>
-                  </p>
-                </div>
-                <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                  {{ $t('gainos.leads.notScored') }}
-                </p>
-              </GsCard>
-            </div>
-
-            <details v-if="judge.raw && isMachineAggregate(judge.raw)" class="lead-tech">
-              <summary>{{ $t('gainos.findBuyers.technicalDetails') }}</summary>
-              <dl class="lead-tech__grid">
-                <template v-if="judge.verdict">
-                  <dt>{{ $t('gainos.leads.techVerdict') }}</dt>
-                  <dd>{{ judge.verdict }}</dd>
-                </template>
-                <template v-if="judge.reasonCodes.length > 0">
-                  <dt>{{ $t('gainos.leads.techReasonCodes') }}</dt>
-                  <dd>{{ judge.reasonCodes.join(' · ') }}</dd>
-                </template>
-                <template v-if="judge.weightedNote">
-                  <dt>{{ $t('gainos.leads.techWeighted') }}</dt>
-                  <dd>{{ judge.weightedNote }}</dd>
-                </template>
-              </dl>
-              <pre class="lead-tech__raw">{{ judge.raw }}</pre>
-            </details>
-          </div>
-        </TabPane>
-
-        <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
-          <div class="grid gap-4">
-            <!-- 公司级公开渠道：全员（含 member）可见，独立于具名决策人权限边界 -->
-            <GsCard
-              :title="$t('gainosB4.leadsDetail.publicChannelsTitle')"
-              data-gs="people-public-channels"
-            >
-              <p class="m-0 mb-3 text-xs text-[var(--gs-fg-muted)]">
-                {{ $t('gainosB4.leadsDetail.publicChannelsDesc') }}
-              </p>
-              <div v-if="hasAnyContactPath" class="grid gap-3 @min-[700px]:grid-cols-2">
-                <div v-if="companyEmails.length > 0" class="grid gap-1.5">
-                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                    {{ $t('gainos.leads.channelEmailsTitle') }}
-                  </p>
-                  <p
-                    v-for="(item, index) in companyEmails"
-                    :key="`pub-em-${index}`"
-                    class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
-                  >
-                    <a
-                      v-if="contactEmailMailtoAllowed"
-                      class="break-all text-[var(--gs-accent-fg)]"
-                      :href="`mailto:${item.value}`"
-                    >
-                      {{ item.value }}
-                    </a>
-                    <span v-else class="break-all text-[var(--gs-fg-muted)]">
-                      {{ item.value }}
-                    </span>
-                    <Tag v-if="item.email_type" :bordered="false" class="m-0 text-xs">
-                      {{ item.email_type }}
-                    </Tag>
-                  </p>
-                </div>
-
-                <div v-if="companyPhones.length > 0" class="grid gap-1.5">
-                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                    {{ $t('gainos.leads.channelPhonesTitle') }}
-                  </p>
-                  <p
-                    v-for="(item, index) in companyPhones"
-                    :key="`pub-ph-${index}`"
-                    class="m-0 flex flex-wrap items-center gap-2 text-[13px]"
-                  >
-                    <a class="text-[var(--gs-fg)]" :href="`tel:${item.value}`">
-                      {{ item.value }}
-                    </a>
-                  </p>
-                </div>
-
-                <div v-if="companySocials.length > 0" class="grid gap-1.5">
-                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                    {{ $t('gainos.leads.channelSocialsTitle') }}
-                  </p>
-                  <div class="flex flex-wrap gap-2">
-                    <a
-                      v-for="(social, index) in companySocials"
-                      :key="`pub-soc-${index}`"
-                      class="inline-flex items-center rounded-md bg-[var(--gs-accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
-                      :href="social.url"
-                      rel="noreferrer"
-                      target="_blank"
-                      :title="social.url"
-                    >
-                      {{ social.label }}
-                    </a>
-                  </div>
-                </div>
-
-                <div v-if="contactPaths.length > 0" class="grid gap-1.5">
-                  <p class="m-0 text-xs font-medium text-[var(--gs-fg-subtle)]">
-                    {{ $t('gainos.leads.channelFormsTitle') }}
-                  </p>
-                  <p
-                    v-for="(point, index) in contactPaths"
-                    :key="`pub-path-${index}`"
-                    class="m-0 flex flex-wrap items-baseline gap-2 text-[13px]"
-                  >
-                    <a
-                      class="break-all text-[var(--gs-accent-fg)]"
-                      :href="point.url"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {{ point.url }}
-                    </a>
-                  </p>
-                </div>
+                </span>
               </div>
-              <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                {{ $t('gainosB4.leadsDetail.publicChannelsEmpty') }}
-              </p>
               <p
-                v-if="pkg.suggested_contact_path"
-                class="mb-0 mt-3 text-xs text-[var(--gs-fg-subtle)]"
+                v-if="pkg.sanctions?.screened_at"
+                class="m-0 text-[11.5px] tabular-nums text-[var(--gs-fg-subtle)]"
               >
-                {{ pkg.suggested_contact_path.legal_note }}
+                {{ formatDateTime(pkg.sanctions.screened_at) }}
               </p>
-            </GsCard>
-
-            <!-- 具名决策人个人联系点与联系人补强操作：严格由 useWorkspaceAccess().isAdmin 门控 -->
-            <DecisionMakerCard
-              v-if="isAdmin && pkg.company.canonical_company_id"
-              :company-id="pkg.company.canonical_company_id"
-              hide-official-channels
-              @enrichment-updated="loadOutcomes"
-            />
-            <GsCard
-              v-else-if="accessLoaded"
-              :title="$t('gainosB4.leadsDetail.decisionMakersAdminTitle')"
-              data-gs="decision-makers-admin-only"
-            >
-              <p class="m-0 text-[13px] font-medium text-[var(--gs-fg)]">
-                {{ $t('gainos.leads.peopleAdminOnly') }}
-              </p>
-              <p class="mb-0 mt-1.5 text-xs text-[var(--gs-fg-muted)]">
-                {{ $t('gainosB4.leadsDetail.decisionMakersAdminNote') }}
-              </p>
-            </GsCard>
-          </div>
-        </TabPane>
-
-        <TabPane key="draft" :tab="$t('gainos.leads.tab.draft')">
-          <div class="grid gap-4">
-            <GsCard>
-              <template #title>{{ $t('gainos.leads.outreachDraft') }}</template>
-            <template #extra>
-              <Button
-                v-if="status === 'QUALIFIED'"
-                :loading="draftLoading"
-                size="small"
-                @click="generateDraft"
-              >
-                {{ $t('gainos.leads.outreachDraft') }}
-              </Button>
-            </template>
-            <p class="m-0 text-xs text-[var(--gs-fg-subtle)]">
-              {{ $t('gainos.leads.outreachDraftDesc') }}
-            </p>
-            <ErrorNotice
-              v-if="draftError"
-              class="mt-3"
-              :next="draftError.next"
-              :title="draftError.title"
-            />
-            <template v-else-if="draftText">
-              <pre class="lead-draft">{{ draftText }}</pre>
-              <Button class="mt-3" @click="copyDraft">
-                {{ copied ? $t('gainos.leads.copied') : $t('gainos.leads.copy') }}
-              </Button>
-            </template>
-            <p
-              v-else-if="status !== 'QUALIFIED'"
-              class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]"
-            >
-              {{ $t('gainos.leads.outreachNeedsQualified') }}
-            </p>
-            <p v-else class="mb-0 mt-3 text-[13px] text-[var(--gs-fg-muted)]">
-              {{ $t('gainos.leads.outreachEmpty') }}
-            </p>
-          </GsCard>
-          </div>
-        </TabPane>
-
-        <TabPane key="outcomes" :tab="$t('gainos.leads.tab.outcomes')">
-          <GsCard
-            :title="$t('gainosB4.leadsDetail.outcomes.timelineTitle')"
-            data-gs="outcomes-timeline-card"
-          >
-            <template #extra>
-              <Space :size="8" wrap>
-                <Button :loading="outcomesLoading" size="small" @click="loadOutcomes">
-                  {{ $t('gainosB4.leadsDetail.outcomes.refresh') }}
+              <div v-if="isAdmin && sanctionBlocked" class="mt-1 flex flex-wrap gap-2">
+                <Button
+                  v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
+                  :loading="sanctionsBusy"
+                  size="small"
+                  @click="reviewSanctions('cleared_false_positive')"
+                >
+                  {{ $t('gainos.leads.sanctionsClear') }}
                 </Button>
-                <Button size="small" @click="router.push('/opportunities')">
-                  {{ $t('gainos.leads.outcomesQgos') }}
+                <Button
+                  v-if="pkg.sanctions?.status !== 'confirmed_true_hit'"
+                  danger
+                  :loading="sanctionsBusy"
+                  size="small"
+                  @click="reviewSanctions('confirmed_true_hit')"
+                >
+                  {{ $t('gainos.leads.sanctionsConfirm') }}
                 </Button>
-                <Button v-if="!GROWTH_PAGE_HIDDEN" size="small" @click="goOutreach">
-                  {{ $t('gainos.leads.outcomesOutreach') }}
-                </Button>
-              </Space>
-            </template>
+              </div>
+              <ErrorNotice
+                v-if="sanctionsError"
+                class="mt-2"
+                :next="sanctionsError.next"
+                :title="sanctionsError.title"
+              />
+            </div>
+          </section>
 
-            <p class="m-0 text-xs text-[var(--gs-fg-muted)]">
-              {{ $t('gainosB4.leadsDetail.outcomes.timelineSubtitle') }}
-            </p>
-
-            <Alert
-              v-if="outcomesPartialError"
-              :message="$t('gainosB4.leadsDetail.outcomes.partialNotice')"
-              class="mt-3"
-              data-gs="outcomes-partial-notice"
-              show-icon
-              type="warning"
+          <!-- 公司基础属性表（GsKeyValue） -->
+          <section class="ld-insp__sec" data-gs="company-profile">
+            <h2 class="ld-insp__title">{{ $t('gainosUi2.leadDetail.propertiesTitle') }}</h2>
+            <GsKeyValue
+              :items="inspectorProperties"
+              data-gs="inspector-properties"
+              layout="compact"
+              @copy="onPropertyCopy"
             />
+          </section>
 
-            <p v-if="outcomesLoading && !outcomesLoaded" class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
-              {{ $t('gainosB4.leadsDetail.outcomes.loading') }}
-            </p>
-
-            <ol
-              v-else-if="outcomeTimeline.length > 0"
-              class="lead-timeline"
-              data-gs="outcomes-timeline"
-            >
-              <li
-                v-for="entry in outcomeTimeline"
-                :key="entry.id"
-                class="lead-timeline__item"
-                data-gs="outcomes-timeline-item"
-              >
-                <div class="lead-timeline__head">
-                  <GsTag :tone="entry.tone">{{ entry.typeLabel }}</GsTag>
-                  <span v-if="entry.at" class="text-xs text-[var(--gs-fg-subtle)]">
-                    {{ formatDateTime(entry.at) }}
+          <!-- 全员可见的公司公开渠道摘要 -->
+          <section class="ld-insp__sec" data-gs="contact-paths">
+            <h2 class="ld-insp__title">{{ $t('gainosUi2.leadDetail.publicChannelsTitle') }}</h2>
+            <div v-if="hasAnyContactPath" class="grid gap-2.5">
+              <div v-if="companyEmails.length > 0" class="grid gap-1">
+                <p class="m-0 text-[11.5px] font-medium text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.channelEmailsTitle') }}
+                </p>
+                <p
+                  v-for="(item, index) in companyEmails.slice(0, 3)"
+                  :key="`insp-em-${index}`"
+                  class="m-0 flex flex-wrap items-center gap-1.5 text-[12.5px]"
+                >
+                  <a
+                    v-if="contactEmailMailtoAllowed"
+                    class="break-all text-[var(--gs-accent-fg)]"
+                    :href="`mailto:${item.value}`"
+                  >
+                    {{ item.value }}
+                  </a>
+                  <span v-else class="break-all text-[var(--gs-fg-muted)]">
+                    {{ item.value }}
                   </span>
-                </div>
-                <p class="lead-timeline__title">{{ entry.title }}</p>
-                <p v-if="entry.detail" class="lead-timeline__detail">{{ entry.detail }}</p>
-              </li>
-            </ol>
+                </p>
+              </div>
 
-            <p v-else class="mb-0 mt-4 text-[13px] text-[var(--gs-fg-muted)]">
-              {{ $t('gainosB4.leadsDetail.outcomes.empty') }}
+              <div v-if="companyPhones.length > 0" class="grid gap-1">
+                <p class="m-0 text-[11.5px] font-medium text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.channelPhonesTitle') }}
+                </p>
+                <p
+                  v-for="(item, index) in companyPhones.slice(0, 2)"
+                  :key="`insp-ph-${index}`"
+                  class="m-0 text-[12.5px]"
+                >
+                  <a class="text-[var(--gs-fg)]" :href="`tel:${item.value}`">
+                    {{ item.value }}
+                  </a>
+                </p>
+              </div>
+
+              <div v-if="companySocials.length > 0" class="flex flex-wrap gap-1.5">
+                <a
+                  v-for="(social, index) in companySocials"
+                  :key="`insp-soc-${index}`"
+                  class="inline-flex items-center rounded-md bg-[var(--gs-accent-soft)] px-2 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                  :href="social.url"
+                  rel="noreferrer"
+                  target="_blank"
+                  :title="social.url"
+                >
+                  {{ social.label }}
+                </a>
+              </div>
+
+              <div v-if="contactPaths.length > 0" class="grid gap-1">
+                <p class="m-0 text-[11.5px] font-medium text-[var(--gs-fg-muted)]">
+                  {{ $t('gainos.leads.channelFormsTitle') }}
+                </p>
+                <a
+                  v-for="(point, index) in contactPaths.slice(0, 2)"
+                  :key="`insp-path-${index}`"
+                  class="break-all text-[12.5px] text-[var(--gs-accent-fg)]"
+                  :href="point.url"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {{ point.url }}
+                </a>
+              </div>
+            </div>
+            <p v-else class="m-0 text-[12.5px] text-[var(--gs-fg-muted)]">
+              {{ $t('gainos.leads.noContactPath') }}
             </p>
-          </GsCard>
-        </TabPane>
-      </Tabs>
+            <p
+              v-if="pkg.suggested_contact_path"
+              class="m-0 text-[11.5px] text-[var(--gs-fg-subtle)]"
+            >
+              {{ pkg.suggested_contact_path.legal_note }}
+            </p>
+          </section>
 
-      <!-- 单一受控挂载 T0OutreachPanel：切换任意 Tab 均不销毁/重置草稿与已选渠道 -->
-      <T0OutreachPanel
-        v-show="tab === 'package' || tab === 'draft'"
-        :key="pkg.lead_id"
-        :draft="draft"
-        :is-admin="isAdmin"
-        :pkg="pkg"
-        @touches-updated="onTouchesUpdated"
-      />
+          <!-- 具名决策人快捷预览（严格 isAdmin 门控，member 0 请求） -->
+          <section class="ld-insp__sec" data-gs="inspector-decision-makers">
+            <div class="ld-insp__sec-head">
+              <h2 class="ld-insp__title">
+                {{ $t('gainosUi2.leadDetail.decisionMakersPreviewTitle') }}
+              </h2>
+              <Button
+                v-if="isAdmin"
+                size="small"
+                type="link"
+                class="!h-auto !p-0 text-xs"
+                @click="selectTab('people')"
+              >
+                {{ $t('gainosUi2.leadDetail.decisionMakersViewAll') }}
+              </Button>
+            </div>
+            <template v-if="isAdmin">
+              <p v-if="inspectorContactsLoading" class="m-0 text-xs text-[var(--gs-fg-muted)]">
+                {{ $t('gainos.common.loading') }}
+              </p>
+              <ul v-else-if="inspectorContactPreview.length > 0" class="ld-dm-list">
+                <li
+                  v-for="person in inspectorContactPreview"
+                  :key="person.id"
+                  class="ld-dm-item"
+                >
+                  <div class="ld-dm-item__top">
+                    <span class="ld-dm-item__name">{{ person.name }}</span>
+                    <span v-if="person.hasVerified" class="ld-dm-verified">
+                      {{ $t('gainosUi2.leads.verifiedEmailShort', { count: 1 }) }}
+                    </span>
+                  </div>
+                  <p v-if="person.title" class="ld-dm-item__meta">{{ person.title }}</p>
+                  <p v-if="person.email" class="ld-dm-item__email">{{ person.email }}</p>
+                </li>
+              </ul>
+              <p v-else class="m-0 text-xs text-[var(--gs-fg-muted)]">
+                {{ $t('gainosUi2.leadDetail.decisionMakersEmpty') }}
+              </p>
+            </template>
+            <p v-else-if="accessLoaded" class="m-0 text-xs text-[var(--gs-fg-muted)]">
+              {{ $t('gainosUi2.leadDetail.decisionMakersAdminOnlyShort') }}
+            </p>
+          </section>
+        </aside>
       </div>
     </AsyncSection>
 
@@ -1638,19 +1744,254 @@ watch(leadId, () => {
 </template>
 
 <style scoped>
-.lead-hero__label {
-  margin: 0 0 4px;
-  color: var(--gs-fg-subtle);
-  font-size: 11px;
-  line-height: 16px;
+.ld-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
-.lead-hero__score {
+
+.ld-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--gs-fg);
-  font-size: 36px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.ld-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--gs-fg-muted);
+  flex: none;
+}
+
+.ld-status-dot.is-success {
+  background: var(--gs-success);
+}
+
+.ld-status-dot.is-warning {
+  background: var(--gs-warn);
+}
+
+.ld-status-dot.is-danger {
+  background: var(--gs-danger);
+}
+
+/* Attio 经典 68:32 双栏对象页（容器宽度 ≥ 960px 时并排，窄屏优雅单栏堆叠） */
+.ld-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@container (min-width: 960px) {
+  .ld-split {
+    grid-template-columns: minmax(0, 68fr) minmax(290px, 32fr);
+  }
+  .ld-inspector {
+    position: sticky;
+    top: 16px;
+  }
+}
+
+.ld-split--people {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ld-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 9px;
+}
+
+.ld-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ld-summary {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+}
+
+.ld-summary__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.ld-summary__score-group {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ld-summary__score {
+  color: var(--gs-fg);
+  font-size: 26px;
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
+
+.ld-summary__reason {
+  margin: 0;
+  color: var(--gs-fg-2);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.ld-tabs :deep(.ant-tabs-nav) {
+  margin-bottom: 14px;
+}
+
+.ld-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+}
+
+.ld-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ld-panel__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.ld-panel__sub {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gs-divider);
+}
+
+/* 右侧 32% Sticky 属性与决策侧栏 */
+.ld-inspector {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--gs-border);
+  border-radius: 10px;
+  background: var(--gs-surface);
+}
+
+.ld-insp__sec {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--gs-divider);
+}
+
+.ld-insp__sec:last-child {
+  border-bottom: 0;
+}
+
+.ld-insp__sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ld-insp__title {
+  margin: 0;
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.ld-insp__cta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ld-sanctions {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--gs-border);
+  border-radius: 8px;
+  background: var(--gs-surface-3);
+}
+
+.ld-dm-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ld-dm-item {
+  display: grid;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gs-divider);
+}
+
+.ld-dm-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ld-dm-item__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ld-dm-item__name {
+  color: var(--gs-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ld-dm-verified {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--gs-success-bg);
+  color: var(--gs-success-fg);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+.ld-dm-item__meta {
+  margin: 0;
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+}
+
+.ld-dm-item__email {
+  margin: 0;
+  color: var(--gs-accent-fg);
+  font-family: var(--gs-font-mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
 .lead-grade {
   padding: 0 8px;
   border-radius: 6px;
@@ -1674,23 +2015,11 @@ watch(leadId, () => {
   background: var(--gs-surface-2);
   color: var(--gs-fg-subtle);
 }
-.lead-hero__reason-box {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--gs-divider);
-}
-.lead-hero__reason {
-  margin: 3px 0 0;
-  max-width: 760px;
-  color: var(--gs-fg-2);
-  font-size: 13px;
-  line-height: 1.75;
-}
 .lead-radar {
   padding: 12px 14px 10px;
   border: 1px solid var(--gs-divider);
   border-radius: 10px;
-  background: var(--gs-surface-2);
+  background: var(--gs-surface-3);
 }
 .lead-radar__title {
   margin: 0;
@@ -1703,46 +2032,6 @@ watch(leadId, () => {
   color: var(--gs-fg-subtle);
   font-size: 11px;
   text-align: center;
-}
-.lead-hero__evidence {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--gs-divider);
-}
-.lead-hero__evidence ul {
-  display: grid;
-  gap: 4px;
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.lead-hero__evidence li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--gs-fg-muted);
-}
-.lead-hero__evidence a {
-  color: var(--gs-accent-fg);
-  text-decoration: none;
-}
-.lead-hero__evidence a:hover {
-  text-decoration: underline;
-}
-.lead-hero__dot {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--gs-accent-cta);
-  transform: translateY(-2px);
-}
-.lead-hero__evidence-date {
-  margin-left: auto;
-  color: var(--gs-fg-subtle);
-  font-size: 11px;
 }
 .lead-tech {
   color: var(--gs-fg-subtle);
@@ -1790,7 +2079,7 @@ watch(leadId, () => {
 }
 .lead-timeline {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 14px 0 0;
   padding: 0;
   list-style: none;
@@ -1800,8 +2089,8 @@ watch(leadId, () => {
   gap: 4px;
   padding: 10px 14px;
   border: 1px solid var(--gs-border);
-  border-radius: 10px;
-  background: var(--gs-surface-2);
+  border-radius: 8px;
+  background: var(--gs-surface-3);
 }
 .lead-timeline__head {
   display: flex;

@@ -81,7 +81,6 @@ import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
-import GsToolbar from '#/components/gainos/ui/gs-toolbar.vue';
 import { feedback as uiFeedback } from '#/feedback';
 import { $t } from '#/locales';
 import { notifyChainChanged } from '#/composables/use-main-chain-progress';
@@ -1230,7 +1229,23 @@ const rows = computed<IcpCardRow[]>(() =>
 const workspaceRef = ref<HTMLElement | null>(null);
 
 const statusOfSelected = computed(() => icpStatus(selected.value?.status));
-const versionOfSelected = computed(() => selected.value?.version ?? 1);
+const versionOfSelected = computed<null | number>(() => {
+  const raw = selected.value?.version;
+  if (raw === null || raw === undefined) return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+});
+const selectedCompanyVersionMeta = computed(() => {
+  const name = companyName(selected.value?.companyId);
+  return versionOfSelected.value !== null
+    ? `${name} · ${$t('gainos.findBuyers.version', { version: versionOfSelected.value })}`
+    : name;
+});
+const pageSubtitle = computed(() =>
+  activeIcp.value
+    ? $t('gainosUi2.findBuyers.activeSummary', { name: activeIcp.value.name })
+    : $t('gainos.findBuyers.subtitle'),
+);
 
 /** 多份画像时在工作区头部切换；只有一份时不显示。 */
 const profileOptions = computed(() =>
@@ -1514,32 +1529,23 @@ onUnmounted(stopDetailStreamPoll);
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-3 px-[var(--gs-page-pad)] pb-12 @container">
-    <GsPage art="find-buyers" :subtitle="$t('gainos.findBuyers.subtitle')" :title="$t('gainos.findBuyers.title')" />
-
-    <GsToolbar data-gs="icp-toolbar">
-      <div class="fb-toolbar__main">
-        <h2 class="fb-h2">{{ $t('gainos.findBuyers.listTitle') }}</h2>
-        <p class="fb-muted fb-toolbar__hint">
-          {{
-            activeIcp
-              ? $t('gainos.findBuyers.activeHint', { name: activeIcp.name })
-              : $t('gainos.findBuyers.listDesc')
-          }}
-        </p>
-      </div>
-      <div class="ml-auto flex flex-wrap items-center gap-2 @max-[640px]:ml-0 @max-[640px]:w-full">
-        <Button class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" :loading="loading" data-gs="refresh" @click="load">
-          <template v-if="!loading" #icon>
-            <RotateCw :size="14" />
-          </template>
-          {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
-        </Button>
-        <Button v-if="icps.length > 0" class="@max-[640px]:flex-1 @max-[640px]:basis-[calc(50%-4px)]" data-gs="new-icp" type="primary" @click="openCreate()">
-          {{ $t('gainos.findBuyers.newIcp') }}
-        </Button>
-      </div>
-    </GsToolbar>
+  <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-4 px-[var(--gs-page-pad)] pb-12 @container">
+    <GsPage art="find-buyers" :subtitle="pageSubtitle" :title="$t('gainos.findBuyers.title')">
+      <template #actions>
+        <div class="flex flex-wrap items-center gap-2" data-gs="icp-toolbar">
+          <Button :loading="loading" data-gs="refresh" size="small" @click="load">
+            <template v-if="!loading" #icon>
+              <RotateCw :size="14" />
+            </template>
+            {{ loading ? $t('gainos.common.refreshing') : $t('gainos.common.refresh') }}
+          </Button>
+          <!-- 降级为描边次按钮：全页唯一蓝色 Primary CTA 留给当前状态的「下一步」 -->
+          <Button v-if="icps.length > 0" data-gs="new-icp" size="small" @click="openCreate()">
+            {{ $t('gainos.findBuyers.newIcp') }}
+          </Button>
+        </div>
+      </template>
+    </GsPage>
 
     <!-- 1 公司多画像切换栏（同公司多市场/多产品线并列管理） -->
     <div
@@ -1605,43 +1611,69 @@ onUnmounted(stopDetailStreamPoll);
     </GsCard>
 
     <template v-else>
-      <IcpCard
-        v-for="row in filteredRows"
-        :key="row.id"
-        :row="row"
-        :selected="row.id === selected?.id"
-        @open="openDetail(row.icp, { scroll: true })"
-      />
+      <!-- 多份画像：左侧 240px 窄栏 + 右侧主工作区；≤1 份画像自动隐藏左栏直达工作区 -->
+      <div
+        :class="rows.length > 1 ? 'fb-layout fb-layout--split' : 'fb-layout'"
+        data-gs="icp-split-layout"
+      >
+        <aside v-if="rows.length > 1" class="fb-rail" data-gs="icp-rail">
+          <div class="fb-rail__head">
+            <span class="fb-rail__title">{{ $t('gainosUi2.findBuyers.railTitle') }}</span>
+            <span class="fb-rail__count">
+              {{ $t('gainosUi2.findBuyers.railCount', { count: filteredRows.length }) }}
+            </span>
+          </div>
+          <div class="fb-rail__list">
+            <IcpCard
+              v-for="row in filteredRows"
+              :key="row.id"
+              rail
+              :row="row"
+              :selected="row.id === selected?.id"
+              @open="openDetail(row.icp, { scroll: false })"
+            />
+          </div>
+        </aside>
 
-      <!-- 画像工作区：查看、激活、确认方案、发起寻源都在页内完成（和公司档案一致），不再用右侧抽屉 -->
-      <div ref="workspaceRef" class="scroll-mt-24">
-        <GsCard class="fb-workspace" data-gs="icp-workspace" padding="0">
-          <header class="fb-workspace__head">
-            <div class="min-w-0">
-              <p class="fb-kicker">{{ $t('gainos.findBuyers.workspaceEyebrow') }}</p>
-              <h2 class="fb-workspace__name">{{ selected?.name }}</h2>
-              <div class="fb-workspace__meta">
-                <GsTag :tone="statusOfSelected.tone">{{ statusOfSelected.label }}</GsTag>
-                <span class="fb-muted">
-                  {{ companyName(selected?.companyId) }} ·
-                  {{ $t('gainos.findBuyers.version', { version: versionOfSelected }) }}
-                </span>
-              </div>
-            </div>
-            <div class="fb-workspace__tools">
-              <label v-if="profileOptions.length > 1" class="fb-workspace__field">
-                <span>{{ $t('gainos.findBuyers.workspaceProfile') }}</span>
-                <GsSelect
-                  :ariaLabel="$t('gainos.findBuyers.workspaceProfile')"
-                  class="fb-workspace__select"
-                  :options="profileOptions"
-                  :value="selected?.id"
-                  @change="switchProfile"
-                />
-              </label>
-              <Button data-gs="icp-edit" @click="openEdit">{{ $t('gainos.findBuyers.edit') }}</Button>
-            </div>
-          </header>
+        <div class="fb-main">
+          <!-- 单份画像时保留轻量单行概览条（无多蓝按钮打架，保留查看与调整与对接角色/方案态） -->
+          <IcpCard
+            v-if="rows.length === 1 && filteredRows[0]"
+            :row="filteredRows[0]"
+            :selected="filteredRows[0].id === selected?.id"
+            @open="openDetail(filteredRows[0].icp, { scroll: true })"
+          />
+
+          <!-- 画像工作区：查看、激活、确认方案、发起寻源都在页内完成 -->
+          <div ref="workspaceRef" class="scroll-mt-24">
+            <GsCard class="fb-workspace" data-gs="icp-workspace" padding="0">
+              <header class="fb-workspace__head">
+                <div class="min-w-0">
+                  <h2 class="fb-workspace__name">{{ selected?.name }}</h2>
+                  <div class="fb-workspace__meta">
+                    <GsTag :tone="statusOfSelected.tone">{{ statusOfSelected.label }}</GsTag>
+                    <span class="fb-muted" data-gs="icp-workspace-meta">
+                      {{ selectedCompanyVersionMeta }}
+                    </span>
+                  </div>
+                </div>
+                <div class="fb-workspace__tools">
+                  <label v-if="profileOptions.length > 1" class="fb-workspace__field">
+                    <span>{{ $t('gainos.findBuyers.workspaceProfile') }}</span>
+                    <GsSelect
+                      :ariaLabel="$t('gainos.findBuyers.workspaceProfile')"
+                      class="fb-workspace__select"
+                      :options="profileOptions"
+                      :value="selected?.id"
+                      size="small"
+                      @change="switchProfile"
+                    />
+                  </label>
+                  <Button data-gs="icp-edit" size="small" @click="openEdit">
+                    {{ $t('gainos.findBuyers.edit') }}
+                  </Button>
+                </div>
+              </header>
 
           <div class="fb-workspace__body">
             <div v-if="detailLoading" class="fb-section">
@@ -1689,12 +1721,12 @@ onUnmounted(stopDetailStreamPoll);
                       <h3 class="fb-section__title">{{ $t('gainos.findBuyers.plansTitle') }}</h3>
                       <p class="fb-muted">{{ $t('gainos.findBuyers.plansDesc') }}</p>
                     </div>
-                    <!-- 画像生效中随时可以再生成：迭代画像后靠它出新方案，已有方案不会自动跟着变。 -->
+                    <!-- 画像生效中随时可以再生成：降级为描边次按钮，唯一蓝色 Primary CTA 留给下一步 -->
                     <Button
                       v-if="!plansLoading"
                       :disabled="planBusy === 'create'"
                       :loading="planBusy === 'create'"
-                      type="primary"
+                      size="small"
                       @click="createPlan"
                     >
                       {{
@@ -1706,7 +1738,7 @@ onUnmounted(stopDetailStreamPoll);
                   </header>
                   <Alert
                     v-if="profileEdited"
-                    :message="$t('gainos.findBuyers.planStaleAfterEdit', { version: versionOfSelected })"
+                    :message="$t('gainos.findBuyers.planStaleAfterEdit', { version: versionOfSelected ?? 1 })"
                     role="status"
                     show-icon
                     type="warning"
@@ -1797,7 +1829,7 @@ onUnmounted(stopDetailStreamPoll);
                           :disabled="planBusy === plan.id || taskRunning"
                           :loading="planBusy === plan.id"
                           :title="taskRunning ? $t('gainos.findBuyers.runInProgress') : undefined"
-                          type="primary"
+                          size="small"
                           @click="executePlan(plan)"
                         >
                           {{ $t('gainos.findBuyers.executePlan') }}
@@ -2132,6 +2164,8 @@ onUnmounted(stopDetailStreamPoll);
             </template>
           </div>
         </GsCard>
+          </div>
+        </div>
       </div>
     </template>
     <!-- 设定买家画像（从公司档案生成初稿） -->
@@ -2490,6 +2524,61 @@ onUnmounted(stopDetailStreamPoll);
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* ── 多画像 240px 左侧窄栏 + 右侧工作区 ──────────────────────────────── */
+.fb-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.fb-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fb-rail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fb-rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.fb-rail__title {
+  color: var(--gs-fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fb-rail__count {
+  color: var(--gs-fg-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-rail__list {
+  display: grid;
+  gap: 8px;
+}
+
+@container (min-width: 960px) {
+  .fb-layout--split {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 18px;
+  }
+  .fb-rail {
+    position: sticky;
+    top: 16px;
+  }
 }
 
 /* ── 画像工作区（页内常驻）─────────────────────────────────────────────── */
