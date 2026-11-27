@@ -53,6 +53,7 @@ function runRealAppModuleBootstrap(
 ): {
   ok: boolean;
   resolved: string[];
+  authServiceHasWallet: boolean;
   eventConsumerHasWallet: boolean;
   bffHandlerHasWallet: boolean;
   budgetSignerHasJwks: boolean;
@@ -81,6 +82,7 @@ function runRealAppModuleBootstrap(
     import { EngineTokenSigner } from './dist/service/engine-token.signer.js';
     import { EngineBudgetGrantSigner } from './dist/service/engine-budget-grant.signer.js';
     import { SessionService } from './dist/tenant/session.service.js';
+    import { AuthService } from './dist/tenant/auth.service.js';
     import { WalletService } from './dist/wallet/wallet.service.js';
     import { WalletController } from './dist/wallet/wallet.controller.js';
     import { OpsWalletController } from './dist/wallet/ops-wallet.controller.js';
@@ -147,11 +149,13 @@ function runRealAppModuleBootstrap(
       const opsR4PolicyMode = config.PLATFORM_AUTHORITY_MODE === 'internal_db'
         ? (await opsR4.policyState()).mode
         : 'r4';
+      const authService = app.get(AuthService);
       const consumer = app.get(EventConsumerService);
       const bff = app.get(BffHandler);
       const result = {
         ok: true,
         resolved,
+        authServiceHasWallet: Boolean(authService.wallet),
         eventConsumerHasWallet: Boolean(consumer.wallet),
         bffHandlerHasWallet: Boolean(bff.wallet),
         budgetSignerHasJwks: budgetSigner.hasPublicJwks,
@@ -245,6 +249,7 @@ describe('AppModule 真实 NestJS DI 启动装配冒烟（web + worker）', () =
     expect(res.resolved).toContain('BffHandler');
     expect(res.resolved).toContain('AcquisitionTasksController');
     expect(res.resolved).toContain('DeletionMirrorsController');
+    expect(res.authServiceHasWallet).toBe(true);
     expect(res.eventConsumerHasWallet).toBe(true);
     expect(res.bffHandlerHasWallet).toBe(true);
     expect(res.budgetSignerHasJwks).toBe(true);
@@ -271,6 +276,7 @@ describe('AppModule 真实 NestJS DI 启动装配冒烟（web + worker）', () =
     expect(res.r4TlsCount).toBe(0);
     expect(res.opsR4PolicyMode).toBe('internal_db');
     expect(res.setIntervalCalls).toBe(0);
+    expect(res.authServiceHasWallet).toBe(true);
     expect(res.eventConsumerHasWallet).toBe(true);
     expect(res.bffHandlerHasWallet).toBe(true);
   }, 60_000);

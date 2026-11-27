@@ -87,6 +87,10 @@ const schema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
+  // 新企业注册自动赠送试用积分（0 = 关闭；打开钱包计费后避免新注册租户首单即 402）
+  WALLET_SIGNUP_BONUS_CREDITS: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  // 注册赠送积分有效天数（0 = 永久有效）
+  WALLET_SIGNUP_BONUS_EXPIRES_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
   WALLET_HOLD_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(360),
   WALLET_HOLD_SWEEP_ENABLED: z
     .string()

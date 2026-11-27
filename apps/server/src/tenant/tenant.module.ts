@@ -23,6 +23,7 @@ import { SessionService } from './session.service.js';
 import { AuthThrottleService } from '../shared/auth-throttle.service.js';
 import { EngineHttp } from '../bff/engine-http.js';
 import { ServiceModule } from '../service/service.module.js';
+import { WalletModule } from '../wallet/wallet.module.js';
 
 /**
  * 租户域:认证、成员、BFF(代理与业务控制器挂同一守卫链)。
@@ -31,7 +32,7 @@ import { ServiceModule } from '../service/service.module.js';
  * 而 BffModule 依赖本模块,不能反向导入。
  */
 @Module({
-  imports: [ConfigModule, forwardRef(() => ServiceModule)],
+  imports: [ConfigModule, forwardRef(() => ServiceModule), forwardRef(() => WalletModule)],
   controllers: [AuthController, MembersController, AuditController, DeletionMirrorsController, DiscoveryRunsController, NotificationsController, ClaimDraftsController, RunTraceController, QgoController, SaoController, WorkspacesController, WorkspaceContextController],
   providers: [AuthService, SessionService, TenantGuard, AdminGuard, PrismaService, AuditService, AuthThrottleService, EngineHttp, QgoService, WorkspaceOffboardingService],
   exports: [TenantGuard, AdminGuard, SessionService, PrismaService, AuditService, EngineHttp],
