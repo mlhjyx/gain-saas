@@ -1,5 +1,9 @@
 <script lang="ts" setup>
-import type { OutreachBatchSummary, OutreachReplyView } from '#/api/gainos';
+import type {
+  OutreachBatchSummary,
+  OutreachReplyCopilotView,
+  OutreachReplyView,
+} from '#/api/gainos';
 import type { ReferredContactLead } from '@gain-saas/shared';
 
 import { computed, onMounted, ref } from 'vue';
@@ -137,6 +141,43 @@ async function submitReferralDraft(): Promise<void> {
   }
 }
 
+// 回复副驾弹窗
+const copilotOpen = ref(false);
+const copilotLoading = ref(false);
+const copilotError = ref<string | null>(null);
+const copilotDraft = ref<OutreachReplyCopilotView | null>(null);
+
+async function openCopilot(row: OutreachReplyView): Promise<void> {
+  copilotOpen.value = true;
+  copilotLoading.value = true;
+  copilotError.value = null;
+  copilotDraft.value = null;
+  try {
+    const res = await gainosApi.outreachReplyCopilot(row.id);
+    const payload =
+      (res as { data?: OutreachReplyCopilotView })?.data ??
+      (res as unknown as OutreachReplyCopilotView);
+    copilotDraft.value =
+      payload && typeof payload.summary === 'string' && Array.isArray(payload.checklist)
+        ? payload
+        : null;
+  } catch (err) {
+    copilotError.value = failureText(err).title;
+  } finally {
+    copilotLoading.value = false;
+  }
+}
+
+async function copyCopilotText(text: string): Promise<void> {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    feedback.message.success($t('gainos.replies.copilotCopied'));
+  } catch {
+    feedback.message.warning($t('gainos.replies.copilotCopy'));
+  }
+}
+
 onMounted(() => {
   void ensureLoaded();
   void load();
@@ -175,6 +216,7 @@ const columns = [
   { key: 'recipientEmail', dataIndex: 'recipientEmail', title: $t('gainos.replies.colRecipient'), width: 240 },
   { key: 'classification', dataIndex: 'classification', title: $t('gainos.replies.colClass'), width: 190 },
   { key: 'subject', dataIndex: 'subject', title: $t('gainos.replies.colSubject') },
+  { key: 'action', title: $t('gainos.replies.colAction'), width: 120 },
 ];
 </script>
 
@@ -274,9 +316,69 @@ const columns = [
             <span>{{ record.subject ?? '—' }}</span>
             <small v-if="record.snippet" class="rpl__snippet">{{ record.snippet }}</small>
           </template>
+          <template v-else-if="column.key === 'action'">
+            <Button data-gs="reply-copilot-btn" size="small" @click="openCopilot(record as OutreachReplyView)">
+              {{ $t('gainos.replies.copilotAction') }}
+            </Button>
+          </template>
         </template>
       </Table>
     </AsyncSection>
+
+    <Modal
+      :footer="null"
+      :open="copilotOpen"
+      :title="$t('gainos.replies.copilotTitle')"
+      :width="640"
+      data-gs="reply-copilot-modal"
+      @cancel="copilotOpen = false"
+    >
+      <p v-if="copilotLoading" class="rpl__sub">{{ $t('gainos.common.loading') }}</p>
+      <Alert v-else-if="copilotError" :message="copilotError" role="alert" show-icon type="error" />
+      <div v-else-if="copilotDraft" class="rpl__copilot">
+        <Alert
+          :message="copilotDraft.summary"
+          :type="copilotDraft.sendBlocked ? 'error' : 'info'"
+          show-icon
+        />
+        <div v-if="copilotDraft.checklist.length > 0" class="rpl__copilot-block">
+          <div class="rpl__copilot-label">{{ $t('gainos.replies.copilotChecklist') }}</div>
+          <ul class="rpl__copilot-list">
+            <li v-for="(tip, idx) in copilotDraft.checklist" :key="idx">{{ tip }}</li>
+          </ul>
+        </div>
+        <template v-if="!copilotDraft.sendBlocked && copilotDraft.suggestedBody">
+          <div class="rpl__copilot-block">
+            <div class="rpl__copilot-label">{{ $t('gainos.replies.copilotSubject') }}</div>
+            <Input :value="copilotDraft.suggestedSubject ?? ''" readonly />
+          </div>
+          <div class="rpl__copilot-block">
+            <div class="rpl__copilot-head">
+              <span class="rpl__copilot-label">{{ $t('gainos.replies.copilotBody') }}</span>
+              <Button size="small" @click="copyCopilotText(copilotDraft.suggestedBody ?? '')">
+                {{ $t('gainos.replies.copilotCopy') }}
+              </Button>
+            </div>
+            <Input.TextArea :rows="6" :value="copilotDraft.suggestedBody" readonly />
+          </div>
+        </template>
+        <p v-else-if="!copilotDraft.sendBlocked" class="rpl__sub">
+          {{ $t('gainos.replies.copilotNoDraft') }}
+        </p>
+        <div v-if="copilotDraft.referralIntroDraft" class="rpl__copilot-block">
+          <div class="rpl__copilot-head">
+            <span class="rpl__copilot-label">
+              {{ $t('gainos.replies.copilotReferralIntro') }}（{{ $t('gainos.replies.copilotReferralTo') }}: {{ copilotDraft.referralIntroDraft.to }}）
+            </span>
+            <Button size="small" @click="copyCopilotText(copilotDraft.referralIntroDraft.body)">
+              {{ $t('gainos.replies.copilotCopy') }}
+            </Button>
+          </div>
+          <Input :value="copilotDraft.referralIntroDraft.subject" class="mb-2" readonly />
+          <Input.TextArea :rows="5" :value="copilotDraft.referralIntroDraft.body" readonly />
+        </div>
+      </div>
+    </Modal>
 
     <Modal
       v-if="canDraftOutreach"
@@ -341,5 +443,10 @@ const columns = [
 .rpl__ref-meta { display: grid; gap: 2px; }
 .rpl__ref-time { font-size: 12px; color: var(--gs-fg-subtle); }
 .rpl__row-2 { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; }
+.rpl__copilot { display: grid; gap: 12px; }
+.rpl__copilot-block { display: grid; gap: 6px; }
+.rpl__copilot-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rpl__copilot-label { font-size: 13px; font-weight: 500; color: var(--gs-fg); }
+.rpl__copilot-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--gs-fg-muted); }
 @media (max-width: 640px) { .rpl__row-2 { grid-template-columns: 1fr; } }
 </style>

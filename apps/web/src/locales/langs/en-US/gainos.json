@@ -92,7 +92,18 @@
     "referralCompanyLabel": "Company name (optional)",
     "referralSubjectLabel": "Subject",
     "referralBodyLabel": "Follow-up message",
-    "referralCreated": "Compliance check passed and referral follow-up draft created."
+    "referralCreated": "Compliance check passed and referral follow-up draft created.",
+    "colAction": "Action",
+    "copilotAction": "Reply copilot",
+    "copilotTitle": "Reply copilot & suggested response",
+    "copilotChecklist": "Review checklist",
+    "copilotSubject": "Suggested subject",
+    "copilotBody": "Suggested reply body (copy & review before sending)",
+    "copilotCopy": "Copy body",
+    "copilotCopied": "Copied to clipboard",
+    "copilotReferralIntro": "Intro draft for referred contact",
+    "copilotReferralTo": "Referred email",
+    "copilotNoDraft": "No outbound reply is needed for this message. Follow the guidance above."
   },
   "growth": {
     "title": "Opportunities & outreach",

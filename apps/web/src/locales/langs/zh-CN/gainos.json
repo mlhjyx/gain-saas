@@ -92,7 +92,18 @@
     "referralCompanyLabel": "公司名称（可选）",
     "referralSubjectLabel": "邮件主题",
     "referralBodyLabel": "跟进正文",
-    "referralCreated": "已通过合规预检并创建转交联系人跟进草稿。"
+    "referralCreated": "已通过合规预检并创建转交联系人跟进草稿。",
+    "colAction": "操作",
+    "copilotAction": "回复副驾",
+    "copilotTitle": "买家回复副驾与建议草稿",
+    "copilotChecklist": "人工复核要点",
+    "copilotSubject": "建议主题",
+    "copilotBody": "建议回复正文（可复制修改后发送）",
+    "copilotCopy": "复制正文",
+    "copilotCopied": "已复制到剪贴板",
+    "copilotReferralIntro": "给转交新联系人的破冰草稿",
+    "copilotReferralTo": "新联系人邮箱",
+    "copilotNoDraft": "当前状态无需发送外联回复，请按上方提示处理。"
   },
   "growth": {
     "title": "商机与触达",
