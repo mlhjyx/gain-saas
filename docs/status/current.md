@@ -3,29 +3,62 @@
 > 文档 ID:`DOC-SAAS-STATUS-001`
 > 生命周期:`CURRENT`
 > 事实来源:本页为主;代码与 PRD/技术方案冲突时以代码 + 评审为准
-> 最后核验：2026-11-27（开头的主线能力、运行读回与待验收项，历史记录按原日期）。
+> 最后核验：2026-11-28（以 `gain-saas@ff45fa404701532785e41706dddfb9455701a50d` 与 `backend@a5ef77f64a240129c49cb14d187db40cdaae385e` 核对当前结论、分层证据与待定边界；折叠区历史记录按原日期保留）。
 
 ## 一页结论
 
-| 范围 | 已核对的事实 | 下一项证据 |
+| 范围 | 已核对的事实（截至 `gain-saas@ff45fa4`） | 限制与下一步 |
 | --- | --- | --- |
-| 注册与工作空间 | #246 已让注册与邀请直达工作台，企业资料通过工作台启航清单按角色完成，旧 `/onboarding` 链接回到工作台清单 | [源码变更](../changelog.d/2026-11-27-workspace-activation.md)。核对已上线制品，并走查新管理员与受邀成员 |
-| 企业资料 | 主线包含分片 BFF 与固定引擎合同，Web 支持后台上传与续传 | 追溯 `#234/#236/#244`；核对 Web 已发布制品及真实弱网续传 |
-| 寻源任务 | BFF 记录 TaskRun，接收引擎 `DiscoveryRunCompleted`；`#243` 防止启动响应覆盖终态 | xin 已采用后端制品，完整客户路径待独立验收 |
-| 租户导航 | 主线使用工作台、通知和获客主线，设置归整页；`GROWTH_PAGE_HIDDEN` 控制触达与转化在侧栏显隐 | 现行实现见 [产品入口](../../apps/web/PRODUCT.md)；深链与部署走专项验证 |
-| 钱包与旧预算 | 钱包已覆盖 #247 的共用寻源任务启动与终态结算；`WALLET_BILLING_ENABLED` 的代码默认值为 false | [钱包说明](../technical/credits-wallet.md)列明接线路径；环境启用、实际扣点和商业验收待单独回读 |
-| 旧预算提醒（截至 `613359e`） | 旧预算处于 `bypass` 或关闭强制配额时，消费者停发旧提醒，通知列表和未读数隐藏存量提醒 | [配额说明](../technical/workspace-budget-quota.md#旧提醒与通知列表)。运行采用需按发布制品核对 |
+| 前端栈与导航 | 现役 Web 采用 Vue 3 / Vben 5 / Ant Design Vue。主侧栏分总览（工作台、成效复盘、通知）、获客与筛选（企业档案、买家画像、寻源记录、买家线索）与整页设置（`/settings/*`）；`GROWTH_PAGE_HIDDEN=true` 隐藏「触达与转化」（`/outreach`、`/opportunities`），`ICP_ADVANCED_HIDDEN=true` 隐藏高级规则与回测，路由与重定向均保留。SaaS 租户端无 Site Builder 入口 | 现行产品说明见 [产品入口](../../apps/web/PRODUCT.md)。Next.js/React（[CON-FE-006](https://github.com/mlhjyx/global-backend/blob/main/docs/governance/conflict-register.md)）、双端改造、去租户化与 Site Builder 正式冻结（`PRD4-D1`）、租户开放范围均保持待定 |
+| 注册、工作空间与角色 | 延续「一企一空间」（注册企业查重返回 409 `COMPANY_WORKSPACE_EXISTS`，`POST /api/workspaces` 410 退役，同事经邀请加入）。`#246/#249` 已让注册与邀请直达工作台启航清单，旧 `/onboarding` 重定向至 `/workspace?setup=1`；`TenantGuard`/`BffGuard` 不再对未完成引导执行全局 409 硬拦截，改由会话、工作空间状态与 RBAC 兜底 | 变更记录见 [启航清单](../changelog.d/2026-11-27-workspace-activation.md)。`WorkspaceContext` 对 `member` 的动作声明与部分企业及资料 BFF 写路由口径不一，匿名查重响应含企业名与创建日元数据，两项均待专项裁决；新管理员与受邀成员路径尚未做本候选用户验收 |
+| 企业资料与寻源任务 | 企业档案支持分片上传、续传、文档事实审阅与 UN Comtrade 选国推荐（`#251/#258`）。寻源由 SaaS `AcquisitionTasksController` 创建 `TaskRun` 并携带 legacy `taskRef` 调用引擎 `POST /query-plans/:planId/execute`（`#243` 防 202 响应覆盖已到达的终态）。固定引擎合同见 [engine-client](../../packages/engine-client/README.md) | 变更记录见 [买家旅程拆分](../changelog.d/2026-11-27-buyer-journey-and-comtrade.md)。当前引擎源码的 Discovery v3 分支使用新受理合同。v3 装配、兼容调用与终态投影须成组验证，见[引擎接入](../../deploy/engine-integration.md) |
+| 事件消费、投影与 ACK | Worker 拉取引擎事件并幂等写入 `event_inbox`，按单条事件事务派生状态（失败按 1/2/4/8 分钟退避，累计 5 次或非法版本/终态转 `QUARANTINED`），再对已入箱事件批量 `POST /events/ack` 并推进游标 | **ACK 仅证明事件已入箱**，不证明派生成功、用户看到结果或钱包已结算；当前运营台缺少隔离事件查看与重放入口。寻源终态的数值 `cost` 用于技术成本投影，钱包扣点另行取证。建站累计成本摘要的生产金额为微美元字符串，SaaS 读取的 `budget.spentCents` 与之不匹配，待对账 |
+| 现役 QGO、触达与合规 | QGO / SAO / CommercialOutcome 现役源码归 `gain-saas`（`/opportunities` 深链可达）。SaaS 侧 DSR 级联清理及派生回执（`DeletionCompleted` → `deletion_mirror`）与管理员只读视图（`GET /api/deletion-mirrors`、`/settings/privacy`）已接线；禁联名单已按 `admin` + 引擎 `compliance:manage` 接线到 `/settings/suppressions`。读取范围为当前工作空间，发送预检另查平台全局禁联。SaaS 对接角色映射的 `personal-data:read` 仅授事件消费服务身份。触达代码默认 `OUTREACH_SEND_ENABLED=false`、`CAMPAIGN_EXECUTION_SHADOW=true`，队列另有 `OUTREACH_SENDER_ENABLED`，发送受管理员与批次授权门约束 | QGO 未来宿主仍待 [PRD4-D4](https://github.com/mlhjyx/global-backend/blob/main/docs/governance/conflict-register.md)。现网触达实际开关未知；正式发信、授权、回复停发与快捷确认边界、以及 T0 打开外链即记 `contacted: true` 的口径均待专项裁决 |
+| 钱包与旧执行预算 | `#247` 已将共用任务入口接入钱包预占与 `DiscoveryRunCompleted` 结算，`#255` 增加可配置新企业注册赠点；代码默认 `WALLET_BILLING_ENABLED=false`、`WALLET_SIGNUP_BONUS_CREDITS=0`、`WALLET_HOLD_SWEEP_ENABLED=false`。旧预算 `bypass` 或关闭强制配额时（`#245`）停发并隐藏旧额度提醒 | 接线见 [钱包说明](../technical/credits-wallet.md) 与 [配额说明](../technical/workspace-budget-quota.md#旧提醒与通知列表)。**现网钱包开关状态未知**，不得把代码默认值写成运行状态；正式收费、价目缺失策略与不明受理预占对齐均保持待定 |
 
+## 分层证据与本机读回（2026-11-28 CST）
 
-## xin 运行回读（2026-11-27）
+以下按证据层分开记录，不把下层结果推导为上层通过。
+
+| 证据层 | 2026-11-28 读回事实 | 证明范围与未覆盖部分 |
+| --- | --- | --- |
+| 现役路由 | 租户 Web 路由在 `apps/web/src/router/routes/`：总览（`/workspace`、`/analytics`、`/notifications`）、获客与筛选（`/companies`、`/find-buyers`、`/tasks`、`/leads`）、隐藏的触达与转化（`/outreach`、`/opportunities`，`GROWTH_PAGE_HIDDEN=true`）、整页设置（`/settings/{account,members,suppressions,sources,privacy,audit,outreach-mailboxes}`）及 `/onboarding` 重定向；无 Site Builder 路由。服务端通用 BFF 路由与角色声明见 [BFF 路由登记](../../apps/server/src/bff/routes.ts)，另有独立租户、任务、钱包、商机、触达与 `/ops` 运营控制器 | 只证明路由定义与权限声明，不证明运行态配置或端到端通过 |
+| 源码与离线检查 | 固定基线 `gain-saas@ff45fa404701532785e41706dddfb9455701a50d`、`backend@a5ef77f64a240129c49cb14d187db40cdaae385e`。固定合同锁 [engine-contract.lock.json](../../packages/engine-client/engine-contract.lock.json) 指向 `backend@98bc65ee`（2026-11-27）；只读运行 `verify-pin.mjs`、`lint-forbidden-terms.mjs`、`lint-date-format.mjs`、`check-action-pins.mjs` 与跨仓 `docs-drift-report.mjs` 均退出 0 | 证明源码约束与合同字节一致；未在只读核验中重跑全量单测、PG 集成测试或 E2E |
+| CI 状态 | `gain-saas@ff45fa4` 在 GitHub CI 读取 8 项通过（含 `e2e` 汇总及 4 路 BFF-mock Playwright 分片）；main ruleset `27093506` 强制 `build · test · contract` 与 `secret scan`（审批数为 0）。纯 Markdown PR 走 `docs_only` 快通道，不执行 Markdown 链接检查。同期 `backend@a5ef77f6` 的 main push CI 有 2 项失败（`postgres semantics · permissions` 断言 native Discovery v3 厂家证据计数失败及汇总检查），其容器镜像发布检查单独通过 | 证明本提交在托管 CI 跑过对应检查；SaaS mock E2E 不证明真栈或认证后业务结果，后端 main CI 失败原因待查 |
+| 本机部署读回 | 本机回读 `gain-saas-web.service`、`gain-saas-worker.service` 为 `active/running`，单元启动时间为 **04:45:01 CST**，均指向制品 `gain-saas-ff45fa4-20261128`（`COMMIT=ff45fa404701532785e41706dddfb9455701a50d`）；**05:36 CST** 核对入口摘要：`main.js` 为 `a937a70d…`、`worker.js` 为 `d5977d94…`。<br>**05:05:30 CST**：Backend 三容器运行且 healthy，OCI revision `a5ef77f6…`，镜像 `sha256:50b3ff38…`，`/health/build` attested，`migration_revision=20261127180000_google_places_discovery_provider`，API readiness `200/ready`。**05:33 CST** 复核 readiness 为 `200/ready` 且 16 个硬组件均 `ok`。<br>**05:27 CST**：Web 单元已无旧 DB 依赖，Worker 单元仍保留对 `gain-saas-db.service`（`active/running`、`disabled`）的 `Wants/After`；备份与巡检 timer 为 `active/waiting`。<br>**05:32 CST**：`GET /api/auth/registration-policy` 返回 200，`inviteCodeRequired=false`。<br>**05:33 CST**：SaaS `GET /health/ready` 返回 `200/ok`（`db=true`、`engine=true`、`event_consumer=true`、`legacy_execution_budget_mode=bypass`、`platform_authority_mode=r4`） | 仅证明观测时点本机进程、制品身份与基础存活。SaaS readiness 只探引擎 `/api/v1/health/live` 且降级在 body 表达（HTTP 仍可 200）。**未读回（未知）**：现网 `WALLET_BILLING_ENABLED`、注册赠点与触达各开关值、引擎执行预算一致性、事件隔离积压、Worker 旧 DB 实际连接去向、备份内容与恢复能力 |
+| 页面壳读回 | 本机 `/`、`/auth/login`、`/runs` 返回 `HTTP 200 text/html`，正文 SHA-256 与制品 `apps/web/dist/index.html` 一致；**05:36 CST** 核对页面壳引用的 15 项本地脚本、预加载与样式资源均返回 `HTTP 200` 且摘要吻合制品 | 仅证明静态 SPA 外壳与资源文件送达。该步骤未执行浏览器登录、JS 交互或认证后的业务调用 |
+| 用户验收 | **本候选（`ff45fa4` + `a5ef77f6`）尚未执行正常用户端到端验收** | 注册/邀请、企业资料上传、寻源任务与恢复、终态与人工接受、QGO/触达/钱包结算等九条旅程均待独立验收；真实外发、收费与恢复均未验证 |
+
+旧预算旁路、钱包启用、触达开关与 R4 切换分别配置。[引擎对接](../../deploy/engine-integration.md)与[发布手册](../engineering/frontend-release-rollback.md)记录操作前提和回退，本页不复写细则。
+
+## 待定决策与后续裁决项
+
+以下事项保持待定或待独立裁决，本页不推定已批准、已开启或可商用：
+
+| 事项 | 当前状态 | 关联依据与边界 |
+| --- | --- | --- |
+| 正式发信与触达授权 | 待定（实际开关未核验） | 代码默认关闭真实发信并开启影子模式，实际环境开关未知；回复停发与取消队列状态一致性、独立批次停止、快捷确认及 T0 打开即记 `contacted` 待专项裁决与替身零外发验收 |
+| 商业收费与钱包正式规则 | 待定（开关未知） | 代码默认 `WALLET_BILLING_ENABLED=false`，实际环境开关未知；不明受理预占在通用 BFF 与任务路由上的差异、价目缺失按免费返回、超期预占释放与迟到事件待对齐，商业定价与收费需产品负责人批准 |
+| Discovery v3 切换与合同升锁 | 待定 | 固定合同比引擎源码早；后端 v3 分支拒收 legacy `taskRef`，存在 API runtime 绑定、`QUEUED` 终态投影与非模型成本覆盖缺口，且后端 main push CI 存在未排查失败 |
+| 成员写权限、匿名查重披露与运营 DB 写闸 | 待专项裁决 | `WorkspaceContext` `member` 动作声明与 BFF 写路由口径不一；重复注册响应返回企业名与创建日；`packages/ops-pg` `ownerQuery` 尚未强制应用白名单（同时承担合法平台只读）；健康探针口径（Backend/SaaS/Ops）待统一 |
+| QGO 未来宿主 | 待定（`PRD4-D4`） | 现役源码与主状态归 `gain-saas`；未来宿主维持 [ADR-001](https://github.com/mlhjyx/global-backend/blob/main/docs/adr/registry.md) 与 [PRD4-D4](https://github.com/mlhjyx/global-backend/blob/main/docs/governance/conflict-register.md) 登记，待单独裁决 |
+| Site Builder | 冻结、开放范围各自待定 | SaaS 租户端无用户入口。正式冻结见 `PRD4-D1`，SaaS 开放范围后续另定 |
+| 未来前端框架、双端改造与去租户化 | 待定（`CON-FE-006`） | 现役保持 Vue 3 / Vben 5 / Ant Design Vue 与一企一空间；Next.js/React、双端改造与去租户化均待后续提案审批 |
+
+<details>
+<summary>2026-10 至 11 月的交付与运行记录（历史快照，按原日期保留）</summary>
+
+> 时效与承接说明（2026-11-28）：本折叠区保留 2026-10-29 至 2026-11-27 的历史交付与运行读数原文，不回写当时事实。其中已由新源码或新读回替代的项目包括：
+> - 2026-11-27 运行读回（`gain-saas-439e4247-20261127`）与 2026-11-11 运行读数（`5433` 嵌入式库）已由上方 **2026-11-28 分层读回**（`gain-saas-ff45fa4-20261128`）替代；
+> - 2026-10-29 标注的「仍缺 DSR 的 SaaS 侧级联删除」与「禁联名单受 SD5 阻塞」已在 `ff45fa4` 源码接线（DSR 级联写入 `deletion_mirror` 并接 `/settings/privacy`，引擎 `GET /suppressions` 仅要求 `compliance:manage`，SaaS BFF 全部 5 条禁联路由已限 `admin` 并接 `/settings/suppressions`）；
+> - 其余未关闭项（如 `ops-pg` `ownerQuery` 白名单执行闸、未完成的真实用户验收）已汇总到上方当前表与待裁决表。
+
+### xin 运行回读（2026-11-27，历史）
 
 - SaaS `GET /health/ready` 返回 200，回读旧预算 `bypass`、平台权威 `r4`。生产宿主运行形态按部署窗口复核。
 - 已核对 Web 与 Worker 连接 `127.0.0.1:5432` 的当前 PostgreSQL 服务，旧 `gain-saas-db.service` 仍在 `5433` 监听，单元为 active/disabled。本机日常恢复与旧库回退读工作区 RUNBOOK §13。
 - `#243` 服务端入口为 `releases/gain-saas-439e4247-20261127`，部署记录说明沿用原 SPA。主线后续的 `#244` 需有单独的前端部署证据。
 - 旧预算旁路、钱包启用与 R4 切换分别配置。[引擎对接](../../deploy/engine-integration.md)与[发布手册](../engineering/frontend-release-rollback.md)记录操作前提和回退。
-
-<details>
-<summary>2026-10 至 11 月的交付与运行记录</summary>
 
 ## 2026-11-21 一企一空间(产品决策落地)
 
@@ -160,12 +193,14 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 
 ## 下一步(按序)
 
-1. **验收客户路径**。从新注册或邀请到资料上传、买家画像、寻源和任务终态，核对已上线制品中的工作台与启航清单，以及新管理员和受邀成员的路径。
-2. **核验租户与权利边界**。按普通成员和管理员核对联系人可见性、禁联权限、DSR 投影及迁移证据。
-3. **验证钱包结算**。在批准环境检查实际启用、合法预占、有效产出结算和失败退点。
+1. **完成本候选的正常用户端到端验收**。在已确认的 `ff45fa4` + `a5ef77f6` 组合上，以正常管理员与受邀成员走通注册/邀请、启航清单、资料上传、买家画像、寻源与受理恢复、终态与人工接受、商机及可用触达，覆盖空结果、取消、部分成功与重试。
+2. **按专项裁决关闭高风险边界**。依次核对并裁决：成员企业写权限与匿名查重披露、运营 `ops-pg` `ownerQuery` 白名单执行闸与只读分离、事件隔离观测/重放与 `SiteBuildCostSummaryUpdated` 形状对账、健康探针语义对齐、以及后端 main CI 失败原因。
+3. **验证钱包、触达与 v3 切换前提**。在获得独立批准与真实运行配置读回后，分别验证钱包实际启用/预占/结算/退点、替身发送器下的零外发与回复停发、以及 Discovery v3 成组切换验收。
 
 <details>
 <summary>此前界面待办与风险（历史，按各自日期核对）</summary>
+
+> 时效与承接说明（2026-11-28）：以下条目为历史记录原文，其中 **SD5 禁联名单读取与 BFF 权限**已在源码解决（后端 `GET /suppressions` 现役仅要求 `compliance:manage`，SaaS BFF 全部 5 条禁联路由均为 `admin`，`/settings/suppressions` 已在源码接入管理员管理页）；其余未结项（如运营域 E4 `ownerQuery` 写白名单执行闸）已在上方「待定决策与后续裁决项」登记。
 
 4. **账户与安全**:CSRF 自定义头、JWKS 双钥轮换;工作空间创建/改名/切换/退出、改密、登录限流已实现(改密和停用会撤销其他设备会话)。
 5. **运营域 E4 写白名单执行闸**:写语句白名单目前只有登记表、没有执行闸(`acq-admin` 已于 2026-10-30 退役,gain-saas 已由 systemd 托管)。
@@ -195,4 +230,4 @@ M0–M4 的页面骨架、账户底座、BFF、线索/ICP、周报、运营台�
 ## 运行手册速查
 
 - 独立开发环境见 [README](../../README.md#开发)；本机发布与回退见[前端发布手册](../engineering/frontend-release-rollback.md)和工作区 RUNBOOK。
-- 只读核对 SaaS Web、Worker、JWKS TLS、当前数据库连接及旧单元状态。获取 readiness 与具体任务的运行证据后再判断交付。
+- 只读核对 SaaS Web、Worker、JWKS TLS、当前数据库连接及旧单元状态。获取 readiness、制品身份与具体任务的运行证据后再判断交付。

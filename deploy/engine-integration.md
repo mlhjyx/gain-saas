@@ -13,7 +13,9 @@ SaaS 侧代码不依赖本文件即可开发与测试;但以下 4 项不完成,*
 - 用户身份继续由 SaaS 签发，引擎核对 JWKS、issuer 与 scope。引擎合同以 [engine-client](../packages/engine-client/README.md) 为准。
 - `LEGACY_EXECUTION_BUDGET_MODE` 默认 `enforce`，两仓按批准窗口统一切换。适用写路由在 `bypass` 时跳过旧 quote 与签发；客户积分的扣费开关与结算见 [钱包](../docs/technical/credits-wallet.md)。
 - `PLATFORM_AUTHORITY_MODE` 默认 `r4`。R4 运行使用 gain-saas 的绑定、签发和撤销接缝。`internal_db` 的启停与回退步骤见 [Backend 平台授权手册](https://github.com/mlhjyx/global-backend/blob/main/docs/runbooks/platform-authority-internal-db-and-slimming.md)。
-- 寻源完成与 `LeadQualified` 从引擎事件出口进入 SaaS 的 durable inbox，SaaS 负责投影任务/线索和 ACK。查看状态时先确认 API、Worker 与事件游标，再追具体任务的接收和投影。
+- 寻源完成与 `LeadQualified` 从引擎事件出口进入 SaaS 的耐久 inbox。投影和 ACK 各有证据。查看状态时先确认 API、Worker 与事件游标，再追具体任务的入箱、投影和对账。
+- 现有 SaaS 寻源任务仍使用已固定的旧版请求。Backend 新增计划上下文操作 `DiscoveryController_v3PlanContext_v1`。原执行接口的 v3 分支拒绝旧 `taskRef`，两仓还须验证运行时装配、已关联的 `QUEUED` 到终态投影、成本事件和回退。切换沿单独的批准与验收流程执行。接口 pin 检查覆盖合同文件，事件消费字段另按生产者 schema 与固定来样核对。
+- SaaS `/health/ready` 返回自有数据库和引擎存活探测结果。联调时核对响应体状态，再分别验证 Backend readiness、事件消费和实际业务结果。
 - 操作前核对 [本机运行读回](../docs/status/current.md)、部署入口和现行模式。下方 0–4 节的脚本、参数示例与回退步骤源自 R4 迁移批次，先与当前配置和受管进程核对，再按授权执行。
 
 ## 0. 一键执行(需要 root)
@@ -122,6 +124,7 @@ curl -s --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.we
 - `personal-data:read` 仅授予 `saas-event-consumer`(`GET /events` 的 AND 语义硬要求,SD5;该角色只存在于 worker 的机器 token,永不进用户 token)。
 - `contact-discovery:read`(M4,2026-11-01)只授予 `saas-admin`:它只覆盖具名联系人面(`GET /canonical-companies/:id`、发现/猜测/验证联系人),不覆盖事件流、线索详情或建站档案的个人数据。引擎侧必须先发布该 scope 再应用本映射——引擎按闭合词表解析 role map,未知 scope 会让启动失败。
 - `ops:read`/`ops:write`(P3 数据源归属,2026-11-04)只授予 `saas-ops`:这是运营台专用的引擎角色,由 gain-saas 服务端在 ops 会话下现铸(workspace claim 用哨兵 UUID `00000000-0000-4000-8000-000000000000`,平台级端点只操作全局表,不用它做租户 RLS 作用域);租户角色(`saas-admin`/`saas-member`)禁止携带 `ops:*`。**上线顺序固定**:① 引擎镜像先发布含 `ops:write` 的版本;② 再应用本文件的 role map(引擎按闭合词表解析,未知 scope 会让启动失败);③ 最后部署含 `/api/ops/channels` 的 gain-saas。运营域其余读仍走 PG 白名单。
+- **2026-10-29 的 scope 快照**：以下是迁移时的原记录。现行禁联接口经管理员 BFF 与引擎 `compliance:manage` 接线，具名联系人按下方 M4 窄 scope 核对。用户角色和服务角色的实际映射以源码及当前授权接线为准。
 - **已知的 scope 缺口(按 PRD 设计保留,不是本次遗漏)**:BFF 的 `GET /leads/:leadId`、`GET /canonical-companies/:id` 需要 `personal-data:read`,`GET /data-providers` 需要 `ops:read`,成员可见的 `/suppressions` 系列需要 `compliance:manage`;这些路由在 M3 接入前要么调整 BFF 的 access,要么由产品重新决定 scope——**不要**为了跑通就把 `personal-data:read` 塞进用户角色。
 - **联系人挖掘 M4(2026-11-01,窄 scope 方案)**:引擎镜像 `d391a5f5` 已包含 `POST /canonical-companies/:id/discover-contacts`、`POST /canonical-companies/:id/guess-emails`、`POST /contact-points/:id/verify` 与 `GET /canonical-companies/:id`(2026-11-01 用 `/api/docs-json` 核实)。产品负责人已选定**窄 scope 方案**:引擎新增 `contact-discovery:read`(只覆盖具名联系人面),`saas-admin` 的映射自此包含它,`personal-data:read` 仍只授事件消费身份。上线顺序固定:① 引擎发布含 `contact-discovery:read` 的镜像;② 再应用本文件的 role map(`engine-integration-apply.py` 会拒绝在未知 scope 上启动);③ 卡片才可读写。在此之前,卡片会显示「获客能力尚未完成授权对接」并保持只读,不会误报成功。
 - **P8 对接时的联系人发现 Grant 限制（历史行为）**:引擎的 `workspace-technical-quote` 对 `POST /canonical-companies/:id/discover-contacts` 明确 fail-closed(`EXECUTION_BUDGET_QUOTE_UNAVAILABLE`,见引擎 `workspace-technical-budget-envelope.ts`:Contact discovery is outside the company-level acquisition chain)。因此「发现联系人」动作在引擎补上联系人阶段预算账户/报价(设计稿 D7,scope=contact.discovery)前无法签发一次性 Grant;BFF 会把该错误码原样透出为「这项操作还没有可用的执行预算账户」,不会误报成功。`guess-emails`/`verify` 不受此限。
