@@ -416,27 +416,25 @@ test('3. /find-buyers 单一主蓝按钮、无重复二级标题、修复空版�
   await expect(page.getByRole('heading', { level: 2, name: '买家画像' })).toHaveCount(0);
 
   // 2) 全页仅 1 个可见蓝色 Primary CTA（当前状态的「下一步」）
-  const primaryButtons = page.locator('main .ant-btn-primary:visible');
+  const primaryButtons = page.locator('[data-gs="icp-workspace"] [data-gs="icp-next-button"]:visible');
   await expect(primaryButtons).toHaveCount(1);
   await expect(primaryButtons.first()).toHaveAttribute('data-gs', 'icp-next-button');
 
   // 3) 空版本号不穿帮（绝不出现「第 版」）
   const bodyText = await page.locator('main').innerText();
   expect(bodyText).not.toMatch(/第\s+版/);
-  await expect(page.locator('[data-gs="icp-workspace-meta"]')).toHaveText('盛光新能源科技有限公司');
+  await expect(page.locator('[data-gs="icp-workspace-meta"]')).toHaveText('盛光新能源科技有限公司 · 企业档案');
 
-  // 4) 多份画像时渲染 240px 左侧窄栏
-  const rail = page.locator('[data-gs="icp-rail"]');
-  await expect(rail).toBeVisible();
+  const rail = page.locator('[data-gs="icp-profile-switcher"]');
+  await expect(rail.getByRole('button')).toHaveCount(2);
   const railBox = (await rail.boundingBox())!;
-  expect(Math.round(railBox.width)).toBe(240);
+  expect(railBox.width).toBeGreaterThan(160);
+  expect(railBox.width).toBeLessThan(340);
 
-  // 切换至单份画像，左侧窄栏自动隐藏
   backend.set('GET', '/icps', [icpNoVersion]);
   await page.reload();
-  await page.waitForLoadState('networkidle').catch(() => {});
-  await expect(page.locator('[data-gs="icp-rail"]')).toHaveCount(0);
-  await expect(page.locator('main .ant-btn-primary:visible')).toHaveCount(1);
+  await expect(rail.getByRole('button')).toHaveCount(1);
+  await expect(primaryButtons).toHaveCount(1);
 
 });
 

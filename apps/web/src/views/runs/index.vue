@@ -1,9 +1,8 @@
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
-  deriveRunActions,
   deriveStreamingFunnelProgress,
   formatDateTime,
   glossaryStatus,
@@ -11,12 +10,21 @@ import {
 } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
+import { Button, Modal, Skeleton, TabPane, Tabs } from 'ant-design-vue';
+
+import ErrorNotice from '#/components/error-notice.vue';
+import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import { notifyChainChanged } from '#/composables/use-main-chain-progress';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
+
 import StreamingProgressBoard from '#/components/gainos/StreamingProgressBoard.vue';
 import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import {
   failureText,
+  type AcquisitionTaskView,
+  type QueryPlan,
   gainosApi,
   type DiscoveryRun,
   type DiscoveryRunJob,
@@ -24,18 +32,51 @@ import {
   type DiscoveryRunTrace,
 } from '#/api/gainos';
 
+import QueryPlanSummary from '../tasks/query-plan-summary.vue';
+import RunResults from './run-results.vue';
+import SourcingLayout from './sourcing-layout.vue';
+import { isRunInProgress, mintAttemptId, queryValue, sourcingPlansLocation, sourcingRunLocation } from './sourcing-navigation';
+
 defineOptions({ name: 'DiscoveryRunView' });
 
 type Tone = 'done' | 'current' | 'pending' | 'skipped' | 'failed';
 
 const route = useRoute();
 const router = useRouter();
+// The router-view key is the concrete path, so switching run IDs remounts the view.
 const runId = String(route.params.runId ?? '');
+const { can, ensureLoaded, loaded: accessLoaded } = useWorkspaceAccess();
+const canManage = computed(() => can('acquisition.run'));
+const activeTab = computed(() => {
+  const query = queryValue(route.query.tab);
+  return query === 'progress' || query === 'plan' ? query : 'results';
+});
+
+function selectTab(key: string | number): void {
+  if (key === 'progress' || key === 'plan' || key === 'results') {
+    void router.replace(sourcingRunLocation(runId, key));
+  }
+}
 
 const run = ref<DiscoveryRun | null>(null);
 const streamingDto = ref<StreamingProgressDto | null>(null);
 const resultView = ref<DiscoveryRunResultView | null>(null);
 const loading = ref(true);
+const resultsLoading = ref(true);
+const resultsError = ref(false);
+const recentTasks = ref<AcquisitionTaskView[]>([]);
+const historyLoading = ref(true);
+const historyError = ref<ReturnType<typeof failureText> | null>(null);
+const profileNames = ref(new Map<string, string>());
+const plan = ref<QueryPlan | null>(null);
+const planLoading = ref(false);
+const planError = ref<ReturnType<typeof failureText> | null>(null);
+const diagnosticsOpen = ref(false);
+const progressLoading = ref(false);
+const progressError = ref<ReturnType<typeof failureText> | null>(null);
+let disposed = false;
+let runRequest = false;
+let resultRequest = false;
 const streamingFunnel = computed(() =>
   run.value || streamingDto.value
     ? deriveStreamingFunnelProgress({
@@ -47,7 +88,7 @@ const streamingFunnel = computed(() =>
 );
 const error = ref<{ title: string; next?: string } | null>(null);
 const auto = ref(true);
-let timer: ReturnType<typeof setInterval> | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
 
 // M0⑤：快扫名单 / 深挖队列 / 增量事件 / 停止深挖。
 const jobs = ref<DiscoveryRunJob[]>([]);
@@ -317,7 +358,7 @@ async function pollEvents(): Promise<void> {
     const page = await gainosApi.runEvents(runId, lastSeq.value);
     if (Array.isArray(page?.events) && page.events.length > 0) {
       lastSeq.value = page.nextAfter;
-      await Promise.all([loadJobs(), loadTrace()]);
+      await Promise.all([loadJobs(), diagnosticsOpen.value ? loadTrace() : Promise.resolve()]);
     }
   } catch {
     /* 事件轮询失败不打断 run 视图；下一轮重试 */
@@ -337,26 +378,29 @@ interface AttemptRow {
 const retrying = ref(false);
 const retryDialog = ref(false);
 const retryNotice = ref<string | null>(null);
-const retryError = ref<string | null>(null);
+const retryError = ref<ReturnType<typeof failureText> | null>(null);
 const retryAttemptId = ref<string | null>(null);
-const taskAttempts = ref<AttemptRow[]>([]);
-const taskName = ref<null | string>(null);
-
+const taskDetail = ref<AcquisitionTaskView | null>(null);
+const taskAttempts = computed<AttemptRow[]>(() => (taskDetail.value?.runs ?? [])
+  .map((row) => ({
+    id: row.id,
+    runId: row.runId,
+    attempt: row.attempt ?? 1,
+    rerunOf: row.rerunOf ?? null,
+    status: row.status,
+    startedAt: row.startedAt,
+  }))
+  .sort((a, b) => a.attempt - b.attempt));
 const canRetry = computed(() => {
-  const status = run.value?.status;
-  return Boolean(run.value) &&
-    (status === 'FAILED' || status === 'PARTIAL' || status === 'CANCELLED') &&
-    Boolean(run.value?.taskRef?.taskId) &&
-    Boolean(run.value?.planId);
+  const status = run.value?.status ?? '';
+  return canManage.value && ['FAILED', 'PARTIAL', 'CANCELLED'].includes(status) &&
+    Boolean(run.value?.planId) && taskDetail.value?.status === 'active' &&
+    !taskAttempts.value.some((attempt) => isRunInProgress(attempt.status));
 });
-const hasLeadOutput = computed(
-  () => run.value?.status === 'PARTIAL' || Number(stats.value.leads ?? quickScan.value.leads ?? 0) > 0,
-);
-const runActions = computed(() =>
-  deriveRunActions({ status: run.value?.status, retriable: canRetry.value, hasLeads: hasLeadOutput.value }),
-);
-
-
+const runTitle = computed(() =>
+  (run.value?.icpId ? profileNames.value.get(run.value.icpId) : undefined) ??
+  taskDetail.value?.name ?? $t('gainosBuyerJourney.sourcing.runtimeDetail'));
+const canStop = computed(() => canManage.value && run.value?.status === 'RUNNING');
 
 const retryOutcomeText = computed(() => {
   const status = statusLabel(run.value?.status);
@@ -367,87 +411,62 @@ const retryOutcomeText = computed(() => {
     : status;
 });
 
-function mintAttemptId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ?? `attempt-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-}
-
-async function loadTaskAttempts(): Promise<void> {
-  const taskId = run.value?.taskRef?.taskId;
-  const icpId = run.value?.icpId;
-  if (!taskId || !icpId) {
-    taskAttempts.value = [];
-    taskName.value = null;
-    return;
-  }
+async function loadHistory(): Promise<void> {
+  historyLoading.value = true;
+  historyError.value = null;
   try {
-    const tasks = await gainosApi.acquisitionTasks(icpId);
-    const task = tasks.find((entry) => entry.id === taskId);
-    taskName.value = task?.name ?? null;
-    taskAttempts.value = (task?.runs ?? [])
-      .map((row) => ({
-        id: row.id,
-        runId: row.runId,
-        attempt: row.attempt ?? 1,
-        rerunOf: row.rerunOf ?? null,
-        status: row.status,
-        startedAt: row.startedAt,
-      }))
-      .sort((a, b) => a.attempt - b.attempt);
-  } catch {
-    // 尝试历史不可用时不影响主流程。
+    const items = await gainosApi.acquisitionTasks();
+    if (!Array.isArray(items)) throw new Error('Invalid task list');
+    recentTasks.value = items;
+    if (run.value?.taskRef?.taskId && !taskDetail.value) {
+      taskDetail.value = items.find((item) => item.id === run.value?.taskRef?.taskId) ?? null;
+    }
+  } catch (err) {
+    historyError.value = failureText(err);
+  } finally {
+    historyLoading.value = false;
   }
 }
 
-async function reconcileStartedRun(taskId: string): Promise<string | null> {
-  const icpId = run.value?.icpId;
-  if (!icpId) return null;
-  const before = new Set(taskAttempts.value.map((row) => row.runId).filter(Boolean));
-  for (let i = 0; i < 10; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    try {
-      const tasks = await gainosApi.acquisitionTasks(icpId);
-      const task = tasks.find((entry) => entry.id === taskId);
-      const fresh = (task?.runs ?? []).find((row) => row.runId && !before.has(row.runId));
-      if (fresh?.runId) return fresh.runId;
-    } catch {
-      // 继续轮询到窗口结束。
-    }
+async function loadTaskAttempts(taskId: string): Promise<AcquisitionTaskView | null> {
+  try {
+    const task = await gainosApi.getTask(taskId);
+    taskDetail.value = task?.id === taskId ? task : null;
+    return taskDetail.value;
+  } catch {
+    taskDetail.value = null;
+    return null;
   }
-  return null;
 }
 
 async function confirmRetry(): Promise<void> {
-  if (retrying.value || !run.value) return;
-  const taskId = run.value.taskRef?.taskId;
-  const planId = run.value.planId;
-  if (!taskId || !planId) {
-    retryError.value = $t('gainos.runs.retryUnavailable');
-    return;
-  }
+  const current = run.value;
+  const taskId = current?.taskRef?.taskId;
+  if (retrying.value || !canRetry.value || !taskId || !current?.planId) return;
   retrying.value = true;
   retryError.value = null;
-  retryAttemptId.value ??= mintAttemptId();
   try {
-    const result = await gainosApi.startAcquisitionTaskRun(taskId, planId, retryAttemptId.value);
-    retryDialog.value = false;
-    retryAttemptId.value = null;
-    retryNotice.value = $t('gainos.runs.retryRequested');
-    if (result.runId) {
-      await router.push({ name: 'DiscoveryRun', params: { runId: result.runId } });
-    } else {
-      await load();
-    }
-  } catch (err) {
-    const settled = await reconcileStartedRun(taskId);
-    if (settled) {
-      retryDialog.value = false;
-      retryAttemptId.value = null;
-      retryNotice.value = $t('gainos.runs.retryRequested');
-      await router.push({ name: 'DiscoveryRun', params: { runId: settled } });
+    // Recheck the bound task before making another billable dispatch.
+    const task = await loadTaskAttempts(taskId);
+    if (!task || !canRetry.value) {
+      retryError.value = { title: $t('gainos.runs.retryUnavailable'), why: undefined, next: undefined };
       return;
     }
-    retryError.value = failureText(err).title;
+    retryAttemptId.value ??= mintAttemptId();
+    const result = await gainosApi.startAcquisitionTaskRun(taskId, current.planId, retryAttemptId.value);
+    notifyChainChanged();
+    retryDialog.value = false;
+    if (result.runId) {
+      retryAttemptId.value = null;
+      await router.push(sourcingRunLocation(result.runId, 'progress'));
+    } else {
+      retryNotice.value = $t('gainosBuyerJourney.sourcing.outcomeUnknown');
+      await loadTaskAttempts(taskId);
+    }
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status && status >= 400 && status < 500 && status !== 408) retryAttemptId.value = null;
+    retryError.value = failureText(err);
   } finally {
     retrying.value = false;
   }
@@ -460,8 +479,9 @@ function closeRetryDialog(): void {
 }
 
 async function stopDeep(): Promise<void> {
-  if (stopping.value) return;
+  if (stopping.value || !canStop.value) return;
   feedback.confirm({
+    title: $t('gainos.runs.stopDeep'),
     cancelText: $t('gainos.common.cancel'),
     content: $t('gainos.runs.stopConfirm'),
     okText: $t('gainos.runs.stopDeep'),
@@ -472,6 +492,7 @@ async function stopDeep(): Promise<void> {
       try {
         await gainosApi.cancelDiscoveryRun(runId);
         stopNotice.value = $t('gainos.runs.stopRequested');
+        notifyChainChanged();
         await load();
       } catch (err) {
         jobError.value = failureText(err).title;
@@ -848,7 +869,7 @@ const failureSummary = computed(() => {
 
 const statusTone = computed(() => {
   const status = run.value?.status ?? '';
-  if (status === 'DONE') return 'is-ok';
+  if (status === 'DONE' || status === 'COMPLETED') return 'is-ok';
   if (status === 'FAILED') return 'is-bad';
   if (status === 'PARTIAL') return 'is-warn';
   if (status === 'CANCELLED') return 'is-warn';
@@ -866,113 +887,210 @@ function jobErrorLabel(code?: string | null): string {
 }
 
 function statusLabel(status?: string): string {
-  return glossaryStatus('run', status, preferences.app.locale)?.label ?? '—';
+  return glossaryStatus('run', status, preferences.app.locale)?.label ??
+    $t(status === 'QUEUED' ? 'gainosBuyerJourney.sourcing.queued' : 'gainosBuyerJourney.sourcing.unknownStatus');
 }
 
 function toneLabel(tone: Tone): string {
   return $t(`gainos.runs.stageState.${tone}`);
 }
 
+async function loadResult(): Promise<void> {
+  const current = run.value;
+  if (!current || resultRequest || disposed) return;
+  resultRequest = true;
+  resultsLoading.value = true;
+  try {
+    const result = await gainosApi.discoveryRunResultView(runId);
+    if (disposed) return;
+    if (result?.runId !== runId || result.icpId !== current.icpId ||
+      !Array.isArray(result.candidates?.items) ||
+      !Array.isArray(result.scoring?.thisRun?.items) || !Array.isArray(result.scoring?.latest?.items)) {
+      throw new Error('Invalid result view');
+    }
+    resultView.value = result;
+    resultsError.value = false;
+  } catch {
+    resultsError.value = true;
+  } finally {
+    resultRequest = false;
+    resultsLoading.value = false;
+  }
+}
+
+async function loadPlan(): Promise<void> {
+  const current = run.value;
+  if (!current?.icpId || !current.planId || planLoading.value) return;
+  planLoading.value = true;
+  planError.value = null;
+  try {
+    const data = await gainosApi.queryPlans(current.icpId);
+    if (!Array.isArray(data)) throw new Error('Invalid plan list');
+    plan.value = data.find((entry) => entry.id === current.planId && entry.icpId === current.icpId) ?? null;
+  } catch (err) {
+    planError.value = failureText(err);
+  } finally {
+    planLoading.value = false;
+  }
+}
+
+async function loadProgress(): Promise<void> {
+  if (progressLoading.value) return;
+  progressLoading.value = true;
+  try {
+    const res = await gainosApi.streamingProgress(runId);
+    streamingDto.value = res && typeof res === 'object' && 'stages' in res ? res : null;
+    progressError.value = null;
+  } catch (err) {
+    progressError.value = failureText(err);
+  } finally {
+    progressLoading.value = false;
+  }
+  if (diagnosticsOpen.value) await pollEvents();
+}
+
+function toggleDiagnostics(event: Event): void {
+  const open = (event.currentTarget as HTMLDetailsElement).open;
+  diagnosticsOpen.value = open;
+  if (open && !traceRows.value.length) void Promise.all([loadJobs(), loadTrace()]);
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'results') void loadResult();
+  if (tab === 'progress') void loadProgress();
+  if (tab === 'plan' && !plan.value) void loadPlan();
+});
+
 async function load(): Promise<void> {
+  if (runRequest || disposed) return;
+  runRequest = true;
   loading.value = !run.value;
   try {
-    run.value = await gainosApi.discoveryRun(runId);
+    const data = await gainosApi.discoveryRun(runId);
+    if (disposed) return;
+    if (!data || data.id !== runId) throw new Error('Invalid run');
+    const initial = !run.value;
+    run.value = data;
     error.value = null;
-    await Promise.all([
-      pollEvents(),
-      gainosApi
-        .streamingProgress(runId)
-        .then((res) => {
-          streamingDto.value = res && typeof res === 'object' && 'stages' in res ? res : null;
-        })
-        .catch(() => {
-          streamingDto.value = null;
-        }),
-      gainosApi
-        .discoveryRunResultView(runId)
-        .then((res) => {
-          resultView.value =
-            res && typeof res === 'object' && 'candidates' in res && 'scoring' in res ? res : null;
-        })
-        .catch(() => {
-          resultView.value = null;
-        }),
-      jobs.value.length === 0 ? loadJobs() : Promise.resolve(),
-      traceRows.value.length === 0 ? loadTrace() : Promise.resolve(),
-      loadTaskAttempts(),
-    ]);
+    if (initial || activeTab.value === 'results') void loadResult();
+    if (activeTab.value === 'progress') void loadProgress();
+    if (activeTab.value === 'plan' && !plan.value) void loadPlan();
+    if (initial && data.taskRef?.taskId) void loadTaskAttempts(data.taskRef.taskId);
   } catch (err) {
     error.value = failureText(err);
   } finally {
+    runRequest = false;
     loading.value = false;
     schedule();
   }
 }
 
 function schedule(): void {
-  if (timer) clearInterval(timer);
+  if (timer) clearTimeout(timer);
   timer = null;
-  if (auto.value && run.value?.status === 'RUNNING') {
-    timer = setInterval(() => {
-      void load();
-    }, 3000);
+  if (!disposed && auto.value && run.value && isRunInProgress(run.value.status)) {
+    timer = setTimeout(() => void load(), 3000);
   }
 }
 
-function toggleAuto(): void {
-  auto.value = !auto.value;
-  schedule();
-}
+watch(auto, schedule);
 
-function back(): void {
-  void router.push('/find-buyers');
-}
-
-function goLeads(): void {
-  void router.push('/leads');
-}
-
-onMounted(load);
+onMounted(() => {
+  void ensureLoaded();
+  void load();
+  void loadHistory();
+  void gainosApi.icps().then((rows) => {
+    if (Array.isArray(rows)) profileNames.value = new Map(rows.map((item) => [item.id, item.name]));
+  }).catch(() => undefined);
+});
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  disposed = true;
+  if (timer) clearTimeout(timer);
 });
 </script>
 
 <template>
-  <div class="run">
-    <header class="run__head" data-gs="run-head">
-      <div>
-        <button class="run__back" type="button" @click="back">← {{ $t('gainos.runs.back') }}</button>
-        <span class="run__kicker">{{ $t('gainos.runs.kicker') }}</span>
-        <h1>{{ $t('gainos.runs.title') }}</h1>
-        <p class="run__muted">{{ $t('gainos.runs.subtitle') }}</p>
+  <SourcingLayout
+    :active-run-id="runId"
+    :load-error="historyError"
+    :loading="historyLoading"
+    :profiles="profileNames"
+    :tasks="recentTasks"
+    @retry="loadHistory"
+  >
+    <template #rail>
+      <RouterLink class="run__task-link" :to="{ name: 'Tasks', query: { tab: 'manage' } }">
+        {{ $t('gainosBuyerJourney.sourcing.taskManagement') }}
+      </RouterLink>
+    </template>
+    <div class="run">
+      <div v-if="error" class="run__inline-stack">
+        <ErrorNotice v-bind="error" />
+        <Button class="justify-self-start" @click="load">{{ $t('gainos.common.retry') }}</Button>
       </div>
-      <div class="run__head-actions">
-        <label v-if="run?.status === 'RUNNING'" class="run__auto"><input v-model="auto" type="checkbox" @change="toggleAuto" /> {{ $t('gainos.runs.autoRefresh') }}</label>
-        <button v-if="run?.status === 'RUNNING'" class="run__action run__action--danger" type="button" :disabled="stopping" @click="stopDeep">{{ stopping ? $t('gainos.common.loading') : $t('gainos.runs.stopDeep') }}</button>
-        <button v-if="canRetry" class="run__action run__action--primary" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
-        <button class="run__action" type="button" @click="load">{{ $t('gainos.common.refresh') }}</button>
-      </div>
-    </header>
-
-    <p v-if="loading" class="run__muted">{{ $t('gainos.common.loading') }}</p>
-    <div v-else-if="error" class="run__error" role="alert">
-      <h2>{{ error.title }}</h2>
-      <p v-if="error.next">{{ error.next }}</p>
-      <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.back') }}</button>
-    </div>
-
-    <template v-else-if="run">
+      <Skeleton v-if="loading" active :paragraph="{ rows: 3 }" />
+      <template v-else-if="run">
+        <header class="run__head" data-gs="run-head">
+          <div>
+            <div class="run__title">
+              <h2>{{ runTitle }}</h2>
+              <GsTag :tone="statusTone === 'is-ok' ? 'success' : run.status === 'RUNNING' ? 'info' : run.status === 'PARTIAL' ? 'warning' : run.status === 'FAILED' ? 'danger' : 'neutral'">
+                {{ statusLabel(run.status) }}
+              </GsTag>
+            </div>
+            <RouterLink
+              v-if="run.icpId"
+              class="run__task-link"
+              :to="{ name: 'FindBuyers', query: { icp: run.icpId } }"
+            >{{ $t('gainosBuyerJourney.sourcing.openProfile') }}</RouterLink>
+          </div>
+          <Button v-if="canRetry" type="primary" @click="retryDialog = true">{{ $t('gainosBuyerJourney.sourcing.restart') }}</Button>
+        </header>
+        <p v-if="retryNotice" class="run__muted" role="status">{{ retryNotice }}</p>
+        <Tabs :active-key="activeTab" @change="selectTab">
+          <TabPane key="results" :tab="$t('gainosBuyerJourney.results.results')">
+            <RunResults :error="resultsError" :loading="resultsLoading" :result="resultView" :status="run.status" @retry="loadResult" />
+          </TabPane>
+          <TabPane key="progress" :tab="$t('gainosBuyerJourney.results.progress')">
+            <div class="run__inline-stack">
+              <div class="run__head-actions">
+                <label v-if="isRunInProgress(run.status)" class="run__auto"><input v-model="auto" type="checkbox" /> {{ $t('gainos.runs.autoRefresh') }}</label>
+                <Button @click="load">{{ $t('gainos.common.refresh') }}</Button>
+                <Button v-if="canStop" danger :loading="stopping" @click="stopDeep">{{ $t('gainos.runs.stopDeep') }}</Button>
+              </div>
+              <p v-if="accessLoaded && !canManage && run.status === 'RUNNING'" class="run__muted">{{ $t('gainosBuyerJourney.profile.notPermitted') }}</p>
+              <p v-if="stopNotice" class="run__muted" role="status">{{ stopNotice }}</p>
+              <p v-if="jobError" class="run__error-text" role="alert">{{ jobError }}</p>
+              <div v-if="progressError" class="run__inline-stack">
+                <ErrorNotice v-bind="progressError" />
+                <Button class="justify-self-start" @click="loadProgress">{{ $t('gainos.common.retry') }}</Button>
+              </div>
       <StreamingProgressBoard
-        v-if="streamingFunnel"
+        v-if="streamingDto && streamingFunnel"
         :cancelling="stopping"
         :progress="streamingFunnel"
         :show-cancel-action="false"
         :show-refresh-action="false"
         @cancel="stopDeep"
         @refresh="load"
-        @view-leads="goLeads"
+        @view-leads="selectTab('results')"
       />
+      <section v-if="!streamingDto" class="run__user-stages" :aria-label="$t('gainos.runs.userProgress')">
+        <article
+          v-for="(stage, index) in userStages"
+          :key="stage.key"
+          class="run__user-stage"
+          :class="`is-${stage.tone}`"
+          :data-gs-state="stage.tone"
+          data-gs="run-stage"
+        >
+          <span class="run__stage-index">{{ index + 1 }}</span>
+          <strong>{{ stage.label }}</strong>
+          <span class="run__user-stage-value" data-gs="run-stage-value">{{ stage.value }}</span>
+          <span class="run__stage-hint">{{ stage.hint }}</span>
+        </article>
+      </section>
+
       <section class="run__summary">
         <article class="run__status-card">
           <span class="run__badge" :class="statusTone">{{ statusLabel(run.status) }}</span>
@@ -980,7 +1098,7 @@ onUnmounted(() => {
           <p v-if="run.taskRef?.taskId" class="run__muted">
             {{ $t('gainos.runs.taskLabel') }}
             <RouterLink class="run__task-link" :to="{ name: 'TaskDetail', params: { taskId: run.taskRef.taskId } }">
-              {{ taskName ?? run.taskRef.taskId.slice(0, 8) }}
+              {{ taskDetail?.name ?? $t('gainosBuyerJourney.sourcing.taskManagement') }}
             </RouterLink>
           </p>
           <p class="run__muted">{{ $t('gainos.runs.duration') }} {{ elapsed }}</p>
@@ -1000,49 +1118,30 @@ onUnmounted(() => {
         <span v-if="failureRateHigh" class="gs-badge gs-badge--danger" style="margin-left: 8px">{{ $t('gainos.runs.metaFailureHigh') }}</span>
       </p>
 
-      <p v-if="stopNotice" class="run__muted">{{ stopNotice }}</p>
-      <p v-if="retryNotice" class="run__muted">{{ retryNotice }}</p>
-      <p v-if="retryError" class="run__error-text" role="alert">{{ retryError }}</p>
-      <p v-if="jobError" class="run__error-text" role="alert">{{ jobError }}</p>
-
-      <section v-if="resultView" class="run__card run__card--wide" data-gs="run-result-view">
-        <h2>{{ $t('gainosB4.runs.resultViewTitle') }}</h2>
-        <p class="run__muted">{{ $t('gainosB4.runs.resultViewSubtitle') }}</p>
-        <div class="run__rv-grid">
-          <div class="run__rv-box">
-            <span class="run__muted">{{ $t('gainosB4.runs.resultViewCandidates') }}</span>
-            <strong>
-              {{ resultView.candidates.total }}
-              <span v-if="resultView.candidates.truncated" class="run__chip is-warn">
-                {{ $t('gainosB4.runs.resultViewTruncated') }}
-              </span>
-            </strong>
-          </div>
-          <div class="run__rv-box">
-            <span class="run__muted">{{ $t('gainosB4.runs.resultViewThisRound') }}</span>
-            <strong v-if="resultView.scoring.thisRun.available">
-              {{
-                $t('gainosB4.runs.resultViewScored', {
-                  batches: resultView.scoring.thisRun.batches,
-                  count: resultView.scoring.thisRun.scoredCompanies ?? resultView.scoring.thisRun.items.length,
-                })
-              }}
-            </strong>
-            <strong v-else>{{ $t('gainosB4.runs.resultViewNotScored') }}</strong>
-            <small v-if="resultView.scoring.thisRun.scoredAt" class="run__muted">
-              {{ $t('gainosB4.runs.resultViewScoredAt', { time: formatDateTime(resultView.scoring.thisRun.scoredAt) }) }}
-            </small>
-          </div>
-          <div class="run__rv-box">
-            <span class="run__muted">{{ $t('gainosB4.runs.resultViewLatestLabel') }}</span>
-            <strong>
-              {{ $t('gainosB4.runs.resultViewLatestCount', { count: resultView.scoring.latest.items.length }) }}
-            </strong>
-          </div>
-        </div>
+      <section v-if="taskAttempts.length > 1" class="run__card run__card--wide">
+        <h2>{{ $t('gainos.runs.attemptHistoryTitle') }}</h2>
+        <table class="run__table">
+          <thead><tr><th>{{ $t('gainos.runs.attemptColumn') }}</th><th>{{ $t('gainos.runs.attemptStatus') }}</th><th>{{ $t('gainos.runs.started') }}</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="attempt in taskAttempts" :key="attempt.id">
+              <td>
+                {{ $t('gainos.runs.attemptNth', { n: attempt.attempt }) }}
+                <small v-if="attempt.rerunOf" class="run__muted"> · {{ $t('gainos.runs.attemptRetriedFrom', { n: taskAttempts.find((row) => row.id === attempt.rerunOf)?.attempt ?? '?' }) }}</small>
+              </td>
+              <td>{{ statusLabel(attempt.status) }}</td>
+              <td>{{ formatDateTime(attempt.startedAt) }}</td>
+              <td>
+                <button v-if="attempt.runId && attempt.runId !== runId" class="run__action" type="button" @click="router.push({ name: 'DiscoveryRun', params: { runId: attempt.runId } })">{{ $t('gainos.runs.attemptOpen') }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
-      <section class="run__grid">
+
+              <details class="run__tech run__diagnostics" @toggle="toggleDiagnostics">
+                <summary>{{ $t('gainosBuyerJourney.results.diagnostics') }}</summary>
+                <div v-if="diagnosticsOpen" class="run__inline-stack">      <section class="run__grid">
         <article class="run__card run__card--wide">
           <h2>{{ $t('gainos.runs.quickListTitle') }}</h2>
           <p class="run__quick-toggle run__muted">
@@ -1123,62 +1222,6 @@ onUnmounted(() => {
           </li>
         </ol>
         <button v-if="traceHasMore" class="run__action" type="button" :disabled="traceLoading" @click="loadMoreTrace">{{ $t('gainos.runs.traceLoadMore') }}</button>
-      </section>
-
-      <section class="run__user-stages" :aria-label="$t('gainos.runs.userProgress')">
-        <article
-          v-for="(stage, index) in userStages"
-          :key="stage.key"
-          class="run__user-stage"
-          :class="`is-${stage.tone}`"
-          :data-gs-state="stage.tone"
-          data-gs="run-stage"
-        >
-          <span class="run__stage-index">{{ index + 1 }}</span>
-          <strong>{{ stage.label }}</strong>
-          <span class="run__user-stage-value" data-gs="run-stage-value">{{ stage.value }}</span>
-          <span class="run__stage-hint">{{ stage.hint }}</span>
-        </article>
-      </section>
-
-      <section
-        v-if="run.status === 'PARTIAL' || run.status === 'FAILED'"
-        class="run__outcome"
-        :class="run.status === 'FAILED' ? 'is-bad' : 'is-warn'"
-      >
-        <div>
-          <strong>{{ run.status === 'PARTIAL' ? $t('gainos.runs.partialTitle') : $t('gainos.runs.failedTitle') }}</strong>
-          <p>
-            {{ run.status === 'PARTIAL'
-              ? $t('gainos.runs.partialDesc', { count: textOf(stats.companies) })
-              : $t('gainos.runs.failedDesc', { count: textOf(stats.companies) }) }}
-          </p>
-        </div>
-        <div class="run__outcome-actions">
-          <button v-if="runActions.canRetry" class="run__action" type="button" @click="retryDialog = true">{{ $t('gainos.runs.retry') }}</button>
-          <button v-if="runActions.canViewLeads" class="run__action run__action--primary" type="button" @click="goLeads">{{ $t('gainos.runs.goLeads') }}</button>
-          <button class="run__action" type="button" @click="back">{{ $t('gainos.runs.adjustIcp') }}</button>
-        </div>
-      </section>
-
-      <section v-if="taskAttempts.length > 1" class="run__card run__card--wide">
-        <h2>{{ $t('gainos.runs.attemptHistoryTitle') }}</h2>
-        <table class="run__table">
-          <thead><tr><th>{{ $t('gainos.runs.attemptColumn') }}</th><th>{{ $t('gainos.runs.attemptStatus') }}</th><th>{{ $t('gainos.runs.started') }}</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="attempt in taskAttempts" :key="attempt.id">
-              <td>
-                {{ $t('gainos.runs.attemptNth', { n: attempt.attempt }) }}
-                <small v-if="attempt.rerunOf" class="run__muted"> · {{ $t('gainos.runs.attemptRetriedFrom', { n: taskAttempts.find((row) => row.id === attempt.rerunOf)?.attempt ?? '?' }) }}</small>
-              </td>
-              <td>{{ statusLabel(attempt.status) }}</td>
-              <td>{{ formatDateTime(attempt.startedAt) }}</td>
-              <td>
-                <button v-if="attempt.runId && attempt.runId !== runId" class="run__action" type="button" @click="router.push({ name: 'DiscoveryRun', params: { runId: attempt.runId } })">{{ $t('gainos.runs.attemptOpen') }}</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
       </section>
 
       <!-- 内部编号对用户没有意义，从页头挪到这里：反馈问题时才需要拿来对账。 -->
@@ -1348,25 +1391,58 @@ onUnmounted(() => {
         <summary>{{ $t('gainos.runs.detailsTitle') }}</summary>
         <pre>{{ JSON.stringify(run, null, 2) }}</pre>
       </details>
-    </template>
 
-    <div v-if="retryDialog" class="run__modal" role="dialog" aria-modal="true" :aria-label="$t('gainos.runs.retryTitle')">
-      <div class="run__modal-card">
-        <h2>{{ $t('gainos.runs.retryTitle') }}</h2>
-        <p class="run__muted">{{ $t('gainos.runs.retryLastOutcomeLabel') }}：{{ retryOutcomeText }}</p>
-        <p class="run__muted">{{ $t('gainos.runs.retryBudget') }}</p>
-        <p v-if="retryError" class="run__error-text" role="alert">{{ retryError }}</p>
-        <div class="run__modal-actions">
-          <button class="run__action" type="button" :disabled="retrying" @click="closeRetryDialog">{{ $t('gainos.common.cancel') }}</button>
-          <button class="run__action run__action--primary" type="button" :disabled="retrying" @click="confirmRetry">{{ retrying ? $t('gainos.common.loading') : $t('gainos.runs.retryConfirm') }}</button>
-        </div>
-      </div>
+                </div>
+              </details>
+            </div>
+          </TabPane>
+          <TabPane key="plan" :tab="$t('gainosBuyerJourney.results.plan')">
+            <div class="run__inline-stack">
+              <Skeleton v-if="planLoading" active :paragraph="{ rows: 3 }" />
+              <div v-else-if="planError" class="run__inline-stack">
+                <ErrorNotice :title="$t('gainosBuyerJourney.sourcing.planError')" :next="planError.title" />
+                <Button class="justify-self-start" @click="loadPlan">{{ $t('gainos.common.retry') }}</Button>
+              </div>
+              <QueryPlanSummary v-else-if="plan" :key="plan.id" :plan="plan" />
+              <p v-else class="run__muted">{{ $t('gainosBuyerJourney.sourcing.planMissing') }}</p>
+              <RouterLink v-if="run.icpId" class="run__task-link" :to="sourcingPlansLocation(run.icpId)">
+                {{ $t('gainosBuyerJourney.sourcing.planHistory') }}
+              </RouterLink>
+            </div>
+          </TabPane>
+        </Tabs>
+      </template>
     </div>
-  </div>
+    <Modal
+      :open="retryDialog"
+      :title="$t('gainosBuyerJourney.sourcing.retryTitle')"
+      :ok-text="$t('gainosBuyerJourney.sourcing.restart')"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="retrying"
+      :closable="!retrying"
+      :mask-closable="!retrying"
+      :keyboard="!retrying"
+      @ok="confirmRetry"
+      @cancel="closeRetryDialog"
+    >
+      <div class="run__inline-stack">
+        <p class="run__muted">{{ $t('gainos.runs.retryLastOutcomeLabel') }} · {{ retryOutcomeText }}</p>
+        <p class="run__muted">{{ $t('gainosBuyerJourney.sourcing.retryBilling') }}</p>
+        <RouterLink class="run__task-link" :to="{ path: '/settings/account', hash: '#wallet' }">{{ $t('gainosBuyerJourney.sourcing.wallet') }}</RouterLink>
+        <ErrorNotice v-if="retryError" v-bind="retryError" />
+      </div>
+    </Modal>
+  </SourcingLayout>
 </template>
 
 <style scoped>
-.run { padding: clamp(18px, 2.4vw, 32px) clamp(18px, 2.4vw, 34px) clamp(32px, 4vh, 48px); max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
+.run { display: grid; min-width: 0; gap: 10px; overflow-wrap: anywhere; }
+.run__title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.run__title h2 { margin: 0; font-size: clamp(19px, 2vw, 24px); font-weight: 600; }
+.run__inline-stack { display: grid; gap: 12px; min-width: 0; }
+.run__head .run__task-link { display: inline-flex; min-height: 40px; align-items: center; }
+.run__diagnostics > summary { min-height: 30px; }
+
 .run__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .run__back { border: 0; background: transparent; padding: 0; color: var(--gs-fg-muted); font-size: 13px; cursor: pointer; }
 .run__back:hover { color: var(--gs-accent-strong); }

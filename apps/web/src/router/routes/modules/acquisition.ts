@@ -6,6 +6,7 @@ import { navTitle } from '../nav';
 const routes: RouteRecordRaw[] = [
   {
     meta: {
+      fullPathKey: false,
       icon: 'lucide:radar',
       order: 4,
       title: navTitle('findBuyers'),
@@ -17,8 +18,9 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       activePath: '/tasks',
+      fullPathKey: false,
       hideInMenu: true,
-      title: 'gainos.runs.title',
+      title: 'gainosBuyerJourney.sourcing.runtimeDetail',
     },
     name: 'DiscoveryRun',
     path: '/runs/:runId',

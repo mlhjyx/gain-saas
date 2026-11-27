@@ -9,6 +9,7 @@ import { navTitle } from '../nav';
 const routes: RouteRecordRaw[] = [
   {
     meta: {
+      fullPathKey: false,
       icon: 'lucide:list-checks',
       order: 6,
       title: navTitle('tasks'),
@@ -21,7 +22,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       activePath: '/tasks',
       hideInMenu: true,
-      title: 'gainos.tasks.detailTitle',
+      title: 'gainosBuyerJourney.sourcing.taskManagement',
     },
     name: 'TaskDetail',
     path: '/tasks/:taskId',

@@ -1,3 +1,4 @@
+import { formatCredits } from '@gain-saas/shared';
 import { preferences } from '@vben/preferences';
 
 import { $t } from '#/locales';
@@ -67,7 +68,38 @@ export interface FailureCopy {
   title: string;
 }
 
+function walletFailureCopy(error: unknown): FailureCopy | undefined {
+  const data = responseOf(error)?.data as {
+    error?: { code?: unknown; details?: { availableCredits?: unknown; requiredCredits?: unknown } };
+  } | null | undefined;
+  const body = data?.error;
+  if (body?.code === 'WALLET_FROZEN') {
+    return {
+      next: $t('gainosBuyerJourney.billing.frozenNext'),
+      title: $t('gainosBuyerJourney.billing.frozen'),
+    };
+  }
+  if (body?.code !== 'INSUFFICIENT_CREDITS') return undefined;
+
+  // Wallet use is denominated in integral bigint credits. Keep the server's precision.
+  const { availableCredits, requiredCredits } = body.details ?? {};
+  const validCredits = (value: unknown): value is string =>
+    typeof value === 'string' && /^\d{1,19}$/.test(value);
+  return {
+    title: $t('gainosBuyerJourney.billing.insufficient'),
+    next: validCredits(availableCredits) && validCredits(requiredCredits)
+      ? $t('gainosBuyerJourney.billing.amounts', {
+          available: formatCredits(availableCredits),
+          required: formatCredits(requiredCredits),
+        })
+      : $t('gainosBuyerJourney.billing.insufficientNext'),
+  };
+}
+
 export function httpFailureCopy(error: unknown): FailureCopy {
+  const walletCopy = walletFailureCopy(error);
+  if (walletCopy) return walletCopy;
+
   const serverMessage = serverMessageOf(error);
   const english = preferences.app.locale === 'en-US';
   // 服务端写了本语言的说明就直接用（中文界面配中文说明，英文界面配英文说明）；

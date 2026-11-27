@@ -202,7 +202,8 @@ test('#15 #18 运行页：编号收进技术详情，五步进度按引擎阶段
   backend.set('GET', '/runs/run-1/trace', { data: [], page: { has_more: false } });
 
   await loginAs(page);
-  await page.goto('/runs/run-1');
+  await page.goto('/runs/run-1?tab=progress');
+  await page.getByText('技术详情与寻源过程', { exact: true }).click();
 
   // 页头不再摆内部编号；编号在折叠的「技术详情：任务编号」里，给反馈问题时对账用
   const head = page.locator("[data-gs='run-head']");

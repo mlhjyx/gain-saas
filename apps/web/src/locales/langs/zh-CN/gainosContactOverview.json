@@ -1,0 +1,33 @@
+{
+  "title": "联系人与联系方式",
+  "backToLead": "返回线索",
+  "identity": "联系人",
+  "personalChannels": "联系人渠道",
+  "publicChannels": "企业公开渠道",
+  "publicChannelJump": "查看企业的 {channel}",
+  "contactTools": "联系人补强",
+  "adminOnly": "工作空间管理员可查看具名联系人并发起补强。",
+  "restricted": "这条线索的联系渠道当前受限。",
+  "company": "买家公司",
+  "affiliatedCompany": "所属公司",
+  "noDescription": "暂无有来源的公司简介",
+  "location": "所在地",
+  "registeredCity": "{city}（注册地）",
+  "mainBusiness": "主营业务",
+  "businessSeparator": "、",
+  "website": "官网",
+  "domain": "域名",
+  "sources": "资料与来源",
+  "companyWebsiteSource": "企业官网",
+  "sourceFields": {
+    "description": "公司简介",
+    "location": "所在地",
+    "main_business": "主营业务",
+    "website": "官网"
+  },
+  "workEmail": "工作邮箱",
+  "copy": "复制",
+  "compose": "写邮件",
+  "call": "拨打电话",
+  "open": "打开渠道"
+}

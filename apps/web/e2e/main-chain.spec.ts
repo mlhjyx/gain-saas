@@ -12,6 +12,7 @@ import { expect, test } from '@playwright/test';
 import type { MockBackend, MockHandler } from './support/mock-backend';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-08T08:00:00.000Z';
 
@@ -153,6 +154,7 @@ test('主链路 2：企业事实审批（通过所选）', async ({ page }) => {
 
 test('主链路 3：买家画像 → 方案生成/确认 → 开始寻源 → run 进度可见', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', [ICP]);
   backend.set('GET', '/icps/icp-1', ICP);
@@ -227,16 +229,16 @@ test('主链路 3：买家画像 → 方案生成/确认 → 开始寻源 → ru
 
   await loginAs(page);
   await page.goto('/find-buyers');
-  await page.getByRole('button', { name: '查看与调整' }).click();
-  await settle(page);
-  await page.getByRole('button', { name: '生成寻源方案' }).click();
-  await expect(page.getByRole('button', { name: '确认方案' })).toBeVisible();
-  await page.getByRole('button', { name: '确认方案' }).click();
-  await expect(page.getByRole('button', { name: '开始寻源' })).toBeVisible();
-  await page.getByRole('button', { name: '开始寻源' }).click();
+  await page.getByRole('link', { name: '制定寻源方案', exact: true }).click();
+  await page.getByRole('button', { name: '制定寻源方案', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '制定寻源方案', exact: true }).click();
+  await page.getByRole('button', { name: '确认方案', exact: true }).click();
+  await page.getByRole('button', { name: '开始寻源', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '开始寻源', exact: true }).click();
 
-  await page.waitForURL(/\/runs\/run-1/);
+  await expect(page).toHaveURL(/\/runs\/run-1\?tab=progress$/);
   await expect(page.getByText('进行中').first()).toBeVisible();
+  await page.getByText('技术详情与寻源过程', { exact: true }).click();
   await expect(page.getByText('Muster Metallbau GmbH')).toBeVisible();
 });
 
@@ -318,56 +320,50 @@ const FINISHED_RUN = {
   trigger: 'manual',
 };
 
-test('主链路 3b：编辑画像后可重新生成寻源方案，已执行方案可再跑一次', async ({ page }) => {
+test('主链路 3b：编辑画像后生成新方案，保留已执行版本和重新寻源入口', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   mockIteratedSourcing(backend, { plans: [EXECUTED_PLAN], runs: [FINISHED_RUN] });
 
   await loginAs(page);
   await page.goto('/find-buyers');
-  await page.getByRole('button', { name: '查看与调整' }).click();
-  await settle(page);
-
-  // 已有方案的画像：生成入口还在，已执行的方案可以再跑一次
-  await expect(page.getByRole('button', { name: '重新生成寻源方案' })).toBeVisible();
-  const executed = page.locator('li.fb-plan').filter({ hasText: '已执行' });
-  await expect(executed.getByRole('button', { name: '再跑一次' })).toBeEnabled();
-
-  // 编辑画像：版本号前进，并提示旧方案是按更新前的内容生成的
-  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByRole('button', { name: '编辑画像', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '保存修改' }).click();
-  await expect(page.getByRole('status').filter({ hasText: '第 3 版' })).toBeVisible();
-  await expect(page.getByText('重新生成后才会按新画像搜索')).toBeVisible();
+  await page.getByRole('tab', { name: '匹配条件' }).click();
+  await page.getByText('画像版本与来源', { exact: true }).click();
+  await expect(page.getByText('第 3 版')).toBeVisible();
+  await page.getByRole('tab', { name: '概览', exact: true }).click();
+  await page.getByRole('link', { name: '寻源方案', exact: true }).click();
+  await expect(page).toHaveURL(/edited=1$/);
+  await expect(page.getByText('画像已编辑。请核对旧方案的搜索范围，或按当前画像生成新版本。')).toBeVisible();
+  await expect(page.getByRole('button', { name: '重新寻源', exact: true })).toBeEnabled();
 
-  // 重新生成：新方案待确认，提示随之消失
-  await page.getByRole('button', { name: '重新生成寻源方案' }).click();
-  const draft = page.locator('li.fb-plan').filter({ hasText: '待确认' });
-  await expect(draft.getByRole('button', { name: '确认方案' })).toBeVisible();
-  await expect(page.getByText('重新生成后才会按新画像搜索')).toHaveCount(0);
-  await draft.getByRole('button', { name: '确认方案' }).click();
-  await expect(page.locator('li.fb-plan').filter({ hasText: '可执行' }).getByRole('button', { name: '开始寻源' })).toBeEnabled();
+  await page.getByRole('button', { name: '重新生成寻源方案', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '制定寻源方案', exact: true }).click();
+  await expect(page).toHaveURL(/plan=plan-2$/);
+  await page.getByRole('button', { name: '确认方案', exact: true }).click();
+  await expect(page.getByRole('button', { name: '开始寻源', exact: true })).toBeEnabled();
 
-  // 旧方案再跑一次：带新的尝试标识发起，进入一条新的运行
-  await executed.getByRole('button', { name: '再跑一次' }).click();
+  await page.goto('/tasks?icp=icp-1&tab=plan&plan=plan-1');
+  await page.getByRole('button', { name: '重新寻源', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '重新寻源', exact: true }).click();
   await page.waitForURL(/\/runs\/run-2/);
   const call = backend.take('POST', '/tasks/task-1/runs');
   expect(call?.body).toEqual({ attemptId: expect.stringMatching(/^[a-f0-9-]{36}$/), planId: 'plan-1' });
 });
 
-test('主链路 3c：上一轮寻源还在进行时不重复发起', async ({ page }) => {
+test('主链路 3c：上一轮寻源进行中，方案可编辑但无法重复发起', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   mockIteratedSourcing(backend, { plans: [EXECUTED_PLAN], runs: [{ ...FINISHED_RUN, status: 'RUNNING', finishedAt: null }] });
 
   await loginAs(page);
-  await page.goto('/find-buyers');
-  await page.getByRole('button', { name: '查看与调整' }).click();
-  await settle(page);
-
-  // 再跑一次、开始寻源都先挡住；重新生成方案不受影响
-  await expect(page.locator('li.fb-plan').filter({ hasText: '已执行' }).getByRole('button', { name: '再跑一次' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '重新生成寻源方案' })).toBeEnabled();
-  await page.getByRole('button', { name: '重新生成寻源方案' }).click();
-  await page.locator('li.fb-plan').filter({ hasText: '待确认' }).getByRole('button', { name: '确认方案' }).click();
-  await expect(page.locator('li.fb-plan').filter({ hasText: '可执行' }).getByRole('button', { name: '开始寻源' })).toBeDisabled();
+  await page.goto('/tasks?icp=icp-1&tab=plan&plan=plan-1');
+  await expect(page.getByRole('button', { name: '重新寻源', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '重新生成寻源方案', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '制定寻源方案', exact: true }).click();
+  await page.getByRole('button', { name: '确认方案', exact: true }).click();
+  await expect(page.getByRole('button', { name: '开始寻源', exact: true })).toBeDisabled();
   expect(backend.callsTo('POST', '/tasks/task-1/runs')).toHaveLength(0);
 });
 

@@ -12,6 +12,7 @@ import { expect, test } from '@playwright/test';
 import type { MockBackend, MockHandler } from './support/mock-backend';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-26T08:00:00.000Z';
 
@@ -246,10 +247,9 @@ test('折叠窄栏下芯片切换为紧凑图标按钮，点击仍可弹出 5 �
   await page.waitForURL(/\/companies$/);
 });
 
-test('关键操作后芯片即时更新：激活画像后从第 2 步推进到第 3 步，底部操作条紧贴视口底边 12px', async ({
-  page,
-}) => {
+test('启用画像后主流程芯片即时推进，下一步在画像标题区', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   const state = mockProgress(backend);
   state.companies = [COMPANY];
   state.icps = [{ ...PROFILE, companyAttributes: {}, status: 'HYPOTHESIS', version: 1 }];
@@ -269,8 +269,6 @@ test('关键操作后芯片即时更新：激活画像后从第 2 步推进到�
   await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);
   await expect(chip(page)).toContainText('主流程 · 第 3/5 步 · 确认寻源方案');
 
-  // 底部不再有 40px 压底栏，贴底「下一步」直接距视口底边 12px
-  const next = (await page.locator("[data-gs='icp-next']").boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(Math.abs(next.y + next.height - (viewport.height - 12))).toBeLessThan(3);
+  await expect(page.locator('[data-gs="icp-next"]')).toHaveCount(0);
+  await expect(page.locator('[data-gs="icp-workspace"]').getByRole('link', { name: '制定寻源方案' })).toBeVisible();
 });

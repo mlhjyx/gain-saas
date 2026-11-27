@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
 
@@ -155,6 +156,7 @@ test('未完成建档的工作区仍可打开通知深链接', async ({ page }) 
 
 test('买家画像缺公司时提供补资料入口，有公司时可就地补主营产品', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
+  allowSourcing(backend);
   await loginAs(page);
   await page.goto('/find-buyers?action=create');
   const modal = page.getByRole('dialog', { name: '设定买家画像' });
