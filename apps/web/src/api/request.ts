@@ -104,6 +104,9 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   // 通用的错误处理：取后端三层文案(PRD §14.4 发生了什么/为什么/怎么办),没有则按状态码
   client.addResponseInterceptor(
     errorMessageResponseInterceptor((_msg, error) => {
+      if (error?.config?.silentErrorToast === true) {
+        return;
+      }
       const url = String(error?.config?.url ?? '');
       // 登录/注册/邀请页自己展示行内错误，不再叠加全局 toast。
       if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/accept-invite')) {

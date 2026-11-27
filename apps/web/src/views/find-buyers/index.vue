@@ -665,7 +665,7 @@ async function quickApproveOnboardingFacts(): Promise<void> {
     let lastApproveError: unknown = null;
     for (const claim of rows.slice(0, 12)) {
       try {
-        await gainosApi.approveClaim(claim.id);
+        await gainosApi.approveClaim(claim.id, claim.version, { silentErrorToast: true });
         approved += 1;
       } catch (err) {
         lastApproveError = err;
