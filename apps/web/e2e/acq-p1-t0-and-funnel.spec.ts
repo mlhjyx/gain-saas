@@ -460,6 +460,7 @@ test('买家画像：允许同公司新建第二组画像（带 attemptId）并�
   // 无已通过事实时，点击一键确认建档事实解锁生成
   await page.locator('[data-gs="quick-approve-facts"]').click();
   await expect.poll(() => backend.callsTo('POST', '/claims/claim-1/approve').length).toBe(1);
+  expect(backend.callsTo('POST', '/claims/claim-1/approve')[0]?.body).toEqual({ expectedVersion: 1 });
 
   await page.locator('[data-gs="icp-create-markets"]').fill('IT, ES');
   await page.getByRole('dialog').getByRole('button', { name: '生成初稿' }).click();

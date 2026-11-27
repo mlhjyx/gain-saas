@@ -1123,6 +1123,16 @@ export const ENGINE_ERROR_COPY = {
       next: 'Pick the company from the selector again, or verify the contact ID before submitting.',
     },
   },
+  DOCUMENT_CLAIM_EXPECTED_VERSION_REQUIRED: {
+    title: '文档事实审批缺少版本信息，请刷新后重试',
+    why: '从企业资料提炼的事实要求校验最新版本号，防止覆盖刚变更的记录。',
+    next: '刷新「企业事实」清单获取最新版本后重新勾选提交。',
+    en: {
+      title: 'Fact review is missing its version number',
+      why: 'Facts extracted from company documents require the latest version to prevent stale updates.',
+      next: 'Refresh the Company facts list to load the latest version and submit again.',
+    },
+  },
   DOCUMENT_CLAIM_SOURCE_UNAVAILABLE: {
     title: '资料分段暂不可用，无法提炼企业事实',
     why: '文档尚未解析就绪，或刚被更新/删除，当前引用已失效。',

@@ -729,7 +729,7 @@ const visibleClaims = computed(() => {
   const query = claimQuery.value.trim().toLowerCase();
   if (!query) return source;
   return source.filter((claim) =>
-    `${claim.statement} ${claim.type} ${claim.factKey ?? ''}`.toLowerCase().includes(query));
+    `${claim.statement ?? ''} ${claim.type} ${claim.factKey ?? ''}`.toLowerCase().includes(query));
 });
 const allVisibleSelected = computed(() =>
   visibleClaims.value.length > 0 &&
@@ -871,7 +871,7 @@ function revokeClaim(claim: CompanyClaim): void {
       revokingId.value = claim.id;
       claimActionError.value = null;
       try {
-        await gainosApi.revokeClaim(claim.id);
+        await gainosApi.revokeClaim(claim.id, claim.version);
         claimNotice.value = $t('gainos.companies.revoked');
         await Promise.all([loadClaims(true), loadCompanyOverview(true), loadConflicts()]);
       } catch (err) {
@@ -1001,6 +1001,7 @@ async function reviewSelected(action: 'approve' | 'reject'): Promise<void> {
     return;
   }
   const ids = [...selectedClaimIds.value];
+  const versionById = new Map(claims.value.map((claim) => [claim.id, claim.version]));
   const total = ids.length;
   claimBusy.value = action;
   rejectArmed.value = false;
@@ -1014,9 +1015,13 @@ async function reviewSelected(action: 'approve' | 'reject'): Promise<void> {
     for (;;) {
       const id = queue.shift();
       if (!id) return;
+      const expectedVersion = versionById.get(id);
       try {
-        if (action === 'approve') await gainosApi.approveClaim(id);
-        else await gainosApi.rejectClaim(id);
+        if (action === 'approve') {
+          await gainosApi.approveClaim(id, expectedVersion, { silentErrorToast: true });
+        } else {
+          await gainosApi.rejectClaim(id, expectedVersion, { silentErrorToast: true });
+        }
       } catch {
         failed += 1;
       } finally {

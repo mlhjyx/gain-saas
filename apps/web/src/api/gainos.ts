@@ -68,17 +68,24 @@ export interface CompanyOffering {
   createdAt?: string;
 }
 
+export interface CompanyClaimDocumentSource {
+  status: 'CURRENT' | 'UNAVAILABLE';
+  documentId: string | null;
+  parseRevision: number | null;
+}
+
 /** 企业事实（引擎 Claim）：只有「已通过」的事实会进入买家画像设计。 */
 export interface CompanyClaim {
   id: string;
   companyId: string;
   type: string;
   factKey?: string | null;
-  statement: string;
+  statement: string | null;
   status: 'INGESTED' | 'EXTRACTED' | 'NEEDS_REVIEW' | 'APPROVED' | 'EXPIRED' | 'REVOKED' | string;
   confidence?: number | null;
   version: number;
   evidence?: Array<{ sourceUrl?: string | null; snippet?: string | null; confidence?: number | null }>;
+  documentSource?: CompanyClaimDocumentSource | null;
   createdAt?: string;
 }
 
@@ -1367,9 +1374,31 @@ export const gainosApi = {
       `/onboarding/companies/${companyId}/claim-drafts`,
       {},
     ),
-  approveClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/approve`, {}),
-  rejectClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/reject`, {}),
-  revokeClaim: (claimId: string) => requestClient.post<CompanyClaim>(`/claims/${claimId}/revoke`, {}),
+  approveClaim: (
+    claimId: string,
+    expectedVersion?: number,
+    options?: { silentErrorToast?: boolean },
+  ) =>
+    requestClient.post<CompanyClaim>(
+      `/claims/${claimId}/approve`,
+      typeof expectedVersion === 'number' ? { expectedVersion } : {},
+      options as Record<string, unknown> | undefined,
+    ),
+  rejectClaim: (
+    claimId: string,
+    expectedVersion?: number,
+    options?: { silentErrorToast?: boolean },
+  ) =>
+    requestClient.post<CompanyClaim>(
+      `/claims/${claimId}/reject`,
+      typeof expectedVersion === 'number' ? { expectedVersion } : {},
+      options as Record<string, unknown> | undefined,
+    ),
+  revokeClaim: (claimId: string, expectedVersion?: number) =>
+    requestClient.post<CompanyClaim>(
+      `/claims/${claimId}/revoke`,
+      typeof expectedVersion === 'number' ? { expectedVersion } : {},
+    ),
   companyConflicts: (companyId: string) =>
     requestClient.get<CompanyConflict[]>(`/companies/${companyId}/conflicts`, { params: { status: 'OPEN' } }),
   resolveConflict: (conflictId: string, keep: 'a' | 'b') =>

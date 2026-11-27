@@ -205,6 +205,9 @@ test('店铺建档：市场推荐显式确认，初稿生成和激活由管理�
   expect(backend.callsTo('POST', '/onboarding/preview')[0]?.body).toMatchObject({ website });
   expect(backend.callsTo('POST', '/onboarding/company')[0]?.body).toMatchObject({ products: [product], targetMarkets: ['IT'] });
   expect(backend.callsTo('POST', '/claims/claim-1/approve')).toHaveLength(1);
+  expect(backend.callsTo('POST', '/claims/claim-1/approve')[0]?.body).toEqual({
+    expectedVersion: 1,
+  });
   expect(backend.callsTo('POST', '/companies/' + COMPANY_ID + '/icps')[0]?.body).toMatchObject({
     confirmedTargetMarkets: ['IT'], buyerRoles: ['distributor', 'epc'],
   });
