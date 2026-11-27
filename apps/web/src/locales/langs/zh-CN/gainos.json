@@ -879,6 +879,9 @@
     "planPriority": "优先级 {priority}",
     "planRaw": "技术详情：原始查询",
     "querySource": {
+      "companyRegistry": "官方工商注册",
+      "tradeData": "海关/贸易数据",
+      "b2bCompanyPerson": "商业企业库",
       "publicIntelligence": "公开网络信息",
       "industryData": "行业数据/企业名录",
       "publicWeb": "公开网页",
@@ -2751,8 +2754,16 @@
       "distributor": "区域分销商",
       "wholesaler": "批发商 / 贸易商",
       "epc": "工程总包商（EPC）",
+      "epc_integrator": "工程总包与系统集成商（EPC）",
+      "system_integrator": "系统集成商",
       "installer": "安装商 / 集成商",
       "developer": "项目开发商",
+      "importer": "进口商",
+      "reseller": "转售商 / 代理商",
+      "end_buyer": "终端采购方",
+      "oem_buyer": "OEM 配套采购方",
+      "public_sector": "政府 / 公共机构采购",
+      "utility": "公用事业 / 电网企业",
       "factory_direct": "终端工厂直采"
     },
     "scenario": {

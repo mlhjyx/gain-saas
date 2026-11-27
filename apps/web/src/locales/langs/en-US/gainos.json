@@ -879,6 +879,9 @@
     "planPriority": "Priority {priority}",
     "planRaw": "Technical details: raw queries",
     "querySource": {
+      "companyRegistry": "Company registries",
+      "tradeData": "Trade & customs data",
+      "b2bCompanyPerson": "Business directories",
       "publicIntelligence": "Public web intelligence",
       "industryData": "Industry data / directories",
       "publicWeb": "Public web pages",
@@ -2751,8 +2754,16 @@
       "distributor": "Regional distributor",
       "wholesaler": "Wholesaler / trader",
       "epc": "EPC contractor",
+      "epc_integrator": "EPC & system integrator",
+      "system_integrator": "System integrator",
       "installer": "Installer / integrator",
       "developer": "Project developer",
+      "importer": "Importer",
+      "reseller": "Reseller / agent",
+      "end_buyer": "End buyer",
+      "oem_buyer": "OEM buyer",
+      "public_sector": "Public sector",
+      "utility": "Utility / grid operator",
       "factory_direct": "Direct factory buyer"
     },
     "scenario": {

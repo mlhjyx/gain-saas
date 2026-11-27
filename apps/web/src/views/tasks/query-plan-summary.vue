@@ -12,11 +12,14 @@ import { regionName } from '#/utils/region-name';
 const props = defineProps<{ plan: QueryPlan }>();
 
 const SOURCES: Record<string, string> = {
+  b2b_company_person: 'b2bCompanyPerson',
+  company_registry: 'companyRegistry',
   industry_data: 'industryData',
   openfda: 'openFda',
   public_intelligence: 'publicIntelligence',
   public_web: 'publicWeb',
   ted: 'ted',
+  trade_data: 'tradeData',
 };
 const MARKET_FIELDS = ['country', 'region', 'area_name'];
 const FILTERS: Record<string, string> = { area_name: 'area', country: 'country', industry: 'industry', region: 'region', sub_industry: 'subIndustry' };
