@@ -87,6 +87,18 @@ const error = ref('');
 const notice = ref('');
 
 const overview = ref<Row | null>(null);
+const opsAlerts = ref<{
+  status: 'OK' | 'WARN' | 'CRITICAL';
+  checkedAt: string;
+  counts: { critical: number; warn: number; ok: number };
+  alerts: Array<{
+    code: string;
+    title: string;
+    severity: 'OK' | 'WARN' | 'CRITICAL';
+    summary: string;
+    remediation: string;
+  }>;
+} | null>(null);
 const providers = ref<Row[]>([]);
 const sources = ref<Row[]>([]);
 const budget = ref<{ accounts: Row[]; authorities: Row[] } | null>(null);
@@ -217,7 +229,12 @@ async function loadOverview(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    overview.value = await api<Row>('/api/ops/overview');
+    const [ov, alertsRes] = await Promise.all([
+      api<Row>('/api/ops/overview'),
+      api<NonNullable<typeof opsAlerts.value>>('/api/ops/alerts').catch(() => null),
+    ]);
+    overview.value = ov;
+    opsAlerts.value = alertsRes;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -1295,6 +1312,27 @@ onMounted(checkSession);
           <p v-if="loading" class="ops__muted">加载中…</p>
 
           <section v-if="active === 'overview' && overview" class="ops__grid">
+            <article v-if="opsAlerts" class="ops__card ops__card--wide">
+              <h3>
+                自动运维告警（5 项核心红线）
+                <span
+                  class="ops__pill"
+                  :class="opsAlerts.status === 'OK' ? 'is-ok' : opsAlerts.status === 'WARN' ? 'is-warn' : 'is-bad'"
+                >
+                  {{ opsAlerts.status === 'OK' ? '全部正常' : `严重 ${opsAlerts.counts.critical} · 预警 ${opsAlerts.counts.warn}` }}
+                </span>
+              </h3>
+              <ul class="ops__list">
+                <li v-for="item in opsAlerts.alerts" :key="item.code">
+                  <span
+                    class="ops__pill"
+                    :class="item.severity === 'OK' ? 'is-ok' : item.severity === 'WARN' ? 'is-warn' : 'is-bad'"
+                  >{{ item.severity === 'OK' ? '正常' : item.severity === 'WARN' ? '预警' : '严重' }}</span>
+                  <strong>{{ item.title }}</strong>：{{ item.summary }}
+                  <span v-if="item.severity !== 'OK'" class="ops__muted">（处置：{{ item.remediation }}）</span>
+                </li>
+              </ul>
+            </article>
             <article class="ops__card">
               <h3>引擎</h3>
               <p :class="overview.engine?.ready ? 'ops__ok' : 'ops__warn'">{{ overview.engine?.ready ? 'ready' : 'not ready' }}</p>

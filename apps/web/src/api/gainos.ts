@@ -641,6 +641,25 @@ export interface OutreachReplyView {
   receivedAt: string;
 }
 
+export interface OutreachReplyCopilotView {
+  replyId: string;
+  intent: string;
+  classification: string;
+  language: string;
+  recommendedAction: string;
+  sendBlocked: boolean;
+  summary: string;
+  checklist: string[];
+  suggestedSubject: string | null;
+  suggestedBody: string | null;
+  referredEmails: string[];
+  referralIntroDraft: {
+    to: string;
+    subject: string;
+    body: string;
+  } | null;
+}
+
 export interface AcquisitionTaskView {
   id: string;
   icpId: string | null;
@@ -1572,6 +1591,11 @@ export const gainosApi = {
   /** 回复收件箱：任何回复/退信/退订（append-only）。 */
   outreachReplies: () =>
     requestClient.get<{ data: OutreachReplyView[] }>('/outreach/replies'),
+  /** 回复副驾建议与合规草稿（只读）。 */
+  outreachReplyCopilot: (replyId: string) =>
+    requestClient.get<{ data: OutreachReplyCopilotView }>(
+      `/outreach/replies/${encodeURIComponent(replyId)}/copilot`,
+    ),
 
   discoveryRun: (runId: string) => requestClient.get<DiscoveryRun>(`/discovery-runs/${runId}`),
   discoveryRunResultView: (runId: string) =>
