@@ -19,6 +19,7 @@ import {
 import type { Response } from 'express';
 import { OpsGuard, type OpsRequest } from './ops.guard.js';
 import { OpsChannelsService } from './ops-channels.service.js';
+import { OpsAlertsService } from './ops-alerts.service.js';
 import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsWorkspacePurgeService } from './ops-workspace-purge.service.js';
 import { OpsService } from './ops.service.js';
@@ -35,11 +36,23 @@ export class OpsController {
     private readonly opsChannels: OpsChannelsService,
     private readonly campaignMetrics: OpsCampaignMetricsService,
     @Optional() private readonly workspacePurge?: OpsWorkspacePurgeService,
+    @Optional() private readonly opsAlerts?: OpsAlertsService,
   ) {}
 
   @Get('overview')
   overview() {
     return this.ops.overview();
+  }
+
+  /** 5 项生产不可静默自动告警（制裁新鲜度 / 外发熔断 / 富集供应商异常 / 钱包滞留预占 / 引擎与队列健康）。 */
+  @Get('alerts')
+  alerts() {
+    if (!this.opsAlerts) {
+      throw new ServiceUnavailableException({
+        error: { code: 'OPS_ALERTS_UNAVAILABLE', message: '运维告警服务未装配' },
+      });
+    }
+    return this.opsAlerts.evaluate();
   }
 
   /**

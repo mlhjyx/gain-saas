@@ -87,6 +87,7 @@ function runRealAppModuleBootstrap(
     import { WalletController } from './dist/wallet/wallet.controller.js';
     import { OpsWalletController } from './dist/wallet/ops-wallet.controller.js';
     import { OpsRevocationController } from './dist/ops/ops-revocation.controller.js';
+    import { OpsAlertsService } from './dist/ops/ops-alerts.service.js';
     import { HealthController } from './dist/health/health.controller.js';
     import { R4Keyring } from './dist/r4/r4-keyring.service.js';
     import { startR4TlsServers } from './dist/r4/r4-tls.server.js';
@@ -124,6 +125,7 @@ function runRealAppModuleBootstrap(
         ['WalletController', WalletController],
         ['OpsWalletController', OpsWalletController],
         ['OpsRevocationController', OpsRevocationController],
+        ['OpsAlertsService', OpsAlertsService],
         ['HealthController', HealthController],
         ['R4Keyring', R4Keyring],
         ['CampaignService', CampaignService],
