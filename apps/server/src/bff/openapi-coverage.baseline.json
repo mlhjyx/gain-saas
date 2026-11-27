@@ -1,6 +1,6 @@
 {
   "schemaVersion": "bff-openapi-coverage/v1",
-  "pinnedAt": "2026-11-26",
-  "reason": "固定到mlhjyx/global-backend@95f1051a（含PR #1127 M10-PR2、#1128 卖家资料库5MB分片上传与前15页优先解析）的完整code-first合同（183路径、206操作、123 schema）；全部119条BFF路由均已100%覆盖，uncovered清零。",
+  "pinnedAt": "2026-11-27",
+  "reason": "固定到 mlhjyx/global-backend@98bc65ee540ae4b481cec5e5cfaa58c8e1b311f6 的 code-first 合同。买家公司概况、证据及贸易月份新增字段已生成，全部 119 条通用 BFF 路由仍有合同覆盖。",
   "uncovered": []
 }
