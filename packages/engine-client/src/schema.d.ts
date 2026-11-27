@@ -204,6 +204,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/platform-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 只读查询当前平台权威模式与 4 个平台调度的数据库 Kill Switch 配置
+         * @description 内部服务鉴权（x-service-token）只读查询当前 PLATFORM_AUTHORITY_MODE（r4 / internal_db）与 4 个平台定时调度（acq-sweep / raw-source-retention / sanctions-refresh / tool-budget-reconciliation）在 public.platform_schedule_config 中的实时启停配置。
+         */
+        get: operations["listInternalPlatformScheduleConfigs_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/platform-schedules/{scheduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 受内部服务鉴权保护的平台调度 Kill Switch 启停切换（含操作审计）
+         * @description 内部服务鉴权（x-service-token）切换单个平台定时调度的数据库 Kill Switch（enabled 置 false 后入场、活动鉴权与中途出网围栏三层立即 fail-closed），强制校验 updatedBy 并输出结构化操作审计日志。
+         */
+        patch: operations["updateInternalPlatformScheduleConfig_v1"];
+        trace?: never;
+    };
     "/api/v1/platform-authority/target-lookup": {
         parameters: {
             query?: never;
@@ -585,7 +625,7 @@ export interface paths {
         };
         /**
          * UN Comtrade / HS 贸易流目标国推荐（只读，不消费 Grant，不自动写入确认市场）
-         * @description 根据显式传入的 4-6 位 HS 码，或按卖家已勾选产品与行业确定性反推的 HS 码，返回基于 UN Comtrade 贸易流基线的目标出口国排序建议（进口规模、同比增速、全球份额与业务理由）。本接口纯只读、零预算消耗，固定返回 isRecommendationOnly=true，绝不自动写入公司确认目标市场。
+         * @description 按显式 HS 码或卖家已选产品与行业，使用 UN Comtrade 官方同月快照计算进口额、同比和可比申报国份额。只纳入所选各 HS 码在两个期间均有正额申报的国家或地区。接口只读，固定返回 isRecommendationOnly=true。
          */
         get: operations["MarketRecommendationsController_recommend_v1"];
         put?: never;
@@ -2070,7 +2110,7 @@ export interface paths {
         };
         /**
          * 查看渠道最近物化的抓取记录（含观察名单状态与计数；联系人 PII 经平台密钥加密存储并在读路径解密）
-         * @description 渠道最近物化的抓取记录（默认最近 50 条，limit 1–100，可按 reviewStatus=PENDING/APPROVED/REJECTED 过滤）：公司/官网/国家/行业/产品/关键词与联系人（人名/职位/邮箱/电话，均为渠道页公开信息），附观察名单状态与三态计数。仅运营身份（ops:read），用于选择器校验、抽检与获客联系；同一公司跨轮去重合并（渠道+去重键 upsert），重跑不重复且不覆盖人工抽检结论。
+         * @description 渠道最近物化的抓取记录（默认最近 50 条，limit 1–100，可按 reviewStatus=PENDING/APPROVED/REJECTED 过滤），包含公司、联系人、观察名单状态、计数和用于版本审核的 contentHash。仅运营身份（ops:read）。同一公司按渠道和去重键合并，相同内容重跑保留审核，已批准记录换版需重审。
          */
         get: operations["ChannelsController_records_v1"];
         put?: never;
@@ -2092,7 +2132,7 @@ export interface paths {
         put?: never;
         /**
          * 观察名单抽检：批量置 APPROVED/REJECTED（留 reviewed_by/at）；REJECTED 率 >20%（已抽检 ≥20）时渠道回 DISABLED
-         * @description 观察名单抽检（CH-7）：把本渠道 1–200 条记录批量置 APPROVED/REJECTED 并记录 reviewed_by/reviewed_at；已抽检 ≥20 条且 REJECTED 率 >20% 时渠道自动回 DISABLED（原因 RECORD_REJECTION_RATE，写健康事件）。仅运营身份（ops:write）。
+         * @description 观察名单抽检（CH-7）：提交 recordIds 和 verdict 批量审查本渠道的 1–200 条记录并记录审核人和时间。可选 expectedContentHashes 是按记录 ID 对应 GET 返回的 contentHash 的对象，提交时须覆盖整批。任一版本不匹配返回 409 CHANNEL_RECORD_VERSION_CONFLICT，整批不变。仅有版本证明的 APPROVED 才可投影共享事实。仅提交 recordIds 和 verdict 仍会登记审核。已抽检 ≥20 条且 REJECTED 率 >20% 时渠道自动回 DISABLED（原因 RECORD_REJECTION_RATE，写健康事件）。仅运营身份（ops:write）。
          */
         post: operations["ChannelsController_reviewRecords_v1"];
         delete?: never;
@@ -3812,6 +3852,20 @@ export interface components {
             byPurpose: {
                 [key: string]: string;
             };
+        };
+        UpdatePlatformScheduleConfigDto: {
+            /** @description 是否启用该平台定时调度（false 表示立即触发 Kill Switch 停用） */
+            enabled: boolean;
+            /**
+             * @description 操作者身份标识（写入数据库与审计日志）
+             * @example ops-admin@example.com
+             */
+            updatedBy: string;
+            /**
+             * @description 本次启停原因说明（写入操作审计日志）
+             * @example enable daily sanctions refresh after smoke verification
+             */
+            reason?: string;
         };
         CheckOutreachDncDto: {
             /** @description 待检查的收件邮箱（≤50，调用方必须是已审批的 outreach 批次） */
@@ -6588,6 +6642,90 @@ export interface operations {
             };
         };
     };
+    listInternalPlatformScheduleConfigs_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 内部服务令牌（env PLATFORM_SCHEDULE_CONFIG_INTERNAL_SERVICE_TOKEN） */
+                "x-service-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回当前模式及 4 个平台调度配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 缺少或无效的内部服务令牌 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务令牌未配置或数据库不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateInternalPlatformScheduleConfig_v1: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 内部服务令牌（env PLATFORM_SCHEDULE_CONFIG_INTERNAL_SERVICE_TOKEN） */
+                "x-service-token": string;
+            };
+            path: {
+                /** @description 4 个平台标准调度 ID 之一 */
+                scheduleId: "acq-sweep" | "patents-cache-refresh" | "intent-sweep" | "sanctions-refresh";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlatformScheduleConfigDto"];
+            };
+        };
+        responses: {
+            /** @description 更新成功并返回配置与审计回执 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description scheduleId 或请求体参数非法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 缺少或无效的内部服务令牌 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 服务令牌未配置、platform_writer 未连接或数据库不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     platformAuthorityTargetLookup_v1: {
         parameters: {
             query?: never;
@@ -7574,6 +7712,18 @@ export interface operations {
                                 /** @enum {string} */
                                 dataSource: "un_comtrade_baseline_v1" | "un_comtrade_live";
                                 referenceYear: number;
+                                /**
+                                 * @description 进口额参考月份（YYYYMM），同比使用上年同月
+                                 * @example 202608
+                                 */
+                                referencePeriod?: string;
+                                /** @description 两期均完整覆盖所选 HS 码的申报者数量，包含未显示在推荐列表中的申报者 */
+                                coverage?: number;
+                                /**
+                                 * @description 同一批完整可比申报者的当期进口额之和
+                                 * @enum {string}
+                                 */
+                                shareBasis?: "comparable_reporters";
                             };
                             recommendations: {
                                 code: string;
@@ -7583,6 +7733,7 @@ export interface operations {
                                 hsCodes: string[];
                                 importVolumeUsd: number;
                                 yoyGrowthPct: number;
+                                /** @description 占完整可比申报者当期进口额合计的百分比，沿用既有字段名 */
                                 globalImportSharePct: number;
                                 rationale: string;
                                 /** @enum {string} */
@@ -9464,6 +9615,13 @@ export interface operations {
                     };
                 };
             };
+            /** @description VALIDATION_ERROR or ENRICHMENT_INVALID_PLAN */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description EXECUTION_BUDGET_GRANT_REQUIRED, EXECUTION_BUDGET_GRANT_INVALID, EXECUTION_BUDGET_GRANT_EXPIRED or EXECUTION_BUDGET_AUTHORITY_EXHAUSTED */
             402: {
                 headers: {
@@ -9493,7 +9651,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description EXECUTION_BUDGET_GRANT_REUSED */
+            /** @description EXECUTION_BUDGET_GRANT_REUSED, ENRICHMENT_HOLD, ENRICHMENT_INPUT_CONFLICT, ENRICHMENT_REDACTED or ENRICHMENT_CONTROL_MISMATCH */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11495,6 +11653,21 @@ export interface operations {
                                 country: string | null;
                                 city: string | null;
                             };
+                            /** @description 买家公司的公开资料与字段来源。旧线索可能没有分析结果。 */
+                            company_overview?: {
+                                description: string | null;
+                                main_business: string[];
+                                /** Format: uri */
+                                official_website: string | null;
+                                sources: {
+                                    /** @enum {string} */
+                                    field: "description" | "main_business" | "location" | "website";
+                                    /** Format: uri */
+                                    source_url: string;
+                                    /** Format: date-time */
+                                    fetched_at: string | null;
+                                }[];
+                            } | null;
                             company_profile: {
                                 [key: string]: unknown;
                             };
@@ -11927,7 +12100,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description 当前 suppression/合规/制裁状态阻断交付 */
+            /** @description 当前匹配、抑制、合规或制裁状态阻断交付 */
             409: {
                 headers: {
                     [name: string]: unknown;
