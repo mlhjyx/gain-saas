@@ -17,11 +17,12 @@ import type {
   ContactEnrichmentQualityFactView,
   ContactEnrichmentResultView,
   ContactEvidence,
+  LeadPackage,
 } from '#/api/gainos';
 
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 
-import { formatDate as formatDateValue, formatDateTime, isSafeLinkedinUrl } from '@gain-saas/shared';
+import { formatDate as formatDateValue, formatDateTime } from '@gain-saas/shared';
 
 import { Alert, Button, Checkbox, Modal, Skeleton, Space, Tag } from 'ant-design-vue';
 
@@ -37,12 +38,24 @@ import { newAttemptId } from '#/utils/attempt-id';
 import { failureText, gainosApi } from '#/api/gainos';
 
 import ContactChannelCard from './contact-channel-card.vue';
+import ContactChannelValue from './contact-channel-value.vue';
+import {
+  canUseContactPoint,
+  contactEmailHref,
+  contactPhoneHref,
+  focusContactChannel,
+  hasPublicContactAccess,
+  publicSocialUrl,
+  safePublicUrl,
+} from './public-contact-paths';
+
 defineOptions({ name: 'DecisionMakerCard' });
 
 const props = withDefaults(
   defineProps<{
     companyId: string;
     hideOfficialChannels?: boolean;
+    lead: LeadPackage;
   }>(),
   {
     hideOfficialChannels: false,
@@ -67,6 +80,7 @@ interface DialogState {
 
 const detail = ref<CanonicalCompanyDetail | null>(null);
 const loading = ref(false);
+let loadSequence = 0;
 const loadError = ref<{ code?: string; title: string; next?: string } | null>(null);
 const busy = ref<DialogKind | null>(null);
 const notice = ref<string | null>(null);
@@ -266,7 +280,7 @@ const officialChannels = computed(() => {
         seenPhones.add(key);
         phones.push(val);
       }
-    } else if (ch.channel === 'form_url' && safeUrl(val)) {
+    } else if (ch.channel === 'form_url' && safePublicUrl(val)) {
       if (!seenForms.has(val)) {
         seenForms.add(val);
         forms.push(val);
@@ -277,7 +291,7 @@ const officialChannels = computed(() => {
   for (const pt of detail.value?.contactPoints ?? []) {
     const val = pt.value?.trim();
     if (!val) continue;
-    if (safeUrl(val) && !seenForms.has(val)) {
+    if (safePublicUrl(val) && !seenForms.has(val)) {
       seenForms.add(val);
       forms.push(val);
     }
@@ -304,7 +318,7 @@ const officialChannels = computed(() => {
   }
 
   for (const s of detail.value?.socialProfiles ?? []) {
-    const url = safeUrl(s.url);
+    const url = safePublicUrl(s.url);
     if (!url || seenSocials.has(url)) continue;
     seenSocials.add(url);
     socials.push({
@@ -331,6 +345,10 @@ function formatDate(value?: string | null): string {
 
 function evidenceOf(contactId: string): ContactEvidence[] {
   return (detail.value?.evidence ?? []).filter((row) => row.entityId === contactId);
+}
+
+function canDisplayEvidence(row: ContactEvidence): boolean {
+  return row.allowedActions == null || row.allowedActions.includes('display');
 }
 
 /** 该联系人的邮箱是否来自猜测（email.guess 证据）——UI 上标为「推断」。 */
@@ -371,9 +389,12 @@ function pointTone(point: CanonicalContactPoint): GsTone {
 }
 
 function pointTypeLabel(type: string): string {
+  if (type === 'email') return $t('gainosContactOverview.workEmail');
   if (type === 'whatsapp') return 'WhatsApp';
   if (type === 'facebook') return 'Facebook';
   if (type === 'x' || type === 'twitter') return 'X';
+  if (type === 'instagram') return 'Instagram';
+  if (type === 'youtube') return 'YouTube';
   const key = `gainos.contacts.type.${type}`;
   const translated = $t(key);
   return translated === key ? $t('gainosUi2.contacts.otherChannel') : translated;
@@ -406,17 +427,42 @@ function visiblePoints(contact: CanonicalContact): CanonicalContactPoint[] {
   return (contact.contactPoints ?? []).filter((point) => point.type !== 'external_id' && point.value?.trim());
 }
 
-function pointHref(point: CanonicalContactPoint): string {
-  return point.type === 'linkedin' &&
-    !['BLOCKED', 'INVALID'].includes(point.status) &&
-    isSafeLinkedinUrl(point.value)
-    ? point.value.trim()
-    : '';
+const socialChannelKinds = new Set(['facebook', 'instagram', 'linkedin', 'whatsapp', 'x', 'youtube']);
+
+function pointHref(kind: string, point: CanonicalContactPoint, evidence: ContactEvidence[]): string {
+  if (!canUseContactPoint(point.status)) return '';
+  if (socialChannelKinds.has(kind)) return publicSocialUrl(kind, point.value);
+  if (point.status !== 'VALID' || evidence.some((row) => row.allowedActions != null && !row.allowedActions.includes('outreach'))) {
+    return '';
+  }
+  if (kind === 'email') return contactEmailHref(props.lead, point.value);
+  if (kind === 'phone') return contactPhoneHref(point.value);
+  return '';
 }
 
-/** 链接类联系方式只显示去掉协议头的地址，避免长串 https:// 挤占一整行。 */
-function displayValue(point: CanonicalContactPoint): string {
-  return point.type === 'linkedin' ? point.value.replace(/^https?:\/\//i, '') : point.value;
+async function authorizeEmail(contact: CanonicalContact, point: CanonicalContactPoint): Promise<boolean> {
+  const lead = props.lead;
+  if (!isAdmin.value || !hasPublicContactAccess(lead)) return false;
+  try {
+    const result = await gainosApi.checkT0Outreach({
+      companyName: lead.company.name,
+      contactRef: contact.id,
+      countryCode: lead.company.country,
+      email: point.value.trim(),
+      leadId: lead.lead_id,
+      leadStatus: lead.status,
+    });
+    if (result?.blockedAll === false && result.channels?.mailto?.allowed === true) {
+      return isAdmin.value && hasPublicContactAccess(props.lead);
+    }
+    const reason = result?.blockCode ?? result?.channels?.mailto?.reasonCode ?? 'DEFAULT';
+    const reasonId = 'gainos.leads.t0.reason.' + reason;
+    const message = $t(reasonId);
+    feedback.message.warning(message === reasonId ? $t('gainos.leads.t0.reason.DEFAULT') : message);
+  } catch {
+    feedback.message.error($t('gainos.leads.t0.reason.DNC_UNAVAILABLE'));
+  }
+  return false;
 }
 
 interface ContactSource {
@@ -426,14 +472,18 @@ interface ContactSource {
   at: string;
 }
 
-/** 只把 http(s) 来源渲染成链接；引擎/来源页给的其它协议一律不点。 */
-function safeUrl(value: string): string {
-  return /^https?:\/\//i.test(value) ? value : '';
+function matchesPoint(row: ContactEvidence, point: CanonicalContactPoint): boolean {
+  const rawValue: unknown = row.value;
+  return row.field === point.type && (
+    rawValue === point.value ||
+    row.value?.[point.type] === point.value ||
+    row.value?.value === point.value
+  );
 }
 
 function evidenceUrlOf(row: ContactEvidence): string {
   const page = row.value?.source_page;
-  return safeUrl(row.sourceUrl || (typeof page === 'string' ? page : ''));
+  return safePublicUrl(row.sourceUrl) || safePublicUrl(typeof page === 'string' ? page : '');
 }
 
 /**
@@ -443,8 +493,13 @@ function evidenceUrlOf(row: ContactEvidence): string {
  * 不同链接的来源全部保留。
  */
 function contactSources(contact: CanonicalContact): ContactSource[] {
+  const points = visiblePoints(contact);
   const rows = evidenceOf(contact.id)
-    .filter((row) => ['person.profile', 'email', 'phone', 'linkedin'].includes(row.field))
+    .filter((row) => canDisplayEvidence(row) && (
+      row.field === 'person.profile' ||
+      (['email', 'phone', ...socialChannelKinds].includes(row.field) &&
+        !points.some((point) => matchesPoint(row, point)))
+    ))
     .sort((a, b) => Date.parse(b.fetchedAt ?? '') - Date.parse(a.fetchedAt ?? ''));
   const ordered = [...rows.filter((row) => evidenceUrlOf(row)), ...rows.filter((row) => !evidenceUrlOf(row))];
   const out: ContactSource[] = [];
@@ -497,23 +552,27 @@ function channelGroups(contact: CanonicalContact) {
     id: `contact-${contact.id}-${kind}`,
     kind,
     label: pointTypeLabel(kind),
-    points: points.map((point) => ({
-      action: point.type === 'email',
-      href: pointHref(point),
-      id: point.id,
-      label: pointLabel(contact, point),
-      point,
-      text: displayValue(point),
-      tone: pointTone(point),
-      verifiedAt: point.verifiedAt ? formatDate(point.verifiedAt) : '',
-    })),
+    points: points.map((point) => {
+      const evidence = evidenceOf(contact.id).filter((row) => matchesPoint(row, point));
+      const href = pointHref(kind, point, evidence);
+      const visibleEvidence = evidence.filter(canDisplayEvidence);
+      const source = visibleEvidence.find((row) => evidenceUrlOf(row)) ?? visibleEvidence[0];
+      return {
+        copyable: Boolean(href),
+        href,
+        id: point.id,
+        label: pointLabel(contact, point),
+        point,
+        sourceDate: source ? formatDate(source.fetchedAt) : undefined,
+        sourceLabel: source ? layerLabel(source.license) : undefined,
+        sourceUrl: source ? evidenceUrlOf(source) : undefined,
+        tone: pointTone(point),
+        value: point.value,
+        verifiable: point.type === 'email' && point.status !== 'BLOCKED',
+        verifiedAt: point.verifiedAt ? formatDate(point.verifiedAt) : '',
+      };
+    }),
   }));
-}
-
-function focusChannel(id: string): void {
-  const card = document.getElementById(id);
-  card?.scrollIntoView({ block: 'nearest' });
-  card?.focus({ preventScroll: true });
 }
 
 /** 渲染行：模板里不再做字符串拼接/状态判断，只负责排版。 */
@@ -529,6 +588,7 @@ const rows = computed(() =>
     sources: contactSources(contact),
   })),
 );
+const displayRows = computed(() => rows.value.length ? rows.value : [null]);
 
 function setNotice(text: string, tone: NoticeTone = 'success'): void {
   notice.value = text;
@@ -537,7 +597,9 @@ function setNotice(text: string, tone: NoticeTone = 'success'): void {
 
 async function load(): Promise<void> {
   if (!props.companyId) return;
+  const sequence = ++loadSequence;
   await ensureLoaded();
+  if (sequence !== loadSequence) return;
   if (!isAdmin.value) {
     detail.value = null;
     enrichmentResults.value = [];
@@ -547,13 +609,16 @@ async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    detail.value = await gainosApi.canonicalCompany(props.companyId);
+    const currentDetail = await gainosApi.canonicalCompany(props.companyId);
+    if (sequence !== loadSequence) return;
+    detail.value = currentDetail;
     void loadEnrichmentState();
   } catch (error) {
+    if (sequence !== loadSequence) return;
     loadError.value = failureText(error);
     detail.value = null;
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 }
 
@@ -715,6 +780,8 @@ watch(
 onMounted(() => {
   void load();
 });
+
+onBeforeUnmount(() => { loadSequence += 1; });
 </script>
 
 <template>
@@ -723,9 +790,109 @@ onMounted(() => {
     class="dm"
     data-gs="decision-makers"
   >
+    <section
+      v-for="(row, index) in displayRows"
+      :key="index === 0 ? 'contact-summary' : row?.id"
+      :data-gs="row ? 'decision-maker' : undefined"
+      class="grid min-w-0 gap-4"
+    >
+      <GsCard v-if="row || $slots['company-overview']" padding="0">
+        <div class="grid min-w-0" :class="{ '@min-[700px]:grid-cols-2': row && index === 0 && $slots['company-overview'] }">
+          <div v-if="row" class="grid min-w-0 content-center gap-3 p-5" data-gs="lead-contact-identity">
+            <header class="dm-person__identity">
+              <span aria-hidden="true" class="dm-person__avatar">{{ row.initials }}</span>
+              <div class="min-w-0">
+                <h2 class="dm-person__name">{{ row.name }}</h2>
+                <p class="dm-person__role">{{ row.role }}</p>
+                <Tag v-if="row.seniority" :bordered="false" class="dm-chip mt-1">{{ row.seniority }}</Tag>
+              </div>
+            </header>
+            <div v-if="row.channels.length" class="flex flex-wrap items-center gap-1.5">
+              <span class="mr-1 text-xs text-[var(--gs-fg-muted)]">{{ $t('gainosContactOverview.identity') }}</span>
+              <Button
+                v-for="channel in row.channels"
+                :key="channel.id"
+                :aria-controls="channel.id"
+                :aria-label="$t('gainosUi2.contacts.jumpToChannel', { channel: channel.label })"
+                data-gs="person-channel-jump"
+                shape="round"
+                @click="focusContactChannel(channel.id)"
+              >
+                {{ channel.label }}
+              </Button>
+            </div>
+            <slot v-if="index === 0" name="company-channel-jumps" />
+          </div>
+          <div
+            v-if="index === 0 && $slots['company-overview']"
+            class="min-w-0 p-5"
+            :class="{ 'border-t border-[var(--gs-divider)] @min-[700px]:border-l @min-[700px]:border-t-0': row }"
+          >
+            <slot name="company-overview" :affiliated="Boolean(row)" />
+          </div>
+        </div>
+      </GsCard>
+
+      <template v-if="row">
+        <div v-if="row.channels.length" class="grid min-w-0 gap-3" data-gs="person-contact-channels">
+          <h3 class="m-0 text-lg font-semibold">{{ $t('gainosContactOverview.personalChannels') }}</h3>
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(min(250px,100%),1fr))] gap-3">
+            <ContactChannelCard
+              v-for="channel in row.channels"
+              :id="channel.id"
+              :key="channel.id"
+              :kind="channel.kind"
+              :label="channel.label"
+              heading="h4"
+            >
+              <ContactChannelValue
+                v-for="point in channel.points"
+                :key="point.id"
+                :authorize-open="channel.kind === 'email' ? () => authorizeEmail(row.contact, point.point) : undefined"
+                :copyable="point.copyable"
+                :href="point.href"
+                :source-date="point.sourceDate"
+                :source-label="point.sourceLabel"
+                :source-url="point.sourceUrl"
+                :value="point.value"
+              >
+                <template #status>
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <GsTag :tone="point.tone">{{ point.label }}</GsTag>
+                    <span v-if="point.verifiedAt" class="text-xs tabular-nums text-[var(--gs-fg-muted)]">{{ point.verifiedAt }}</span>
+                  </div>
+                </template>
+                <template v-if="point.verifiable" #actions>
+                  <Button
+                    :disabled="!!busy"
+                    :loading="busy === 'verify'"
+                    type="link"
+                    @click="openDialog('verify', row.contact, point.point)"
+                  >
+                    {{ $t('gainos.contacts.verify') }}
+                  </Button>
+                </template>
+              </ContactChannelValue>
+            </ContactChannelCard>
+          </div>
+        </div>
+        <p v-else class="dm-person__role">{{ $t('gainos.contacts.noPoints') }}</p>
+        <div v-if="row.sources.length" class="dm-sources">
+          <p class="dm-label">{{ $t('gainos.contacts.source') }}</p>
+          <p v-for="source in row.sources" :key="source.key" class="dm-source">
+            <a v-if="source.url" :href="source.url" rel="noopener noreferrer" target="_blank">{{ source.layer }}</a>
+            <span v-else>{{ source.layer }}</span>
+            <span v-if="source.at" class="dm-source__at">{{ source.at }}</span>
+          </p>
+        </div>
+      </template>
+    </section>
+
+    <slot name="company-channels" />
+
     <header class="dm__head">
       <div class="dm__head-main">
-        <h2 class="dm__title" id="dm-title">{{ $t('gainos.contacts.title') }}</h2>
+        <h2 class="dm__title" id="dm-title">{{ $t('gainosContactOverview.contactTools') }}</h2>
         <p class="dm__subtitle">{{ $t('gainos.contacts.subtitle') }}</p>
       </div>
       <Space :size="8" class="dm__head-actions" wrap>
@@ -837,108 +1004,19 @@ onMounted(() => {
         </GsEmpty>
       </GsCard>
 
-      <template v-else>
-        <Alert
-          v-if="missingEmailCount() > 0"
-          :message="$t('gainos.contacts.missingEmail', { count: missingEmailCount() })"
-          data-gs="contacts-missing-email"
-          show-icon
-          type="info"
-        >
-          <template #action>
-            <Button :disabled="!!busy" size="small" type="link" @click="openDialog('enrich')">
-              {{ $t('gainos.contacts.enrich') }}
-            </Button>
-          </template>
-        </Alert>
-
-        <GsCard
-          v-for="row in rows"
-          :key="row.id"
-          class="dm-person-card"
-          data-gs="decision-maker"
-          padding="18px 24px"
-        >
-          <div class="dm-person">
-          <header class="dm-person__identity">
-            <span aria-hidden="true" class="dm-person__avatar">{{ row.initials }}</span>
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <h3 class="dm-person__name">{{ row.name }}</h3>
-                <Tag v-if="row.seniority" :bordered="false" class="dm-chip">
-                  {{ row.seniority }}
-                </Tag>
-              </div>
-              <p class="dm-person__role">{{ row.role }}</p>
-              <div v-if="row.channels.length > 0" class="mt-2 flex flex-wrap gap-1.5">
-                <Button
-                  v-for="channel in row.channels"
-                  :key="channel.id"
-                  :aria-controls="channel.id"
-                  :aria-label="$t('gainosUi2.contacts.jumpToChannel', { channel: channel.label })"
-                  data-gs="person-channel-jump"
-                  size="small"
-                  @click="focusChannel(channel.id)"
-                >
-                  {{ channel.label }}
-                </Button>
-              </div>
-            </div>
-          </header>
-
-          <div v-if="row.channels.length > 0" class="dm-channel-grid" data-gs="person-contact-channels">
-            <ContactChannelCard
-              v-for="channel in row.channels"
-              :id="channel.id"
-              :key="channel.id"
-              :kind="channel.kind"
-              :label="channel.label"
-            >
-              <div v-for="point in channel.points" :key="point.id" class="dm-point">
-                <a
-                  v-if="point.href"
-                  class="dm-point__value"
-                  :href="point.href"
-                  rel="noreferrer"
-                  target="_blank"
-                >{{ point.text }}</a>
-                <span v-else class="dm-point__value">{{ point.text }}</span>
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <GsTag :tone="point.tone">{{ point.label }}</GsTag>
-                  <span v-if="point.verifiedAt" class="dm-point__date">{{ point.verifiedAt }}</span>
-                  <Button
-                    v-if="point.action"
-                    :disabled="!!busy"
-                    :loading="busy === 'verify'"
-                    size="small"
-                    type="link"
-                    @click="openDialog('verify', row.contact, point.point)"
-                  >
-                    {{ $t('gainos.contacts.verify') }}
-                  </Button>
-                </div>
-              </div>
-            </ContactChannelCard>
-          </div>
-          <p v-else class="dm-person__role">{{ $t('gainos.contacts.noPoints') }}</p>
-
-          <!-- 来源 -->
-          <div class="dm-sources">
-            <p class="dm-label">{{ $t('gainos.contacts.source') }}</p>
-            <template v-if="row.sources.length > 0">
-              <p v-for="source in row.sources" :key="source.key" class="dm-source">
-                <a v-if="source.url" :href="source.url" rel="noreferrer" target="_blank">
-                  {{ source.layer }}
-                </a>
-                <span v-else>{{ source.layer }}</span>
-                <span v-if="source.at" class="dm-source__at">{{ source.at }}</span>
-              </p>
-            </template>
-            <p v-else class="dm-source dm-source--empty">{{ $t('gainos.contacts.sourceUnknown') }}</p>
-          </div>
-          </div>
-        </GsCard>
-      </template>
+      <Alert
+        v-else-if="missingEmailCount() > 0"
+        :message="$t('gainos.contacts.missingEmail', { count: missingEmailCount() })"
+        data-gs="contacts-missing-email"
+        show-icon
+        type="info"
+      >
+        <template #action>
+          <Button :disabled="!!busy" size="small" type="link" @click="openDialog('enrich')">
+            {{ $t('gainos.contacts.enrich') }}
+          </Button>
+        </template>
+      </Alert>
 
       <!-- B1 联系人补强进度、质量事实摘要与一键恢复（仅管理员可见） -->
       <GsCard
@@ -1270,38 +1348,29 @@ onMounted(() => {
   text-decoration: underline;
 }
 
-/* ── 一位决策人 ──────────────────────────────────────────────────────────
-   窄屏优先，按内容区实际宽度分级（容器查询）：默认三段竖排（人 / 联系方式 / 来源），
-   ≥ 860px 才是「人 / 联系方式 / 来源」三列对齐（卡片内边距 48 + 三列最小 788）。 */
-.dm-person {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
 .dm-person__identity {
   display: flex;
   min-width: 0;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
 }
 .dm-person__avatar {
   display: grid;
   flex: none;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: var(--gs-accent-soft);
   color: var(--gs-accent-fg);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
 }
 .dm-person__name {
   margin: 0;
   color: var(--gs-fg);
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 21px;
+  line-height: 28px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -1321,36 +1390,6 @@ onMounted(() => {
   color: var(--gs-fg-muted);
   font-size: 12px;
   line-height: 22px;
-}
-
-.dm-channel-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
-  gap: 9px;
-}
-.dm-point {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-.dm-point + .dm-point {
-  padding-top: 8px;
-  border-top: 1px solid var(--gs-divider);
-}
-.dm-point__value {
-  color: var(--gs-fg);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-a.dm-point__value {
-  color: var(--gs-accent-fg);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.dm-point__date {
-  color: var(--gs-fg-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 .dm-sources {

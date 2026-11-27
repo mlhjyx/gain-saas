@@ -8,6 +8,7 @@ import type { MockBackend, MockHandler } from './support/mock-backend';
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-26T08:00:00.000Z';
 
@@ -133,108 +134,72 @@ test('建议 3：「买家画像」取代「找买家」，和「买家线索」
   await page.waitForURL(/\/find-buyers$/);
 });
 
-test('#8 五个板块换成读得懂的说法，每个标题下有一行说明', async ({ page }) => {
+test('匹配条件合并采购角色，画像表单保留字段说明', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   mockProfilePage(backend);
   await loginAs(page);
   await page.goto('/find-buyers');
 
   const overview = page.locator("[data-gs='icp-overview']");
-  for (const [title, hint] of [
-    ['客户难题', '对方现在哪里不好办'],
-    ['采购信号', '出现什么迹象，说明对方准备买了'],
-    ['不找的对象', '什么样的公司直接跳过'],
-    ['我们的卖点', '我们能帮对方解决什么'],
-    ['该找的人', '这单采购要对接哪些角色'],
-  ]) {
-    // 「客户难题」也是角色卡里的小标签，这里只看板块标题（取第一个）
-    await expect(overview.getByText(title, { exact: true }).first()).toBeVisible();
-    await expect(overview.getByText(hint, { exact: true })).toBeVisible();
-  }
-  // 工作区确实展示了这份画像，旧说法在整个页面上都不再出现
-  await expect(
-    page.getByRole('heading', { level: 2, name: '美国高校及学术医疗中心的步态研究实验室' }),
-  ).toBeVisible();
-  for (const old of ['痛点', '触发信号', '排除条件', '价值主张', '买家委员会']) {
-    await expect(page.getByText(old, { exact: true })).toHaveCount(0);
-  }
-
-  // 「该找的人」把 personas 和 buyingCommittee 按职务合并成一张卡
-  const person = overview.locator('.fb-persona').filter({ hasText: '采购经理' });
+  await expect(overview).not.toContainText('我们的卖点');
+  await page.getByRole('tab', { name: '匹配条件' }).click();
+  const matching = page.locator("[data-gs='icp-matching']");
+  await expect(matching.getByText('客户难题', { exact: true })).toBeVisible();
+  await expect(matching.getByText('采购信号', { exact: true })).toBeVisible();
+  await matching.getByText('采购角色与场景', { exact: true }).click();
+  const person = matching.locator('.fb-persona').filter({ hasText: '采购经理' });
   await expect(person).toHaveCount(1);
   await expect(person).toContainText('如期完成课题');
   await expect(person).toContainText('预算审批周期长');
-
-  // 编辑表单里同样的标题和说明
   await page.locator("[data-gs='icp-edit']").click();
   const edit = page.getByRole('dialog').filter({ hasText: '编辑买家画像' });
-  await expect(edit).toBeVisible();
   await expect(edit.getByText('对方现在哪里不好办')).toBeVisible();
   await expect(edit.getByText('出现什么迹象，说明对方准备买了')).toBeVisible();
 });
 
-test('#7 目标公司属性不再出现英文字段名；画像依据单列并用白话写', async ({ page }) => {
+test('画像目标市场使用地区名称，来源和版本按需展开', async ({ page }) => {
   const backend = await installMockBackend(page);
   mockProfilePage(backend);
   await loginAs(page);
   await page.goto('/find-buyers');
-  // 画像卡上的「N 个买家画像」原指角色数，改叫对接角色
-  await expect(page.getByText('1 个对接角色').first()).toBeVisible();
-  // 状态「假设」改为「待激活」
   await expect(page.getByText('待激活', { exact: true }).first()).toBeVisible();
-
-  const overview = page.locator("[data-gs='icp-overview']");
-  await expect(overview).toBeVisible();
-
-  // 目标公司属性：字段都是中文
-  for (const label of ['产品', '交易角色', '国家/地区']) {
-    await expect(overview.getByText(label, { exact: true }).first()).toBeVisible();
-  }
-  for (const raw of ['product', 'trade_side', 'inputBasis', 'marketBasis', 'inputProducts', 'modelSuggestedMarkets']) {
-    await expect(overview.getByText(raw, { exact: true })).toHaveCount(0);
-  }
-  // 内部代码换成白话
-  await expect(overview.getByText('legacy_profile_floor')).toHaveCount(0);
-  await expect(overview.getByText('legacy_all_offerings')).toHaveCount(0);
-
-  // 画像依据
-  await expect(overview.getByText('画像依据', { exact: true })).toBeVisible();
-  const lineage = overview.locator('.fb-block').filter({ hasText: '画像依据' });
-  await expect(lineage).toContainText('依据的产品');
-  await expect(lineage).toContainText('光学步态分析仪');
+  await expect(page.locator('[data-gs="icp-target-markets"]')).toHaveText('美国');
+  await expect(page.getByText('档案里的全部产品')).toHaveCount(0);
+  await page.getByRole('tab', { name: '匹配条件' }).click();
+  const matching = page.locator("[data-gs='icp-matching']");
+  await expect(matching.getByText('产品', { exact: true })).toBeVisible();
+  await matching.getByText('画像版本与来源', { exact: true }).click();
+  const lineage = matching.locator('details').filter({ hasText: '画像版本与来源' });
+  await expect(lineage).toContainText('第 1 版');
   await expect(lineage).toContainText('档案里的全部产品');
   await expect(lineage).toContainText('公司档案里的市场');
-  await expect(lineage).toContainText('AI 另建议的市场');
-
-  // 目标市场不再只显示两位代码
-  await expect(overview.locator('.fb-chip').filter({ hasText: /美国/ }).first()).toBeVisible();
+  for (const raw of ['product', 'trade_side', 'inputBasis', 'marketBasis', 'inputProducts', 'modelSuggestedMarkets', 'legacy_profile_floor']) {
+    await expect(matching.getByText(raw, { exact: true })).toHaveCount(0);
+  }
 });
 
-test('#7 画像详情是页内工作区：不再弹抽屉，默认展示生效中的画像，可以切换', async ({ page }) => {
+test('默认显示生效画像，左栏切换保留对应地址', async ({ page }) => {
   const backend = await installMockBackend(page);
   mockProfilePage(backend, [PROFILE, ACTIVE_PROFILE], { 'icp-2': [PLAN] });
   await loginAs(page);
   await page.goto('/find-buyers');
 
   const workspace = page.locator("[data-gs='icp-workspace']");
-  await expect(workspace).toBeVisible();
+  const switcher = page.locator("[data-gs='icp-profile-switcher']");
   await expect(workspace.getByRole('heading', { level: 2, name: ACTIVE_PROFILE.name })).toBeVisible();
   await expect(page.locator('.ant-drawer')).toHaveCount(0);
-  // 列表里对应的那张卡标成当前画像
-  await expect(page.locator('.icp-card--selected')).toHaveCount(1);
-
-  // 两份画像时在工作区头部切换
-  await workspace.locator('.ant-select').click();
-  await page
-    .locator('.ant-select-dropdown:visible .ant-select-item-option')
-    .filter({ hasText: PROFILE.name })
-    .click();
+  await expect(switcher.getByRole('button', { name: new RegExp(ACTIVE_PROFILE.name) })).toHaveAttribute('aria-pressed', 'true');
+  await switcher.getByRole('button', { name: new RegExp(PROFILE.name) }).click();
+  await expect(page).toHaveURL(/\/find-buyers\?icp=icp-1$/);
   await expect(workspace.getByRole('heading', { level: 2, name: PROFILE.name })).toBeVisible();
 });
 
-test('#9 #12 没激活的画像只看内容和激活；下一步贴在底部引导激活', async ({ page }) => {
+test('草稿只提供启用操作，启用后跳到独立寻源方案入口', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   let current: Record<string, unknown> = PROFILE;
+  backend.set('GET', '/companies', [COMPANY]);
   backend.set('GET', '/icps', json(() => [current]));
   backend.set('GET', '/icps/icp-1', json(() => current));
   backend.set('GET', '/icps/icp-1/query-plans', []);
@@ -247,33 +212,18 @@ test('#9 #12 没激活的画像只看内容和激活；下一步贴在底部引�
   await page.goto('/find-buyers');
 
   await expect(page.locator("[data-gs='icp-overview']")).toBeVisible();
-  // 方案、寻源、资格规则都不出现，也不留「还没有」的空话
-  await expect(page.locator("[data-gs='icp-plans']")).toHaveCount(0);
-  await expect(page.locator("[data-gs='icp-runs']")).toHaveCount(0);
-  await expect(page.locator("[data-gs='icp-advanced']")).toHaveCount(0);
+  await expect(page.locator("[data-gs='icp-next']")).toHaveCount(0);
   await expect(page.getByText('资格规则')).toHaveCount(0);
-  // 也不留「还没有」的空话；画像卡上的方案、寻源两栏直接说要先激活
-  await expect(page.getByText('还没有寻源方案')).toHaveCount(0);
-  await expect(page.getByText('先激活买家画像').first()).toBeVisible();
-
-  const next = page.locator("[data-gs='icp-next']");
-  await expect(next).toContainText('下一步：激活买家画像');
-  await expect(next).toContainText('确认上面的内容没问题后激活');
-  // 贴在视口底部（主流程进度已移至侧栏底部芯片，不再压主内容区底部）
-  await expect(page.locator("[data-gs='flow-progress-chip']")).toBeVisible();
-  const box = (await next.boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(Math.abs(box.y + box.height - (viewport.height - 12))).toBeLessThan(3);
-
-  await page.locator("[data-gs='icp-next-button']").click();
+  expect(backend.callsTo('GET', '/icps/icp-1/query-plans')).toHaveLength(0);
+  await page.getByRole('button', { name: '启用画像' }).click();
   await expect.poll(() => backend.callsTo('POST', '/icps/icp-1/activate').length).toBe(1);
-  await expect(page.locator("[data-gs='icp-plans']")).toBeVisible();
-  await expect(page.locator("[data-gs='icp-runs']")).toBeVisible();
-  await expect(next).toContainText('下一步：生成寻源方案');
+  await expect(page.locator("[data-gs='icp-overview']")).toBeVisible();
+  await expect(page.getByRole('link', { name: '制定寻源方案' })).toHaveAttribute('href', '/tasks?icp=icp-1&tab=plan');
 });
 
-test('#13 寻源方案先给结论，按渠道看搜索词；内部代码收进技术详情', async ({ page }) => {
+test('寻源方案先给结论，按渠道查看搜索词，技术细节按需展开', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   const planState: Record<string, unknown> = { ...PLAN };
   mockProfilePage(backend, [ACTIVE_PROFILE], { 'icp-2': [planState] });
   backend.set('POST', '/query-plans/plan-1/confirm', json(() => {
@@ -282,38 +232,29 @@ test('#13 寻源方案先给结论，按渠道看搜索词；内部代码收进�
   }));
   await loginAs(page);
   await page.goto('/find-buyers');
-
-  const plans = page.locator("[data-gs='icp-plans']");
-  await expect(plans.getByRole('heading', { level: 3, name: '寻源方案' })).toBeVisible();
-  const plan = plans.locator('li.fb-plan');
-  await expect(plan).toContainText('去 3 个渠道找，一共 3 组搜索，预计约 100 家');
-  await expect(plan.locator('.fb-channel')).toHaveCount(3);
-  // 搜索词默认收起，先看结论
-  await expect(plan.locator('.fb-query')).toHaveCount(0);
-  await expect(plan.getByText('university gait lab directory', { exact: true })).toHaveCount(0);
-
-  const channel = plan.locator('.fb-channel').first();
-  await channel.getByRole('button', { name: '看搜索词' }).click();
-  const query = channel.locator('.fb-query');
-  await expect(query.getByText('university gait lab directory', { exact: true })).toBeVisible();
-  await expect(query.locator('.fb-notes')).toContainText('先低成本建立美国研究型大学');
-  await expect(query.locator('.fb-notes')).toContainText('注意：未识别贸易侧');
-  // 带内部代码的小句只在折叠的技术详情里（搜索词旁的技术详情、整份方案的原始数据），页面上看不到
-  const leaked = plan.getByText('SOURCE_QUERY_BUDGET');
-  expect(await leaked.count()).toBeGreaterThan(0);
-  for (const item of await leaked.all()) await expect(item).toBeHidden();
-  await expect(query.locator('details.fb-raw summary')).toHaveText('技术详情');
-
-  // 下一步跟着方案状态走：待确认 → 确认
-  const next = page.locator("[data-gs='icp-next']");
-  await expect(next).toContainText('下一步：确认方案');
-  await page.locator("[data-gs='icp-next-button']").click();
+  await page.getByRole('link', { name: '确认方案' }).click();
+  const plan = page.locator("[data-gs='icp-plans']");
+  await expect(plan.getByRole('heading', { level: 2, name: '寻源方案' })).toBeVisible();
+  await expect(plan).toContainText('去 3 个渠道找，一共 3 组搜索');
+  await expect(plan).toContainText('预计约 100 家');
+  await expect(plan.locator('.plan-source')).toHaveCount(3);
+  const channel = plan.locator('.plan-source').first();
+  const keywords = channel.getByText(/university gait lab directory/);
+  await expect(keywords).toBeHidden();
+  await channel.locator('summary').first().click();
+  await expect(keywords).toBeVisible();
+  await expect(channel.getByText(/先低成本建立美国研究型大学/)).toBeVisible();
+  await expect(channel.getByText(/注意：未识别贸易侧/)).toBeVisible();
+  await expect(channel.getByText(/SOURCE_QUERY_BUDGET/)).toBeHidden();
+  await expect(channel.getByText('技术详情', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '确认方案', exact: true }).click();
   await expect.poll(() => backend.callsTo('POST', '/query-plans/plan-1/confirm').length).toBe(1);
-  await expect(next).toContainText('下一步：开始寻源');
+  await expect(page.getByRole('button', { name: '开始寻源', exact: true })).toBeVisible();
 });
 
 test('#10 编辑画像是表单：属性按字段填，原始数据收在最后', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY.id);
   let current: Record<string, unknown> = PROFILE;
   let patch: Record<string, unknown> | null = null;
   backend.set('GET', '/icps', json(() => [current]));
@@ -353,5 +294,6 @@ test('#10 编辑画像是表单：属性按字段填，原始数据收在最后'
     expectedVersion: 1,
     painPoints: ['需要把数据搬到云端', '要和现有设备打通'],
   });
-  await expect(page.locator("[data-gs='icp-overview']")).toContainText('需要把数据搬到云端');
+  await page.getByRole('tab', { name: '匹配条件' }).click();
+  await expect(page.locator("[data-gs='icp-matching']")).toContainText('需要把数据搬到云端');
 });

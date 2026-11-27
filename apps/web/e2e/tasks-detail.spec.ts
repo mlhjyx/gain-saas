@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-08T10:12:30.000Z';
 
@@ -42,6 +43,7 @@ const TASK = {
 
 test('任务详情：历史运行与重试', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend);
   backend.set('GET', '/tasks/task-1', TASK);
   backend.set('POST', '/tasks/task-1/runs', { taskRunId: 'tr-3', runId: 'run-3', status: 'QUEUED' });
 
@@ -57,6 +59,8 @@ test('任务详情：历史运行与重试', async ({ page }) => {
   );
 
   await page.getByRole('button', { name: '重试上次运行' }).click();
+  expect(backend.callsTo('POST', '/tasks/task-1/runs')).toHaveLength(0);
+  await page.getByRole('dialog').getByRole('button', { name: '重新寻源', exact: true }).click();
   await page.waitForURL((url) => url.pathname === '/runs/run-3');
   const retry = backend.take('POST', '/tasks/task-1/runs');
   expect(retry, '应提交任务级重试').toBeTruthy();

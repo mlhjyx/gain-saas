@@ -1,0 +1,19 @@
+{
+  "genericTitle": "Suggested export markets",
+  "baseline": "UN Comtrade historical baseline",
+  "liveSource": "UN Comtrade data",
+  "sourceUnavailable": "Source not specified",
+  "hsOnly": "Reference HS codes: {codes}",
+  "yearOnly": "{year} trade data",
+  "month": "{month} {year}",
+  "monthBasis": "Reference HS codes: {codes} ({period} trade data, advisory only)",
+  "monthOnly": "{period} trade data",
+  "monthlyComparison": "YoY vs. the same month in {year}",
+  "coverage": "Covers {count} markets",
+  "comparableCoverage": "Covers {count} comparable markets",
+  "fallback": "General trade data. A product-specific HS code has yet to be matched.",
+  "import": "Imports {value}",
+  "monthlyImport": "Monthly imports {value}",
+  "importUnavailable": "Imports unavailable",
+  "growthUnavailable": "YoY unavailable"
+}

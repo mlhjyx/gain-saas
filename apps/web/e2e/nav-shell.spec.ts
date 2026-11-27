@@ -29,7 +29,7 @@ const NAV_GROUPS = [
     items: [
       { heading: '企业档案', landmark: '[data-gs="page-header"]', name: '企业档案', path: '/companies' },
       { heading: '买家画像', landmark: '[data-gs="page-header"]', name: '买家画像', path: '/find-buyers' },
-      { heading: '挖掘任务', landmark: '.gpc', name: '寻源记录', path: '/tasks' },
+      { heading: '寻源记录', landmark: '[data-gs="sourcing-workspace"]', name: '寻源记录', path: '/tasks' },
       { heading: '买家线索', landmark: '[data-gs="page-header"]', name: '买家线索', path: '/leads' },
     ],
   },

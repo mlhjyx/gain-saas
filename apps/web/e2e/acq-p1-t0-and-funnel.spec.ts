@@ -9,6 +9,7 @@
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-25T10:00:00.000Z';
 const COMPANY_ID = '11111111-1111-4111-8111-111111111111';
@@ -372,6 +373,7 @@ test('注册建档：自动补全 https:// 与解锁手动输入自定义行业'
 
 test('买家画像：允许同公司新建第二组画像（带 attemptId）并支持一键确认建档事实', async ({ page }) => {
   const backend = await installMockBackend(page);
+  allowSourcing(backend, COMPANY_ID);
   let approvedClaims: Array<Record<string, unknown>> = [];
 
   backend.set('GET', '/companies', [
@@ -470,6 +472,7 @@ test('买家画像：允许同公司新建第二组画像（带 attemptId）并�
 
 test('买家画像：普通成员（非管理员）不显示一键审批事实按钮，提示联系管理员', async ({ page }) => {
   const backend = await installMockBackend(page, { role: 'member' });
+  allowSourcing(backend, COMPANY_ID);
   backend.set('GET', '/companies', [
     { id: COMPANY_ID, name: 'E2E 光伏工厂', website: 'https://solar.example', targetMarkets: ['IT'] },
   ]);

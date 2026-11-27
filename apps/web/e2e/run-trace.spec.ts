@@ -90,7 +90,8 @@ test('寻源过程：人话时间线、无裸值（UUID/引擎标识不上屏）
   });
 
   await loginAs(page);
-  await page.goto('/runs/run-1');
+  await page.goto('/runs/run-1?tab=progress');
+  await page.getByText('技术详情与寻源过程', { exact: true }).click();
 
   await expect(page.getByRole('heading', { name: '寻源过程' })).toBeVisible();
   // 选源：采用/跳过都用人话名称

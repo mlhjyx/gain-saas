@@ -18,6 +18,7 @@ import type {
 } from '#/api/gainos';
 import type { GsKeyValueItem } from '#/components/gainos/ui/gs-key-value.vue';
 import type { JudgeSummary, ScoreGrade } from './judge';
+import type { CompanyChannelGroup } from './lead-company-channels.vue';
 
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -36,7 +37,6 @@ import {
 import { $t } from '#/locales';
 
 import {
-  evaluateT0Channels,
   formatDate,
   formatDateTime,
   mapRejectCodeToFeedbackReason,
@@ -58,8 +58,9 @@ import { feedback } from '#/feedback';
 import { GROWTH_PAGE_HIDDEN } from '#/feature-flags';
 
 import DecisionMakerCard from './DecisionMakerCard.vue';
-import ContactChannelCard from './contact-channel-card.vue';
 import JudgeDimensions from './judge-dimensions.vue';
+import LeadCompanyChannels from './lead-company-channels.vue';
+import LeadContactCompany from './lead-contact-company.vue';
 import T0OutreachPanel from './T0OutreachPanel.vue';
 import {
   displayLeadScore,
@@ -72,7 +73,16 @@ import {
   shortRationale,
 } from './judge';
 import { dimName, humanizeRationale, verdictLabel, verdictTone } from './judge-labels';
-import { companyContactPaths, companyPublicProfiles, hasPublicContactAccess } from './public-contact-paths';
+import {
+  canUseContactPoint,
+  companyContactPaths,
+  companyPublicProfiles,
+  contactEmailHref,
+  contactPhoneHref,
+  focusContactChannel,
+  hasPublicContactAccess,
+  safePublicUrl,
+} from './public-contact-paths';
 
 defineOptions({ name: 'LeadDetail' });
 
@@ -100,6 +110,13 @@ const { isAdmin, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
 
 const leadId = computed(() => String(route.params.leadId ?? ''));
 const tab = ref<TabKey>(readTab());
+const outreachVisible = computed(() => tab.value === 'package' || tab.value === 'draft');
+const outreachOpenedFor = ref('');
+
+watch([leadId, outreachVisible], ([id, visible]) => {
+  if (visible) outreachOpenedFor.value = id;
+  else if (outreachOpenedFor.value !== id) outreachOpenedFor.value = '';
+}, { immediate: true });
 
 function readTab(): TabKey {
   const raw = route.query.tab;
@@ -121,7 +138,10 @@ function selectTab(next: number | string): void {
 }
 
 const pkg = ref<LeadPackage | null>(null);
+const contactRestricted = computed(() => pkg.value ? !hasPublicContactAccess(pkg.value) : false);
+const canReadNamedContacts = computed(() => isAdmin.value && !contactRestricted.value && !!pkg.value?.company.canonical_company_id);
 const loading = ref(true);
+let packageLoadSequence = 0;
 const error = ref<{ next?: string; title: string } | null>(null);
 
 const draft = ref<Record<string, unknown> | null>(null);
@@ -372,13 +392,13 @@ function isSwitchboardContact(contact: CanonicalContact): boolean {
 
 async function loadInspectorContacts(): Promise<void> {
   await ensureLoaded();
+  const seq = ++inspectorContactsSeq;
   const companyId = pkg.value?.company?.canonical_company_id;
-  if (!isAdmin.value || !companyId) {
+  if (!canReadNamedContacts.value || !companyId || tab.value === 'people') {
     inspectorContacts.value = [];
     inspectorContactsLoading.value = false;
     return;
   }
-  const seq = ++inspectorContactsSeq;
   inspectorContactsLoading.value = true;
   try {
     const detail = await gainosApi.canonicalCompany(companyId);
@@ -449,15 +469,27 @@ function socialPlatformLabel(platform: string): string {
 }
 
 const companyEmails = computed(() =>
-  pkg.value && hasPublicContactAccess(pkg.value)
-    ? (pkg.value.company_channels ?? []).filter((item) => item.channel === 'email' && item.value)
-    : [],
+  publicCompanyContactPoints('email'),
 );
 const companyPhones = computed(() =>
-  pkg.value && hasPublicContactAccess(pkg.value)
-    ? (pkg.value.company_channels ?? []).filter((item) => item.channel === 'phone' && item.value)
-    : [],
+  publicCompanyContactPoints('phone'),
 );
+
+function publicCompanyContactPoints(kind: 'email' | 'phone') {
+  const lead = pkg.value;
+  if (!lead || contactRestricted.value) return [];
+  return (lead.company_channels ?? [])
+    .filter((item) => item.channel === kind && item.value)
+    .map((item) => ({
+      href: canUseContactPoint(item.status)
+        ? (kind === 'email' ? contactEmailHref(lead, item.value) : contactPhoneHref(item.value))
+        : '',
+      sourceUrl: safePublicUrl(item.source_url),
+      sourceLabel: item.source_type === 'homepage' ? $t('gainosContactOverview.companyWebsiteSource') : undefined,
+      value: item.value,
+    }));
+}
+
 const companySocials = computed(() =>
   pkg.value ? companyPublicProfiles(pkg.value).map((item) => ({
     ...item,
@@ -481,15 +513,32 @@ const hasAnyContactPath = computed(
     companySocials.value.length > 0 ||
     contactPaths.value.length > 0,
 );
-const contactEmailMailtoAllowed = computed(() => {
-  if (!pkg.value) return false;
-  return evaluateT0Channels({
-    countryCode: pkg.value.company.country,
-    companyName: pkg.value.company.name,
-    email: companyEmails.value[0]?.value,
-    suppressed: status.value === 'SUPPRESSED',
-    sanctionsHold: sanctionBlocked.value,
-  }).channels.mailto.allowed;
+const companyChannelGroups = computed(() => {
+  const groups: CompanyChannelGroup[] = [];
+  function add(kind: string, label: string, entries: Omit<CompanyChannelGroup['entries'][number], 'copyable'>[]) {
+    if (entries.length === 0) return;
+    groups.push({
+      entries: entries.map((entry) => ({ ...entry, copyable: Boolean(entry.href) })),
+      id: 'company-channel-' + leadId.value + '-' + kind,
+      kind,
+      label,
+    });
+  }
+  add('email', $t('gainos.leads.channelEmailsTitle'), companyEmails.value);
+  add('phone', $t('gainos.leads.channelPhonesTitle'), companyPhones.value);
+  for (const group of companySocialGroups.value) {
+    add(group.platform, group.entries[0]?.label ?? group.platform, group.entries.map((social) => ({
+      href: social.url,
+      sourceLabel: social.source === 'structured_org' ? $t('gainosContactOverview.companyWebsiteSource') : undefined,
+      value: social.url,
+    })));
+  }
+  add('form', $t('gainos.leads.channelFormsTitle'), contactPaths.value.map((point) => ({
+    href: canUseContactPoint(point.status) ? point.url : '',
+    sourceUrl: point.sourceUrl,
+    value: point.url,
+  })));
+  return groups;
 });
 
 function sanctionLabel(value?: null | string): string {
@@ -511,20 +560,25 @@ const decisionOkText = computed(() =>
 );
 
 async function load(): Promise<void> {
+  const sequence = ++packageLoadSequence;
+  const requestedLeadId = leadId.value;
   loading.value = true;
   error.value = null;
   try {
-    pkg.value = await gainosApi.leadPackage(leadId.value);
+    const leadPackage = await gainosApi.leadPackage(requestedLeadId);
+    if (sequence !== packageLoadSequence || requestedLeadId !== leadId.value) return;
+    pkg.value = leadPackage;
     draftError.value = null;
     draft.value = null;
-    void loadDraft();
+    if (outreachVisible.value) void loadDraft();
     void loadInspectorContacts();
   } catch (err) {
+    if (sequence !== packageLoadSequence || requestedLeadId !== leadId.value) return;
     error.value = failureText(err);
     pkg.value = null;
     inspectorContacts.value = [];
   } finally {
-    loading.value = false;
+    if (sequence === packageLoadSequence) loading.value = false;
   }
 }
 
@@ -953,9 +1007,10 @@ onMounted(async () => {
   }
 });
 
-watch(tab, (next) => {
-  if (next === 'draft' && !draft.value) void loadDraft();
+watch(tab, (next, previous) => {
+  if (outreachVisible.value && !draft.value) void loadDraft();
   if (next === 'outcomes' && pkg.value) void loadOutcomes();
+  if (previous === 'people') void loadInspectorContacts();
 });
 
 watch(leadId, () => {
@@ -972,8 +1027,8 @@ watch(leadId, () => {
 <template>
   <div class="mx-auto grid w-full max-w-[var(--gs-page-max)] grid-cols-1 gap-4 px-[var(--gs-page-pad)] pb-12 @container">
     <GsPage
-      :subtitle="pkg ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"
-      :title="pkg?.company.name || $t('gainos.leads.unknownCompany')"
+      :subtitle="pkg && tab !== 'people' ? [pkg.company.country, pkg.company.domain].filter(Boolean).join(' · ') : ''"
+      :title="tab === 'people' ? $t('gainosContactOverview.title') : pkg?.company.name || $t('gainos.leads.unknownCompany')"
     >
       <template #actions>
         <div class="ld-head-actions">
@@ -981,7 +1036,10 @@ watch(leadId, () => {
             <span aria-hidden="true" class="ld-status-dot" :class="`is-${statusTone}`" />
             <span>{{ statusLabel(status) }}</span>
           </span>
-          <Button data-gs="back-to-list" size="small" @click="router.push('/leads')">
+          <Button v-if="tab === 'people'" data-gs="back-to-lead" @click="selectTab('package')">
+            {{ $t('gainosContactOverview.backToLead') }}
+          </Button>
+          <Button v-else data-gs="back-to-list" size="small" @click="router.push('/leads')">
             {{ $t('gainos.leads.backToList') }}
           </Button>
         </div>
@@ -1001,6 +1059,7 @@ watch(leadId, () => {
         <div class="ld-main" data-gs="lead-detail-main">
           <!-- 顶部紧凑结论摘要带 -->
           <section
+            v-show="tab !== 'people'"
             :aria-label="$t('gainosUi2.leadDetail.summaryBadgeAria')"
             class="ld-summary"
             data-gs="judge-hero"
@@ -1185,95 +1244,59 @@ watch(leadId, () => {
             </TabPane>
 
             <TabPane key="people" :tab="$t('gainos.leads.tab.people')">
-              <div class="grid gap-4">
+              <div class="grid gap-5">
                 <DecisionMakerCard
-                  v-if="isAdmin && pkg.company.canonical_company_id"
+                  v-if="canReadNamedContacts"
+                  :key="pkg.lead_id"
                   :company-id="pkg.company.canonical_company_id"
+                  :lead="pkg"
                   hide-official-channels
-                  @enrichment-updated="() => { void loadOutcomes(); void loadInspectorContacts(); }"
-                />
-
-                <GsCard
-                  :title="$t('gainosB4.leadsDetail.publicChannelsTitle')"
-                  data-gs="people-public-channels"
+                  @enrichment-updated="loadOutcomes"
                 >
-                  <div v-if="hasAnyContactPath" class="ld-contact-grid">
-                    <ContactChannelCard
-                      v-if="companyEmails.length > 0"
-                      kind="email"
-                      :label="$t('gainos.leads.channelEmailsTitle')"
-                    >
-                      <div v-for="(item, index) in companyEmails" :key="index" class="break-all text-[13px]">
-                        <a v-if="contactEmailMailtoAllowed" class="text-[var(--gs-accent-fg)] underline" :href="`mailto:${item.value}`">
-                          {{ item.value }}
-                        </a>
-                        <span v-else>{{ item.value }}</span>
-                      </div>
-                    </ContactChannelCard>
-                    <ContactChannelCard
-                      v-if="companyPhones.length > 0"
-                      kind="phone"
-                      :label="$t('gainos.leads.channelPhonesTitle')"
-                    >
-                      <a
-                        v-for="(item, index) in companyPhones"
-                        :key="index"
-                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
-                        :href="`tel:${item.value}`"
-                      >{{ item.value }}</a>
-                    </ContactChannelCard>
-                    <ContactChannelCard
-                      v-for="group in companySocialGroups"
-                      :key="group.platform"
-                      :kind="group.platform"
-                      :label="group.entries[0]?.label ?? group.platform"
-                    >
-                      <a
-                        v-for="social in group.entries"
-                        :key="social.url"
-                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
-                        :href="social.url"
-                        rel="noreferrer"
-                        target="_blank"
+                  <template #company-overview="{ affiliated }">
+                    <LeadContactCompany :affiliated="affiliated" :lead="pkg" />
+                  </template>
+                  <template #company-channel-jumps>
+                    <div v-if="companyChannelGroups.length" class="flex flex-wrap items-center gap-1.5">
+                      <span class="mr-1 text-xs text-[var(--gs-fg-muted)]">{{ $t('gainosContactOverview.publicChannels') }}</span>
+                      <Button
+                        v-for="group in companyChannelGroups"
+                        :key="group.id"
+                        :aria-controls="group.id"
+                        :aria-label="$t('gainosContactOverview.publicChannelJump', { channel: group.label })"
+                        shape="round"
+                        @click="focusContactChannel(group.id)"
                       >
-                        {{ social.url.replace(/^https?:\/\//i, '') }}
-                      </a>
-                    </ContactChannelCard>
-                    <ContactChannelCard
-                      v-if="contactPaths.length > 0"
-                      kind="form"
-                      :label="$t('gainos.leads.channelFormsTitle')"
-                    >
-                      <a
-                        v-for="point in contactPaths"
-                        :key="point.url"
-                        class="break-all text-[13px] text-[var(--gs-accent-fg)] underline"
-                        :href="point.url"
-                        rel="noreferrer"
-                        target="_blank"
-                      >{{ point.url }}</a>
-                    </ContactChannelCard>
-                  </div>
-                  <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
-                    {{ $t('gainosB4.leadsDetail.publicChannelsEmpty') }}
-                  </p>
-                  <p v-if="pkg.suggested_contact_path" class="mb-0 mt-3 text-xs text-[var(--gs-fg-muted)]">
-                    {{ pkg.suggested_contact_path.legal_note }}
-                  </p>
-                </GsCard>
+                        {{ group.label }}
+                      </Button>
+                    </div>
+                  </template>
+                  <template #company-channels>
+                    <LeadCompanyChannels
+                      :groups="companyChannelGroups"
+                      :legal-note="pkg.suggested_contact_path?.legal_note"
+                      :restricted="contactRestricted"
+                    />
+                  </template>
+                </DecisionMakerCard>
 
-                <GsCard
-                  v-if="accessLoaded && !isAdmin"
-                  :title="$t('gainosB4.leadsDetail.decisionMakersAdminTitle')"
-                  data-gs="decision-makers-admin-only"
-                >
-                  <p class="m-0 text-[13px] font-medium text-[var(--gs-fg)]">
-                    {{ $t('gainos.leads.peopleAdminOnly') }}
+                <template v-else>
+                  <GsCard padding="20px">
+                    <LeadContactCompany :key="pkg.lead_id" :lead="pkg" />
+                  </GsCard>
+                  <LeadCompanyChannels
+                    :groups="companyChannelGroups"
+                    :legal-note="pkg.suggested_contact_path?.legal_note"
+                    :restricted="contactRestricted"
+                  />
+                  <p
+                    v-if="accessLoaded && !isAdmin && !contactRestricted"
+                    class="m-0 text-sm text-[var(--gs-fg-muted)]"
+                    data-gs="decision-makers-admin-only"
+                  >
+                    {{ $t('gainosContactOverview.adminOnly') }}
                   </p>
-                  <p class="mb-0 mt-1.5 text-xs text-[var(--gs-fg-muted)]">
-                    {{ $t('gainosB4.leadsDetail.decisionMakersAdminNote') }}
-                  </p>
-                </GsCard>
+                </template>
               </div>
             </TabPane>
 
@@ -1384,9 +1407,10 @@ watch(leadId, () => {
             </TabPane>
           </Tabs>
 
-          <!-- 单一受控挂载 T0OutreachPanel：切换任意 Tab 均不销毁/重置草稿与已选渠道 -->
+          <!-- 初次打开草稿或档案时加载，后续切换页签保留该线索的编辑状态。 -->
           <T0OutreachPanel
-            v-show="tab === 'package' || tab === 'draft'"
+            v-if="outreachOpenedFor === pkg.lead_id"
+            v-show="outreachVisible"
             :key="pkg.lead_id"
             :draft="draft"
             :is-admin="isAdmin"
@@ -1500,9 +1524,9 @@ watch(leadId, () => {
                   class="m-0 flex flex-wrap items-center gap-1.5 text-[12.5px]"
                 >
                   <a
-                    v-if="contactEmailMailtoAllowed"
+                    v-if="item.href"
                     class="break-all text-[var(--gs-accent-fg)]"
-                    :href="`mailto:${item.value}`"
+                    :href="item.href"
                   >
                     {{ item.value }}
                   </a>
@@ -1521,9 +1545,10 @@ watch(leadId, () => {
                   :key="`insp-ph-${index}`"
                   class="m-0 text-[12.5px]"
                 >
-                  <a class="text-[var(--gs-fg)]" :href="`tel:${item.value}`">
+                  <a v-if="item.href" class="text-[var(--gs-fg)]" :href="item.href">
                     {{ item.value }}
                   </a>
+                  <span v-else>{{ item.value }}</span>
                 </p>
               </div>
 
@@ -1799,12 +1824,6 @@ watch(leadId, () => {
 
 .ld-split--people {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.ld-contact-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
-  gap: 9px;
 }
 
 .ld-main {

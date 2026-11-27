@@ -399,6 +399,9 @@ export interface ComtradeRecommendationBundle {
   inferredFrom: string | null;
   dataSource: string | null;
   referenceYear: number | null;
+  referencePeriod?: string;
+  coverage?: number;
+  shareBasis?: 'comparable_reporters';
   basisHsCodes: ComtradeHsBasisItem[];
   recommendations: ComtradeMarketRecommendation[];
 }
@@ -485,12 +488,26 @@ export function normalizeComtradeBundle(raw: unknown): ComtradeRecommendationBun
       matchedFrom: typeof row['matchedFrom'] === 'string' ? row['matchedFrom'].trim() : undefined,
     });
   }
+  const referenceYear = finiteNumber(basis['referenceYear']);
+  const period = basis['referencePeriod'];
+  const referencePeriod = typeof period === 'string' &&
+    /^[1-9]\d{3}(0[1-9]|1[0-2])$/.test(period) &&
+    (referenceYear === null || Number(period.slice(0, 4)) === referenceYear)
+    ? period
+    : undefined;
+  const rawCoverage = basis['coverage'];
+  const coverage = typeof rawCoverage === 'number' && Number.isSafeInteger(rawCoverage) && rawCoverage >= 0
+    ? rawCoverage
+    : undefined;
   return {
     companyId: typeof rec['companyId'] === 'string' ? rec['companyId'] : null,
     isRecommendationOnly: rec['isRecommendationOnly'] !== false,
     inferredFrom: typeof basis['inferredFrom'] === 'string' ? basis['inferredFrom'] : null,
     dataSource: typeof basis['dataSource'] === 'string' ? basis['dataSource'] : null,
-    referenceYear: finiteNumber(basis['referenceYear']),
+    referenceYear,
+    referencePeriod,
+    coverage,
+    shareBasis: basis['shareBasis'] === 'comparable_reporters' ? basis['shareBasis'] : undefined,
     basisHsCodes,
     recommendations: normalizeComtradeRecommendations(raw),
   };

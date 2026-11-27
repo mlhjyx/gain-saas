@@ -62,14 +62,15 @@ test('run identity waits for the delayed result and survives refresh', async ({ 
   });
   await loginAs(page);
   try {
-    await page.goto('/runs/run-test-123');
+    await page.goto('/runs/run-test-123?tab=progress');
     await requestStarted;
-    await expect(page.getByText('正在加载…', { exact: true })).toBeVisible();
+    await expect(page.locator('.run .ant-skeleton')).toBeVisible();
     // 编号只在「技术详情：任务编号」里出现，运行记录到手前整块都不渲染。
     await expect(page.locator('.run__identity')).toHaveCount(0);
   } finally {
     release();
   }
+  await page.getByText('技术详情与寻源过程', { exact: true }).click();
   const identity = page.locator('.run__identity');
   await expect(identity).toContainText('icp-test');
   await expect(identity).toContainText('plan-tes');
@@ -81,7 +82,7 @@ test('run identity waits for the delayed result and survives refresh', async ({ 
   expect((await refreshed).ok()).toBe(true);
   await expect(identity).toContainText('plan-nex');
   expect(backend.calls.filter((call) => call.method === 'GET' && call.path === RUN_PATH)).toHaveLength(2);
-  await expect(page.locator('.run__error')).toHaveCount(0);
+  await expect(page.locator('.run [role="alert"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -98,7 +99,7 @@ test('initial run request failure displays the error without a render crash', as
   });
   await loginAs(page);
   await page.goto('/runs/run-test-123');
-  await expect(page.locator('.run__error')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '测试请求失败', exact: true })).toBeVisible();
   await expect(page.locator('.run__identity')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

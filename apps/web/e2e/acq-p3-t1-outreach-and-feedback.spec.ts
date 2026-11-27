@@ -468,9 +468,10 @@ test('信号破冰首句一键插入 + 结构化驳回回流 ICP 学习摘要展
     note: '上游组件制造同行',
   });
 
-  // 3. 在 /find-buyers 打开画像详情抽屉，展示已沉淀的排除域名、关键词与反例学习摘要
+  // 3. 在对应画像的反馈页签查看已沉淀的排除域名、关键词与反例。
   await page.goto('/find-buyers');
   await page.getByRole('button', { name: '意大利光伏分销商' }).click();
+  await page.getByRole('tab', { name: '判断反馈' }).click();
   await expect(page.locator('[data-gs="icp-learned-feedback"]')).toBeVisible();
   await expect(page.locator('[data-gs="icp-learned-domains"]')).toContainText('solargrid.it');
   await expect(page.locator('[data-gs="icp-learned-keywords"]')).toContainText('组件制造同行');

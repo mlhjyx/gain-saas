@@ -101,6 +101,16 @@ test('成熟工作区从旧启航链接回工作台，可进入寻源记录与�
     runs: [...runningTask.runs, finishedTaskRun],
   }]);
   backend.set('GET', '/discovery-runs/' + run.id, run);
+  backend.set('GET', '/discovery-runs/' + run.id + '/result-view', {
+    candidates: { items: [], total: 0, truncated: false },
+    icpId: profile.id,
+    runId: run.id,
+    scoring: {
+      latest: { items: [], label: 'latest_not_necessarily_this_run' },
+      thisRun: { available: false, batches: 0, items: [], label: 'not_scored_in_run' },
+    },
+    status: run.status,
+  });
   backend.set('GET', '/wallet/summary', wallet);
 
   await loginAs(page);
@@ -147,7 +157,17 @@ test('成熟工作区从旧启航链接回工作台，可进入寻源记录与�
   await expect(recordsMenu).toHaveAttribute('aria-current', 'page');
   await recordsMenu.click();
   await expect(page).toHaveURL(/\/tasks$/);
-  await expect(page.getByRole('link', { name: profile.name, exact: true })).toBeVisible();
+  const records = page.locator('[data-gs="sourcing-workspace"]').filter({
+    has: page.getByRole('link', { name: '寻源方案', exact: true }),
+  });
+  const currentRun = records.getByRole('complementary', { name: '最近运行' })
+    .locator(`a[href="/runs/${run.id}"]`);
+  await expect(currentRun).toContainText(profile.name);
+  await expect(currentRun).toContainText('进行中');
+  await currentRun.click();
+  await expect(page).toHaveURL(`/runs/${run.id}`);
+  await expect(page.locator('[data-gs="run-head"]').getByRole('heading', { name: profile.name, exact: true })).toBeVisible();
+  await expect(page.locator('[data-gs="run-result-view"]')).toContainText('寻源进行中，候选企业可用后会在这里显示');
   await page.goto('/workspace');
 
   await summary.locator('[data-gs="workspace-accepted"]').click();

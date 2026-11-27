@@ -2,6 +2,8 @@
  * GainOS 业务 API(BFF 路由表透传；错误已由 request.ts 统一解包/映射,PRD §14)。
  * 字段命名跟随引擎 OpenAPI(packages/engine-client);未知字段一律防御性可选。
  */
+import type { operations } from '@gain-saas/engine-client';
+
 import type { SellerDocumentParsedMeta } from './seller-documents-upload';
 
 import { useAppConfig } from '@vben/hooks';
@@ -377,7 +379,13 @@ export interface LeadOutcomeInput {
   source?: 'customer' | 'operator';
 }
 
+type EngineLeadPackage =
+  operations['LeadController_leadPackage_v1']['responses'][200]['content']['application/json']['data'];
+
+export type LeadCompanyOverview = NonNullable<EngineLeadPackage['company_overview']>;
+
 export interface LeadPackage {
+  company_overview?: LeadCompanyOverview | null;
   lead_id: string;
   status: string;
   company: {

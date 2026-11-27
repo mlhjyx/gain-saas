@@ -11,24 +11,30 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { preferences } from '@vben/preferences';
 
-import { Alert, Button, Input, Space, Table } from 'ant-design-vue';
+import { Alert, Button, Input, Modal, Space, Table } from 'ant-design-vue';
 
 import { $t } from '#/locales';
 
 import { formatDateTime, glossaryStatus, statusClass } from '@gain-saas/shared';
 
 import AsyncSection from '#/components/gainos/async-section.vue';
+import ErrorNotice from '#/components/error-notice.vue';
 import PageContainer from '#/components/gainos/page-container.vue';
 import PageHeader from '#/components/gainos/page-header.vue';
+import { notifyChainChanged } from '#/composables/use-main-chain-progress';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 
 import { failureText, gainosApi } from '#/api/gainos';
 import { feedback } from '#/feedback';
+
+import { isRunInProgress, mintAttemptId, sourcingPlansLocation, sourcingRunLocation } from '../runs/sourcing-navigation';
 
 defineOptions({ name: 'TaskDetail' });
 
 const route = useRoute();
 const router = useRouter();
 const taskId = computed(() => String(route.params.taskId ?? ''));
+const { can, ensureLoaded } = useWorkspaceAccess();
 
 const task = ref<AcquisitionTaskView | null>(null);
 const icps = ref<Icp[]>([]);
@@ -36,6 +42,10 @@ const loading = ref(true);
 const error = ref<{ next?: string; title: string } | null>(null);
 const notice = ref<string | null>(null);
 const retrying = ref(false);
+const retryDialog = ref(false);
+const retryAttemptId = ref<string | null>(null);
+const retryError = ref<ReturnType<typeof failureText> | null>(null);
+const retryWaiting = ref(false);
 
 const editingName = ref(false);
 const nameDraft = ref('');
@@ -61,10 +71,11 @@ const runs = computed<TaskRunView[]>(() =>
 const latestRun = computed(() => runs.value[0] ?? null);
 
 const canRetry = computed(() => {
-  if (isArchived.value) return false;
+  if (loading.value || !can('acquisition.run') || isArchived.value || isPaused.value || retryWaiting.value) return false;
   const run = latestRun.value;
   if (!run) return false;
   return (
+    !runs.value.some((entry) => isRunInProgress(entry.status)) &&
     ['FAILED', 'PARTIAL', 'CANCELLED'].includes(run.status) &&
     Boolean(run.planId)
   );
@@ -96,11 +107,6 @@ function triggerLabel(trigger?: string): string {
   const key = `gainos.tasks.trigger.${trigger ?? 'manual'}` as Parameters<typeof $t>[0];
   const translated = $t(key);
   return translated === key ? (trigger ?? '—') : translated;
-}
-
-function mintAttemptId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ?? `attempt-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 }
 
 async function load(): Promise<void> {
@@ -221,31 +227,52 @@ function confirmArchive(): void {
 
 async function retryLatest(): Promise<void> {
   const run = latestRun.value;
-  if (!run?.planId || retrying.value || isArchived.value) return;
+  const id = taskId.value;
+  if (!run?.planId || retrying.value || !canRetry.value) return;
   retrying.value = true;
   notice.value = null;
+  retryError.value = null;
   try {
-    const result = await gainosApi.startAcquisitionTaskRun(
-      taskId.value,
-      run.planId,
-      mintAttemptId(),
-    );
-    notice.value = $t('gainos.tasks.retryRequested');
-    if (result.runId) {
-      await router.push({ name: 'DiscoveryRun', params: { runId: result.runId } });
+    await load();
+    if (!canRetry.value || latestRun.value?.id !== run.id || taskId.value !== id) {
+      retryError.value = { title: $t('gainos.runs.retryUnavailable'), why: undefined, next: undefined };
       return;
     }
+    retryAttemptId.value ??= mintAttemptId();
+    const result = await gainosApi.startAcquisitionTaskRun(
+      id,
+      run.planId,
+      retryAttemptId.value,
+    );
+    retryDialog.value = false;
+    notifyChainChanged();
+    if (result.runId) {
+      retryAttemptId.value = null;
+      await router.push(sourcingRunLocation(result.runId, 'progress'));
+      return;
+    }
+    retryWaiting.value = true;
+    notice.value = $t('gainosBuyerJourney.sourcing.outcomeUnknown');
     await load();
   } catch (err) {
-    error.value = failureText(err);
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status && status >= 400 && status < 500 && status !== 408) retryAttemptId.value = null;
+    retryError.value = failureText(err);
   } finally {
     retrying.value = false;
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void ensureLoaded();
+  void load();
+});
 watch(taskId, () => {
   editingName.value = false;
+  retryDialog.value = false;
+  retryError.value = null;
+  retryAttemptId.value = null;
+  retryWaiting.value = false;
   void load();
 });
 
@@ -262,14 +289,16 @@ const runColumns = computed(() => [
 <template>
   <PageContainer>
     <PageHeader
-      :subtitle="$t('gainos.tasks.detailSubtitle')"
-      :title="task?.name ?? $t('gainos.tasks.title')"
+      :title="task?.name ?? $t('gainosBuyerJourney.sourcing.taskManagement')"
     >
       <template #actions>
         <Space :size="8" wrap>
-          <Button @click="router.push('/tasks')">
+          <Button @click="router.push({ name: 'Tasks', query: { tab: 'manage' } })">
             {{ $t('gainos.tasks.backToList') }}
           </Button>
+          <RouterLink v-if="task?.icpId" :to="sourcingPlansLocation(task.icpId)" class="td__link">
+            {{ $t('gainosBuyerJourney.sourcing.plans') }}
+          </RouterLink>
           <Button
             v-if="task && !isArchived && !editingName"
             :disabled="updating"
@@ -300,7 +329,7 @@ const runColumns = computed(() => [
             type="primary"
             :disabled="retrying"
             :loading="retrying"
-            @click="retryLatest"
+            @click="retryDialog = true; retryError = null"
           >
             {{ retrying ? $t('gainos.tasks.retrying') : $t('gainos.tasks.retryLast') }}
           </Button>
@@ -361,7 +390,11 @@ const runColumns = computed(() => [
             </dd>
             <dt>{{ $t('gainos.tasks.icp') }}</dt>
             <dd>
-              <RouterLink v-if="task.icpId" class="tkd__link" to="/find-buyers">
+              <RouterLink
+                v-if="task.icpId"
+                class="tkd__link"
+                :to="{ name: 'FindBuyers', query: { icp: task.icpId } }"
+              >
                 {{ taskIcpName }}
               </RouterLink>
               <span v-else>—</span>
@@ -412,6 +445,22 @@ const runColumns = computed(() => [
         </section>
       </template>
     </AsyncSection>
+    <Modal
+      :open="retryDialog"
+      :title="$t('gainosBuyerJourney.sourcing.retryTitle')"
+      :ok-text="$t('gainosBuyerJourney.sourcing.restart')"
+      :cancel-text="$t('gainos.common.cancel')"
+      :confirm-loading="retrying"
+      :closable="!retrying"
+      :mask-closable="!retrying"
+      :keyboard="!retrying"
+      @cancel="!retrying && (retryDialog = false)"
+      @ok="retryLatest"
+    >
+      <p>{{ $t('gainosBuyerJourney.sourcing.retryBilling') }}</p>
+      <RouterLink class="td__link" :to="{ path: '/settings/account', hash: '#wallet' }">{{ $t('gainosBuyerJourney.sourcing.wallet') }}</RouterLink>
+      <ErrorNotice v-if="retryError" v-bind="retryError" />
+    </Modal>
   </PageContainer>
 </template>
 

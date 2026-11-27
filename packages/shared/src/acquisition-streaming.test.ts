@@ -139,6 +139,8 @@ describe('Phase 2 Track 2C: seller intake, three-layer profile, Comtrade & strea
     });
     expect(bundle.isRecommendationOnly).toBe(true);
     expect(bundle.referenceYear).toBe(2024);
+    expect(bundle.referencePeriod).toBeUndefined();
+    expect(bundle.coverage).toBeUndefined();
     expect(bundle.basisHsCodes[0]?.code).toBe('854143');
     expect(bundle.recommendations).toHaveLength(1);
     expect(bundle.recommendations[0]).toMatchObject({
@@ -152,6 +154,29 @@ describe('Phase 2 Track 2C: seller intake, three-layer profile, Comtrade & strea
       confidence: 'high',
     });
     expect(normalizeComtradeRecommendations(bundle.recommendations)).toHaveLength(1);
+  });
+
+  it('preserves the reporting month and market coverage of a monthly UN Comtrade snapshot', () => {
+    const basis = {
+      coverage: 12,
+      dataSource: 'un_comtrade_live',
+      referencePeriod: '202608',
+      referenceYear: 2026,
+      shareBasis: 'comparable_reporters',
+    };
+    expect(normalizeComtradeBundle({ basis })).toMatchObject(basis);
+  });
+
+  it('ignores invalid monthly metadata without losing the annual reference year', () => {
+    const bundle = normalizeComtradeBundle({
+      basis: { coverage: -1, referencePeriod: '202613', referenceYear: 2026, shareBasis: 'other' },
+    });
+    expect(bundle.referenceYear).toBe(2026);
+    expect(bundle.referencePeriod).toBeUndefined();
+    expect(bundle.coverage).toBeUndefined();
+    expect(bundle.shareBasis).toBeUndefined();
+    expect(normalizeComtradeBundle({ basis: { referencePeriod: '202508', referenceYear: 2026 } }).referencePeriod)
+      .toBeUndefined();
   });
 
   it('projects exact 2A #51 streaming-progress DTO including recentCandidates and falls back to Run 2.0 jobs', () => {

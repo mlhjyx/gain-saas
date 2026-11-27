@@ -1,0 +1,19 @@
+{
+  "genericTitle": "出口目标市场建议",
+  "baseline": "UN Comtrade 历史基准",
+  "liveSource": "UN Comtrade 数据",
+  "sourceUnavailable": "来源未标注",
+  "hsOnly": "参考 HS 编码：{codes}",
+  "yearOnly": "{year} 年贸易数据",
+  "month": "{year} 年 {month} 月",
+  "monthBasis": "参考 HS 编码：{codes}（{period} 贸易数据，仅供选国参考）",
+  "monthOnly": "{period} 贸易数据",
+  "monthlyComparison": "{year} 年同月同比",
+  "coverage": "覆盖 {count} 个市场",
+  "comparableCoverage": "覆盖 {count} 个可比市场",
+  "fallback": "通用贸易数据参考，当前产品尚未匹配专属 HS 编码。",
+  "import": "进口额 {value}",
+  "monthlyImport": "月进口额 {value}",
+  "importUnavailable": "进口额暂无",
+  "growthUnavailable": "同比暂无"
+}

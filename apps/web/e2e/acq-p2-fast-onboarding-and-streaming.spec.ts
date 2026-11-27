@@ -2,11 +2,12 @@
  * Phase 2 Track 2C E2E 回归测试：
  * 1. 工作台建档（店铺链接校验、显式采用目标市场、独立生成和激活买家画像）
  * 2. 多模态冷启动（PDF 画册三步直传 + 简短主营产品描述）
- * 3. 1 公司多画像并行管理（公司切换栏 + 多画像创建与并存激活 + 三层画像卡片 + 方案 B 流式三段进度在 /find-buyers、/leads 与 /runs/:runId 贯通）
+ * 3. 同一企业的多份画像可从左侧切换，寻源进度通过运行详情与买家线索查看。
  */
 import { expect, test } from '@playwright/test';
 
 import { installMockBackend, loginAs } from './support/mock-backend';
+import { allowSourcing } from './support/sourcing-fixtures';
 
 const NOW = '2026-11-26T01:00:00.000Z';
 const COMPANY_ID = '11111111-1111-4111-8111-111111111111';
@@ -115,6 +116,7 @@ const COMTRADE_FIXTURE = {
 
 test('店铺建档：市场推荐显式确认，初稿生成和激活由管理员分别发起', async ({ page }) => {
   const backend = await installMockBackend(page, { onboardingComplete: false });
+  allowSourcing(backend);
   const product = 'HJT 700W 双面光伏组件';
   const website = 'https://solarfactory.en.alibaba.com';
   const company = { id: COMPANY_ID, name: '日光新能源', industry: '电气设备制造', website };
@@ -196,9 +198,9 @@ test('店铺建档：市场推荐显式确认，初稿生成和激活由管理�
   await dialog.locator('[data-gs="create-buyer-role-distributor"]').click();
   await dialog.locator('[data-gs="create-buyer-role-epc"]').click();
   await dialog.getByRole('button', { name: '生成初稿' }).click();
-  await expect(page.locator('[data-gs="icp-three-layer"]')).toContainText(product);
-  await expect(page.locator('[data-gs="icp-next"]')).toContainText('激活买家画像');
-  await page.locator('[data-gs="icp-next-button"]').click();
+  await expect(page.locator('[data-gs="icp-target-markets"]')).toHaveText('意大利');
+  await expect(page.locator('[data-gs="icp-workspace-meta"]')).toHaveAttribute('href', `/companies?companyId=${COMPANY_ID}&tab=facts`);
+  await page.getByRole('button', { name: '启用画像' }).click();
 
   expect(backend.callsTo('POST', '/onboarding/preview')[0]?.body).toMatchObject({ website });
   expect(backend.callsTo('POST', '/onboarding/company')[0]?.body).toMatchObject({ products: [product], targetMarkets: ['IT'] });
@@ -420,25 +422,15 @@ test('1 公司多画像管理与方案 B 流式进度贯通（/find-buyers → /
   await loginAs(page);
   await page.goto('/find-buyers');
 
-  // 1. 同一公司下两套画像清晰并列，公司切换栏可见
-  await expect(page.locator('[data-gs="company-icp-switcher"]')).toBeVisible();
-  await expect(page.locator('[data-gs="icp-card"]')).toHaveCount(2);
-
-  // 打开意大利画像详情抽屉：验证三层画像卡片 + 方案 B 流式三段进度看板 + 一键跳转线索页
-  await page.getByRole('button', { name: '意大利光伏分销商' }).click();
-  await expect(page.locator('[data-gs="icp-three-layer"]')).toBeVisible();
-  await expect(page.locator('[data-gs="streaming-progress-board"]')).toBeVisible();
-  await expect(page.locator('[data-gs="streaming-view-leads"]')).toContainText('12');
-
-  // 2. 点击查看已筛出买家直达 /leads，列表顶部展示紧凑流式进度横幅 + 实时候选买家卡片
-  await page.locator('[data-gs="streaming-view-leads"]').click();
-  await page.waitForURL(/\/leads/);
+  await expect(page.locator('[data-gs="icp-profile-switcher"]').locator('[data-gs="icp-card"]')).toHaveCount(2);
+  await expect(page.locator('[data-gs="icp-target-markets"]')).toHaveText('意大利');
+  await expect(page.locator('[data-gs="streaming-progress-board"]')).toHaveCount(0);
+  await page.getByRole('link', { name: '查看寻源进度', exact: true }).click();
+  await expect(page).toHaveURL(`/runs/${RUN_STREAM}?tab=progress`);
   await expect(page.locator('[data-gs="streaming-progress-board"]')).toBeVisible();
   await expect(page.locator('[data-gs="streaming-stage-l1"]')).toContainText('12');
-  await expect(page.getByText('Memodo Italia S.r.l.')).toBeVisible();
-
-  // 3. 打开挖掘任务运行详情页 /runs/:runId，同样展示流式三段进度与实时候选企业
-  await page.goto(`/runs/${RUN_STREAM}`);
-  await expect(page.locator('[data-gs="streaming-progress-board"]')).toBeVisible();
   await expect(page.locator('[data-gs="streaming-recent-candidates"]')).toContainText('Memodo Italia S.r.l.');
+  await page.goto(`/leads?icp=${ICP_IT}`);
+  await expect(page.locator('[data-gs="streaming-progress-board"]')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Memodo Italia S.r.l.', exact: true })).toBeVisible();
 });

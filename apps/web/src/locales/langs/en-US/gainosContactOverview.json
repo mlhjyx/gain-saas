@@ -1,0 +1,33 @@
+{
+  "title": "Contacts and channels",
+  "backToLead": "Back to lead",
+  "identity": "Contact",
+  "personalChannels": "Contact channels",
+  "publicChannels": "Public company channels",
+  "publicChannelJump": "View the company’s {channel}",
+  "contactTools": "Contact enrichment",
+  "adminOnly": "Workspace admins can view named contacts and request enrichment.",
+  "restricted": "Contact channels for this lead are currently restricted.",
+  "company": "Buyer company",
+  "affiliatedCompany": "Affiliated company",
+  "noDescription": "No sourced company description available",
+  "location": "Location",
+  "registeredCity": "{city} (registered city)",
+  "mainBusiness": "Main business",
+  "businessSeparator": ", ",
+  "website": "Website",
+  "domain": "Domain",
+  "sources": "Details and sources",
+  "companyWebsiteSource": "Company website",
+  "sourceFields": {
+    "description": "Company description",
+    "location": "Location",
+    "main_business": "Main business",
+    "website": "Website"
+  },
+  "workEmail": "Work email",
+  "copy": "Copy",
+  "compose": "Compose email",
+  "call": "Call",
+  "open": "Open channel"
+}

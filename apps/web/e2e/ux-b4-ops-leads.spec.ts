@@ -773,16 +773,16 @@ test('4. 挖掘任务单查/改名/暂停/归档（不可逆）与运行页 resu
     status: 'DONE',
   });
   backend.set('GET', `/discovery-runs/${RUN_ID}/result-view`, {
-    candidates: { items: [{ id: 'c-1' }], total: 18, truncated: false },
+    candidates: { items: [{ companyId: 'c-1', name: '北方泵业', country: 'DE' }], total: 18, truncated: true },
     completedAt: NOW,
     icpId: ICP_ID,
     runId: RUN_ID,
     scoring: {
-      latest: { items: [{ id: 'l-1' }, { id: 'l-2' }], label: 'latest_not_necessarily_this_run' },
+      latest: { items: [{ companyId: 'c-1', leadId: 'l-1', totalScore: 0.93 }], label: 'latest_not_necessarily_this_run' },
       thisRun: {
         available: true,
         batches: 2,
-        items: [{ id: 'l-1' }],
+        items: [{ companyId: 'c-1', leadId: 'l-1', totalScore: 0.91 }],
         label: 'this_run',
         scoredAt: NOW,
         scoredCompanies: 12,
@@ -825,6 +825,7 @@ test('4. 挖掘任务单查/改名/暂停/归档（不可逆）与运行页 resu
   await page.goto(`/runs/${RUN_ID}`);
   const rv = page.locator('[data-gs="run-result-view"]');
   await expect(rv).toBeVisible();
-  await expect(rv).toContainText('18');
+  await expect(rv).toContainText('已显示 1 家，共 18 家');
+  await expect(rv.getByText('北方泵业')).toBeVisible();
   await expect(rv).toContainText('已评分 12 家（2 批）');
 });

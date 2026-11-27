@@ -3,7 +3,16 @@ import { computed } from 'vue';
 
 import { ExternalLink, Globe, Mail, MessageCircle, Phone } from '@vben/icons';
 
-const props = defineProps<{ kind: string; label: string }>();
+import GsCard from '#/components/gainos/ui/gs-card.vue';
+
+const props = withDefaults(defineProps<{ heading?: 'h3' | 'h4'; kind: string; label: string }>(), { heading: 'h3' });
+
+const brand = computed(() => {
+  if (props.kind === 'linkedin') return 'in';
+  if (props.kind === 'facebook') return 'f';
+  if (props.kind === 'x') return 'X';
+  return '';
+});
 
 const channelIcon = computed(() => {
   if (props.kind === 'email') return Mail;
@@ -16,25 +25,25 @@ const channelIcon = computed(() => {
 
 <template>
   <section :aria-label="label" :data-channel="kind" class="channel-card" data-gs="contact-channel-card" tabindex="-1">
-    <h4>
-      <span class="channel-card__icon">
-        <component :is="channelIcon" :size="15" aria-hidden="true" />
-      </span>
-      {{ label }}
-    </h4>
-    <div class="grid min-w-0 gap-2">
-      <slot />
-    </div>
+    <GsCard class="h-full" padding="16px">
+      <component :is="heading" class="channel-card__title">
+        <span aria-hidden="true" class="channel-card__icon">
+          <span v-if="brand">{{ brand }}</span>
+          <component v-else :is="channelIcon" :size="16" />
+        </span>
+        {{ label }}
+      </component>
+      <div class="grid min-w-0 gap-3 divide-y divide-[var(--gs-divider)] [&>*+*]:pt-3">
+        <slot />
+      </div>
+    </GsCard>
   </section>
 </template>
 
 <style scoped>
 .channel-card {
   min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--gs-divider);
-  border-radius: 8px;
-  background: var(--gs-surface-2);
+  border-radius: 10px;
   scroll-margin-top: 68px;
 }
 
@@ -43,30 +52,24 @@ const channelIcon = computed(() => {
   outline-offset: 2px;
 }
 
-.channel-card h4 {
+.channel-card__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 9px;
+  margin: 0 0 12px;
   color: var(--gs-fg);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .channel-card__icon {
   display: grid;
-  width: 27px;
-  height: 27px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   place-items: center;
   border-radius: 6px;
   background: var(--gs-accent-soft);
   color: var(--gs-accent-fg);
-}
-
-.channel-card[data-channel='whatsapp'] .channel-card__icon,
-.channel-card[data-channel='phone'] .channel-card__icon {
-  background: var(--gs-success-bg);
-  color: var(--gs-success);
 }
 </style>
