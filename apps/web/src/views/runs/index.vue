@@ -274,6 +274,7 @@ const traceEntries = computed<TraceEntry[]>(() =>
       const sources = traceStringList(chosen['sources']);
       const rejected = traceObjectList(row.rejectedCandidates);
       const skipped = rejected
+        .filter((item) => item['rejectReason'] !== 'SOURCE_HINT_EXCLUDED')
         .map((item) => {
           const ref = traceSourceLabel(item['candidateRef']);
           return `${ref}（${traceReasonLabel(item['rejectReason'])}）`;
