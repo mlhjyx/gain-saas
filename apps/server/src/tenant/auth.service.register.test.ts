@@ -30,7 +30,14 @@ describe('normalizeCompanyName / findEnterpriseConflict', () => {
   });
 });
 
-function fixture(activeWorkspaces: Array<{ name: string; createdAt: Date }>) {
+function fixture(
+  activeWorkspaces: Array<{ name: string; createdAt: Date }>,
+  options?: {
+    signupBonusCredits?: number;
+    signupBonusExpiresDays?: number;
+    walletGrantBonus?: ReturnType<typeof vi.fn>;
+  },
+) {
   const prisma = {
     user: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({ id: 'u-1' })) },
     workspace: {
@@ -43,8 +50,21 @@ function fixture(activeWorkspaces: Array<{ name: string; createdAt: Date }>) {
   } as unknown as PrismaService;
   const audit = { record: vi.fn(async () => undefined) };
   const sessions = { issue: vi.fn(async () => ({ jti: 'j-1' })) };
-  const service = new AuthService({ INVITE_CODE: undefined } as never, prisma, sessions as never, audit as never);
-  return { service, prisma, audit, sessions };
+  const wallet = options?.walletGrantBonus
+    ? { grantBonus: options.walletGrantBonus }
+    : undefined;
+  const service = new AuthService(
+    {
+      INVITE_CODE: undefined,
+      WALLET_SIGNUP_BONUS_CREDITS: options?.signupBonusCredits ?? 0,
+      WALLET_SIGNUP_BONUS_EXPIRES_DAYS: options?.signupBonusExpiresDays ?? 0,
+    } as never,
+    prisma,
+    sessions as never,
+    audit as never,
+    wallet as never,
+  );
+  return { service, prisma, audit, sessions, wallet };
 }
 
 const input = (companyName: string) => ({
@@ -96,5 +116,51 @@ describe('AuthService.register（一企一空间查重）', () => {
     expect(err).toBeInstanceOf(UnauthorizedException);
     expect((err as UnauthorizedException).getResponse()).toMatchObject({ error: { code: 'EMAIL_TAKEN' } });
     expect((prisma.workspace.findMany as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('WALLET_SIGNUP_BONUS_CREDITS > 0 时注册后自动按幂等键发放试用积分（可配有效期）', async () => {
+    const grantBonus = vi.fn(async () => ({ idempotent: false }));
+    const { service } = fixture([], {
+      signupBonusCredits: 200,
+      signupBonusExpiresDays: 30,
+      walletGrantBonus: grantBonus,
+    });
+    const result = await service.register(input('新光伏科技股份有限公司'));
+    expect(result.workspace.id).toBe('w-1');
+    expect(grantBonus).toHaveBeenCalledTimes(1);
+    const [workspaceId, body, actorId] = grantBonus.mock.calls[0] as [string, Record<string, unknown>, string];
+    expect(workspaceId).toBe('w-1');
+    expect(actorId).toBe('system:signup-bonus');
+    expect(body).toMatchObject({
+      credits: '200',
+      sourceType: 'PROMO_BONUS',
+      externalOrderId: 'signup-bonus:w-1',
+    });
+    expect(typeof body.expiresAt).toBe('string');
+    expect(new Date(body.expiresAt as string).getTime()).toBeGreaterThan(Date.now() + 29 * 86_400_000);
+  });
+
+  it('WALLET_SIGNUP_BONUS_CREDITS = 0 时不触发赠点发放', async () => {
+    const grantBonus = vi.fn(async () => ({ idempotent: false }));
+    const { service } = fixture([], {
+      signupBonusCredits: 0,
+      walletGrantBonus: grantBonus,
+    });
+    await service.register(input('无赠点企业有限公司'));
+    expect(grantBonus).not.toHaveBeenCalled();
+  });
+
+  it('注册赠点发放异常时 fail-open，不阻断新企业注册与签发会话', async () => {
+    const grantBonus = vi.fn(async () => {
+      throw new Error('wallet db hiccup');
+    });
+    const { service } = fixture([], {
+      signupBonusCredits: 200,
+      walletGrantBonus: grantBonus,
+    });
+    const result = await service.register(input('容错注册企业有限公司'));
+    expect(grantBonus).toHaveBeenCalledTimes(1);
+    expect(result.workspace.id).toBe('w-1');
+    expect(result.session).toEqual({ jti: 'j-1' });
   });
 });

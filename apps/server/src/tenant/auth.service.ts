@@ -1,10 +1,21 @@
-import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { APP_CONFIG } from '../shared/config.module.js';
 import type { AppConfig } from '../config/configuration.js';
 import { PrismaService } from '../shared/prisma.service.js';
 import { AuditService } from '../shared/audit.service.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import {
   invitationExpiry,
   isInvitationUsable,
@@ -47,11 +58,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly prisma: PrismaService,
     private readonly sessions: SessionService,
     private readonly audit: AuditService,
+    @Optional() @Inject(forwardRef(() => WalletService)) readonly wallet?: WalletService,
   ) {}
 
   /** 注册策略（公开）：邀请码仅在部署侧配置了 INVITE_CODE 时需要。 */
@@ -115,6 +129,30 @@ export class AuthService {
       return { user: createdUser, workspace: createdWorkspace };
     });
     await this.audit.record({ realm: 'tenant', actorId: user.id, workspaceId: workspace.id, action: 'auth.register', target: workspace.id, detail: { email } });
+    const signupBonus = this.config.WALLET_SIGNUP_BONUS_CREDITS ?? 0;
+    if (signupBonus > 0 && this.wallet) {
+      const expiresDays = this.config.WALLET_SIGNUP_BONUS_EXPIRES_DAYS ?? 0;
+      const expiresAt =
+        expiresDays > 0 ? new Date(Date.now() + expiresDays * 86_400_000).toISOString() : undefined;
+      try {
+        await this.wallet.grantBonus(
+          workspace.id,
+          {
+            credits: String(signupBonus),
+            sourceType: 'PROMO_BONUS',
+            ...(expiresAt ? { expiresAt } : {}),
+            externalOrderId: `signup-bonus:${workspace.id}`,
+            note: '新注册企业试用赠送积分',
+          },
+          'system:signup-bonus',
+        );
+      } catch (err) {
+        // 赠点发放失败不得阻断新企业注册（fail-open），运维可按幂等键补发。
+        this.logger.warn(
+          `新企业注册赠送积分发放失败 workspaceId=${workspace.id} credits=${signupBonus}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     const membership = workspace.memberships[0];
     const session = await this.sessions.issue(user.id, workspace.id, 'admin');
     return { user, workspace, membership, session };
