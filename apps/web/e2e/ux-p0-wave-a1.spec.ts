@@ -819,12 +819,14 @@ test('tasks list and detail display real buyer profile name instead of icpId pre
   const TASK_ID = '88888888-8888-4888-8888-888888888881';
   const ICP_ID = 'deadbeef-1111-4111-8111-111111111111';
   const NOW = '2026-11-26T08:00:00.000Z';
+  const profileName = '意大利光伏总包商';
 
   const backend = await installMockBackend(page, {
     origin: testOrigin(testInfo.project.use.baseURL),
   });
   backend.set('GET', '/icps', [
-    { id: ICP_ID, companyId: 'co-1', name: '意大利光伏总包商', status: 'ACTIVE', targetMarkets: ['IT'] },
+    { id: 'profile-default', companyId: 'co-1', name: '德国光伏分销商', status: 'ACTIVE', targetMarkets: ['DE'] },
+    { id: ICP_ID, companyId: 'co-1', name: profileName, status: 'ACTIVE', targetMarkets: ['IT'] },
   ]);
   const taskRow = {
     id: TASK_ID,
@@ -840,10 +842,22 @@ test('tasks list and detail display real buyer profile name instead of icpId pre
 
   await loginAs(page);
   await page.goto('/tasks');
-  await expect(page.locator('.ant-table')).toContainText('意大利光伏总包商');
-  await expect(page.locator('.ant-table')).not.toContainText('deadbeef');
+  const sourcing = page.locator('[data-gs="sourcing-workspace"]');
+  await sourcing.getByRole('link', { name: '任务管理', exact: true }).click();
+  await expect(page).toHaveURL('/tasks?tab=manage');
+  const taskLink = sourcing.getByRole('link', { name: taskRow.name, exact: true });
+  const task = sourcing.getByRole('row').filter({
+    has: page.getByRole('link', { name: taskRow.name, exact: true }),
+  });
+  await expect(task.getByText(profileName, { exact: true })).toBeVisible();
+  await expect(task).not.toContainText('deadbeef');
 
-  await page.goto(`/tasks/${TASK_ID}`);
-  await expect(page.locator('.tkd__facts')).toContainText('意大利光伏总包商');
-  await expect(page.locator('.tkd__facts')).not.toContainText('deadbeef');
+  await taskLink.click();
+  await expect(page).toHaveURL(`/tasks/${TASK_ID}`);
+  const details = page.locator('.tkd__facts');
+  await expect(details.getByRole('link', { name: profileName, exact: true })).toHaveAttribute(
+    'href',
+    `/find-buyers?icp=${ICP_ID}`,
+  );
+  await expect(details).not.toContainText('deadbeef');
 });

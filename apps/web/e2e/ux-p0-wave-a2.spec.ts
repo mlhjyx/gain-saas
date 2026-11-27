@@ -397,6 +397,10 @@ test('F5 reload syncs accessCodes when an admin is downgraded to member (Review 
   const origin = resolveOrigin(baseURL);
   const backend = await installMockBackend(page, { origin, role: 'admin' });
 
+  const companyName = 'Nordic Pump GmbH';
+  const contactName = 'Test Procurement Contact';
+  const publicEmail = 'sales@nordicpump.de';
+  const companyReadPath = `/canonical-companies/${CANONICAL_ID}`;
   let currentRole: 'admin' | 'member' = 'admin';
   backend.set('GET', '/workspace/context', async ({ route }) => {
     await route.fulfill({
@@ -419,33 +423,50 @@ test('F5 reload syncs accessCodes when an admin is downgraded to member (Review 
     status: 'QUALIFIED',
     company: {
       canonical_company_id: CANONICAL_ID,
-      name: 'Nordic Pump GmbH',
+      name: companyName,
       domain: 'nordicpump.de',
       country: 'DE',
     },
-    company_channels: [],
+    company_channels: [{ channel: 'email', email_type: 'department', status: 'public', value: publicEmail }],
     social_profiles: [],
     scores: { total: 0.85 },
     fit: { verdict: 'MATCH', reasons: ['工业泵分销商'] },
     evidence: [],
-    sanctions: { status: 'CLEAR', screened_at: NOW },
+    sanctions: { status: 'clear', screened_at: NOW },
   });
-  backend.set('GET', `/canonical-companies/${CANONICAL_ID}`, {
-    company: {
-      id: CANONICAL_ID,
-      name: 'Nordic Pump GmbH',
-      domain: 'nordicpump.de',
-      country: 'DE',
-      contacts: [],
-    },
-    evidence: [],
+  backend.set('GET', companyReadPath, async ({ route }) => {
+    await route.fulfill({
+      json: currentRole === 'admin'
+        ? {
+            data: {
+              company: {
+                id: CANONICAL_ID,
+                name: companyName,
+                domain: 'nordicpump.de',
+                country: 'DE',
+                contacts: [{ id: CONTACT_ID, fullName: contactName, title: 'Purchasing Manager', contactPoints: [] }],
+              },
+              evidence: [],
+            },
+          }
+        : errorPayload('FORBIDDEN'),
+      status: currentRole === 'admin' ? 200 : 403,
+    });
+    return true;
   });
 
   // 1. Sign in as admin: accessStore persists accessCodes = ['ADMIN'].
   await loginAs(page);
   await page.goto(`/leads/${LEAD_ID}?tab=people`);
-  await expect(page.getByText('Nordic Pump GmbH')).toBeVisible();
-  await expect(page.getByText('联系人信息仅管理员可见')).toHaveCount(0);
+  const memberNotice = page.locator('[data-gs="decision-makers-admin-only"]');
+  const company = page.locator('[data-gs="lead-contact-company"]');
+  const channels = page.locator('[data-gs="people-public-channels"]');
+  const person = page.locator('[data-gs="lead-contact-identity"]');
+  await expect(company.getByRole('heading', { name: companyName, exact: true })).toBeVisible();
+  await expect(person.getByRole('heading', { name: contactName, exact: true })).toBeVisible();
+  await expect(memberNotice).toHaveCount(0);
+  const adminReads = backend.callsTo('GET', companyReadPath).length;
+  expect(adminReads).toBeGreaterThan(0);
 
   // 2. Downgrade role to member on the server while keeping persisted browser storage, then F5 reload.
   currentRole = 'member';
@@ -454,8 +475,13 @@ test('F5 reload syncs accessCodes when an admin is downgraded to member (Review 
 
   await page.reload();
 
-  // 3. Persisted stale ['ADMIN'] accessCode must be cleared on reload -> member sees admin-only notice.
-  await expect(page.getByText('联系人信息仅管理员可见')).toBeVisible({ timeout: 10_000 });
+  // 3. The member retains public company access and the protected contact request stays gated.
+  await expect(memberNotice).toBeVisible({ timeout: 10_000 });
+  await expect(company.getByRole('heading', { name: companyName, exact: true })).toBeVisible();
+  await expect(channels).toContainText(publicEmail);
+  await expect(person).toHaveCount(0);
+  await expect(page.getByText(contactName, { exact: true })).toHaveCount(0);
+  expect(backend.callsTo('GET', companyReadPath)).toHaveLength(adminReads);
 });
 
 test('member gets transparent read-only campaigns/outreach views with 0 HTTP 403 and 0 warmup checklist GETs (Review Focus #6)', async ({

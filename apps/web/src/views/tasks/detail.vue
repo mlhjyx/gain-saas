@@ -390,7 +390,11 @@ const runColumns = computed(() => [
             </dd>
             <dt>{{ $t('gainos.tasks.icp') }}</dt>
             <dd>
-              <RouterLink v-if="task.icpId" class="tkd__link" to="/find-buyers">
+              <RouterLink
+                v-if="task.icpId"
+                class="tkd__link"
+                :to="{ name: 'FindBuyers', query: { icp: task.icpId } }"
+              >
                 {{ taskIcpName }}
               </RouterLink>
               <span v-else>—</span>

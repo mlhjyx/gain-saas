@@ -63,6 +63,8 @@ const products = ref<string[]>([]);
 const productLimit = ref(false);
 const markets = ref([...props.targetMarkets]);
 const recommendationBundle = ref<ComtradeRecommendationBundle | null>(null);
+const recommendationLoading = ref(false);
+const recommendationError = ref(false);
 
 let request = 0;
 let recommendationRequest = 0;
@@ -166,16 +168,27 @@ function applyPreview(value: OnboardingPreview, restoreIdentity = false): void {
   }
 }
 
-async function loadMarketRecommendations(id: string): Promise<void> {
+async function loadMarketRecommendations(id = preview.value?.companyId): Promise<void> {
+  if (!id || disposed || !currentSession()) return;
   const sequence = ++recommendationRequest;
-  if (recommendationBundle.value?.companyId !== id) recommendationBundle.value = null;
+  const current = () =>
+    !disposed && sequence === recommendationRequest && preview.value?.companyId === id && currentSession();
+  recommendationBundle.value = null;
+  recommendationError.value = false;
+  recommendationLoading.value = true;
   try {
     const response = await gainosApi.marketRecommendations(id, { limit: 8 });
-    if (!disposed && sequence === recommendationRequest && currentSession()) {
-      recommendationBundle.value = normalizeComtradeBundle(response);
+    if (!current()) return;
+    const bundle = normalizeComtradeBundle(response);
+    if (bundle.companyId && bundle.companyId !== id) {
+      recommendationError.value = true;
+      return;
     }
+    recommendationBundle.value = bundle;
   } catch {
-    if (!disposed && sequence === recommendationRequest) recommendationBundle.value = null;
+    if (current()) recommendationError.value = true;
+  } finally {
+    if (current()) recommendationLoading.value = false;
   }
 }
 
@@ -513,7 +526,17 @@ async function save(): Promise<void> {
           <span class="setup-intake__muted">{{ $t('gainos.onboarding.marketsSuggested', { names: marketSuggestionsLabel }) }}</span>
           <Button type="link" size="small" @click="adoptMarkets(suggestedMarkets.map((row) => row.code))">{{ $t('gainos.onboarding.adoptSuggestedMarkets') }}</Button>
         </div>
+        <p v-if="recommendationLoading" class="setup-intake__muted" data-gs="comtrade-loading" role="status">
+          {{ $t('gainos.common.loading') }}
+        </p>
+        <div v-else-if="recommendationError" class="setup-intake__actions" data-gs="comtrade-load-error">
+          <span class="setup-intake__warning" role="alert">{{ $t('gainosBuyerJourney.profile.marketRecommendationsError') }}</span>
+          <Button html-type="button" size="small" :disabled="saving || sessionExpired" @click="loadMarketRecommendations()">
+            {{ $t('gainos.common.retry') }}
+          </Button>
+        </div>
         <ComtradeMarketRecommendations
+          v-else
           :bundle="recommendationBundle"
           :disabled="saving || sessionExpired"
           :limit-reached="marketCapacityReached"
