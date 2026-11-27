@@ -225,7 +225,8 @@ export class EventConsumerService implements OnModuleInit {
     `;
     let pulled = 0;
     let acked = 0;
-    for (const row of registry) {
+    for (let index = 0; index < registry.length; index += 1) {
+      const row = registry[index]!;
       const workspaceId = row.workspace_id;
       try {
         await this.retryPendingProjections(workspaceId);
@@ -233,6 +234,11 @@ export class EventConsumerService implements OnModuleInit {
         pulled += result.pulled;
         acked += result.acked;
       } catch (err) {
+        if (err instanceof TypeError) {
+          const remaining = registry.length - index;
+          this.logger.warn(`引擎事件端点暂不可达(${err.name})，本轮跳过剩余 ${remaining} 个工作空间，下轮重试`);
+          break;
+        }
         this.logger.warn(`workspace ${workspaceId} 消费失败(下轮重试): ${err instanceof Error ? err.name : 'UNKNOWN_ERROR'}`);
       }
       try {

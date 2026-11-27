@@ -555,7 +555,11 @@ const fit = computed<Record<string, number>>(() => (recordOf('fit') as Record<st
 const quickScan = computed<Record<string, any>>(() => recordOf('quickScan'));
 const deepStage = computed<Record<string, any>>(() => recordOf('deep'));
 const summaryCompanies = computed<number | null>(() =>
-  stats.value.companies ?? quickScan.value.poolSize ?? null,
+  stats.value.companies
+  ?? stats.value.canonicalCount
+  ?? stats.value.rawCount
+  ?? quickScan.value.poolSize
+  ?? null,
 );
 const summaryMatch = computed<number | null>(() => fit.value.match ?? quickScan.value.match ?? null);
 const summaryWeak = computed<number | null>(() => fit.value.weak ?? quickScan.value.weak ?? null);
@@ -802,7 +806,7 @@ const userStages = computed(() => {
       label: userStageLabel('collect'),
       value: withCount(summaryCompanies.value, 'collectValue') || (quickStarted ? done : waiting),
       hint: $t('gainos.runs.userStage.collectHint'),
-      has: stats.value.companies !== undefined || quickScan.value.poolSize !== undefined || quickStarted,
+      has: summaryCompanies.value !== null || quickStarted,
     },
     {
       key: 'match',
