@@ -1612,6 +1612,7 @@
     "traceSource": {
       "wikidata": "维基数据",
       "openstreetmap": "OpenStreetMap 地图",
+      "google_places": "Google 地图商家",
       "ted": "TED 招标公告",
       "openfda": "openFDA 医疗数据",
       "public_web": "公开网络搜索",

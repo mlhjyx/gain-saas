@@ -1612,6 +1612,7 @@
     "traceSource": {
       "wikidata": "Wikidata",
       "openstreetmap": "OpenStreetMap",
+      "google_places": "Google Maps Places",
       "ted": "TED notices",
       "openfda": "openFDA",
       "public_web": "Public web search",
