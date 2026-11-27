@@ -234,7 +234,13 @@ async function loadOverview(): Promise<void> {
       api<NonNullable<typeof opsAlerts.value>>('/api/ops/alerts').catch(() => null),
     ]);
     overview.value = ov;
-    opsAlerts.value = alertsRes;
+    opsAlerts.value =
+      alertsRes &&
+      Array.isArray(alertsRes.alerts) &&
+      alertsRes.counts &&
+      typeof alertsRes.counts.critical === 'number'
+        ? alertsRes
+        : null;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -1312,7 +1318,7 @@ onMounted(checkSession);
           <p v-if="loading" class="ops__muted">加载中…</p>
 
           <section v-if="active === 'overview' && overview" class="ops__grid">
-            <article v-if="opsAlerts" class="ops__card ops__card--wide">
+            <article v-if="opsAlerts && opsAlerts.counts && opsAlerts.alerts.length > 0" class="ops__card ops__card--wide">
               <h3>
                 自动运维告警（5 项核心红线）
                 <span

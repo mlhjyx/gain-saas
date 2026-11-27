@@ -154,7 +154,13 @@ async function openCopilot(row: OutreachReplyView): Promise<void> {
   copilotDraft.value = null;
   try {
     const res = await gainosApi.outreachReplyCopilot(row.id);
-    copilotDraft.value = (res as { data?: OutreachReplyCopilotView })?.data ?? (res as unknown as OutreachReplyCopilotView);
+    const payload =
+      (res as { data?: OutreachReplyCopilotView })?.data ??
+      (res as unknown as OutreachReplyCopilotView);
+    copilotDraft.value =
+      payload && typeof payload.summary === 'string' && Array.isArray(payload.checklist)
+        ? payload
+        : null;
   } catch (err) {
     copilotError.value = failureText(err).title;
   } finally {
