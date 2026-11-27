@@ -71,7 +71,7 @@
   "uploadQueue": {
     "trayTitle": "后台传输与识别",
     "trayAria": "后台资料上传与内容识别进度",
-    "pillActive": "上传与解析中 · {done}/{total} · {percent}%",
+    "pillActive": "上传与解析中 · {done}/{total}",
     "pillCompleted": "资料识别完成 · {total} 份",
     "pillAttention": "传输需要关注 · {count} 份",
     "expand": "展开传输列表",
@@ -92,6 +92,8 @@
     "statusCommitting": "正在确认文件完整性…",
     "statusCommittingMeta": "即将进入内容识别",
     "statusParsingPriority": "已上传，正在识别资料…",
+    "statusParseQueued": "已上传，等待识别",
+    "statusParseRetryQueued": "上次识别未完成，等待系统重试",
     "statusParsingPriorityMeta": "可以先浏览其他页面",
     "statusPriorityReady": "前 {parsed} / {total} 页已识别，可先确认产品",
     "statusPriorityReadyProducts": "已提取 {products} 个产品，其余页后台继续识别",

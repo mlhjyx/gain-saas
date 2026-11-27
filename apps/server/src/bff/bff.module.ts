@@ -29,7 +29,7 @@ import {
   extractSyncBillableUnits,
   resolveBffWalletAction,
 } from '../wallet/bff-wallet-billing.js';
-import { copyForError } from '@gain-saas/shared';
+import { copyForError, ENGINE_ERROR_COPY, type ClientErrorBody } from '@gain-saas/shared';
 
 /**
  * 动态 BFF 控制器:按路由表逐条注册到 Express。
@@ -99,6 +99,16 @@ export class BffHandler {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Optional() private readonly wallet?: WalletService,
   ) {}
+
+  private logMarketCandidatePrepareFailure(route: BffRoute, status: number, error: ClientErrorBody): void {
+    if (route.enginePath !== '/companies/:companyId/market-candidate-generations') return;
+    const { code } = error.error;
+    this.logger.warn({
+      path: route.enginePath,
+      status,
+      code: Object.hasOwn(ENGINE_ERROR_COPY, code) ? code : 'UNKNOWN',
+    });
+  }
 
   async handle(req: Request, res: Response): Promise<void> {
     const subPath = req.path.replace(/^\/api\//, '');
@@ -348,7 +358,9 @@ export class BffHandler {
         await releaseActiveHold(`DISPATCH_FAILED_HTTP_${result.status}`);
         // 引擎 401/403 折算 502:不能让上游授权问题触发前端「会话过期」登出
         const clientStatus = this.engine.toClientStatus(result.status, result.body);
-        res.status(clientStatus).json(this.engine.toClientError(result.status, result.body, req.headers?.['accept-language'] as string | undefined));
+        const clientError = this.engine.toClientError(result.status, result.body, req.headers?.['accept-language'] as string | undefined);
+        this.logMarketCandidatePrepareFailure(route, result.status, clientError);
+        res.status(clientStatus).json(clientError);
         return;
       }
       if (activeHoldId && walletSpec && this.wallet) {
@@ -394,9 +406,13 @@ export class BffHandler {
     } catch (err) {
       await releaseActiveHold('ENGINE_DISPATCH_ERROR');
       // 引擎不可达:三层文案 + 技术详情(与引擎业务错误同构)
-      res.status(502).json(
-        this.engine.toClientError(502, { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } }, req.headers?.['accept-language'] as string | undefined),
+      const clientError = this.engine.toClientError(
+        502,
+        { error: { code: 'MODEL_UPSTREAM_UNUSABLE', message: err instanceof Error ? err.message : String(err) } },
+        req.headers?.['accept-language'] as string | undefined,
       );
+      this.logMarketCandidatePrepareFailure(route, 502, clientError);
+      res.status(502).json(clientError);
     }
   }
 }

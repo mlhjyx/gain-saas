@@ -71,7 +71,7 @@
   "uploadQueue": {
     "trayTitle": "Background transfers",
     "trayAria": "Background file upload and document analysis progress",
-    "pillActive": "Uploading & reading · {done}/{total} · {percent}%",
+    "pillActive": "Uploading & reading · {done}/{total}",
     "pillCompleted": "Documents ready · {total}",
     "pillAttention": "Transfers need attention · {count}",
     "expand": "Expand transfers",
@@ -92,6 +92,8 @@
     "statusCommitting": "Verifying file integrity…",
     "statusCommittingMeta": "Preparing document analysis",
     "statusParsingPriority": "Uploaded · reading document…",
+    "statusParseQueued": "Uploaded · waiting to be read",
+    "statusParseRetryQueued": "Reading did not finish · retry queued",
     "statusParsingPriorityMeta": "You can browse other pages during processing",
     "statusPriorityReady": "First {parsed} of {total} pages ready — review products now",
     "statusPriorityReadyProducts": "{products} products extracted; reading remaining pages in background",

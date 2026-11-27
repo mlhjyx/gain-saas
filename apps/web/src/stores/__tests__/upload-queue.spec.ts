@@ -199,6 +199,31 @@ describe('useUploadQueueStore (PR-OB1)', () => {
     expect(store.items[0]?.status).toBe('parsing_priority');
   });
 
+  it('reflects a queued server retry separately from active parsing', async () => {
+    const api = createMockApi({
+      fetchDocument: vi.fn(async (id) => ({
+        filename: 'catalog.pdf',
+        id,
+        status: 'processing',
+      })),
+    });
+    const store = useUploadQueueStore();
+    store.configureRuntime({ api, priorityPollMs: 60_000 });
+    store.restoreProcessing('c1', [{
+      filename: 'catalog.pdf',
+      id: 'doc-1',
+      processingErrorCode: 'DOCUMENT_PARSE_UNAVAILABLE',
+      status: 'queued',
+    }]);
+    expect(store.items[0]?.parseQueueState).toBe('retrying');
+    expect(store.items[0]?.status).toBe('parsing_priority');
+
+    await store.pollOnce();
+    expect(store.items[0]?.parseQueueState).toBeNull();
+    expect(api.presign).not.toHaveBeenCalled();
+    expect(api.retryProcessing).not.toHaveBeenCalled();
+  });
+
   it('resumes polling committed documents after a reload without restarting an upload', async () => {
     const api = createMockApi({
       fetchDocument: vi.fn(async (id) => ({

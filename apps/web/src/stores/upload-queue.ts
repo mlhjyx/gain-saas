@@ -62,6 +62,7 @@ export interface UploadQueueItem {
   filename: string;
   id: string;
   largePdfHint: boolean;
+  parseQueueState: 'retrying' | 'waiting' | null;
   mime: string;
   parsedMeta: SellerDocumentParsedMeta | null;
   partSizeBytes: number;
@@ -151,6 +152,7 @@ function createQueueItem(
     followUpPolls: 0,
     id: createTaskId(),
     largePdfHint: false,
+    parseQueueState: null,
     parsedMeta: null,
     partSizeBytes: DEFAULT_PART_SIZE_BYTES,
     percent: 0,
@@ -252,19 +254,6 @@ export const useUploadQueueStore = defineStore('gainos-upload-queue', () => {
   const completedCount = computed(
     () => items.value.filter((item) => item.status === 'ready').length,
   );
-
-  const totalProgressPercent = computed(() => {
-    const active = items.value.filter((item) => item.status !== 'cancelled');
-    if (active.length === 0) return 0;
-    const sum = active.reduce((acc, item) => {
-      if (item.status === 'ready') return acc + 100;
-      if (item.status === 'priority_ready') return acc + 92;
-      if (item.status === 'parsing_priority') return acc + 85;
-      if (item.status === 'committing') return acc + 80;
-      return acc + Math.round(item.percent * 0.8);
-    }, 0);
-    return Math.min(100, Math.round(sum / active.length));
-  });
 
   function handleBeforeUnload(event: BeforeUnloadEvent): string {
     event.preventDefault();
@@ -624,6 +613,9 @@ export const useUploadQueueStore = defineStore('gainos-upload-queue', () => {
     const prevStatus = item.status;
     const prevProducts = item.aiProductsCount;
     const prevClaims = item.aiClaimsCount;
+    item.parseQueueState = remote.status === 'queued'
+      ? (remote.processingErrorCode ? 'retrying' : 'waiting')
+      : null;
 
     const meta = normalizeParsedMeta(remote.parsedMeta);
     if (meta) {
@@ -1044,7 +1036,6 @@ export const useUploadQueueStore = defineStore('gainos-upload-queue', () => {
     setSessionScope,
     setTrayCollapsed,
     tasksForCompany,
-    totalProgressPercent,
     trayCollapsed,
     trayDismissed,
   };

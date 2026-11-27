@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { components } from '@gain-saas/engine-client';
 import type { Request, Response } from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -108,6 +109,7 @@ function feedback(action: components['schemas']['MarketCandidateFeedbackInputDto
 }
 
 interface HarnessOptions {
+  language?: string;
   session?: boolean;
   membership?: boolean;
   onboarding?: boolean;
@@ -211,7 +213,7 @@ function harness(options: HarnessOptions = {}) {
   async function request(method: string, path: string, body?: unknown, reply: unknown = { data: generation() }, status = 200) {
     responseBody = reply; responseStatus = status;
     const sent: { status: number; body?: unknown; cleared: string[]; next: number } = { status: 0, cleared: [], next: 0 };
-    const headers = { 'idempotency-key': KEY, authorization: 'Bearer client-forgery', 'x-execution-budget-grant': 'client-forgery', 'x-workspace-id': ALTERNATE };
+    const headers = { 'accept-language': options.language, 'idempotency-key': KEY, authorization: 'Bearer client-forgery', 'x-execution-budget-grant': 'client-forgery', 'x-workspace-id': ALTERNATE };
     const req = { method, path: path.split('?')[0], originalUrl: path, body, headers,
       cookies: options.session === false ? {} : { [SESSION_COOKIE]: 'synthetic-session' },
       tenant: { userId: ALTERNATE, workspaceId: ALTERNATE, role: 'admin' },
@@ -355,6 +357,54 @@ describe('real thin market consumer C01-C12', () => {
   it.each([{ intentId: INTENT }, { intentId: INTENT, offeringIds: [], claimIds: [] }])('does not add selections, country or role while preparing %j', async (body) => {
     const h = harness(); const sent = await h.request('POST', `/api/companies/${COMPANY}/market-candidate-generations`, body);
     expect(sent.status).toBe(200); expect(h.wires[0].body).toEqual(body); expect(h.counters().issued).toBe(0);
+  });
+
+  it.each([
+    [503, 'RUNTIME_ADMISSION_CLOSED', 'zh-CN', '获客服务暂时无法接受新的操作'],
+    [503, 'RUNTIME_ADMISSION_CLOSED', 'en-US', 'The acquisition service cannot accept new actions right now'],
+    [409, 'IDEMPOTENCY_CONFLICT', 'zh-CN', '这次操作使用了不同的提交内容'],
+    [409, 'IDEMPOTENCY_CONFLICT', 'en-US', 'The request differs from an earlier submission'],
+  ] as const)('explains prepare rejection %s %s in %s without starting execution', async (status, code, language, title) => {
+    const h = harness({ language });
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const sent = await h.request('POST', `/api/companies/${COMPANY}/market-candidate-generations`, { intentId: INTENT }, {
+      error: { code, message: 'synthetic prepare rejection' },
+    }, status);
+
+    expect(sent.status).toBe(status);
+    expect(sent.body).toMatchObject({ error: { code, userCopy: { title } }, meta: { engineCode: code } });
+    expect(h.wires).toHaveLength(1);
+    expect(h.issue).not.toHaveBeenCalled();
+    expect(sent.cleared).toEqual([]);
+    expect(warn.mock.calls).toEqual([[
+      { path: '/companies/:companyId/market-candidate-generations', status, code },
+    ]]);
+  });
+
+  it('records only a bounded diagnostic for unregistered upstream failures on prepare', async () => {
+    const h = harness();
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const rejection = { error: { code: 'SYNTHETIC_UNREGISTERED_CODE', message: 'synthetic upstream detail' } };
+    await h.request('POST', `/api/companies/${COMPANY}/market-candidate-generations`, { intentId: INTENT }, rejection, 502);
+    await h.request('GET', `/api/market-candidate-generations/${GENERATION}`, undefined, rejection, 502);
+
+    expect(warn.mock.calls).toEqual([[
+      { path: '/companies/:companyId/market-candidate-generations', status: 502, code: 'UNKNOWN' },
+    ]]);
+  });
+
+  it('records a prepare transport failure while leaving execution unstarted', async () => {
+    const h = harness({ businessFailure: 'TimeoutError' });
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const sent = await h.request('POST', `/api/companies/${COMPANY}/market-candidate-generations`, { intentId: INTENT });
+
+    expect(sent.status).toBe(502);
+    expect(sent.body).toMatchObject({ error: { code: 'MODEL_UPSTREAM_UNUSABLE' } });
+    expect(h.wires).toHaveLength(1);
+    expect(h.issue).not.toHaveBeenCalled();
+    expect(warn.mock.calls).toEqual([[
+      { path: '/companies/:companyId/market-candidate-generations', status: 502, code: 'MODEL_UPSTREAM_UNUSABLE' },
+    ]]);
   });
 
   it.each([['GET', ''], ['POST', '/recover']] as const)('preserves all generation phases through %s without a budget action', async (method, suffix) => {
