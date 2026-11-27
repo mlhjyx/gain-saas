@@ -83,7 +83,6 @@ const pillText = computed(() => {
   if (trayTone.value === 'active') {
     return $t('gainosOb.uploadQueue.pillActive', {
       done: settledCount.value,
-      percent: queue.totalProgressPercent,
       total: Math.max(1, nonCancelledCount.value),
     });
   }
@@ -112,6 +111,8 @@ function primaryStatusText(item: UploadQueueItem): string {
     case 'committing':
       return $t('gainosOb.uploadQueue.statusCommitting');
     case 'parsing_priority':
+      if (item.parseQueueState === 'retrying') return $t('gainosOb.uploadQueue.statusParseRetryQueued');
+      if (item.parseQueueState === 'waiting') return $t('gainosOb.uploadQueue.statusParseQueued');
       return $t('gainosOb.uploadQueue.statusParsingPriority');
     case 'priority_ready': {
       const parsed = item.parsedMeta?.parsedPages ?? 15;
@@ -421,22 +422,18 @@ function openCompanyTab(item: UploadQueueItem, tab: 'documents' | 'facts'): void
             v-if="
               item.status === 'uploading' ||
               item.status === 'committing' ||
-              item.status === 'parsing_priority' ||
-              item.status === 'priority_ready'
+              (item.status === 'parsing_priority' && item.parseQueueState === null)
             "
             class="gs-uq-bar"
           >
             <div
               :class="{
                 'is-indeterminate': item.status === 'committing' || item.status === 'parsing_priority',
-                'is-priority': item.status === 'priority_ready',
               }"
               :style="
                 item.status === 'uploading'
                   ? { width: `${Math.max(4, item.percent)}%` }
-                  : item.status === 'priority_ready'
-                    ? { width: '75%' }
-                    : undefined
+                  : undefined
               "
               class="gs-uq-bar__fill"
             ></div>
@@ -754,10 +751,6 @@ function openCompanyTab(item: UploadQueueItem, tab: 'documents' | 'facts'): void
   border-radius: 999px;
   background: var(--gs-accent);
   transition: width 0.2s ease;
-}
-
-.gs-uq-bar__fill.is-priority {
-  background: var(--gs-success-fg);
 }
 
 .gs-uq-bar__fill.is-indeterminate {

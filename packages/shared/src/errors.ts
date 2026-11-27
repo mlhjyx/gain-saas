@@ -268,6 +268,16 @@ export const ENGINE_ERROR_COPY = {
       next: "Retry shortly; if it keeps failing, contact operations.",
     },
   },
+  RUNTIME_ADMISSION_CLOSED: {
+    title: '获客服务暂时无法接受新的操作',
+    why: '服务当前已暂停接收新的操作请求。',
+    next: '请稍后重试。如果仍失败，请联系平台支持。',
+    en: {
+      title: 'The acquisition service cannot accept new actions right now',
+      why: 'The service has paused admission of new actions.',
+      next: 'Try again later. If the problem persists, contact platform support.',
+    },
+  },
 
   MODEL_UPSTREAM_UNUSABLE: {
     title: '系统服务暂时不可用',
@@ -538,6 +548,16 @@ export const ENGINE_ERROR_COPY = {
       title: "This content was just updated",
       why: "You are looking at an older version; the system refuses to overwrite newer content with it.",
       next: "Refresh to see the latest content, then redo the action.",
+    },
+  },
+  IDEMPOTENCY_CONFLICT: {
+    title: '这次操作使用了不同的提交内容',
+    why: '系统已为这次操作记录过另一份提交。',
+    next: '核对原操作记录。如果仍失败，请联系平台支持。',
+    en: {
+      title: 'The request differs from an earlier submission',
+      why: 'The system already recorded different input for this operation.',
+      next: 'Review the original operation. If the problem persists, contact platform support.',
     },
   },
   UNDERSTANDING_WEBSITE_REQUIRED: {

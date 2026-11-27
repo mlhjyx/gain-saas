@@ -707,7 +707,7 @@
     "quickApproveDone": "Approved {count} onboarding fact(s) — ready to generate a draft.",
     "quickApproveEmpty": "No pending onboarding facts found. Open Company profile to add and approve one manually.",
     "approvedFactsCount": "{count} approved facts available for designing buyer profiles.",
-    "createNote": "Generation consumes one execution budget authorization; if the model is unavailable we say so and never save a half-draft.",
+    "createNote": "You’ll see a message if the model is unavailable. The draft is saved only after successful generation.",
     "generate": "Generate draft",
     "generating": "Generating…",
     "created": "Buyer profile draft created",

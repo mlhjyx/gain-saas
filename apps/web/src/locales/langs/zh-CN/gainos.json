@@ -707,7 +707,7 @@
     "quickApproveDone": "已生成并确认 {count} 条建档事实，现在可以生成画像初稿。",
     "quickApproveEmpty": "暂未找到可自动确认的建档事实，请到「公司档案」手动补充并确认。",
     "approvedFactsCount": "已通过 {count} 条企业事实，可用于设计买家画像。",
-    "createNote": "生成会消耗一次执行预算；模型不可用时会如实提示，不会写入半成品。",
+    "createNote": "模型不可用时会提示，草稿仅在生成成功后保存。",
     "generate": "生成初稿",
     "generating": "生成中…",
     "created": "买家画像初稿已生成",
