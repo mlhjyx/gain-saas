@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -52,6 +53,12 @@ export class OutreachReplyController {
   @Get()
   async list(@Req() req: Request) {
     return { data: await this.replies.list(req.tenant!) };
+  }
+
+  /** 回复副驾建议与草稿（只读，成员与管理员均可查看；实际发信仍走 AdminGuard）。 */
+  @Get(':replyId/copilot')
+  async copilot(@Req() req: Request, @Param('replyId') replyId: string) {
+    return { data: await this.replies.getCopilotDraft(req.tenant!, replyId) };
   }
 
   @Post()

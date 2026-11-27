@@ -120,7 +120,7 @@ export class OutreachIngestService {
       if (!foundSend) return { send: null, draft: null };
       const foundDraft = await tx.outreachDraft.findFirst({
         where: { id: foundSend.draftId, workspaceId: tenant.workspaceId },
-        select: { contactRef: true, contactPointId: true },
+        select: { contactRef: true, contactPointId: true, companyName: true },
       });
       return { send: foundSend, draft: foundDraft };
     });
@@ -179,6 +179,7 @@ export class OutreachIngestService {
         externalId,
         saoId: resolvedSaoId,
         referredEmails,
+        companyName: draft.companyName,
         // 仅明确退订/投诉/硬退/NEGATIVE 拒联写 OPT_OUT；正向/中性/休假/软退不误拉黑买家。
         suppress: shouldSuppress,
       });

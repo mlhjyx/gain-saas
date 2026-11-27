@@ -20,6 +20,7 @@ import { R4Module } from '../r4/r4.module.js';
 import { ServiceModule } from '../service/service.module.js';
 import { OpsCampaignMetricsService } from './ops-campaign-metrics.service.js';
 import { OpsChannelsService } from './ops-channels.service.js';
+import { OpsAlertsService } from './ops-alerts.service.js';
 import { OpsEngineClient } from './ops-engine.client.js';
 import { OpsWorkspacePurgeService } from './ops-workspace-purge.service.js';
 import { CooperationIntentOpsController } from '../cooperation/cooperation-ops.controller.js';
@@ -51,6 +52,7 @@ import { WalletModule } from '../wallet/wallet.module.js';
     OpsTemporalService,
     OpsEngineClient,
     OpsChannelsService,
+    OpsAlertsService,
     OpsCampaignMetricsService,
     OpsWorkspacePurgeService,
     CooperationIntentService,

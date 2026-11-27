@@ -371,6 +371,7 @@ export function looksLikeUnsubscribe(email: ParsedEmail): boolean {
 export type OutreachReplyIntent =
   | 'REFERRAL_NEW_CONTACT'
   | 'ASK_DATASHEET_QUOTE'
+  | 'OBJECTION_PRICE_OR_SUPPLIER'
   | 'POSITIVE_INTEREST'
   | 'TIMING_LATER'
   | 'NEGATIVE_DECLINE'
@@ -385,26 +386,30 @@ export interface ReplyIntentAnalysis {
 }
 
 const NEGATIVE_DECLINE_RE =
-  /\b(?:not\s+interested|no\s+interest|no\s+thanks|do\s+not\s+contact|don'?t\s+contact|stop\s+(?:emailing|contacting|writing)|remove\s+(?:me|us)|kein\s+interesse|nicht\s+interessiert|bitte\s+nicht\s+mehr\s+(?:kontaktieren|schreiben)|non\s+interessat[oi]|pas\s+int[ée]ress[ée]|no\s+(?:nos\s+)?interesa|n[ãa]o\s+temos\s+interesse)\b/iu;
+  /\b(?:not\s+interested|no\s+interest|no\s+thanks|do\s+not\s+contact|don'?t\s+contact|stop\s+(?:emailing|contacting|writing)|remove\s+(?:me|us)|kein\s+interesse|nicht\s+interessiert|bitte\s+nicht\s+mehr\s+(?:kontaktieren|schreiben)|non\s+interessat[oi]|pas\s+int[ée]ress[ée]|no\s+(?:nos\s+)?interesa|n[ãa]o\s+temos\s+interesse)\b|(?:不需要|暂无需求|不用再联系|请勿再(?:联系|发邮件)|退订)/iu;
 
 const REFERRAL_RE =
-  /\b(?:please\s+(?:contact|reach\s+out\s+to|write\s+to|email)|right\s+person|person\s+in\s+charge|forward(?:ed|ing)?\s+(?:this|your)|loop(?:ed|ing)?\s+in|in\s+cc|cc'?d|copied|wenden\s+sie\s+sich\s+an|weitergeleitet|zust[äa]ndig|ansprechpartner|contattare|inoltrato|responsabile\s+acquisti|contactar\s+(?:con|a)|encaminh(?:ei|ando)|respons[áa]vel\s+de\s+compras|contacter|transmis\s+[àa])\b/iu;
+  /\b(?:please\s+(?:contact|reach\s+out\s+to|write\s+to|email)|right\s+person|person\s+in\s+charge|forward(?:ed|ing)?\s+(?:this|your)|loop(?:ed|ing)?\s+in|in\s+cc|cc'?d|copied|wenden\s+sie\s+sich\s+an|weitergeleitet|zust[äa]ndig|ansprechpartner|contattare|inoltrato|responsabile\s+acquisti|contactar\s+(?:con|a)|encaminh(?:ei|ando)|respons[áa]vel\s+de\s+compras|contacter|transmis\s+[àa])\b|(?:请联系|转交(?:给|了)|负责采购|抄送给)/iu;
+
+const OBJECTION_PRICE_OR_SUPPLIER_RE =
+  /\b(?:already\s+(?:have|work(?:ing)?\s+with)\s+(?:a|our|an\s+existing)\s+(?:supplier|vendor|partner|manufacturer)|existing\s+(?:supplier|vendor)|happy\s+with\s+(?:our|current)\s+(?:supplier|vendor)|price\s+(?:is\s+)?(?:too\s+high|not\s+competitive)|too\s+expensive|moq\s+(?:is\s+)?too\s+high|out\s+of\s+budget|bereits\s+einen\s+lieferanten|preis\s+(?:ist\s+)?zu\s+hoch|gi[àa]\s+un\s+fornitore|prezzo\s+troppo\s+alto|ya\s+tenemos\s+proveedor|precio\s+demasiado\s+alto|j[áa]\s+temos\s+fornecedor|d[ée]j[àa]\s+un\s+fournisseur)\b|(?:已有(?:固定)?供应商|价格(?:太高|偏高)|起订量(?:太高|过高)|超出预算)/iu;
 
 const DATASHEET_QUOTE_RE =
-  /\b(?:data\s*sheet|spec(?:ification)?\s*sheet|quote|quotation|price\s*list|pricing|moq|sample|cif|fob|ddp|iec\s*6\d{4}|angebot|datenblatt|preisliste|muster|preventivo|scheda\s+tecnica|listino|cotizaci[óo]n|ficha\s+t[ée]cnica|or[çc]amento|tabela\s+de\s+pre[çc]os|devis|fiche\s+technique)\b/iu;
+  /\b(?:data\s*sheet|spec(?:ification)?\s*sheet|quote|quotation|price\s*list|pricing|moq|sample|cif|fob|ddp|iec\s*6\d{4}|angebot|datenblatt|preisliste|muster|preventivo|scheda\s+tecnica|listino|cotizaci[óo]n|ficha\s+t[ée]cnica|or[çc]amento|tabela\s+de\s+pre[çc]os|devis|fiche\s+technique)\b|(?:规格书|参数表|报价单|价目表|目录|样品|起订量)/iu;
 
 const POSITIVE_INTEREST_RE =
-  /\b(?:klingt\s+interessant|rufen\s+sie\s+(?:mich\s+|uns\s+)?an|sounds?\s+(?:interesting|good)|interested|let'?s\s+(?:talk|connect|discuss)|call\s+me|schedule\s+a\s+call|send\s+(?:more\s+)?info|tell\s+me\s+more|happy\s+to\s+discuss|ci\s+interessa|int[ée]ress[ée]|nos\s+interesa|temos\s+interesse)\b/iu;
+  /\b(?:klingt\s+interessant|rufen\s+sie\s+(?:mich\s+|uns\s+)?an|sounds?\s+(?:interesting|good)|interested|let'?s\s+(?:talk|connect|discuss)|call\s+me|schedule\s+a\s+call|send\s+(?:more\s+)?info|tell\s+me\s+more|happy\s+to\s+discuss|ci\s+interessa|int[ée]ress[ée]|nos\s+interesa|temos\s+interesse)\b|(?:感兴趣|方便通话|发点资料|详细聊聊)/iu;
 
 const TIMING_LATER_RE =
-  /\b(?:next\s+(?:quarter|year|month)|in\s+(?:q[1-4]|\d+\s+months?)|reach\s+out\s+(?:later|again\s+in)|check\s+back|not\s+(?:right\s+now|at\s+the\s+moment)|n[äa]chstes\s+(?:quartal|jahr)|sp[äa]ter\s+(?:nochmal|wieder)|prossimo\s+trimestre|pi[ùu]\s+avanti|m[áa]s\s+adelante|pr[óo]ximo\s+trimestre|plus\s+tard|trimestre\s+prochain)\b/iu;
+  /\b(?:next\s+(?:quarter|year|month)|in\s+(?:q[1-4]|\d+\s+months?)|reach\s+out\s+(?:later|again\s+in)|check\s+back|not\s+(?:right\s+now|at\s+the\s+moment)|n[äa]chstes\s+(?:quartal|jahr)|sp[äa]ter\s+(?:nochmal|wieder)|prossimo\s+trimestre|pi[ùu]\s+avanti|m[áa]s\s+adelante|pr[óo]ximo\s+trimestre|plus\s+tard|trimestre\s+prochain)\b|(?:下个?季度|明年再|过段时间|晚些时候再联系)/iu;
 
 const INLINE_EMAIL_RE = /\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})\b/giu;
 
 /**
- * 细粒度回复意图分类（Batch 1.4 + Phase 1 拒联识别）：
+ * 细粒度回复意图分类（Batch 1.4 + Phase 1 拒联识别 + Step 5 异议归类）：
  *  - NEGATIVE_DECLINE：明确拒绝/要求停止联系 → NEGATIVE（触发 OPT_OUT）；
  *  - REFERRAL_NEW_CONTACT：转交采购联系人 → POSITIVE（自动提取候选新邮箱）；
+ *  - OBJECTION_PRICE_OR_SUPPLIER：已有供应商/价格或 MOQ 异议 → NEUTRAL（不拉黑，转异议副驾）；
  *  - ASK_DATASHEET_QUOTE：索取规格书/认证/报价 → POSITIVE；
  *  - POSITIVE_INTEREST：明确表达兴趣/邀约电话 → POSITIVE；
  *  - TIMING_LATER：下季度/延后联系 → NEUTRAL。
@@ -430,11 +435,18 @@ export function classifyReplyIntent(
     if (!excluded.has(addr)) referred.add(addr);
   }
   const referredEmails = [...referred].slice(0, 5);
-  if (REFERRAL_RE.test(stripped) && (referredEmails.length > 0 || /\b(?:procurement|purchasing|buyer|einkauf|acquisti|compras|achats)\b/iu.test(stripped))) {
+  if (
+    REFERRAL_RE.test(stripped) &&
+    (referredEmails.length > 0 ||
+      /\b(?:procurement|purchasing|buyer|einkauf|acquisti|compras|achats)\b|(?:采购|负责)/iu.test(stripped))
+  ) {
     return { intent: 'REFERRAL_NEW_CONTACT', classification: 'POSITIVE', referredEmails };
   }
   if (NEGATIVE_DECLINE_RE.test(stripped)) {
     return { intent: 'NEGATIVE_DECLINE', classification: 'NEGATIVE', referredEmails: [] };
+  }
+  if (OBJECTION_PRICE_OR_SUPPLIER_RE.test(stripped)) {
+    return { intent: 'OBJECTION_PRICE_OR_SUPPLIER', classification: 'NEUTRAL', referredEmails };
   }
   if (DATASHEET_QUOTE_RE.test(combined)) {
     return { intent: 'ASK_DATASHEET_QUOTE', classification: 'POSITIVE', referredEmails };
