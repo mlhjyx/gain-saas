@@ -16,7 +16,7 @@ SaaS 侧代码不依赖本文件即可开发与测试;但以下 4 项不完成,*
 - 寻源完成与 `LeadQualified` 从引擎事件出口进入 SaaS 的耐久 inbox。投影和 ACK 各有证据。查看状态时先确认 API、Worker 与事件游标，再追具体任务的入箱、投影和对账。
 - 现有 SaaS 寻源任务仍使用已固定的旧版请求。Backend 新增计划上下文操作 `DiscoveryController_v3PlanContext_v1`。原执行接口的 v3 分支拒绝旧 `taskRef`，两仓还须验证运行时装配、已关联的 `QUEUED` 到终态投影、成本事件和回退。切换沿单独的批准与验收流程执行。接口 pin 检查覆盖合同文件，事件消费字段另按生产者 schema 与固定来样核对。
 - SaaS `/health/ready` 返回自有数据库和引擎存活探测结果。联调时核对响应体状态，再分别验证 Backend readiness、事件消费和实际业务结果。
-- 操作前核对 [本机运行读回](../docs/status/current.md)、部署入口和现行模式。下方 0–4 节的脚本、参数示例与回退步骤源自 R4 迁移批次，先与当前配置和受管进程核对，再按授权执行。
+- 操作前核对 [本机运行读回](../docs/status/current.md)、部署入口和现行模式。下方 0–4 节的脚本、参数示例与回退步骤源自 R4 迁移批次，先与当前配置和受管进程核对，再按授权执行。第 5 节先列现行核验，再保留原迁移步骤。
 
 ## 0. 一键执行(需要 root)
 
@@ -124,7 +124,7 @@ curl -s --cacert /global/gain-saas/deploy/tls/ca.pem https://127.0.0.1:18446/.we
 - `personal-data:read` 仅授予 `saas-event-consumer`(`GET /events` 的 AND 语义硬要求,SD5;该角色只存在于 worker 的机器 token,永不进用户 token)。
 - `contact-discovery:read`(M4,2026-11-01)只授予 `saas-admin`:它只覆盖具名联系人面(`GET /canonical-companies/:id`、发现/猜测/验证联系人),不覆盖事件流、线索详情或建站档案的个人数据。引擎侧必须先发布该 scope 再应用本映射——引擎按闭合词表解析 role map,未知 scope 会让启动失败。
 - `ops:read`/`ops:write`(P3 数据源归属,2026-11-04)只授予 `saas-ops`:这是运营台专用的引擎角色,由 gain-saas 服务端在 ops 会话下现铸(workspace claim 用哨兵 UUID `00000000-0000-4000-8000-000000000000`,平台级端点只操作全局表,不用它做租户 RLS 作用域);租户角色(`saas-admin`/`saas-member`)禁止携带 `ops:*`。**上线顺序固定**:① 引擎镜像先发布含 `ops:write` 的版本;② 再应用本文件的 role map(引擎按闭合词表解析,未知 scope 会让启动失败);③ 最后部署含 `/api/ops/channels` 的 gain-saas。运营域其余读仍走 PG 白名单。
-- 运营渠道的 `saas-ops` 按现行授权配置核对。[对接脚本](engine-integration-apply.py) 的内置角色映射只包含 SaaS 管理员、成员与事件消费角色。
+- 运营渠道按获批配置单独核对 `saas-ops` 及其 `ops:read`、`ops:write`。 [对接脚本](engine-integration-apply.py) 维护 SaaS 管理员、成员与事件消费三种角色，合并映射时保留已存在的 `saas-ops`。首次加入该角色及其验证适用各自的授权。
 - **2026-10-29 的 scope 快照**：以下是迁移时的原记录。现行禁联接口经管理员 BFF 与引擎 `compliance:manage` 接线，具名联系人按下方 M4 窄 scope 核对。用户角色和服务角色的实际映射以源码及当前授权接线为准。
 - **已知的 scope 缺口(按 PRD 设计保留,不是本次遗漏)**:BFF 的 `GET /leads/:leadId`、`GET /canonical-companies/:id` 需要 `personal-data:read`,`GET /data-providers` 需要 `ops:read`,成员可见的 `/suppressions` 系列需要 `compliance:manage`;这些路由在 M3 接入前要么调整 BFF 的 access,要么由产品重新决定 scope——**不要**为了跑通就把 `personal-data:read` 塞进用户角色。
 - **联系人挖掘 M4(2026-11-01,窄 scope 方案)**:引擎镜像 `d391a5f5` 已包含 `POST /canonical-companies/:id/discover-contacts`、`POST /canonical-companies/:id/guess-emails`、`POST /contact-points/:id/verify` 与 `GET /canonical-companies/:id`(2026-11-01 用 `/api/docs-json` 核实)。产品负责人已选定**窄 scope 方案**:引擎新增 `contact-discovery:read`(只覆盖具名联系人面),`saas-admin` 的映射自此包含它,`personal-data:read` 仍只授事件消费身份。上线顺序固定:① 引擎发布含 `contact-discovery:read` 的镜像;② 再应用本文件的 role map(`engine-integration-apply.py` 会拒绝在未知 scope 上启动);③ 卡片才可读写。在此之前,卡片会显示「获客能力尚未完成授权对接」并保持只读,不会误报成功。
@@ -219,6 +219,15 @@ apply 后 `POST /api/companies` 应返回 **202**(不再 402);`verify-engine-int
 
 ## 5. 开启事件消费并验证
 
+### 现行核验
+
+1. SaaS 就绪查看 `/health/ready` 响应体的 `status=ok`、`checks.db.ok=true` 和 `checks.engine.ok=true`。`200/degraded` 表示降级。`checks.engine` 测量引擎存活，另核对 Backend `/api/v1/health/ready` 的状态。`capabilities.event_consumer` 是配置读数，Worker 消费和业务结果各有独立证据。旧[对接脚本](verify-engine-integration.mjs)的 SaaS 健康步骤只检查 HTTP 结果，应以本项响应体核验为准。
+2. 只读核对事件接收时，在获批的隔离联调证据中选取一条[注册的外部集成事件](https://github.com/mlhjyx/global-backend/blob/main/apps/api/src/relay/event-registry.ts)，例如 `DiscoveryRunCompleted`。按同一事件 ID 核对引擎投递账本、SaaS 入箱、投影结果与 ACK。创建企业发出的 `CompanyProfileCreated` 是内部工作流命令，验证外部投递应选用集成事件。
+3. 旧对接脚本的三角色回执覆盖管理员、成员及事件消费。运营渠道另按本页的 `saas-ops` 现行映射核对。真实业务验收见[当前状态](../docs/status/current.md)。
+
+### 原迁移步骤（历史）
+
+下列命令与验证顺序保留原迁移记录。当前采用和验证以获批部署手册及上方检查为准。
 
 引擎侧配置生效后:
 
@@ -235,7 +244,7 @@ journalctl -u gain-saas-worker -f
 DB=$(grep '^DATABASE_URL=' /global/gain-saas/.env | cut -d= -f2-); psql "$DB" -c "select count(*) from event_inbox"
 ```
 
-### 验证顺序
+#### 验证顺序
 
 1. `node /global/gain-saas/deploy/verify-engine-integration.mjs` → JWKS 无私钥、三种角色调用 200、`saas-member` 拉事件 403、**R4 fence-ack 仍 200**(https `AUTH_JWKS_URI` 没有破坏撤销信任)。
 2. `curl http://127.0.0.1:4020/health/ready` → `engine.ok=true`;浏览器注册一个工作空间,携带 cookie 调 `GET /api/leads`(经 BFF)→ 不再是 401/403 的"授权无效"文案。
