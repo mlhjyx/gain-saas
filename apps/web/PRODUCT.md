@@ -40,7 +40,7 @@ web（现役前端技术栈为 Vue 3 + Vben 5 + Ant Design Vue，源码在 `apps
   - **预付积分与用量边界**：当前主线具备租户余额、批次、预占、流水、运营充值与价目表，以及受开关控制的扣点接线（代码默认 `WALLET_BILLING_ENABLED=false`，实际运行环境开关未知），详见[钱包](../../docs/technical/credits-wallet.md)。正式商业收费、定价与自助收款保持待定。
   - **零内部术语红线**：租户可见界面一律采用统一业务词表（`packages/shared/src/glossary.ts`），禁止直接暴露系统运行编号、机器枚举或技术策略码（仅允许在折叠技术详情区与 `/ops` 运营台呈现）。
 - **现役信息架构与路由（以源码为准）**：
-  - 总览：工作台（`/workspace`，注册与邀请直达，含按角色展示的企业启航清单；旧 `/onboarding` 重定向至 `/workspace?setup=1`）、成效复盘（`/analytics`，常驻可见）、通知（`/notifications`）；
+  - 总览：工作台（`/workspace`，注册和接受邀请后进入。按空间进度展示启航清单，管理员可在清单中建档。旧 `/onboarding` 重定向至 `/workspace?setup=1`）、成效复盘（`/analytics`，常驻可见）、通知（`/notifications`）；
   - 获客与筛选：企业档案（`/companies`）、买家画像（`/find-buyers`，`ICP_ADVANCED_HIDDEN=true` 默认隐藏高级规则与回测）、寻源记录（`/tasks`，含 `/tasks/:taskId`、`/runs/:runId`）、买家线索（`/leads`，含 `/leads/:leadId` 与判定复核视图）；
   - 触达与转化：外发与战役（`/outreach`）、商机管线（`/opportunities`），由 `GROWTH_PAGE_HIDDEN=true` 统一隐藏出侧栏，但深链与历史重定向保留；
   - 设置：整页 `/settings/*`（账号 `/settings/account`、成员 `/settings/members`，以及仅管理员可见的禁联名单 `/settings/suppressions`、数据源 `/settings/sources`、隐私与数据 `/settings/privacy`、审计 `/settings/audit`，另含管理员路由 `/settings/outreach-mailboxes`）。历史路由重定向见[发布手册](../../docs/engineering/frontend-release-rollback.md#3-历史深链redirect-2-个发布版本)。
