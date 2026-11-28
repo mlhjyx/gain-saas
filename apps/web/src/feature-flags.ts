@@ -4,13 +4,13 @@
 
 /**
  * 「触达与转化」分组（外发与战役 `/outreach`、商机管线 `/opportunities`）：
- * 引擎侧尚未完全就绪，2026-11-26 产品决定先隐藏。
+ * 引擎与外联能力已就绪，现已开放（原 2026-11-26 临时隐藏；如需再次紧急收起，改回 true 即可）。
  *
- * 隐藏范围：侧栏菜单「触达与转化」分组（含 `/outreach`、`/opportunities`）、命令面板中指向两者的页面与快捷动作、
- * 线索档案包的两个「去触达」按钮。路由与历史重定向（`/growth?tab=*`、`/campaigns*`、`/qgos`）保留，深链照常可用；
+ * 门控范围：侧栏菜单「触达与转化」分组（含 `/outreach`、`/opportunities`）、命令面板中指向两者的页面与快捷动作、
+ * 线索档案包的两个「去触达」按钮。路由与历史重定向（`/growth?tab=*`、`/campaigns*`、`/qgos`）常驻保留；
  * 「成效复盘 `/analytics`」与「判定复核 `/leads?view=reviews`」常驻可见，不受本开关隐藏。
  */
-export const GROWTH_PAGE_HIDDEN = true;
+export const GROWTH_PAGE_HIDDEN = false;
 
 /**
  * 「资格规则与回测」：确定性规则引擎和回测是面向运营的高级能力，用户实测反馈看不懂、也用不上，

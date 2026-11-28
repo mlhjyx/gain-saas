@@ -54,6 +54,114 @@ describe('OpsChannelsService（P3 数据源归属）', () => {
     const second = makeService();
     await second.service.records('op-1', '11111111-1111-4111-8111-111111111111', '99999; DROP');
     expect(second.calls[0]!.path).toBe('/source-channels/11111111-1111-4111-8111-111111111111/records?limit=50');
+
+    // 支持按 reviewStatus 过滤，非法值 400 拒绝。
+    const filtered = makeService();
+    await filtered.service.records('op-1', '11111111-1111-4111-8111-111111111111', '20', 'PENDING');
+    expect(filtered.calls[0]!.path).toBe(
+      '/source-channels/11111111-1111-4111-8111-111111111111/records?limit=20&reviewStatus=PENDING',
+    );
+    const badStatus = await filtered.service
+      .records('op-1', '11111111-1111-4111-8111-111111111111', '20', 'INVALID_STATUS')
+      .catch((err: unknown) => err);
+    expect(badStatus).toBeInstanceOf(HttpException);
+    expect((badStatus as HttpException).getStatus()).toBe(400);
+  });
+
+  it('reviewRecords 校验 UUID 与 body，成功后透传并落 ops 审计，冲突时也留审计并抛原状态码', async () => {
+    const channelId = '11111111-1111-4111-8111-111111111111';
+    const rec1 = '22222222-2222-4222-8222-222222222222';
+    const rec2 = '33333333-3333-4333-8333-333333333333';
+    const hash1 = 'a'.repeat(64);
+    const hash2 = 'b'.repeat(64);
+
+    // 1. 非法 channelId / 空 recordIds / 重复 recordIds / 不匹配的 expectedContentHashes 均 400 且不发引擎调用
+    const invalid = makeService();
+    for (const [cid, payload] of [
+      ['../escape', { recordIds: [rec1], verdict: 'APPROVED' }],
+      [channelId, { recordIds: [], verdict: 'APPROVED' }],
+      [channelId, { recordIds: [rec1, rec1], verdict: 'APPROVED' }],
+      [channelId, { recordIds: [rec1], verdict: 'MAYBE' }],
+      [channelId, { recordIds: [rec1, rec2], verdict: 'APPROVED', expectedContentHashes: { [rec1]: hash1 } }],
+    ] as const) {
+      const err = await invalid.service.reviewRecords('op-1', cid, payload).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect((err as HttpException).getStatus()).toBe(400);
+    }
+    expect(invalid.engine.call).not.toHaveBeenCalled();
+
+    // 2. 正常批量通过
+    const ok = makeService({
+      [`/source-channels/${channelId}/records/review`]: {
+        status: 200,
+        body: {
+          data: {
+            channelId,
+            reviewed: 2,
+            verdict: 'APPROVED',
+            counts: { PENDING: 0, APPROVED: 2, REJECTED: 0 },
+            autoDisabled: false,
+          },
+        },
+      },
+    });
+    const res = await ok.service.reviewRecords('op-1', channelId, {
+      recordIds: [rec1, rec2],
+      verdict: 'APPROVED',
+      expectedContentHashes: { [rec1]: hash1, [rec2]: hash2 },
+    });
+    expect(res).toMatchObject({ channelId, reviewed: 2, verdict: 'APPROVED', autoDisabled: false });
+    expect(ok.engine.call).toHaveBeenCalledWith(
+      'op-1',
+      'POST',
+      `/source-channels/${channelId}/records/review`,
+      {
+        body: {
+          recordIds: [rec1, rec2],
+          verdict: 'APPROVED',
+          expectedContentHashes: { [rec1]: hash1, [rec2]: hash2 },
+        },
+      },
+    );
+    expect(ok.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        realm: 'ops',
+        actorId: 'op-1',
+        action: 'channel.records.review',
+        target: channelId,
+        detail: expect.objectContaining({
+          verdict: 'APPROVED',
+          recordCount: 2,
+          engineStatus: 200,
+          reviewed: 2,
+          autoDisabled: false,
+        }),
+      }),
+    );
+
+    // 3. 引擎返回 409 版本冲突：仍写审计并原样抛出 409
+    const conflict = makeService({
+      [`/source-channels/${channelId}/records/review`]: {
+        status: 409,
+        body: { error: { code: 'CHANNEL_RECORD_VERSION_CONFLICT', message: 'reload and retry' } },
+      },
+    });
+    const err = await conflict.service
+      .reviewRecords('op-1', channelId, { recordIds: [rec1], verdict: 'REJECTED' })
+      .catch((e: unknown) => e);
+    expect((err as HttpException).getStatus()).toBe(409);
+    expect(conflict.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'channel.records.review',
+        target: channelId,
+        detail: expect.objectContaining({
+          verdict: 'REJECTED',
+          recordCount: 1,
+          engineStatus: 409,
+          engineCode: 'CHANNEL_RECORD_VERSION_CONFLICT',
+        }),
+      }),
+    );
   });
 
   it('create 先做形状校验（缺 name 不发引擎调用），成功后写 ops 审计', async () => {

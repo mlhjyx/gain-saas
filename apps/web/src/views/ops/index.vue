@@ -178,7 +178,11 @@ const channelRows = ref<Row[]>([]);
 const channelBusy = ref('');
 const recordChannel = ref<Row | null>(null);
 const recordRows = ref<Row[]>([]);
+const recordCounts = ref<{ PENDING: number; APPROVED: number; REJECTED: number } | null>(null);
+const recordStatusFilter = ref('');
+const selectedRecordIds = ref<string[]>([]);
 const recordsBusy = ref(false);
+const reviewingRecords = ref(false);
 const channelModal = ref<{ mode: 'create' | 'edit'; id?: string } | null>(null);
 const channelForm = ref({
   name: '',
@@ -463,25 +467,141 @@ async function saveChannel(): Promise<void> {
   }
 }
 
-async function openChannelRecords(channel: Row): Promise<void> {
-  recordChannel.value = channel;
-  recordRows.value = [];
+async function fetchChannelRecords(channel: Row): Promise<void> {
   recordsBusy.value = true;
   error.value = '';
   try {
-    const body = await api<{ records: Row[] }>(`/api/ops/channels/${channel.id}/records?limit=50`);
-    recordRows.value = body.records ?? [];
+    const query = new URLSearchParams({ limit: '50' });
+    if (recordStatusFilter.value) query.set('reviewStatus', recordStatusFilter.value);
+    const body = await api<{
+      data?: { records?: Row[]; counts?: { PENDING: number; APPROVED: number; REJECTED: number } };
+      records?: Row[];
+      counts?: { PENDING: number; APPROVED: number; REJECTED: number };
+    }>(`/api/ops/channels/${channel.id}/records?${query.toString()}`);
+    const payload = body?.data && typeof body.data === 'object' ? body.data : body;
+    recordRows.value = Array.isArray(payload?.records) ? payload.records : [];
+    recordCounts.value = payload?.counts ?? null;
+    const validIds = new Set(recordRows.value.map((row) => String(row.id)));
+    selectedRecordIds.value = selectedRecordIds.value.filter((id) => validIds.has(id));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
-    recordChannel.value = null;
+    recordRows.value = [];
+    recordCounts.value = null;
   } finally {
     recordsBusy.value = false;
   }
 }
 
+async function openChannelRecords(channel: Row): Promise<void> {
+  recordChannel.value = channel;
+  recordRows.value = [];
+  recordCounts.value = null;
+  recordStatusFilter.value = 'PENDING';
+  selectedRecordIds.value = [];
+  await fetchChannelRecords(channel);
+}
+
 function closeChannelRecords(): void {
   recordChannel.value = null;
   recordRows.value = [];
+  recordCounts.value = null;
+  selectedRecordIds.value = [];
+}
+
+const allRecordsSelected = computed(
+  () =>
+    recordRows.value.length > 0 &&
+    recordRows.value.every((row) => selectedRecordIds.value.includes(String(row.id))),
+);
+
+function toggleRecordSelection(recordId: string): void {
+  selectedRecordIds.value = selectedRecordIds.value.includes(recordId)
+    ? selectedRecordIds.value.filter((id) => id !== recordId)
+    : [...selectedRecordIds.value, recordId];
+}
+
+function toggleAllRecordsSelection(): void {
+  if (allRecordsSelected.value) {
+    selectedRecordIds.value = [];
+  } else {
+    selectedRecordIds.value = recordRows.value.map((row) => String(row.id));
+  }
+}
+
+function recordReviewStatusLabel(status: unknown): string {
+  const value = String(status ?? 'PENDING').toUpperCase();
+  if (value === 'APPROVED') return '已通过';
+  if (value === 'REJECTED') return '已拒绝';
+  return '待审核';
+}
+
+function recordReviewBadgeClass(status: unknown): string {
+  const value = String(status ?? 'PENDING').toUpperCase();
+  if (value === 'APPROVED') return 'is-ok';
+  if (value === 'REJECTED') return 'is-bad';
+  return 'is-warn';
+}
+
+async function submitRecordReview(
+  verdict: 'APPROVED' | 'REJECTED',
+  targetIds?: string[],
+): Promise<void> {
+  if (!recordChannel.value || reviewingRecords.value) return;
+  const ids = [...new Set(targetIds ?? selectedRecordIds.value)];
+  if (ids.length === 0) return;
+  const actionLabel = verdict === 'APPROVED' ? '通过' : '拒绝';
+  const ok = await confirmOpsAction({
+    title: `批量${actionLabel}渠道记录`,
+    content:
+      verdict === 'REJECTED'
+        ? `确认拒绝所选 ${ids.length} 条记录？当渠道已抽检 ≥20 条且拒绝率超过 20% 时，渠道将自动停用。`
+        : `确认通过所选 ${ids.length} 条记录？通过后可进入绿色共享事实投影。`,
+    okText: `确认${actionLabel}`,
+    danger: verdict === 'REJECTED',
+  });
+  if (!ok) return;
+
+  const rowById = new Map(recordRows.value.map((row) => [String(row.id), row]));
+  const hashEntries: Array<[string, string]> = [];
+  let allHaveValidHash = true;
+  for (const id of ids) {
+    const hash = rowById.get(id)?.contentHash;
+    if (typeof hash === 'string' && /^[0-9a-f]{64}$/u.test(hash)) {
+      hashEntries.push([id, hash]);
+    } else {
+      allHaveValidHash = false;
+      break;
+    }
+  }
+
+  reviewingRecords.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const res = await api<{
+      data?: { reviewed?: number; autoDisabled?: boolean; counts?: { PENDING: number; APPROVED: number; REJECTED: number } };
+    }>(`/api/ops/channels/${recordChannel.value.id}/records/review`, {
+      method: 'POST',
+      body: JSON.stringify({
+        recordIds: ids,
+        verdict,
+        ...(allHaveValidHash && hashEntries.length === ids.length
+          ? { expectedContentHashes: Object.fromEntries(hashEntries) }
+          : {}),
+      }),
+    });
+    const reviewed = res?.data?.reviewed ?? ids.length;
+    const autoDisabled = Boolean(res?.data?.autoDisabled);
+    notice.value = autoDisabled
+      ? `已${actionLabel} ${reviewed} 条记录；拒绝率超过 20%，渠道 ${recordChannel.value.name} 已自动停用`
+      : `已${actionLabel} ${reviewed} 条记录`;
+    selectedRecordIds.value = selectedRecordIds.value.filter((id) => !ids.includes(id));
+    await Promise.all([fetchChannelRecords(recordChannel.value), loadChannels()]);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    reviewingRecords.value = false;
+  }
 }
 
 async function previewChannel(channel: Row): Promise<void> {
@@ -2143,24 +2263,110 @@ onMounted(checkSession);
       </div>
 
       <div v-if="recordChannel" class="ops__modal" @click.self="closeChannelRecords">
-        <div class="ops__modal-card">
+        <div class="ops__modal-card" data-gs="ops-channel-records-modal">
           <header>
-            <h2>最近记录 · {{ recordChannel.name }}</h2>
+            <h2>最近记录与抽检 · {{ recordChannel.name }}</h2>
             <button type="button" class="ops__btn" @click="closeChannelRecords">关闭</button>
           </header>
           <p class="ops__muted">抓取物化的公司与联系人记录（最近 50 条，按最后见到时间）。联系人字段为渠道页公开信息；请仅用于获客联系目的。</p>
+          <div class="ops__toolbar">
+            <select
+              v-model="recordStatusFilter"
+              :disabled="recordsBusy || reviewingRecords"
+              data-gs="ops-record-status-filter"
+              @change="recordChannel && fetchChannelRecords(recordChannel)"
+            >
+              <option value="">全部状态</option>
+              <option value="PENDING">待审核</option>
+              <option value="APPROVED">已通过</option>
+              <option value="REJECTED">已拒绝</option>
+            </select>
+            <span v-if="recordCounts" class="ops__muted">
+              待审 {{ recordCounts.PENDING }} · 已通过 {{ recordCounts.APPROVED }} · 已拒绝 {{ recordCounts.REJECTED }}
+            </span>
+            <button
+              type="button"
+              class="ops__btn ops__btn--primary"
+              data-gs="ops-records-batch-approve"
+              :disabled="reviewingRecords || selectedRecordIds.length === 0"
+              @click="submitRecordReview('APPROVED')"
+            >
+              批量通过{{ selectedRecordIds.length ? ` (${selectedRecordIds.length})` : '' }}
+            </button>
+            <button
+              type="button"
+              class="ops__btn ops__btn--danger"
+              data-gs="ops-records-batch-reject"
+              :disabled="reviewingRecords || selectedRecordIds.length === 0"
+              @click="submitRecordReview('REJECTED')"
+            >
+              批量拒绝{{ selectedRecordIds.length ? ` (${selectedRecordIds.length})` : '' }}
+            </button>
+          </div>
           <p v-if="recordsBusy" class="ops__muted">加载中…</p>
-          <p v-else-if="recordRows.length === 0" class="ops__muted">还没有记录；先试跑/运行该渠道。</p>
+          <p v-else-if="recordRows.length === 0" class="ops__muted">当前筛选下没有记录；可切换状态或先试跑/运行该渠道。</p>
           <table v-else class="ops__table">
-            <thead><tr><th>公司</th><th>官网</th><th>国家</th><th>联系人</th><th>邮箱</th><th>最后见到</th></tr></thead>
+            <thead>
+              <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="全选当前记录"
+                    :checked="allRecordsSelected"
+                    :disabled="reviewingRecords"
+                    @change="toggleAllRecordsSelection"
+                  />
+                </th>
+                <th>公司</th>
+                <th>国家</th>
+                <th>联系人 / 邮箱</th>
+                <th>审核状态</th>
+                <th>最后见到</th>
+                <th>操作</th>
+              </tr>
+            </thead>
             <tbody>
               <tr v-for="record in recordRows" :key="record.id">
-                <td>{{ record.name }}</td>
-                <td><a v-if="record.website" :href="record.website" target="_blank" rel="noreferrer">{{ record.website }}</a></td>
-                <td>{{ record.country }}</td>
-                <td>{{ record.contactName }}<small v-if="record.contactTitle" class="ops__muted"> · {{ record.contactTitle }}</small></td>
-                <td>{{ record.email }}</td>
+                <td>
+                  <input
+                    type="checkbox"
+                    :aria-label="`选择 ${record.name}`"
+                    :checked="selectedRecordIds.includes(String(record.id))"
+                    :disabled="reviewingRecords"
+                    @change="toggleRecordSelection(String(record.id))"
+                  />
+                </td>
+                <td>
+                  <strong>{{ record.name }}</strong>
+                  <br v-if="record.website" />
+                  <a v-if="record.website" :href="record.website" target="_blank" rel="noreferrer">{{ record.website }}</a>
+                </td>
+                <td>{{ record.country || '—' }}</td>
+                <td>
+                  {{ record.contactName || '—' }}<small v-if="record.contactTitle" class="ops__muted"> · {{ record.contactTitle }}</small>
+                  <br v-if="record.email" />
+                  <span v-if="record.email" class="ops__muted">{{ record.email }}</span>
+                </td>
+                <td>
+                  <span class="ops__badge" :class="recordReviewBadgeClass(record.reviewStatus)">
+                    {{ recordReviewStatusLabel(record.reviewStatus) }}
+                  </span>
+                </td>
                 <td>{{ fmt(record.lastSeenAt) }}</td>
+                <td class="ops__row-actions">
+                  <button
+                    type="button"
+                    class="ops__btn"
+                    :disabled="reviewingRecords || record.reviewStatus === 'APPROVED'"
+                    @click="submitRecordReview('APPROVED', [String(record.id)])"
+                  >通过</button>
+                  <button
+                    type="button"
+                    class="ops__btn ops__btn--danger"
+                    :disabled="reviewingRecords || record.reviewStatus === 'REJECTED'"
+                    @click="submitRecordReview('REJECTED', [String(record.id)])"
+                  >拒绝</button>
+                </td>
               </tr>
             </tbody>
           </table>

@@ -7,7 +7,15 @@
  * - 面向外贸管理者的主表面改写为业务白话，将 VRIC / 聚合桶等工程口径收入折叠「数据口径说明」区；
  * - 保持缺侧 null 断线语义（不以 0 冒充缺失）与明暗双主题 ECharts 联动。
  */
-import type { MetricCatalogItem, MetricObservation, MetricRollup, VricBucket } from '#/api/gainos';
+import type {
+  Icp,
+  MetricCatalogItem,
+  MetricObservation,
+  MetricRollup,
+  SourceYieldBucket,
+  VricBucket,
+  WeeklyReportSummary,
+} from '#/api/gainos';
 
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -24,6 +32,8 @@ import GsEmpty from '#/components/gainos/ui/gs-empty.vue';
 import GsPage from '#/components/gainos/ui/gs-page.vue';
 import GsSelect from '#/components/gainos/ui/gs-select.vue';
 import GsTag from '#/components/gainos/ui/gs-tag.vue';
+import { useWorkspaceAccess } from '#/composables/use-workspace-access';
+import { feedback } from '#/feedback';
 import { $t } from '#/locales';
 
 import { failureText, gainosApi } from '#/api/gainos';
@@ -34,6 +44,7 @@ defineOptions({ name: 'GainMetrics' });
 defineProps<{ embedded?: boolean }>();
 
 const router = useRouter();
+const { isAdmin, loaded: accessLoaded, ensureLoaded } = useWorkspaceAccess();
 
 type ErrorCopy = { next?: string; title: string; why?: string };
 type ChartOption = Parameters<ReturnType<typeof useEcharts>['renderEcharts']>[0];
@@ -405,9 +416,148 @@ function resetRollupFilters(): void {
   void loadRollups(true);
 }
 
+// ── 本周获客周报摘要（GET /reports/weekly，管理员可用，失败静默降级）──────────
+const weeklyIcps = ref<Icp[]>([]);
+const selectedWeeklyIcpId = ref('');
+const weeklyReport = ref<WeeklyReportSummary | null>(null);
+const weeklyLoading = ref(false);
+const weeklyUnavailable = ref(false);
+let weeklyReqSeq = 0;
+
+const weeklyIcpOptions = computed(() =>
+  weeklyIcps.value.map((item) => ({
+    label: item.name,
+    value: item.id,
+  })),
+);
+
+const weeklyWithheldTotal = computed(() => {
+  const withheld = weeklyReport.value?.withheld;
+  if (!withheld) return 0;
+  return withheld.rights + withheld.sanctions + withheld.quarantined;
+});
+
+async function loadWeeklyReport(): Promise<void> {
+  const seq = ++weeklyReqSeq;
+  await ensureLoaded();
+  if (seq !== weeklyReqSeq) return;
+  if (!isAdmin.value || !selectedWeeklyIcpId.value) {
+    weeklyReport.value = null;
+    weeklyUnavailable.value = false;
+    weeklyLoading.value = false;
+    return;
+  }
+  weeklyLoading.value = true;
+  weeklyUnavailable.value = false;
+  try {
+    const summary = await gainosApi.getWeeklyReport({ icpId: selectedWeeklyIcpId.value });
+    if (seq !== weeklyReqSeq) return;
+    weeklyReport.value = summary;
+  } catch {
+    if (seq !== weeklyReqSeq) return;
+    weeklyReport.value = null;
+    weeklyUnavailable.value = true;
+  } finally {
+    if (seq === weeklyReqSeq) weeklyLoading.value = false;
+  }
+}
+
+async function initWeeklyProfiles(): Promise<void> {
+  await ensureLoaded();
+  if (!isAdmin.value) return;
+  try {
+    const list = await gainosApi.icps();
+    weeklyIcps.value = Array.isArray(list) ? list : [];
+    const activeIcp =
+      weeklyIcps.value.find((item) => item.status === 'ACTIVE') ?? weeklyIcps.value[0];
+    selectedWeeklyIcpId.value = activeIcp?.id ?? '';
+    if (selectedWeeklyIcpId.value) {
+      await loadWeeklyReport();
+    }
+  } catch {
+    weeklyIcps.value = [];
+    selectedWeeklyIcpId.value = '';
+  }
+}
+
+watch(selectedWeeklyIcpId, (next, prev) => {
+  if (next && next !== prev) void loadWeeklyReport();
+});
+
+function downloadWeeklyCsv(): void {
+  const report = weeklyReport.value;
+  if (!report?.csvText) return;
+  const content = report.csvText.startsWith('\uFEFF') ? report.csvText : `\uFEFF${report.csvText}`;
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = report.filename;
+    anchor.style.display = 'none';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    feedback.message.success(
+      $t('gainosUi2.analytics.weeklyDownloaded', { name: report.filename }),
+    );
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+}
+
+// ── 各数据源产出率（GET /metrics/source-yield）────────────────────────────────
+const sourceYieldGranularity = ref<'day' | 'week'>('week');
+const sourceYieldRows = ref<SourceYieldBucket[]>([]);
+const sourceYieldLoading = ref(true);
+const sourceYieldError = ref<ErrorCopy | null>(null);
+
+const sourceYieldGranularityOptions = computed(() => [
+  { label: $t('gainosUi2.analytics.sourceYieldByWeek'), value: 'week' },
+  { label: $t('gainosUi2.analytics.sourceYieldByDay'), value: 'day' },
+]);
+
+function sourceYieldRate(row: SourceYieldBucket): string {
+  if (!row.recordCount || row.recordCount <= 0) return '—';
+  return `${((row.newQualifiedCount / row.recordCount) * 100).toFixed(1)}%`;
+}
+
+function formatUsdMicros(microusd: number): string {
+  if (!Number.isFinite(microusd)) return '—';
+  return `$${(microusd / 1_000_000).toFixed(2)}`;
+}
+
+function formatUnitUsd(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined || !Number.isFinite(usd)) return '—';
+  return `$${usd.toFixed(2)}`;
+}
+
+async function loadSourceYield(): Promise<void> {
+  sourceYieldLoading.value = true;
+  sourceYieldError.value = null;
+  try {
+    const result = await gainosApi.getSourceYieldMetrics({
+      granularity: sourceYieldGranularity.value,
+      limit: 50,
+    });
+    sourceYieldRows.value = Array.isArray(result.data) ? result.data : [];
+  } catch (err) {
+    sourceYieldRows.value = [];
+    sourceYieldError.value = failureText(err);
+  } finally {
+    sourceYieldLoading.value = false;
+  }
+}
+
+watch(sourceYieldGranularity, () => {
+  void loadSourceYield();
+});
+
 function refreshAll(): void {
   void loadVric();
   void loadCatalog();
+  void loadSourceYield();
+  if (isAdmin.value && selectedWeeklyIcpId.value) void loadWeeklyReport();
   if (activeTable.value === 'observations' && observationLoaded.value) void loadObservations(true);
   if (activeTable.value === 'rollups' && rollupLoaded.value) void loadRollups(true);
 }
@@ -415,6 +565,8 @@ function refreshAll(): void {
 onMounted(() => {
   void loadCatalog();
   void loadVric();
+  void loadSourceYield();
+  void initWeeklyProfiles();
 });
 </script>
 
@@ -554,6 +706,180 @@ onMounted(() => {
           <li>{{ $t('gainosUi2.analytics.methodologyRollup') }}</li>
         </ul>
       </details>
+    </section>
+
+    <!-- 本周获客周报摘要（GET /reports/weekly，兼容空态/权限与接口降级） -->
+    <section
+      :aria-label="$t('gainosUi2.analytics.weeklyTitle')"
+      class="an-surface"
+      data-gs="analytics-weekly-report"
+    >
+      <header class="an-surface__head">
+        <div class="min-w-0">
+          <h2 class="an-surface__title">{{ $t('gainosUi2.analytics.weeklyTitle') }}</h2>
+          <p class="an-surface__sub">{{ $t('gainosUi2.analytics.weeklySubtitle') }}</p>
+        </div>
+        <div v-if="isAdmin && weeklyIcpOptions.length > 0" class="an-controls">
+          <div class="w-[200px]" data-gs="analytics-weekly-profile">
+            <GsSelect
+              v-model="selectedWeeklyIcpId"
+              :aria-label="$t('gainosUi2.analytics.weeklyProfileLabel')"
+              :ariaLabel="$t('gainosUi2.analytics.weeklyProfileLabel')"
+              :options="weeklyIcpOptions"
+              class="w-full"
+              size="small"
+            />
+          </div>
+          <Button
+            v-if="weeklyReport?.csvText"
+            data-gs="analytics-weekly-download"
+            size="small"
+            @click="downloadWeeklyCsv"
+          >
+            {{ $t('gainosUi2.analytics.weeklyDownloadCsv') }}
+          </Button>
+        </div>
+      </header>
+
+      <p
+        v-if="accessLoaded && !isAdmin"
+        class="m-0 text-[13px] text-[var(--gs-fg-muted)]"
+        data-gs="analytics-weekly-admin-only"
+      >
+        {{ $t('gainosUi2.analytics.weeklyAdminOnly') }}
+      </p>
+      <Skeleton v-else-if="weeklyLoading" active :paragraph="{ rows: 2 }" />
+      <p
+        v-else-if="weeklyUnavailable"
+        class="m-0 text-[13px] text-[var(--gs-fg-muted)]"
+        data-gs="analytics-weekly-fallback"
+      >
+        {{ $t('gainosUi2.analytics.weeklyUnavailable') }}
+      </p>
+      <p
+        v-else-if="weeklyIcpOptions.length === 0"
+        class="m-0 text-[13px] text-[var(--gs-fg-muted)]"
+      >
+        {{ $t('gainosUi2.analytics.weeklyNoProfile') }}
+      </p>
+      <template v-else-if="weeklyReport">
+        <div class="an-summary" data-gs="analytics-weekly-kpis">
+          <span class="an-summary__item">
+            <span class="an-summary__label">{{ $t('gainosUi2.analytics.weeklyWeekLabel') }}</span>
+            <strong class="an-summary__val">{{ weeklyReport.week || '—' }}</strong>
+          </span>
+          <span aria-hidden="true" class="an-summary__sep" />
+          <span class="an-summary__item">
+            <span class="an-summary__label">{{ $t('gainosUi2.analytics.weeklyDeliveredLabel') }}</span>
+            <strong class="an-summary__val">{{ weeklyReport.rows }}</strong>
+          </span>
+          <template v-if="weeklyWithheldTotal > 0">
+            <span aria-hidden="true" class="an-summary__sep" />
+            <span class="an-summary__item">
+              <span class="an-summary__label">{{ $t('gainosUi2.analytics.weeklyWithheldLabel') }}</span>
+              <strong class="an-summary__val">{{ weeklyWithheldTotal }}</strong>
+            </span>
+          </template>
+        </div>
+
+        <GsEmpty
+          v-if="weeklyReport.rows === 0"
+          :description="$t('gainosUi2.analytics.weeklyEmptyDesc')"
+          :title="$t('gainosUi2.analytics.weeklyEmptyTitle')"
+          simple
+        />
+        <div v-else-if="weeklyReport.previewRows.length > 0" class="grid gap-2">
+          <p class="m-0 text-xs font-medium text-[var(--gs-fg-muted)]">
+            {{ $t('gainosUi2.analytics.weeklyPreviewTitle') }}
+          </p>
+          <div class="an-tablewrap">
+            <table class="an-table">
+              <thead>
+                <tr>
+                  <th scope="col">{{ $t('gainosUi2.analytics.weeklyColCompany') }}</th>
+                  <th scope="col">{{ $t('gainosUi2.analytics.weeklyColDomain') }}</th>
+                  <th scope="col">{{ $t('gainosUi2.analytics.weeklyColCountry') }}</th>
+                  <th scope="col">{{ $t('gainosUi2.analytics.weeklyColScore') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in weeklyReport.previewRows" :key="`wk-${index}`">
+                  <td>{{ row.companyName }}</td>
+                  <td class="an-mono">{{ row.domain }}</td>
+                  <td>{{ row.country }}</td>
+                  <td class="an-num">{{ row.score }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+    </section>
+
+    <!-- 各数据源产出率（GET /metrics/source-yield） -->
+    <section
+      :aria-label="$t('gainosUi2.analytics.sourceYieldTitle')"
+      class="an-surface"
+      data-gs="analytics-source-yield"
+    >
+      <header class="an-surface__head">
+        <div class="min-w-0">
+          <h2 class="an-surface__title">{{ $t('gainosUi2.analytics.sourceYieldTitle') }}</h2>
+          <p class="an-surface__sub">{{ $t('gainosUi2.analytics.sourceYieldSubtitle') }}</p>
+        </div>
+        <div class="an-controls">
+          <div class="w-[116px]" data-gs="analytics-source-yield-granularity">
+            <GsSelect
+              v-model="sourceYieldGranularity"
+              :aria-label="$t('gainosUi2.analytics.sourceYieldGranularity')"
+              :ariaLabel="$t('gainosUi2.analytics.sourceYieldGranularity')"
+              :options="sourceYieldGranularityOptions"
+              class="w-full"
+              size="small"
+            />
+          </div>
+        </div>
+      </header>
+
+      <Skeleton v-if="sourceYieldLoading" active :paragraph="{ rows: 3 }" />
+      <div v-else-if="sourceYieldError" class="grid gap-3">
+        <ErrorNotice :next="sourceYieldError.next" :title="sourceYieldError.title" />
+        <Button class="justify-self-start" size="small" @click="loadSourceYield">
+          {{ $t('gainos.common.retry') }}
+        </Button>
+      </div>
+      <GsEmpty
+        v-else-if="sourceYieldRows.length === 0"
+        :description="$t('gainosUi2.analytics.sourceYieldEmptyDesc')"
+        :title="$t('gainosUi2.analytics.sourceYieldEmptyTitle')"
+        simple
+      />
+      <div v-else class="an-tablewrap">
+        <table class="an-table">
+          <thead>
+            <tr>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColPeriod') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColProvider') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColRecords') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColQualified') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColRate') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColCost') }}</th>
+              <th scope="col">{{ $t('gainosUi2.analytics.sourceYieldColUnitCost') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in sourceYieldRows" :key="`${row.bucket}-${row.providerKey}`">
+              <td class="an-num">{{ row.bucket }}</td>
+              <td class="an-mono">{{ row.providerKey }}</td>
+              <td class="an-num">{{ row.recordCount }}</td>
+              <td class="an-num">{{ row.newQualifiedCount }}</td>
+              <td class="an-num">{{ sourceYieldRate(row) }}</td>
+              <td class="an-num">{{ formatUsdMicros(row.costMicrousd) }}</td>
+              <td class="an-num">{{ formatUnitUsd(row.costPerNewQualifiedUsd) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <!-- 指标明细与口径（单层 1px 细线容器 + AntDV Tabs + GsSelect） -->

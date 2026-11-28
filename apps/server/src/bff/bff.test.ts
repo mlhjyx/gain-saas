@@ -99,6 +99,8 @@ describe('BFF 路由表(SD7)', () => {
       ['POST', 'companies/:companyId/confirm'],
       ['DELETE', 'icp-rules/:ruleId'],
       ['GET', 'deletion-requests'],
+      ['GET', 'reports/weekly'],
+      ['GET', 'reports/battle-csv'],
     ];
     for (const [method, saasPath] of adminOnly) {
       const route = BFF_ROUTES.find((r) => r.method === method && r.saasPath === saasPath);
@@ -125,6 +127,7 @@ describe('BFF 路由表(SD7)', () => {
       ['POST', `/api/canonical-companies/c1/contact-enrichment-results/${opRef}/recover`],
       ['GET', '/api/canonical-companies/c1/contact-enrichment-quality-facts'],
       ['GET', `/api/canonical-companies/c1/contact-enrichment-quality-facts/${opRef}`],
+      ['GET', '/api/reports/weekly'],
     ];
     for (const role of ['member', 'admin'] as const) {
       const call = vi.fn(async () => ({
@@ -940,5 +943,61 @@ describe('资料库流式下载代理 (GET /api/seller-documents/:documentId/con
       server.closeAllConnections?.();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  it('CSV 报告透传（GET /api/reports/weekly）保留 BOM 与 X-Report-* / Content-Disposition 响应头', async () => {
+    const csvBytes = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from('公司名,域名,国家,总分\r\nAcme GmbH,acme.de,DE,0.91\r\n', 'utf8'),
+    ]);
+    const call = vi.fn(async () => ({
+      status: 200,
+      body: csvBytes,
+      contentType: 'text/csv; charset=utf-8',
+      headers: {
+        'content-disposition': 'attachment; filename="weekly-report-2026-W48-icp1.csv"',
+        'cache-control': 'no-store',
+        'x-report-id': 'rep-1',
+        'x-report-week': '2026-W48',
+        'x-report-rows': '1',
+        'x-report-withheld-rights': '0',
+        'x-report-withheld-sanctions': '0',
+        'x-report-withheld-quarantined': '0',
+      },
+    }));
+    const handler = new BffHandler(
+      { call } as never,
+      { issue: vi.fn() } as never,
+      { record: vi.fn(async () => undefined) } as never,
+      { history: vi.fn() } as never,
+      {} as never,
+    );
+    const setHeader = vi.fn();
+    const send = vi.fn();
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      type: vi.fn().mockReturnThis(),
+      setHeader,
+      send,
+      json: vi.fn(),
+    };
+    const req = {
+      method: 'GET',
+      path: '/api/reports/weekly',
+      originalUrl: '/api/reports/weekly?icpId=11111111-1111-4111-8111-111111111111',
+      headers: {},
+      tenant: { userId: 'u-1', workspaceId: 'w-1', role: 'admin' },
+      get: () => undefined,
+    };
+    await handler.handle(req as never, res as never);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.type).toHaveBeenCalledWith('text/csv; charset=utf-8');
+    expect(setHeader).toHaveBeenCalledWith(
+      'content-disposition',
+      'attachment; filename="weekly-report-2026-W48-icp1.csv"',
+    );
+    expect(setHeader).toHaveBeenCalledWith('x-report-week', '2026-W48');
+    expect(setHeader).toHaveBeenCalledWith('x-report-rows', '1');
+    expect(send).toHaveBeenCalledWith(csvBytes);
   });
 });
