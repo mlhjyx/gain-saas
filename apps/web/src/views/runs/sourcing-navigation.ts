@@ -7,7 +7,7 @@ export function isRunInProgress(status: string): boolean {
 }
 
 export function taskStatusLabelKey(status?: string) {
-  switch (status ?? 'active') {
+  switch (status) {
     case 'active': return 'gainos.tasks.taskActive';
     case 'paused': return 'gainos.tasks.taskPaused';
     case 'archived': return 'gainos.tasks.taskArchived';
