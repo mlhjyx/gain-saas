@@ -27,7 +27,13 @@ import { useWorkspaceAccess } from '#/composables/use-workspace-access';
 import { failureText, gainosApi } from '#/api/gainos';
 import { feedback } from '#/feedback';
 
-import { isRunInProgress, mintAttemptId, sourcingPlansLocation, sourcingRunLocation } from '../runs/sourcing-navigation';
+import {
+  isRunInProgress,
+  mintAttemptId,
+  sourcingPlansLocation,
+  sourcingRunLocation,
+  taskStatusLabelKey,
+} from '../runs/sourcing-navigation';
 
 defineOptions({ name: 'TaskDetail' });
 
@@ -81,12 +87,6 @@ const canRetry = computed(() => {
   );
 });
 
-function taskStatusLabel(status?: string): string {
-  const key = `gainos.tasks.task${(status ?? 'active').replace(/^./, (c) => c.toUpperCase())}` as Parameters<typeof $t>[0];
-  const translated = $t(key);
-  return translated === key ? (status ?? '—') : translated;
-}
-
 function taskStatusBadgeClass(status?: string): string {
   if (status === 'active') return statusClass('success');
   if (status === 'paused') return statusClass('warning');
@@ -94,7 +94,9 @@ function taskStatusBadgeClass(status?: string): string {
 }
 
 function runStatusLabel(status?: string): string {
-  return glossaryStatus('run', status, preferences.app.locale)?.label ?? status ?? '—';
+  if (status == null) return '—';
+  return glossaryStatus('run', status, preferences.app.locale)?.label ??
+    $t(status === 'QUEUED' ? 'gainosBuyerJourney.sourcing.queued' : 'gainosBuyerJourney.sourcing.unknownStatus');
 }
 
 function runBadgeClass(status?: string): string {
@@ -385,7 +387,7 @@ const runColumns = computed(() => [
             <dt>{{ $t('gainos.tasks.colStatus') }}</dt>
             <dd>
               <span class="gs-badge" :class="taskStatusBadgeClass(task.status)" data-gs="task-status-badge">
-                {{ taskStatusLabel(task.status) }}
+                {{ $t(taskStatusLabelKey(task.status)) }}
               </span>
             </dd>
             <dt>{{ $t('gainos.tasks.icp') }}</dt>

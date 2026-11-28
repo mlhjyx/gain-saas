@@ -176,6 +176,35 @@ test('从画像到方案，确认和二次确认发起都在寻源记录中完�
   });
 });
 
+test('寻源记录和详情以待确认文案呈现未知状态', async ({ page }) => {
+  const backend = await installBuyerJourneyBackend(page);
+  mockProfiles(backend);
+  const task = {
+    ...TASK,
+    runs: [{ ...TASK.runs[0], status: 'FUTURE_RUN_STATE' }],
+    status: 'future_task_state',
+  };
+  const missingStatusTask = { ...TASK, id: 'task-2', name: '未返回状态的任务', runs: [], status: undefined };
+  backend.set('GET', '/tasks', [task, missingStatusTask]);
+  backend.set('GET', '/tasks/task-1', task);
+  backend.set('GET', '/tasks/task-2', missingStatusTask);
+  await loginAs(page);
+
+  await page.goto('/tasks?tab=manage');
+  await expect(page.locator('[data-gs="task-row-status"]')).toHaveText(['状态待确认', '状态待确认']);
+  await expect(page.locator('[data-gs="task-row-status"].gs-badge--neutral')).toHaveCount(2);
+  await expect(page.getByRole('row').getByText('状态待确认', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('FUTURE_RUN_STATE', { exact: true })).toHaveCount(0);
+
+  await page.goto('/tasks/task-1');
+  await expect(page.locator('[data-gs="task-status-badge"]')).toHaveText('状态待确认');
+  await expect(page.getByRole('row').getByText('状态待确认', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('FUTURE_RUN_STATE', { exact: true })).toHaveCount(0);
+
+  await page.goto('/tasks/task-2');
+  await expect(page.locator('[data-gs="task-status-badge"]')).toHaveText('状态待确认');
+});
+
 test('寻源结果按候选明细展示，仅本轮评分证据可链接线索', async ({ page }) => {
   const backend = await installBuyerJourneyBackend(page);
   mockProfiles(backend);
@@ -234,14 +263,30 @@ test('寻源结果按候选明细展示，仅本轮评分证据可链接线索',
 test('本轮结果读取失败与运行中暂无候选分别显示，重试只读取', async ({ page }) => {
   const backend = await installBuyerJourneyBackend(page);
   mockProfiles(backend);
+  const resultPath = '/discovery-runs/run-1/result-view';
   backend.set('GET', '/discovery-runs/run-1', { ...RUN, status: 'RUNNING' });
-  backend.set('GET', '/discovery-runs/run-1/result-view', fail());
+  backend.set('GET', resultPath, fail());
   await loginAs(page);
+  const waitForFailedRead = () => page.waitForResponse((response) =>
+    response.request().method() === 'GET' &&
+    new URL(response.url()).pathname.replace(/^\/api(?=\/)/, '') === resultPath &&
+    response.status() === 502,
+  );
+  const initialRead = waitForFailedRead();
   await page.goto('/runs/run-1');
+  await (await initialRead).finished();
 
   const result = page.locator('[data-gs="run-result-view"]');
   await expect(result.getByText('本轮结果读取失败')).toBeVisible();
-  backend.set('GET', '/discovery-runs/run-1/result-view', {
+  await page.getByRole('tab', { name: '运行进度', exact: true }).click();
+  await page.getByRole('checkbox', { name: '运行中每 3 秒自动刷新' }).uncheck();
+
+  const tabRead = waitForFailedRead();
+  await page.getByRole('tab', { name: '本轮结果', exact: true }).click();
+  await (await tabRead).finished();
+  await expect(result.getByText('正在加载…', { exact: true })).toHaveCount(0);
+  await expect(result.getByText('本轮结果读取失败')).toBeVisible();
+  backend.set('GET', resultPath, {
     candidates: { items: [], total: 0, truncated: false },
     icpId: PROFILE.id,
     runId: RUN.id,
@@ -251,8 +296,13 @@ test('本轮结果读取失败与运行中暂无候选分别显示，重试只�
     },
     status: 'RUNNING',
   });
+  const callsBeforeRetry = backend.calls.length;
   await result.getByRole('button', { name: '重试', exact: true }).click();
   await expect(result.getByText('寻源进行中，候选企业可用后会在这里显示')).toBeVisible();
+  await expect(page).toHaveURL(/\/runs\/run-1(?:\?.*)?$/);
+  const retryCalls = backend.calls.slice(callsBeforeRetry);
+  expect(retryCalls.filter(({ method, path }) => method === 'GET' && path === resultPath)).toHaveLength(1);
+  expect(retryCalls.filter(({ method }) => !['GET', 'HEAD', 'OPTIONS'].includes(method))).toHaveLength(0);
   expect(backend.callsTo('POST', '/discovery-runs')).toHaveLength(0);
 });
 

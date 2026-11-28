@@ -6,6 +6,15 @@ export function isRunInProgress(status: string): boolean {
   return !TERMINAL_STATUSES.has(status.trim().toUpperCase());
 }
 
+export function taskStatusLabelKey(status?: string) {
+  switch (status) {
+    case 'active': return 'gainos.tasks.taskActive';
+    case 'paused': return 'gainos.tasks.taskPaused';
+    case 'archived': return 'gainos.tasks.taskArchived';
+    default: return 'gainosBuyerJourney.sourcing.unknownStatus';
+  }
+}
+
 export function recentTaskRuns(tasks: AcquisitionTaskView[]) {
   return tasks
     .flatMap((task) => (task.runs ?? []).map((run) => ({ run, task })))
