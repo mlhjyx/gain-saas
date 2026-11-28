@@ -30,6 +30,7 @@ import {
   sourcingPlansLocation,
   sourcingRunLocation,
   taskRunLocation,
+  taskStatusLabelKey,
 } from '../runs/sourcing-navigation';
 import QueryPlanSummary from './query-plan-summary.vue';
 
@@ -99,12 +100,6 @@ const icpNameMap = computed(() => new Map(icps.value.map((icp) => [icp.id, icp.n
 function icpLabel(icpId?: string | null): string {
   if (!icpId) return '—';
   return icpNameMap.value.get(icpId) || $t('gainosP0.tasks.profileFallback');
-}
-
-function taskStatusLabel(status?: string): string {
-  const key = `gainos.tasks.task${(status ?? 'active').replace(/^./, (c) => c.toUpperCase())}` as Parameters<typeof $t>[0];
-  const translated = $t(key);
-  return translated === key ? (status ?? '—') : translated;
 }
 
 function taskStatusBadgeClass(status?: string): string {
@@ -361,7 +356,9 @@ function latestRun(task: AcquisitionTaskView): TaskRunView | null {
 
 function runLabel(status?: string | null): string {
   const meta = glossaryStatus('run', status, preferences.app.locale);
-  return meta?.label ?? $t('gainos.tasks.noRun');
+  if (status == null) return $t('gainos.tasks.noRun');
+  return meta?.label ??
+    $t(status === 'QUEUED' ? 'gainosBuyerJourney.sourcing.queued' : 'gainosBuyerJourney.sourcing.unknownStatus');
 }
 
 function runBadgeClass(status?: string | null): string {
@@ -514,7 +511,7 @@ const columns = computed(() => [
           </template>
           <template v-else-if="column.key === 'taskStatus'">
             <span class="gs-badge" :class="taskStatusBadgeClass(record.status)" data-gs="task-row-status">
-              {{ taskStatusLabel(record.status) }}
+              {{ $t(taskStatusLabelKey(record.status)) }}
             </span>
           </template>
           <template v-else-if="column.key === 'status'">

@@ -176,6 +176,29 @@ test('从画像到方案，确认和二次确认发起都在寻源记录中完�
   });
 });
 
+test('寻源记录和详情以待确认文案呈现未知状态', async ({ page }) => {
+  const backend = await installBuyerJourneyBackend(page);
+  mockProfiles(backend);
+  const task = {
+    ...TASK,
+    runs: [{ ...TASK.runs[0], status: 'FUTURE_RUN_STATE' }],
+    status: 'future_task_state',
+  };
+  backend.set('GET', '/tasks', [task]);
+  backend.set('GET', '/tasks/task-1', task);
+  await loginAs(page);
+
+  await page.goto('/tasks?tab=manage');
+  await expect(page.locator('[data-gs="task-row-status"]')).toHaveText('状态待确认');
+  await expect(page.getByRole('row').getByText('状态待确认', { exact: true })).toHaveCount(2);
+  await expect(page.getByText('FUTURE_RUN_STATE', { exact: true })).toHaveCount(0);
+
+  await page.goto('/tasks/task-1');
+  await expect(page.locator('[data-gs="task-status-badge"]')).toHaveText('状态待确认');
+  await expect(page.getByRole('row').getByText('状态待确认', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('FUTURE_RUN_STATE', { exact: true })).toHaveCount(0);
+});
+
 test('寻源结果按候选明细展示，仅本轮评分证据可链接线索', async ({ page }) => {
   const backend = await installBuyerJourneyBackend(page);
   mockProfiles(backend);
@@ -251,9 +274,14 @@ test('本轮结果读取失败与运行中暂无候选分别显示，重试只�
     },
     status: 'RUNNING',
   });
+  const resultPath = '/discovery-runs/run-1/result-view';
+  const readsBeforeRetry = backend.callsTo('GET', resultPath).length;
   await result.getByRole('button', { name: '重试', exact: true }).click();
+  await expect.poll(() => backend.callsTo('GET', resultPath).length).toBeGreaterThan(readsBeforeRetry);
   await expect(result.getByText('寻源进行中，候选企业可用后会在这里显示')).toBeVisible();
   expect(backend.callsTo('POST', '/discovery-runs')).toHaveLength(0);
+  expect(backend.callsTo('POST', '/tasks/').filter(({ path }) => /\/runs\/?$/.test(path))).toHaveLength(0);
+  expect(backend.callsTo('POST', '/query-plans/').filter(({ path }) => /\/execute\/?$/.test(path))).toHaveLength(0);
 });
 
 test('已有方案读取失败时保留错误态，钱包拒绝后保留原方案和钱包入口', async ({ page }) => {
