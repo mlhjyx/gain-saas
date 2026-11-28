@@ -399,6 +399,19 @@ export class BffHandler {
       // 直接 json() 会把 Buffer 序列化成 {type:"Buffer",data:[…]} 的垃圾响应。
       const contentType = result.contentType ?? 'application/json; charset=utf-8';
       if (Buffer.isBuffer(result.body) && !contentType.includes('json')) {
+        for (const headerName of [
+          'content-disposition',
+          'cache-control',
+          'x-report-id',
+          'x-report-week',
+          'x-report-rows',
+          'x-report-withheld-rights',
+          'x-report-withheld-sanctions',
+          'x-report-withheld-quarantined',
+        ]) {
+          const value = result.headers?.[headerName];
+          if (value) res.setHeader(headerName, value);
+        }
         res.status(result.status).type(contentType).send(result.body);
         return;
       }

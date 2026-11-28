@@ -9,6 +9,9 @@
  */
 import type {
   CanonicalContact,
+  CanonicalContactPoint,
+  CompanyLegalLink,
+  CompanySignalItem,
   ContactEnrichmentResultView,
   LeadDecisionInput,
   LeadPackage,
@@ -375,7 +378,108 @@ function onPropertyCopy(): void {
 // ── 右侧侧栏具名决策人快捷预览（严格 isAdmin 门控，防止 member 发 403）────
 const inspectorContacts = ref<CanonicalContact[]>([]);
 const inspectorContactsLoading = ref(false);
+const verifyingPointId = ref<string | null>(null);
 let inspectorContactsSeq = 0;
+
+// ── 企业动态信号与官方主体/合规核验外链（只读，失败静默降级不阻断主详情）──
+const companySignals = ref<CompanySignalItem[]>([]);
+const companySignalsLoading = ref(false);
+const companyLegalLinks = ref<CompanyLegalLink[]>([]);
+let companyIntelSeq = 0;
+
+function signalKindLabel(signal: CompanySignalItem): string {
+  const kind = String(signal.signalKind || signal.providerKey || '').toLowerCase();
+  if (kind === 'rss_item' || kind === 'rss') return $t('gainosUi2.leadDetail.signalKindRss');
+  if (kind === 'page_change' || kind === 'changedetection') {
+    return $t('gainosUi2.leadDetail.signalKindPageChange');
+  }
+  return $t('gainosUi2.leadDetail.signalKindOther');
+}
+
+function legalSchemeLabel(scheme?: string | null): string {
+  const normalized = String(scheme ?? '').trim().toUpperCase();
+  if (normalized === 'LEI') return $t('gainosUi2.leadDetail.legalSchemeLei');
+  if (normalized === 'VAT' || normalized === 'VAT_ID') return $t('gainosUi2.leadDetail.legalSchemeVat');
+  if (normalized === 'EUID') return $t('gainosUi2.leadDetail.legalSchemeEuid');
+  if (normalized.includes('IMPRESSUM') || normalized.includes('LEGAL')) {
+    return $t('gainosUi2.leadDetail.legalSchemeImpressum');
+  }
+  if (normalized.includes('PRIVACY')) return $t('gainosUi2.leadDetail.legalSchemePrivacy');
+  return $t('gainosUi2.leadDetail.legalSchemeDefault');
+}
+
+function legalLinkUrl(link: CompanyLegalLink): string {
+  const evidence = link.evidence;
+  if (!evidence || typeof evidence !== 'object') return '';
+  for (const field of ['url', 'evidenceUrl', 'evidence_url', 'sourceUrl', 'source_url']) {
+    const raw = evidence[field];
+    if (typeof raw === 'string') {
+      const safe = safePublicUrl(raw);
+      if (safe) return safe;
+    }
+  }
+  return '';
+}
+
+const verifiedLegalLinks = computed(() =>
+  companyLegalLinks.value
+    .filter((item) => item && item.status !== 'rejected' && item.legalEntity)
+    .map((item) => ({
+      confidencePct:
+        typeof item.confidence === 'number' && Number.isFinite(item.confidence)
+          ? Math.round(item.confidence * 100)
+          : null,
+      country: item.legalEntity.country || '',
+      id: item.id,
+      name: item.legalEntity.name || item.legalEntity.value,
+      schemeLabel: legalSchemeLabel(item.legalEntity.scheme),
+      url: legalLinkUrl(item),
+      value: item.legalEntity.value,
+    })),
+);
+
+const overviewLegalUrls = computed(() => {
+  const seen = new Set<string>(verifiedLegalLinks.value.map((item) => item.url).filter(Boolean));
+  const items: Array<{ id: string; label: string; url: string }> = [];
+  for (const source of pkg.value?.company_overview?.sources ?? []) {
+    const field = String(source.field ?? '').toLowerCase();
+    if (!/(impressum|legal|privacy|terms)/i.test(field)) continue;
+    const url = safePublicUrl(source.source_url);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    items.push({
+      id: `ov-legal-${items.length}`,
+      label: field.includes('privacy')
+        ? $t('gainosUi2.leadDetail.legalSchemePrivacy')
+        : $t('gainosUi2.leadDetail.legalSchemeImpressum'),
+      url,
+    });
+  }
+  return items;
+});
+
+async function loadCompanyIntel(companyId?: string | null): Promise<void> {
+  const seq = ++companyIntelSeq;
+  if (!companyId) {
+    companySignals.value = [];
+    companyLegalLinks.value = [];
+    companySignalsLoading.value = false;
+    return;
+  }
+  companySignalsLoading.value = true;
+  const [signalsRes, legalRes] = await Promise.allSettled([
+    gainosApi.getCompanySignals(companyId, { limit: 10 }),
+    gainosApi.getCompanyLegalLinks(companyId),
+  ]);
+  if (seq !== companyIntelSeq) return;
+  companySignals.value =
+    signalsRes.status === 'fulfilled' && Array.isArray(signalsRes.value?.data)
+      ? signalsRes.value.data
+      : [];
+  const rawLegal = legalRes.status === 'fulfilled' ? legalRes.value : [];
+  companyLegalLinks.value = Array.isArray(rawLegal) ? rawLegal : [];
+  companySignalsLoading.value = false;
+}
 
 function isSwitchboardContact(contact: CanonicalContact): boolean {
   const name = contact.fullName?.trim().toLowerCase() ?? '';
@@ -415,18 +519,69 @@ async function loadInspectorContacts(): Promise<void> {
 const inspectorContactPreview = computed(() =>
   inspectorContacts.value.slice(0, 3).map((contact) => {
     const points = contact.contactPoints ?? [];
-    const primaryEmail =
-      points.find((pt) => pt.type === 'email' && pt.status === 'VALID')?.value ?? '';
-    const hasVerified = points.some((pt) => pt.type === 'email' && pt.status === 'VALID');
+    const validEmail = points.find((pt) => pt.type === 'email' && pt.status === 'VALID');
+    const candidateEmail =
+      validEmail ??
+      points.find(
+        (pt) =>
+          pt.type === 'email' &&
+          pt.value?.trim() &&
+          pt.status !== 'INVALID' &&
+          pt.status !== 'BLOCKED',
+      );
+    const verifiablePoint =
+      !validEmail && candidateEmail && candidateEmail.status !== 'BLOCKED'
+        ? candidateEmail
+        : null;
     return {
-      email: primaryEmail,
-      hasVerified,
+      email: candidateEmail?.value ?? '',
+      hasVerified: Boolean(validEmail),
       id: contact.id,
       name: contact.fullName || $t('gainos.leads.unknownCompany'),
       title: contact.title || '',
+      verifiablePoint,
     };
   }),
 );
+
+async function quickVerifyInspectorEmail(point: CanonicalContactPoint): Promise<void> {
+  if (!isAdmin.value || verifyingPointId.value) return;
+  if (point.status === 'RISKY') {
+    const ok = await new Promise<boolean>((resolve) => {
+      feedback.confirm({
+        title: $t('gainosUi2.leadDetail.verifyRiskyConfirmTitle'),
+        content: $t('gainosUi2.leadDetail.verifyRiskyConfirmContent', { email: point.value }),
+        okText: $t('gainosUi2.leadDetail.verifyEmailBtn'),
+        cancelText: $t('gainos.common.cancel'),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!ok) return;
+  }
+  verifyingPointId.value = point.id;
+  try {
+    const result = await gainosApi.verifyContactPoint(point.id, {});
+    const status = result.verification?.status ?? result.status;
+    if (status === 'BLOCKED') {
+      feedback.message.warning($t('gainosUi2.leadDetail.verifyEmailBlocked'));
+    } else {
+      const badgeKey = `gainos.contacts.badge.${status}` as Parameters<typeof $t>[0];
+      const badgeText = $t(badgeKey);
+      const label = badgeText === badgeKey ? $t('gainos.contacts.badge.UNVERIFIED') : badgeText;
+      if (status === 'VALID') {
+        feedback.message.success($t('gainosUi2.leadDetail.verifyEmailDone', { status: label }));
+      } else {
+        feedback.message.warning($t('gainosUi2.leadDetail.verifyEmailDone', { status: label }));
+      }
+    }
+    await loadInspectorContacts();
+  } catch (err) {
+    feedback.message.error(failureText(err).title);
+  } finally {
+    verifyingPointId.value = null;
+  }
+}
 
 /** 引擎 evidence 形状是 {field, source_url, fetched_at}（不是提升商机的 {type,url,support}）。 */
 const evidenceItems = computed(() => {
@@ -572,11 +727,14 @@ async function load(): Promise<void> {
     draft.value = null;
     if (outreachVisible.value) void loadDraft();
     void loadInspectorContacts();
+    void loadCompanyIntel(leadPackage?.company?.canonical_company_id);
   } catch (err) {
     if (sequence !== packageLoadSequence || requestedLeadId !== leadId.value) return;
     error.value = failureText(err);
     pkg.value = null;
     inspectorContacts.value = [];
+    companySignals.value = [];
+    companyLegalLinks.value = [];
   } finally {
     if (sequence === packageLoadSequence) loading.value = false;
   }
@@ -1189,6 +1347,51 @@ watch(leadId, () => {
                   </div>
                 </section>
 
+                <!-- 企业动态信号（GET /companies/:companyId/signals，无数据时简洁空态，接口报错静默降级） -->
+                <section class="ld-panel" data-gs="company-signals">
+                  <div class="ld-panel__head">
+                    <h2 class="ld-panel__title">{{ $t('gainosUi2.leadDetail.companySignalsTitle') }}</h2>
+                    <span v-if="companySignals.length > 0" class="text-xs tabular-nums text-[var(--gs-fg-muted)]">
+                      {{ companySignals.length }}
+                    </span>
+                  </div>
+                  <p v-if="companySignalsLoading && companySignals.length === 0" class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainos.common.loading') }}
+                  </p>
+                  <ul v-else-if="companySignals.length > 0" class="m-0 grid list-none gap-2.5 p-0">
+                    <li
+                      v-for="item in companySignals"
+                      :key="item.id"
+                      class="grid gap-1 border-b border-[var(--gs-divider)] pb-2.5 last:border-b-0 last:pb-0"
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex min-w-0 flex-wrap items-center gap-2">
+                          <GsTag tone="info">{{ signalKindLabel(item) }}</GsTag>
+                          <strong class="text-[13px] font-medium text-[var(--gs-fg)]">{{ item.title }}</strong>
+                        </div>
+                        <span v-if="item.observedAt" class="text-xs tabular-nums text-[var(--gs-fg-subtle)]">
+                          {{ formatDateTime(item.observedAt) }}
+                        </span>
+                      </div>
+                      <p v-if="item.excerpt" class="m-0 text-xs leading-relaxed text-[var(--gs-fg-muted)]">
+                        {{ item.excerpt }}
+                      </p>
+                      <a
+                        v-if="safePublicUrl(item.sourceUrl)"
+                        class="justify-self-start text-xs text-[var(--gs-accent-fg)] hover:underline"
+                        :href="safePublicUrl(item.sourceUrl)"
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        {{ $t('gainosUi2.leadDetail.signalSourceLink') }} ↗
+                      </a>
+                    </li>
+                  </ul>
+                  <p v-else class="m-0 text-[13px] text-[var(--gs-fg-muted)]">
+                    {{ $t('gainosUi2.leadDetail.companySignalsEmpty') }}
+                  </p>
+                </section>
+
                 <!-- 评分细分 + 技术详情 -->
                 <section class="ld-panel" data-gs="score-detail">
                   <div class="ld-panel__head">
@@ -1508,6 +1711,51 @@ watch(leadId, () => {
               layout="compact"
               @copy="onPropertyCopy"
             />
+            <div
+              v-if="verifiedLegalLinks.length > 0 || overviewLegalUrls.length > 0"
+              class="grid gap-1.5 border-t border-[var(--gs-divider)] pt-2.5"
+              data-gs="company-legal-links"
+            >
+              <p class="m-0 text-[11.5px] font-medium text-[var(--gs-fg-muted)]">
+                {{ $t('gainosUi2.leadDetail.legalLinksTitle') }}
+              </p>
+              <div class="flex flex-wrap gap-1.5">
+                <template v-for="link in verifiedLegalLinks" :key="link.id">
+                  <a
+                    v-if="link.url"
+                    class="inline-flex items-center gap-1 rounded-md border border-[var(--gs-border)] bg-[var(--gs-surface-3)] px-2 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                    :href="link.url"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                    :title="link.confidencePct !== null ? $t('gainosUi2.leadDetail.legalLinkConfidence', { percent: link.confidencePct }) : link.name"
+                  >
+                    <span>{{ link.schemeLabel }}</span>
+                    <span>·</span>
+                    <span>{{ link.value }}</span>
+                    <span aria-hidden="true">↗</span>
+                  </a>
+                  <Tag
+                    v-else
+                    :bordered="false"
+                    class="m-0 text-xs"
+                    :title="link.confidencePct !== null ? $t('gainosUi2.leadDetail.legalLinkConfidence', { percent: link.confidencePct }) : link.name"
+                  >
+                    {{ link.schemeLabel }} · {{ link.value }}<template v-if="link.country"> ({{ link.country }})</template>
+                  </Tag>
+                </template>
+                <a
+                  v-for="item in overviewLegalUrls"
+                  :key="item.id"
+                  class="inline-flex items-center gap-1 rounded-md border border-[var(--gs-border)] bg-[var(--gs-surface-3)] px-2 py-0.5 text-xs font-medium text-[var(--gs-accent-fg)] no-underline hover:underline"
+                  :href="item.url"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  <span>{{ item.label }}</span>
+                  <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </div>
           </section>
 
           <!-- 全员可见的公司公开渠道摘要 -->
@@ -1626,7 +1874,20 @@ watch(leadId, () => {
                     </span>
                   </div>
                   <p v-if="person.title" class="ld-dm-item__meta">{{ person.title }}</p>
-                  <p v-if="person.email" class="ld-dm-item__email">{{ person.email }}</p>
+                  <div v-if="person.email" class="flex items-center justify-between gap-2">
+                    <p class="ld-dm-item__email">{{ person.email }}</p>
+                    <Button
+                      v-if="isAdmin && person.verifiablePoint"
+                      :loading="verifyingPointId === person.verifiablePoint.id"
+                      class="!h-auto !p-0 text-xs"
+                      data-gs="inspector-verify-email"
+                      size="small"
+                      type="link"
+                      @click="quickVerifyInspectorEmail(person.verifiablePoint)"
+                    >
+                      {{ $t('gainosUi2.leadDetail.verifyEmailBtn') }}
+                    </Button>
+                  </div>
                 </li>
               </ul>
               <p v-else class="m-0 text-xs text-[var(--gs-fg-muted)]">

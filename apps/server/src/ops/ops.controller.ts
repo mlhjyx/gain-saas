@@ -142,9 +142,20 @@ export class OpsController {
   async channelRecords(
     @Param('id') id: string,
     @Query('limit') limit: string | undefined,
+    @Query('reviewStatus') reviewStatus: string | undefined,
     @Req() req: OpsRequest,
   ) {
-    return { data: await this.opsChannels.records(req.opsUser!.id, id, limit) };
+    return { data: await this.opsChannels.records(req.opsUser!.id, id, limit, reviewStatus) };
+  }
+
+  @Post('channels/:id/records/review')
+  @HttpCode(200)
+  async reviewChannelRecords(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: OpsRequest,
+  ) {
+    return { data: await this.opsChannels.reviewRecords(req.opsUser!.id, id, body) };
   }
 
   @Get('sources')

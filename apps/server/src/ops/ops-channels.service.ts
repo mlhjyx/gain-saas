@@ -12,6 +12,10 @@ import { OpsEngineClient, type OpsEngineResult } from './ops-engine.client.js';
 const CHANNEL_MODES = ['api', 'crawl', 'import'] as const;
 const CHANNEL_STATUSES = ['DISABLED', 'ENABLED', 'AUTO_DISABLED'] as const;
 const ROBOTS_POLICIES = ['A', 'B', 'C'] as const;
+const RECORD_REVIEW_STATUSES = new Set(['PENDING', 'APPROVED', 'REJECTED']);
+const RECORD_REVIEW_VERDICTS = ['APPROVED', 'REJECTED'] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const SHA256_RE = /^[0-9a-f]{64}$/u;
 
 const legacyCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -46,6 +50,39 @@ const patchSchema = z
     owner: z.string().trim().max(200).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: '没有可更新字段' });
+
+const reviewRecordsSchema = z
+  .object({
+    recordIds: z
+      .array(z.string().regex(UUID_RE, 'recordId 必须是 UUID'))
+      .min(1, '至少选择 1 条记录')
+      .max(200, '单次最多审核 200 条记录')
+      .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, {
+        message: 'recordIds 不能重复',
+      }),
+    verdict: z.enum(RECORD_REVIEW_VERDICTS),
+    expectedContentHashes: z
+      .record(
+        z.string().regex(UUID_RE, 'expectedContentHashes 键必须是 UUID'),
+        z.string().regex(SHA256_RE, 'expectedContentHashes 值必须是 64 位小写 SHA-256'),
+      )
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.expectedContentHashes) return;
+    const expectedKeys = new Set(Object.keys(value.expectedContentHashes).map((k) => k.toLowerCase()));
+    const recordIdSet = new Set(value.recordIds.map((id) => id.toLowerCase()));
+    if (
+      expectedKeys.size !== recordIdSet.size ||
+      [...recordIdSet].some((id) => !expectedKeys.has(id))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedContentHashes'],
+        message: 'expectedContentHashes 必须与 recordIds 一一对应',
+      });
+    }
+  });
 
 function validationError(error: z.ZodError): BadRequestException {
   return new BadRequestException({
@@ -173,10 +210,58 @@ export class OpsChannelsService {
   }
 
   /** 渠道最近物化的抓取记录（含联系人字段；只读，不写审计——与 list 同）。 */
-  async records(actorId: string, channelId: string, limitRaw?: string): Promise<unknown> {
+  async records(
+    actorId: string,
+    channelId: string,
+    limitRaw?: string,
+    reviewStatusRaw?: string,
+  ): Promise<unknown> {
     this.assertChannelId(channelId);
     const limit = typeof limitRaw === 'string' && /^[0-9]{1,3}$/u.test(limitRaw) ? limitRaw : '50';
-    const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}/records?limit=${limit}`);
+    let query = `limit=${limit}`;
+    if (typeof reviewStatusRaw === 'string' && reviewStatusRaw.trim() !== '') {
+      const normalized = reviewStatusRaw.trim().toUpperCase();
+      if (!RECORD_REVIEW_STATUSES.has(normalized)) {
+        throw new BadRequestException({
+          error: { code: 'VALIDATION_ERROR', message: 'reviewStatus 必须是 PENDING / APPROVED / REJECTED' },
+        });
+      }
+      query += `&reviewStatus=${normalized}`;
+    }
+    const result = await this.engine.call(actorId, 'GET', `/source-channels/${channelId}/records?${query}`);
+    if (result.status >= 300) throw engineError(result);
+    return engineData(result);
+  }
+
+  /** 观察名单抽检审核（批量置 APPROVED/REJECTED；无论成功或冲突都落 ops 审计）。 */
+  async reviewRecords(actorId: string, channelId: string, body: unknown): Promise<unknown> {
+    this.assertChannelId(channelId);
+    const parsed = reviewRecordsSchema.safeParse(body ?? {});
+    if (!parsed.success) throw validationError(parsed.error);
+    const result = await this.engine.call(
+      actorId,
+      'POST',
+      `/source-channels/${channelId}/records/review`,
+      { body: parsed.data },
+    );
+    const engineCode =
+      (result.body as { error?: { code?: string } } | null)?.error?.code ?? null;
+    const data =
+      (result.body as { data?: { reviewed?: number; autoDisabled?: boolean } } | null)?.data;
+    await this.audit.record({
+      realm: 'ops',
+      actorId,
+      action: 'channel.records.review',
+      target: channelId,
+      detail: {
+        verdict: parsed.data.verdict,
+        recordCount: parsed.data.recordIds.length,
+        engineStatus: result.status,
+        engineCode,
+        reviewed: data?.reviewed ?? null,
+        autoDisabled: data?.autoDisabled ?? null,
+      },
+    });
     if (result.status >= 300) throw engineError(result);
     return engineData(result);
   }
