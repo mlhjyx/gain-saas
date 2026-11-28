@@ -192,6 +192,7 @@ test('寻源记录和详情以待确认文案呈现未知状态', async ({ page 
 
   await page.goto('/tasks?tab=manage');
   await expect(page.locator('[data-gs="task-row-status"]')).toHaveText(['状态待确认', '状态待确认']);
+  await expect(page.locator('[data-gs="task-row-status"].gs-badge--neutral')).toHaveCount(2);
   await expect(page.getByRole('row').getByText('状态待确认', { exact: true })).toHaveCount(3);
   await expect(page.getByText('FUTURE_RUN_STATE', { exact: true })).toHaveCount(0);
 
@@ -266,11 +267,24 @@ test('本轮结果读取失败与运行中暂无候选分别显示，重试只�
   backend.set('GET', '/discovery-runs/run-1', { ...RUN, status: 'RUNNING' });
   backend.set('GET', resultPath, fail());
   await loginAs(page);
-  await page.goto('/runs/run-1?tab=progress');
-  await page.getByRole('checkbox', { name: '运行中每 3 秒自动刷新' }).uncheck();
-  await page.getByRole('tab', { name: '本轮结果', exact: true }).click();
+  const waitForFailedRead = () => page.waitForResponse((response) =>
+    response.request().method() === 'GET' &&
+    new URL(response.url()).pathname.replace(/^\/api(?=\/)/, '') === resultPath &&
+    response.status() === 502,
+  );
+  const initialRead = waitForFailedRead();
+  await page.goto('/runs/run-1');
+  await (await initialRead).finished();
 
   const result = page.locator('[data-gs="run-result-view"]');
+  await expect(result.getByText('本轮结果读取失败')).toBeVisible();
+  await page.getByRole('tab', { name: '运行进度', exact: true }).click();
+  await page.getByRole('checkbox', { name: '运行中每 3 秒自动刷新' }).uncheck();
+
+  const tabRead = waitForFailedRead();
+  await page.getByRole('tab', { name: '本轮结果', exact: true }).click();
+  await (await tabRead).finished();
+  await expect(result.getByText('正在加载…', { exact: true })).toHaveCount(0);
   await expect(result.getByText('本轮结果读取失败')).toBeVisible();
   backend.set('GET', resultPath, {
     candidates: { items: [], total: 0, truncated: false },
