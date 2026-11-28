@@ -9,6 +9,7 @@ import type { SellerDocumentParsedMeta } from './seller-documents-upload';
 import { useAppConfig } from '@vben/hooks';
 import { preferences } from '@vben/preferences';
 import { baseRequestClient, requestClient } from '#/api/request';
+import { newAttemptId } from '#/utils/attempt-id';
 import { httpFailureCopy, httpFailureTechText } from './failure-copy';
 import { buildExecutionBody, type ExecutionFeatureOptions } from './execution-body';
 
@@ -1272,6 +1273,24 @@ export const gainosApi = {
     requestClient.post<CompanyProfile>('/companies', input),
   retryCompanyUnderstanding: (companyId: string, attemptId: string) =>
     requestClient.post<CompanyProfile>(`/companies/${companyId}/understanding/retry`, { attemptId }),
+  recomputeCompanyUnderstanding: (
+    companyId: string,
+    input: RecomputeCompanyUnderstandingInput = {},
+  ) =>
+    requestClient.post<RecomputeCompanyUnderstandingResult>(
+      `/companies/${encodeURIComponent(companyId)}/understanding/recompute`,
+      input,
+      { silentErrorToast: true } as Record<string, unknown>,
+    ),
+  getCompanySignals: (
+    companyId: string,
+    params: { cursor?: string; limit?: number } = {},
+  ) => pagedGet<CompanySignalItem>(`/companies/${encodeURIComponent(companyId)}/signals`, params),
+  getCompanyLegalLinks: (companyId: string) =>
+    requestClient.get<CompanyLegalLink[]>(
+      `/companies/${encodeURIComponent(companyId)}/legal-links`,
+      { silentErrorToast: true } as Record<string, unknown>,
+    ),
   updateCompany: (companyId: string, input: UpdateCompanyInput) =>
     requestClient.patch<CompanyProfile>(`/companies/${companyId}`, input),
   deleteCompany: (companyId: string) =>
@@ -1571,6 +1590,18 @@ export const gainosApi = {
   queryPlans: (icpId: string) => requestClient.get<QueryPlan[]>(`/icps/${icpId}/query-plans`),
   /** M2：ICP 反馈聚合与建议卡（只读）。 */
   icpFeedback: (icpId: string) => requestClient.get<IcpFeedbackReport>(`/icps/${icpId}/feedback`),
+  recomputeIcpFeedback: (icpId: string) =>
+    requestClient.post<Record<string, unknown>>(
+      `/icps/${encodeURIComponent(icpId)}/feedback/recompute`,
+      {},
+      { silentErrorToast: true } as Record<string, unknown>,
+    ),
+  rejudgeIcp: (icpId: string, input: RejudgeIcpInput = {}) =>
+    requestClient.post<RejudgeIcpResult>(
+      `/icps/${encodeURIComponent(icpId)}/rejudge`,
+      { attemptId: input.attemptId ?? newAttemptId(), ...input },
+      { silentErrorToast: true } as Record<string, unknown>,
+    ),
   /** Phase 3B：记录结构化线索反馈并回流 ICP 排除规则与反例学习（#87）。 */
   recordIcpFeedback: (
     icpId: string,
@@ -1922,6 +1953,52 @@ export const gainosApi = {
   metricRollups: (
     params: { cursor?: string; from?: string; granularity?: 'daily' | 'weekly'; limit?: number; metricId?: string; to?: string } = {},
   ) => pagedGet<MetricRollup>('/metrics/rollups', params),
+  getSourceYieldMetrics: (
+    params: { from?: string; granularity?: 'day' | 'week'; limit?: number; providerKey?: string; to?: string } = {},
+  ) => pagedGet<SourceYieldBucket>('/metrics/source-yield', params),
+  getWeeklyReport: async (params: {
+    icpId: string;
+    week?: string;
+  }): Promise<WeeklyReportSummary> => {
+    const response = await baseRequestClient.get<string | Record<string, unknown>>(
+      '/reports/weekly',
+      {
+        headers: { 'Accept-Language': preferences.app.locale },
+        params,
+        responseType: 'text',
+      },
+    );
+    const headers = ((response as { headers?: Record<string, string> })?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    const headerVal = (name: string): string | undefined =>
+      headers[name] ?? headers[name.toLowerCase()];
+    const raw = (response as { data?: unknown })?.data;
+    const csvText = typeof raw === 'string' ? raw : '';
+    const filename =
+      parseContentDispositionFilename(headerVal('content-disposition') ?? null) ||
+      `weekly-report-${params.week ?? 'current'}-${params.icpId.slice(0, 8)}.csv`;
+    const parsedRows = parseWeeklyCsvPreview(csvText);
+    const rowsHeader = Number(headerVal('x-report-rows'));
+    const toInt = (val: string | undefined): number => {
+      const n = Number(val);
+      return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
+    };
+    return {
+      reportId: headerVal('x-report-id') ?? null,
+      week: headerVal('x-report-week') ?? params.week ?? null,
+      rows: Number.isFinite(rowsHeader) && rowsHeader >= 0 ? Math.trunc(rowsHeader) : parsedRows.totalRows,
+      withheld: {
+        rights: toInt(headerVal('x-report-withheld-rights')),
+        sanctions: toInt(headerVal('x-report-withheld-sanctions')),
+        quarantined: toInt(headerVal('x-report-withheld-quarantined')),
+      },
+      filename,
+      csvText,
+      previewRows: parsedRows.preview,
+    };
+  },
 };
 
 export interface T0CheckPayload {
@@ -2364,6 +2441,180 @@ export interface MetricRollup {
   ciHigh: number | null;
   sampleN: number | null;
   refreshedAt: string;
+}
+
+export interface CompanySignalItem {
+  id: string;
+  providerKey: 'rss' | 'changedetection' | string;
+  signalKind: 'rss_item' | 'page_change' | string;
+  sourceUrl: string;
+  title: string;
+  excerpt: string | null;
+  observedAt: string;
+}
+
+export interface CompanyLegalLink {
+  id: string;
+  companyId: string;
+  legalEntityId: string;
+  confidence: number;
+  matchMethod: 'deterministic' | 'probabilistic' | string;
+  matchRule: string;
+  status: 'auto' | 'review' | 'rejected' | string;
+  evidence: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  legalEntity: {
+    id: string;
+    scheme: string;
+    value: string;
+    country: string;
+    name: string;
+    address: string | null;
+    status: string;
+    sourceProvider: string;
+  };
+}
+
+export interface RecomputeCompanyUnderstandingInput {
+  documentIds?: string[];
+  force?: boolean;
+}
+
+export interface RecomputeCompanyUnderstandingResult {
+  companyId: string;
+  status: string;
+  documentsScanned: number;
+  draftsCreated: number;
+  profileDraftsCreated: number;
+}
+
+export interface RejudgeIcpInput {
+  attemptId?: string;
+  maxCompanies?: number;
+  batchSize?: number;
+  refreshCorroboration?: boolean;
+  refreshWebsiteProfile?: boolean;
+  includeFresh?: boolean;
+  companyIds?: string[];
+}
+
+export interface RejudgeIcpResult {
+  rejudgeId: string;
+  icpId: string;
+  status: 'ACCEPTED' | string;
+  candidateCount: number;
+  batchCount: number;
+  estimatedCostMicros: string;
+  refreshCorroboration: boolean;
+  refreshWebsiteProfile: boolean;
+}
+
+export interface SourceYieldBucket {
+  bucket: string;
+  providerKey: string;
+  recordCount: number;
+  newQualifiedCount: number;
+  costMicrousd: number;
+  costPerNewQualifiedUsd: number | null;
+}
+
+export interface WeeklyReportPreviewRow {
+  companyName: string;
+  domain: string;
+  country: string;
+  score: string;
+}
+
+export interface WeeklyReportSummary {
+  reportId: string | null;
+  week: string | null;
+  rows: number;
+  withheld: {
+    rights: number;
+    sanctions: number;
+    quarantined: number;
+  };
+  filename: string;
+  csvText: string;
+  previewRows: WeeklyReportPreviewRow[];
+}
+
+function unquoteFormulaCell(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("'") && trimmed.length > 1 && /^[=+\-@]/.test(trimmed.slice(1))
+    ? trimmed.slice(1)
+    : trimmed;
+}
+
+/** 轻量 RFC 4180 CSV 解析：仅用于提取周报前 5 条展示摘要，绝不裸抛异常。 */
+function parseWeeklyCsvPreview(raw: string): {
+  totalRows: number;
+  preview: WeeklyReportPreviewRow[];
+} {
+  const text = raw.replace(/^\uFEFF/, '');
+  if (!text.trim()) return { totalRows: 0, preview: [] };
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\r') {
+      if (text[i + 1] === '\n') i += 1;
+      row.push(field);
+      field = '';
+      if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+      row = [];
+    } else if (ch === '\n') {
+      row.push(field);
+      field = '';
+      if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.some((cell) => cell.trim() !== '')) rows.push(row);
+  }
+  if (rows.length <= 1) return { totalRows: 0, preview: [] };
+  const headers = rows[0]!.map((h) => h.trim());
+  const idxOf = (candidates: string[], fallback: number): number => {
+    const found = headers.findIndex((h) => candidates.includes(h));
+    return found >= 0 ? found : fallback;
+  };
+  const nameIdx = idxOf(['公司名', 'Company', 'company'], 0);
+  const domainIdx = idxOf(['域名', 'Domain', 'domain'], 1);
+  const countryIdx = idxOf(['国家', 'Country', 'country'], 2);
+  const scoreIdx = idxOf(['总分', 'Score', 'score'], 17);
+  const dataRows = rows.slice(1);
+  const preview: WeeklyReportPreviewRow[] = dataRows.slice(0, 5).map((cols) => ({
+    companyName: unquoteFormulaCell(cols[nameIdx] ?? '') || '—',
+    domain: unquoteFormulaCell(cols[domainIdx] ?? '') || '—',
+    country: unquoteFormulaCell(cols[countryIdx] ?? '') || '—',
+    score: unquoteFormulaCell(cols[scoreIdx] ?? '') || '—',
+  }));
+  return { totalRows: dataRows.length, preview };
 }
 
 /** 引擎分页信封 `{data, page:{next_cursor,has_more}}`（requestClient 只解 data，会丢 page）。 */

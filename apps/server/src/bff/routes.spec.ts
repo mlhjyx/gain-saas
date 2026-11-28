@@ -422,3 +422,53 @@ describe('Wave B1 BFF cleanup and 7 engine passthrough routes', () => {
     }
   });
 });
+
+describe('Wave 1 BFF passthrough routes (signals / legal-links / rejudge / weekly report)', () => {
+  const find = (method: string, saasPath: string) =>
+    BFF_ROUTES.find((candidate) => candidate.method === method && candidate.saasPath === saasPath);
+
+  it('registers company signals and legal-links as member read passthroughs without grants', () => {
+    for (const saasPath of ['companies/:companyId/signals', 'companies/:companyId/legal-links']) {
+      const route = find('GET', saasPath);
+      expect(route, `GET ${saasPath}`).toEqual({
+        method: 'GET',
+        saasPath,
+        enginePath: `/${saasPath}`,
+        access: 'member',
+      });
+      expect(route?.grant).toBeUndefined();
+    }
+  });
+
+  it('registers POST icps/:icpId/rejudge as member write with grant and exact quote mapping', () => {
+    const route = find('POST', 'icps/:icpId/rejudge');
+    expect(route).toEqual({
+      method: 'POST',
+      saasPath: 'icps/:icpId/rejudge',
+      enginePath: '/icps/:icpId/rejudge',
+      access: 'member',
+      grant: true,
+    });
+    expect(
+      budgetQuoteRequest(
+        route!,
+        { icpId: '11111111-1111-4111-8111-111111111111' },
+        { attemptId: 'att-rejudge-1', maxCompanies: 25 },
+      ),
+    ).toEqual({
+      operation: 'POST /icps/:icpId/rejudge',
+      icpId: '11111111-1111-4111-8111-111111111111',
+      body: { attemptId: 'att-rejudge-1', maxCompanies: 25 },
+    });
+  });
+
+  it('registers GET reports/weekly as admin passthrough without grant (engine requires acquisition:export)', () => {
+    const route = find('GET', 'reports/weekly');
+    expect(route).toEqual({
+      method: 'GET',
+      saasPath: 'reports/weekly',
+      enginePath: '/reports/weekly',
+      access: 'admin',
+    });
+  });
+});

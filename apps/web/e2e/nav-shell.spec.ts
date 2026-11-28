@@ -2,7 +2,7 @@
  * PR-UI1 新版展示目录与导航壳层验收：
  * - 总览：工作台、成效复盘、通知。
  * - 获客与筛选：企业档案、买家画像、寻源记录、买家线索。
- * - 触达与转化：外发与战役、商机管线，仍受 GROWTH_PAGE_HIDDEN 门控。
+ * - 触达与转化：外发与战役、商机管线，由 GROWTH_PAGE_HIDDEN 门控（现已开放）。
  * - 直接深链 /outreach、/opportunities、/analytics 始终 100% 可达；/tasks/:id 与 /runs/:id 高亮 /tasks，/leads/:id 高亮 /leads。
  */
 import { GROWTH_PAGE_HIDDEN } from '../src/feature-flags';
@@ -91,6 +91,11 @@ test('新版左侧目录可点、复盘独立、触达门控生效、子路由�
     await expect(groupLocator(page, '触达与转化')).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '外发与战役' })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: '商机管线' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: '成效复盘' })).toBeVisible();
+  } else {
+    await expect(groupLocator(page, '触达与转化')).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: '外发与战役' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: '商机管线' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: '成效复盘' })).toBeVisible();
   }
 
@@ -219,6 +224,10 @@ test('外发与战役枢纽（3 Tab、无页头影子徽标）、商机管线、
     await expect(list).not.toContainText('外发与战役');
     await expect(list).not.toContainText('商机管线');
     await expect(list).not.toContainText('回复收件箱');
+  } else {
+    await expect(list).toContainText('外发与战役');
+    await expect(list).toContainText('商机管线');
+    await expect(list).toContainText('回复收件箱');
   }
   await dialog.getByRole('option', { name: /AI 判定复核/ }).click();
   await page.waitForURL(/\/leads\?.*view=reviews/);

@@ -70,6 +70,9 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'POST', saasPath: 'claims/:claimId/revoke', enginePath: '/claims/:claimId/revoke', access: 'admin' },
   { method: 'GET', saasPath: 'companies/:companyId/conflicts', enginePath: '/companies/:companyId/conflicts', access: 'member' },
   { method: 'POST', saasPath: 'conflicts/:conflictId/resolve', enginePath: '/conflicts/:conflictId/resolve', access: 'admin' },
+  // Wave 1：公司触发信号与法人实体核验外链（只读，scope acquisition:read）
+  { method: 'GET', saasPath: 'companies/:companyId/signals', enginePath: '/companies/:companyId/signals', access: 'member' },
+  { method: 'GET', saasPath: 'companies/:companyId/legal-links', enginePath: '/companies/:companyId/legal-links', access: 'member' },
 
   // 市场候选薄消费：普通成员入口，只有明确 execute 获取执行预算。
   { method: 'GET', saasPath: 'companies/:companyId/market-candidate-sets/latest', enginePath: '/companies/:companyId/market-candidate-sets/latest', access: 'member' },
@@ -114,6 +117,8 @@ export const BFF_ROUTES: readonly BffRoute[] = [
 
   // ── 模块 04 线索工作台 ──
   { method: 'POST', saasPath: 'icps/:icpId/qualify', enginePath: '/icps/:icpId/qualify', access: 'member' },
+  // Wave 1：存量线索重判（OpenAPI 声明 acquisition:write + Execution Budget Grant；bypass 模式下自动跳过 Grant）
+  { method: 'POST', saasPath: 'icps/:icpId/rejudge', enginePath: '/icps/:icpId/rejudge', access: 'member', grant: true },
   // M2 反馈闭环：聚合与建议卡（只读）+ 幂等重算 + Phase 3B 结构化反馈学习与摘要。
   { method: 'GET', saasPath: 'icps/:icpId/feedback', enginePath: '/icps/:icpId/feedback', access: 'member' },
   { method: 'POST', saasPath: 'icps/:icpId/feedback/recompute', enginePath: '/icps/:icpId/feedback/recompute', access: 'member' },
@@ -154,7 +159,8 @@ export const BFF_ROUTES: readonly BffRoute[] = [
   { method: 'GET', saasPath: 'suppressions/:id/decisions', enginePath: '/suppressions/:id/decisions', access: 'admin' },
   { method: 'DELETE', saasPath: 'suppressions/:id', enginePath: '/suppressions/:id', access: 'admin' },
 
-  // ── 周报与多通道作战清表(D10/D11 / Batch 1.4-C)──
+  // ── 周报与多通道作战清表(D10/D11 / Batch 1.4-C；ReportController 要求 acquisition:read + acquisition:export，仅 saas-admin)──
+  { method: 'GET', saasPath: 'reports/weekly', enginePath: '/reports/weekly', access: 'admin' },
   { method: 'GET', saasPath: 'reports/battle-csv', enginePath: '/reports/battle-csv', access: 'admin' },
 
   // ── 数据主体删除请求(DSR,A6)──
@@ -296,6 +302,12 @@ export function budgetQuoteRequest(
       return { operation: 'POST /companies/:companyId/icps', companyId: params.companyId, ...writeAttemptBody(body, options) };
     case '/icps/:icpId/query-plans':
       return { operation: 'POST /icps/:icpId/query-plans', icpId: params.icpId, ...writeAttemptBody(body, options) };
+    case '/icps/:icpId/rejudge':
+      return {
+        operation: 'POST /icps/:icpId/rejudge',
+        icpId: params.icpId,
+        ...(body === undefined ? {} : { body }),
+      };
     case '/query-plans/:planId/execute':
     {
       const canonical = canonicalExecuteBody(body, options);

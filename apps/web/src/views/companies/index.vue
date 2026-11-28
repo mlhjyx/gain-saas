@@ -583,6 +583,9 @@ function relatedMenuItems(company: CompanyProfile): Array<{ key: string; label: 
   const items: Array<{ key: string; label: string }> = [];
   if (company.status === 'DRAFT') items.push({ key: 'edit', label: $t('gainos.companies.edit') });
   if (marketContext.value) items.push({ key: 'market', label: $t('gainos.companies.marketCandidates') });
+  if (isAdmin.value && company.id) {
+    items.push({ key: 'recompute', label: $t('gainosUi2.companies.recomputeProfile') });
+  }
   if (understandingFailed(company)) items.push({ key: 'retry', label: $t('gainos.companies.retryUnderstanding') });
   if (isAdmin.value && company.status === 'REVIEW') items.push({ key: 'confirm', label: $t('gainos.companies.confirm') });
   if (isAdmin.value && company.status === 'DRAFT') items.push({ key: 'delete', label: $t('gainos.companies.delete') });
@@ -592,6 +595,7 @@ function onRelatedMenu(info: { key: number | string }, company: CompanyProfile):
   const key = String(info.key);
   if (key === 'edit') openEdit(company);
   if (key === 'market') openMarketCandidates(company);
+  if (key === 'recompute') void recomputeUnderstanding(company);
   if (key === 'retry') void retryUnderstanding(company);
   if (key === 'confirm') void confirmCompany(company);
   if (key === 'delete') removeCompany(company);
@@ -659,6 +663,7 @@ const wizardOpen = ref(false);
 const creating = ref(false);
 const confirmingId = ref<string | null>(null);
 const retryingId = ref<string | null>(null);
+const recomputingId = ref<string | null>(null);
 const form = reactive({ website: '', name: '' });
 const formError = ref<string | null>(null);
 const createdNotice = ref<string | null>(null);
@@ -1107,6 +1112,34 @@ async function retryUnderstanding(company: CompanyProfile): Promise<void> {
     error.value = failureText(err).title;
   } finally {
     retryingId.value = null;
+  }
+}
+
+async function recomputeUnderstanding(company: CompanyProfile): Promise<void> {
+  const companyId = company.id;
+  if (!isAdmin.value || !companyId || recomputingId.value) return;
+  recomputingId.value = companyId;
+  error.value = null;
+  try {
+    const result = unwrap(await gainosApi.recomputeCompanyUnderstanding(companyId));
+    const docs = typeof result?.documentsScanned === 'number' ? result.documentsScanned : null;
+    const drafts =
+      typeof result?.draftsCreated === 'number' || typeof result?.profileDraftsCreated === 'number'
+        ? (result?.draftsCreated ?? 0) + (result?.profileDraftsCreated ?? 0)
+        : null;
+    feedback.message.success(
+      docs !== null && drafts !== null
+        ? $t('gainosUi2.companies.recomputeDone', { docs, drafts })
+        : $t('gainosUi2.companies.recomputeDoneSimple'),
+    );
+    await load(true);
+    if (claimsCompany.value?.id === companyId) {
+      await Promise.all([loadClaims(true), loadCompanyOverview(true)]);
+    }
+  } catch (err) {
+    feedback.message.error(failureText(err).title);
+  } finally {
+    recomputingId.value = null;
   }
 }
 
@@ -1936,6 +1969,14 @@ onUnmounted(() => {
               @click="openEdit(primaryCompany)"
             >
               {{ $t('gainos.companies.edit') }}
+            </Button>
+            <Button
+              v-if="isAdmin && primaryCompany.id"
+              :loading="recomputingId === primaryCompany.id"
+              data-gs="recompute-understanding"
+              @click="recomputeUnderstanding(primaryCompany)"
+            >
+              {{ $t('gainosUi2.companies.recomputeProfile') }}
             </Button>
             <Button data-gs="add-related" @click="addRelatedCompany">
               <template #icon><Plus :size="14" /></template>

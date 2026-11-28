@@ -142,6 +142,8 @@ const feedbackCounts = ref<LeadQueueCounts['queueBasis'] | null>(null);
 const feedbackError = ref(false);
 const feedbackLoading = ref(false);
 const feedbackLoaded = ref('');
+const recomputingFeedback = ref(false);
+const rejudging = ref(false);
 let feedbackVersion = 0;
 
 const profileTab = computed<ProfileTab>(() => {
@@ -171,6 +173,49 @@ async function loadFeedback(icpId: string): Promise<void> {
   feedbackError.value = [report, summary, counts].some((item) => item.status === 'rejected');
   feedbackLoaded.value = icpId;
   feedbackLoading.value = false;
+}
+
+async function refreshFeedbackSuggestions(): Promise<void> {
+  const profile = selected.value;
+  if (!profile || !isAdmin.value || recomputingFeedback.value) return;
+  recomputingFeedback.value = true;
+  try {
+    await gainosApi.recomputeIcpFeedback(profile.id);
+    await loadFeedback(profile.id);
+    uiFeedback.message.success($t('gainosUi2.findBuyers.refreshFeedbackDone'));
+  } catch (err) {
+    uiFeedback.message.error(failureText(err).title);
+  } finally {
+    recomputingFeedback.value = false;
+  }
+}
+
+function triggerRejudge(): void {
+  const profile = selected.value;
+  if (!profile || !isAdmin.value || profile.status !== 'ACTIVE' || rejudging.value) return;
+  uiFeedback.confirm({
+    title: $t('gainosUi2.findBuyers.rejudgeConfirmTitle'),
+    content: $t('gainosUi2.findBuyers.rejudgeConfirmContent'),
+    okText: $t('gainosUi2.findBuyers.rejudgeConfirmOk'),
+    cancelText: $t('gainos.common.cancel'),
+    onOk: async () => {
+      rejudging.value = true;
+      try {
+        const res = await gainosApi.rejudgeIcp(profile.id);
+        const candidates = typeof res?.candidateCount === 'number' ? res.candidateCount : null;
+        const batches = typeof res?.batchCount === 'number' ? res.batchCount : null;
+        uiFeedback.message.success(
+          candidates !== null && batches !== null
+            ? $t('gainosUi2.findBuyers.rejudgeQueued', { batches, candidates })
+            : $t('gainosUi2.findBuyers.rejudgeQueuedSimple'),
+        );
+      } catch (err) {
+        uiFeedback.message.error(failureText(err).title);
+      } finally {
+        rejudging.value = false;
+      }
+    },
+  });
 }
 
 function selectTab(key: string | number): void {
@@ -1189,6 +1234,14 @@ onMounted(() => {
           <div v-if="!detailLoading && !detailError" class="profile-actions">
             <Button v-if="canEdit" data-gs="icp-edit" @click="openEdit">{{ $t('gainosBuyerJourney.profile.edit') }}</Button>
             <Button
+              v-if="isAdmin && selectedActive"
+              :loading="rejudging"
+              data-gs="icp-rejudge"
+              @click="triggerRejudge"
+            >
+              {{ $t('gainosUi2.findBuyers.rejudgeLeads') }}
+            </Button>
+            <Button
               v-if="canManage && canActivate(selected)"
               data-gs="icp-next-button"
               :loading="activating"
@@ -1408,6 +1461,19 @@ onMounted(() => {
             </TabPane>
             <TabPane key="feedback" :tab="$t('gainosBuyerJourney.profile.feedback')">
               <section class="profile-stack" data-gs="icp-feedback">
+                <div v-if="isAdmin && selected" class="flex justify-end">
+                  <Button
+                    :loading="recomputingFeedback"
+                    data-gs="icp-feedback-recompute"
+                    size="small"
+                    @click="refreshFeedbackSuggestions"
+                  >
+                    <template v-if="!recomputingFeedback" #icon>
+                      <RotateCw :size="13" aria-hidden="true" />
+                    </template>
+                    {{ $t('gainosUi2.findBuyers.refreshFeedbackBtn') }}
+                  </Button>
+                </div>
                 <Skeleton v-if="feedbackLoading" active :paragraph="{ rows: 2 }" />
                 <template v-else>
                   <div v-if="feedbackError" class="profile-stack">
