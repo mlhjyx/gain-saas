@@ -40,11 +40,11 @@ web（现役前端技术栈为 Vue 3 + Vben 5 + Ant Design Vue，源码在 `apps
   - **预付积分与用量边界**：当前主线具备租户余额、批次、预占、流水、运营充值与价目表，以及受开关控制的扣点接线（代码默认 `WALLET_BILLING_ENABLED=false`，实际运行环境开关未知），详见[钱包](../../docs/technical/credits-wallet.md)。正式商业收费、定价与自助收款保持待定。
   - **零内部术语红线**：租户可见界面一律采用统一业务词表（`packages/shared/src/glossary.ts`），禁止直接暴露系统运行编号、机器枚举或技术策略码（仅允许在折叠技术详情区与 `/ops` 运营台呈现）。
 - **现役信息架构与路由（以源码为准）**：
-  - 总览：工作台（`/workspace`，注册和接受邀请后进入。按空间进度展示启航清单，管理员可在清单中建档。旧 `/onboarding` 重定向至 `/workspace?setup=1`）、成效复盘（`/analytics`，常驻可见）、通知（`/notifications`）；
+  - 总览：工作台（`/workspace`，注册和接受邀请后进入。按空间进度展示启航清单，管理员可在清单中建档。旧 `/onboarding` 重定向至 `/workspace?setup=1`）、成效复盘（`/analytics`，常驻可见，#261 已接入管理员周报摘要与 CSV 下载）、通知（`/notifications`）；
   - 获客与筛选：企业档案（`/companies`）、买家画像（`/find-buyers`，`ICP_ADVANCED_HIDDEN=true` 默认隐藏高级规则与回测）、寻源记录（`/tasks`，含 `/tasks/:taskId`、`/runs/:runId`）、买家线索（`/leads`，含 `/leads/:leadId` 与判定复核视图）；
-  - 触达与转化：外发与战役（`/outreach`）、商机管线（`/opportunities`），由 `GROWTH_PAGE_HIDDEN=true` 统一隐藏出侧栏，但深链与历史重定向保留；
+  - 触达与转化：外发与战役（`/outreach`）、商机管线（`/opportunities`），#261 将主线的 [`GROWTH_PAGE_HIDDEN`](src/feature-flags.ts) 设为 `false`，侧栏显示这组入口，深链与历史重定向保留。
   - 设置：整页 `/settings/*`（账号 `/settings/account`、成员 `/settings/members`，以及仅管理员可见的禁联名单 `/settings/suppressions`、数据源 `/settings/sources`、隐私与数据 `/settings/privacy`、审计 `/settings/audit`，另含管理员路由 `/settings/outreach-mailboxes`）。历史路由重定向见[发布手册](../../docs/engineering/frontend-release-rollback.md#3-历史深链redirect-2-个发布版本)。
-- **当前能力落地与跨仓状态（截至 `gain-saas@ff45fa4` / `backend@a5ef77f6`，2026-11-28 核对）**：
+- **基线能力与跨仓状态（`gain-saas@ff45fa4` / `backend@a5ef77f6`，2026-11-28 核对）**：
   - **启航清单与企业资料**：`#246/#249/#252` 已接入工作台启航清单，支持官网、店铺、简介与画册分片上传/续传及 UN Comtrade 选国推荐；服务端不再对未完成引导实施全局 409 硬拦截，改由清单软引导并保留会话与角色守卫；
   - **寻源任务与合同**：共用任务入口维护 `TaskRun` 并携带 legacy `taskRef` 调引擎执行；引擎接口由 [engine-client](../../packages/engine-client/README.md) 固定，BFF 支持线索拒绝结构化反馈。Discovery v3 切换仍待定；
   - **合规、DSR 级联与禁联名单**：DSR 级联擦除（`DeletionCompleted` → `deletion_mirror`）、管理员查询 SaaS 派生清理回执（`GET /api/deletion-mirrors`）、异步数据导出、离网注销冷却申请与钱包概览卡均已接入 `/settings/privacy`；禁联名单已按管理员权限与引擎 `compliance:manage` 接入 `/settings/suppressions`，名单读取限当前工作空间。发送预检另查平台全局禁联；
