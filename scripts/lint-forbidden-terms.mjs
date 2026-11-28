@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 /** 禁用词表：id → 正则 + 替代建议（与 packages/shared/src/glossary.ts 口径一致）。 */
 export const BANNED_PATTERNS = [
   { id: 'run', re: /\bruns?\b|\brun[_A-Z]\w*/i, hint: 'run → 「挖掘任务」/「本轮」' },
-  { id: 'icp', re: /\bICPs?\b|\bicp[_A-Z]\w*/i, hint: 'ICP → 「目标客户画像」' },
+  { id: 'icp', re: /\bICPs?\b|\bicp[_A-Z]\w*/i, hint: 'ICP → 「买家画像」' },
   { id: 'canonical', re: /\bcanonical\w*/i, hint: 'canonical → 用业务语言重写' },
   { id: 'plan_hash', re: /plan[_-]?hash/i, hint: 'plan_hash → 「计划版本」' },
   {
